@@ -1,0 +1,7 @@
+{
+  "steps": [
+    { "id": "runtime.status", "args": {}, "as": "status" },
+    { "id": "runtime.query", "args": { "catalog": "collaborators", "fields": ["id", "fullname"], "limit": 10 }, "as": "people" }
+  ],
+  "stopOnError": true
+}

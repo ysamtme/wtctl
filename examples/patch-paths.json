@@ -1,0 +1,4 @@
+[
+  { "op": "set", "path": "name", "value": "Отдел продаж" },
+  { "op": "remove", "path": "comment" }
+]

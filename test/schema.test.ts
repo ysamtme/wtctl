@@ -1,0 +1,507 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { SchemaReader } from "../src/schema.js";
+import { HcmRuntime } from "../src/runtime.js";
+import { buildXml, type XmlObject } from "../src/protocol/xml.js";
+
+const personUrl = "x-local://wtv/wtv_person.xmd";
+const catalogUrl = "x-local://wtv/wtv_people.xmd";
+const commonUrl = "x-local://wtv/wtv_common.xml";
+const customUrl = "x-local://sample/lists/wtv_custom_templates.xml";
+const languageUrl = "x-local://lngs/russian/const.xml";
+const kindId = "9223372036854775807";
+const wrap = (source: string) => `<SPXML-FORM>${source}</SPXML-FORM>`;
+const forms = new Map([
+  [
+    personUrl,
+    wrap(`<USE FORM="//wtv/base/person.xmd"/><person>
+      <INHERIT TYPE="person_base"/>
+      <manager_id TYPE="integer" FOREIGN-ARRAY="people" NOT-NULL="1" TITLE="Менеджер"/>
+      <doc_info TYPE="doc_info_base" TITLE="Информация"><comment TYPE="string"/></doc_info>
+      <codes MULTIPLE="1" PRIMARY-KEY="code"><code TYPE="string"/></codes>
+      <status PROPERTY="1" TYPE="string" TITLE="##'Статус'##"/>
+      <untranslated TYPE="string" TITLE="const=c_missing"/>
+      <assign PROPERTY="1" PARAM="course_id" PARAM="date" PARAM="date"/>
+      <get_groups PROPERTY="1"/><cached TEMP="1" TYPE="string"/><OnCreate/><DocDesc/>
+    </person>`),
+  ],
+  [
+    "x-local://wtv/base/person.xmd",
+    wrap(`<USE FORM="name.xmd"/><person_base SAMPLE="1">
+      <INHERIT TYPE="person_name_base"/><email TYPE="string" TITLE="Электронная почта"/>
+      <fullname PROPERTY="1" EXPR="lastname &amp;&amp; firstname && middlename"/>
+      <get_courses PROPERTY="1" PARAM="filter"/>
+    </person_base>`),
+  ],
+  [
+    "x-local://wtv/base/name.xmd",
+    wrap(`<person_name_base SAMPLE="1"><lastname TYPE="string" TITLE="const=c_last"/></person_name_base>
+      <doc_info_base><owner TYPE="integer"/><created TYPE="date"/></doc_info_base>`),
+  ],
+  [
+    catalogUrl,
+    wrap(`<people><person MULTIPLE="1" PRIMARY-KEY="id">
+      <lastname TYPE="string"/><email TYPE="string"/><fullname TYPE="string" TITLE="const=c_full"/>
+      <manager_id TYPE="integer"/>
+    </person></people>`),
+  ],
+  ["x-local://wtv/wtv_request.xmd", wrap('<request><name TYPE="string"/></request>')],
+  ["x-local://qti/assessment.xmd", wrap('<assessment><title TYPE="string"/></assessment>')],
+]);
+const applicationInfo = {
+  default_db_name: "sample",
+  ui_lang_id: "ru",
+  databases: [
+    {
+      id: "sample",
+      catalogs: [
+        { id: "people", object_type: "person", form_url: catalogUrl },
+        { id: "requests", object_type: "request" },
+        { id: "components", object_type: "component" },
+      ],
+    },
+  ],
+  shared_docs: [
+    { id: "common", url: commonUrl },
+    { id: "custom_templates", url: customUrl },
+  ],
+};
+const documents = new Map<string, XmlObject>([
+  [
+    commonUrl,
+    {
+      exchange_object_types: {
+        exchange_object_type: [
+          { name: "person", web_const: "c_person", form_url: personUrl },
+          { name: "request", web_const: "c_request" },
+          { name: "assessment", form_url: "x-local://qti/assessment.xmd" },
+        ],
+      },
+    },
+  ],
+  [
+    languageUrl,
+    {
+      items: {
+        item: [
+          { id: "c_last", val: "Фамилия" },
+          { id: "c_full", val: "ФИО" },
+          { id: "c_person", val: "Сотрудник" },
+          { id: "c_request", val: "Заявка" },
+        ],
+      },
+    },
+  ],
+  ["x-local://lngs/english/const.xml", { item: { id: "c_last", val: "Surname" } }],
+  [
+    customUrl,
+    {
+      person: {
+        fields: {
+          field: {
+            name: "tab_num",
+            type: "string",
+            title: "Табельный номер",
+            is_required: "1",
+            entries: { entry: [{ value: "A" }, { value: "Б" }] },
+            sheet_id: "main",
+          },
+        },
+        sheets: { sheet: { id: "main", title: "Кадры" } },
+      },
+      request: {
+        template_field: "request_type",
+        fields: { field: { name: "shared", type: "bool", title: "Общее" } },
+      },
+      request_type: {
+        items: {
+          item: [
+            {
+              id: kindId,
+              fields: {
+                field: {
+                  name: "position_name",
+                  type: "string",
+                  title: "Должность",
+                  catalog: "positions",
+                },
+              },
+            },
+            { id: "2", fields: { field: { name: "other", type: "integer" } } },
+          ],
+        },
+      },
+    },
+  ],
+]);
+
+function fixture(options: { forms?: Map<string, string>; documents?: typeof documents } = {}) {
+  const formCalls: string[] = [];
+  const documentCalls: string[] = [];
+  const sourceForms = options.forms ?? forms;
+  const sourceDocuments = options.documents ?? documents;
+  const reader = new SchemaReader(
+    async () => structuredClone(applicationInfo),
+    async (url) => {
+      formCalls.push(url);
+      if (url === commonUrl) return buildXml({ common: sourceDocuments.get(url)! });
+      const source = sourceForms.get(url);
+      if (source === undefined) throw new Error("Fixture form is unavailable");
+      return source;
+    },
+    async (url) => {
+      documentCalls.push(url);
+      const document = sourceDocuments.get(url);
+      if (document === undefined) throw new Error("Fixture document is unavailable");
+      return structuredClone(document);
+    },
+  );
+  return { reader, formCalls, documentCalls };
+}
+
+test("nested USE and inheritance preserve the main form's base origin and catalog semantics", async () => {
+  const { reader, formCalls } = fixture();
+  const result = await reader.get({ type: "person" });
+  assert.equal(result.type, "person");
+  assert.equal(result.catalog, "people");
+  assert.equal(result.formUrl, personUrl);
+  assert.deepEqual(result.notes, []);
+  assert.deepEqual(
+    result.fields.find((field) => field.path === "lastname"),
+    {
+      path: "lastname",
+      type: "string",
+      title: "Фамилия",
+      origin: "inherited:person_base",
+      query: true,
+    },
+  );
+  assert.deepEqual(
+    result.fields.find((field) => field.path === "fullname"),
+    {
+      path: "fullname",
+      type: "string",
+      title: "ФИО",
+      origin: "inherited:person_base",
+      computed: true,
+      query: true,
+    },
+  );
+  const manager = result.fields.find((field) => field.path === "manager_id");
+  assert.equal(manager?.references, "people");
+  assert.equal(manager?.required, true);
+  assert.equal(manager?.origin, "own");
+  assert.equal(manager?.query, true);
+  assert.equal(result.fields.find((field) => field.path === "status")?.computed, true);
+  assert.equal(result.fields.find((field) => field.path === "status")?.title, "Статус");
+  // A title the language file does not have is no title.
+  assert.equal(result.fields.find((field) => field.path === "untranslated")?.title, undefined);
+  assert.equal(result.fields.find((field) => field.path === "doc_info")?.children, 3);
+  // A structure given by a base type is a structure like the rest.
+  assert.equal(result.fields.find((field) => field.path === "doc_info")?.type, "element");
+  const codes = result.fields.find((field) => field.path === "codes");
+  assert.equal(codes?.multiple, true);
+  assert.equal(codes?.key, "code");
+  assert.equal(result.methods, undefined);
+  assert.ok(
+    result.fields.every(
+      (field) => !/assign|get_groups|get_courses|cached|OnCreate|DocDesc/.test(field.path),
+    ),
+  );
+  assert.ok(result.fields.every((field) => !field.path.startsWith("doc_info.")));
+  assert.equal(formCalls.filter((url) => url === "x-local://wtv/base/name.xmd").length, 1);
+});
+
+test("path, case-insensitive deep search, origins and repeated method parameters are selectable", async () => {
+  const { reader } = fixture();
+  const children = await reader.get({ type: "person", path: "doc_info" });
+  assert.deepEqual(
+    children.fields.map((field) => field.path),
+    ["doc_info.owner", "doc_info.created", "doc_info.comment"],
+  );
+  const search = await reader.get({ type: "person", search: "CREATED" });
+  assert.deepEqual(
+    search.fields.map((field) => field.path),
+    ["doc_info.created"],
+  );
+  const inherited = await reader.get({ type: "person", origin: ["inherited"], search: "email" });
+  assert.equal(inherited.fields.length, 1);
+  assert.equal(inherited.fields[0]?.query, true);
+  assert.equal(inherited.fields[0]?.computed, undefined);
+  assert.equal((await reader.get({ type: "person", origin: ["own"], search: "email" })).total, 0);
+  // search narrows the methods; a method found is not "nothing found".
+  const sought = await reader.get({ type: "person", include: ["methods"], search: "assign" });
+  assert.deepEqual([sought.methods?.map((method) => method.name), sought.notes], [["assign"], []]);
+  const methods = await reader.get({ type: "person", include: ["methods"] });
+  assert.deepEqual(
+    methods.methods?.find((method) => method.name === "assign"),
+    { name: "assign", parameters: ["course_id", "date", "date"] },
+  );
+  assert.deepEqual(
+    methods.methods?.find((method) => method.name === "get_groups"),
+    { name: "get_groups", parameters: [] },
+  );
+  assert.ok(methods.methods?.some((method) => method.name === "get_courses"));
+  assert.ok(
+    !methods.methods?.some((method) => method.name === "fullname" || method.name === "status"),
+  );
+  assert.equal(
+    (await reader.get({ url: personUrl, search: "lastname", language: "english" })).fields[0]
+      ?.title,
+    "Surname",
+  );
+  // The short name of a language is the same folder.
+  assert.equal(
+    (await reader.get({ url: personUrl, search: "lastname", language: "en" })).fields[0]?.title,
+    "Surname",
+  );
+});
+
+test("custom fields include values and sheets; a lexical kind adds only its selected fields", async () => {
+  const { reader } = fixture();
+  const custom = await reader.get({ type: "person", search: "ТАБЕЛЬНЫЙ", origin: ["custom"] });
+  assert.deepEqual(custom.fields, [
+    {
+      path: "custom_elems.custom_elem[name=tab_num].value",
+      name: "tab_num",
+      type: "string",
+      title: "Табельный номер",
+      origin: "custom",
+      required: true,
+      values: ["A", "Б"],
+      sheet: "Кадры",
+    },
+  ]);
+  const missingKind = await reader.get({ type: "request" });
+  assert.equal(missingKind.notes.length, 1);
+  assert.match(missingKind.notes[0]!, /request_type_id/);
+  assert.match(missingKind.notes[0]!, /kind/);
+  assert.ok(missingKind.fields.some((field) => field.name === "shared"));
+  const selected = await reader.get({ type: "request", kind: kindId, origin: ["custom"] });
+  assert.deepEqual(selected.fields.map((field) => field.name).sort(), ["position_name", "shared"]);
+  assert.equal(
+    selected.fields.find((field) => field.name === "position_name")?.references,
+    "positions",
+  );
+  assert.deepEqual(selected.notes, []);
+  const unknown = await reader.get({ type: "request", kind: "missing" });
+  assert.equal(unknown.notes.length, 1);
+  assert.match(unknown.notes[0]!, /missing/);
+  assert.ok(unknown.fields.some((field) => field.name === "shared"));
+  assert.ok(!unknown.fields.some((field) => field.name === "position_name"));
+});
+
+test("type titles parse expressions without execution and cache optional JSON translations", async () => {
+  const definitions = new Map(documents);
+  definitions.set(commonUrl, {
+    exchange_object_types: {
+      exchange_object_type: [
+        { name: "person", title: " i18n.t( 'worker' ) ", web_const: "c_request" },
+        { name: "request", title: "ms_tools.get_const('c_request')" },
+        { name: "component", title: "'Компонент'" },
+      ],
+    },
+  });
+  const translatedForms = new Map(forms);
+  const url = "x-local://i18n/common/ru/const.json";
+  translatedForms.set(url, JSON.stringify({ worker: "Сотрудник" }));
+  const { reader, formCalls } = fixture({ forms: translatedForms, documents: definitions });
+  assert.deepEqual(
+    (await reader.types()).types.map((item) => item.title),
+    ["Сотрудник", "Заявка", "Компонент"],
+  );
+  assert.equal((await reader.types({ search: "сотрудник" })).types[0]?.type, "person");
+  assert.equal(formCalls.filter((call) => call === url).length, 1);
+  const missing = fixture({ documents: definitions });
+  assert.equal((await missing.reader.types()).types[0]?.title, undefined);
+  await missing.reader.types();
+  assert.equal(missing.formCalls.filter((call) => call === url).length, 1);
+  definitions.set(commonUrl, {
+    exchange_object_types: {
+      exchange_object_type: { name: "person", title: "unrecognized()", web_const: "c_person" },
+    },
+  });
+  assert.equal(
+    (await fixture({ documents: definitions }).reader.types()).types[0]?.title,
+    "Сотрудник",
+  );
+});
+
+test("missing named bases add one note per type and retain fields and their own children", async () => {
+  const incomplete = new Map(forms);
+  incomplete.set(
+    personUrl,
+    wrap(`<person><INHERIT TYPE="absent"/><INHERIT TYPE="absent"/>
+    <group TYPE="absent"><name TYPE="string"/></group><other TYPE="another"/>
+    <dynamic TYPE="variant"/><record TYPE="record"/></person>`),
+  );
+  const { reader } = fixture({ forms: incomplete });
+  const result = await reader.get({ type: "person", search: "group" });
+  assert.equal(result.fields.map((field) => field.path).join(","), "group,group.name");
+  assert.equal(result.fields[0]?.children, 1);
+  assert.equal(result.notes.length, 2);
+  assert.match(result.notes[0]!, /absent/);
+  assert.match(result.notes[1]!, /another/);
+});
+
+test("type discovery uses connected metadata, localized titles and custom counts", async () => {
+  const { reader } = fixture();
+  const result = await reader.types({ search: "PEOPLE" });
+  assert.deepEqual(result.types, [
+    { type: "person", catalog: "people", title: "Сотрудник", customFields: 1 },
+  ]);
+  assert.equal(result.total, 1);
+  assert.equal((await reader.types({ search: "сотруд" })).types[0]?.type, "person");
+  assert.equal((await reader.types({ search: "request" })).types[0]?.customFields, "by kind");
+  const component = (await reader.types({ search: "component" })).types[0];
+  assert.equal(component?.catalog, "components");
+  assert.equal(component?.title, undefined);
+  const page = await reader.types({ limit: 1 });
+  assert.equal(page.types.length, 1);
+  assert.equal(page.nextCursor, 1);
+  assert.notEqual(
+    (await reader.types({ limit: 1, cursor: page.nextCursor })).types[0]?.type,
+    page.types[0]?.type,
+  );
+});
+
+test("forms outside the conventional folder fall back to common, while optional read failures become notes", async () => {
+  const { reader, formCalls } = fixture();
+  const assessment = await reader.get({ type: "assessment" });
+  assert.equal(assessment.formUrl, "x-local://qti/assessment.xmd");
+  assert.equal(assessment.fields[0]?.path, "title");
+  assert.ok(formCalls.includes("x-local://wtv/wtv_assessment.xmd"));
+  const unavailable = new Map(documents);
+  unavailable.delete(languageUrl);
+  unavailable.delete(customUrl);
+  const result = await fixture({ documents: unavailable }).reader.get({ type: "person" });
+  assert.equal(result.notes.length, 2);
+  assert.ok(result.notes[0]?.startsWith(`Файл языка ${languageUrl} прочитать не удалось`));
+  assert.equal(result.fields.find((field) => field.path === "lastname")?.title, "const=c_last");
+});
+
+test("schema pages honor default counts and the 16 KiB UTF-8 ceiling without dropping fields", async () => {
+  const many = new Map(forms);
+  const fields = Array.from(
+    { length: 100 },
+    (_, index) => `<f${index} TYPE="string" TITLE="${"Ж🙂".repeat(80)}"/>`,
+  ).join("");
+  many.set("x-local://wtv/wtv_many.xmd", wrap(`<many>${fields}</many>`));
+  const { reader } = fixture({ forms: many });
+  const first = await reader.get({ type: "many" });
+  assert.equal(first.total, 100);
+  assert.ok(first.fields.length > 0 && first.fields.length < 80);
+  const paths: string[] = [];
+  let cursor = 0;
+  for (;;) {
+    const page = await reader.get({ type: "many", cursor });
+    assert.ok(Buffer.byteLength(JSON.stringify(page), "utf8") <= 16 * 1024);
+    paths.push(...page.fields.map((field) => field.path));
+    if (page.nextCursor === undefined) break;
+    assert.equal(page.nextCursor, cursor + page.fields.length);
+    cursor = page.nextCursor;
+  }
+  assert.deepEqual(
+    paths,
+    Array.from({ length: 100 }, (_, index) => `f${index}`),
+  );
+  many.set(
+    "x-local://wtv/wtv_short.xmd",
+    wrap(
+      `<short>${Array.from({ length: 100 }, (_, index) => `<f${index} TYPE="string"/>`).join("")}</short>`,
+    ),
+  );
+  const short = await reader.get({ type: "short" });
+  assert.equal(short.fields.length, 80);
+  assert.equal(short.nextCursor, 80);
+});
+
+test("form parsing rejects malformed XML and cyclic inheritance without executing expressions", async () => {
+  for (const source of [
+    "<SPXML-FORM><person></SPXML-FORM>",
+    '<!DOCTYPE SPXML-FORM [<!ENTITY x SYSTEM "fixture">]><SPXML-FORM><person/></SPXML-FORM>',
+    wrap(
+      '<a SAMPLE="1"><INHERIT TYPE="b"/></a><b SAMPLE="1"><INHERIT TYPE="a"/></b><person><INHERIT TYPE="a"/></person>',
+    ),
+  ]) {
+    const invalid = new Map(forms);
+    invalid.set(personUrl, source);
+    await assert.rejects(fixture({ forms: invalid }).reader.get({ type: "person" }));
+  }
+});
+
+test("forms, language and common live for the reader lifetime; custom fields refresh after 60 seconds", async (t) => {
+  let now = 1000;
+  t.mock.method(Date, "now", () => now);
+  const { reader, formCalls, documentCalls } = fixture();
+  await reader.get({ type: "person" });
+  await reader.types();
+  const beforeForms = [...formCalls];
+  const beforeDocuments = [...documentCalls];
+  now += 59000;
+  await reader.get({ type: "person" });
+  await reader.types();
+  assert.deepEqual(formCalls, beforeForms);
+  assert.deepEqual(documentCalls, beforeDocuments);
+  now += 1001;
+  await reader.get({ type: "person" });
+  await reader.types();
+  assert.deepEqual(formCalls, beforeForms);
+  for (const url of [languageUrl, commonUrl])
+    assert.equal([...formCalls, ...documentCalls].filter((value) => value === url).length, 1);
+  assert.equal(documentCalls.filter((url) => url === customUrl).length, 2);
+});
+
+test("repeated runtime schema.get reads each form and language file once in one process", async () => {
+  const runtime = new HcmRuntime({
+    name: "schema-fixture",
+    baseUrl: "http://schema-fixture.invalid/",
+    username: "fixture",
+    password: "synthetic",
+    installationId: "abcdef0123456789",
+    runtimeDir: ".runtime",
+    timeoutMs: 1000,
+    maxResponseBytes: 1024 * 1024,
+    outputLimitBytes: 65536,
+    permissions: { write: false, execute: false },
+    fetch: async () => {
+      throw new Error("Schema fixture must not access the network");
+    },
+  });
+  const calls: { id: string; url?: unknown }[] = [];
+  runtime.gateway.call = async (id, args = {}) => {
+    calls.push({ id, url: args.url });
+    if (id === "native.spxml2.getAppInfo") return applicationInfo;
+    if (id === "native.spxml2.getForm") {
+      const source = forms.get(String(args.url));
+      assert.ok(source, "Only handwritten forms are read");
+      return source;
+    }
+    assert.equal(id, "native.lds.loadDoc");
+    const document = documents.get(String(args.url));
+    assert.ok(document, "Only handwritten documents are read");
+    const root =
+      args.url === commonUrl ? "common" : args.url === customUrl ? "custom_templates" : "const";
+    return { kind: "binary", bytes: Buffer.from(buildXml({ [root]: document })) };
+  };
+  runtime.gateway.close = async () => undefined;
+  try {
+    const first = await runtime.call("schema.get", { type: "person" });
+    assert.equal(first.ok, true, JSON.stringify(first.error));
+    const readCount = calls.length;
+    const second = await runtime.call("schema.get", { type: "person" });
+    assert.equal(second.ok, true, JSON.stringify(second.error));
+    assert.deepEqual(second.data, first.data);
+    assert.equal(calls.length, readCount);
+    assert.equal(calls.filter((call) => call.url === languageUrl).length, 1);
+    for (const url of [
+      personUrl,
+      catalogUrl,
+      "x-local://wtv/base/person.xmd",
+      "x-local://wtv/base/name.xmd",
+    ])
+      assert.equal(calls.filter((call) => call.url === url).length, 1);
+  } finally {
+    await runtime.close();
+  }
+});

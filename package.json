@@ -1,0 +1,86 @@
+{
+  "name": "wtctl",
+  "version": "0.1.1",
+  "description": "Unofficial client for WebSoft HCM (WebTutor): administration through the server's own APIs as an MCP server, a CLI and an SDK",
+  "license": "MIT",
+  "author": "ysamtme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ysamtme/wtctl.git"
+  },
+  "homepage": "https://github.com/ysamtme/wtctl#readme",
+  "bugs": {
+    "url": "https://github.com/ysamtme/wtctl/issues"
+  },
+  "keywords": [
+    "websoft",
+    "webtutor",
+    "hcm",
+    "mcp",
+    "mcp-server",
+    "cli"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "examples",
+    "skills",
+    "plugin.json",
+    "mcp.json",
+    "gemini-extension.json",
+    ".claude-plugin",
+    ".agents",
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./native": {
+      "types": "./dist/native/index.d.ts",
+      "import": "./dist/native/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol/index.d.ts",
+      "import": "./dist/protocol/index.js"
+    }
+  },
+  "bin": {
+    "wtctl": "./dist/cli/bin.js"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "format": "prettier --write src test scripts package.json tsconfig.json tsconfig.build.json",
+    "format:check": "prettier --check src test scripts package.json tsconfig.json tsconfig.build.json",
+    "generate": "node scripts/generate-guide.mjs",
+    "build": "node scripts/build.mjs",
+    "pretest": "node scripts/build.mjs",
+    "test": "tsx --test --import ./test/isolate.mjs test/*.test.ts",
+    "docs:check": "tsx scripts/check-docs.mjs",
+    "package:check": "npm run build && node scripts/check-package.mjs",
+    "verify": "npm run format:check && npm run check && node scripts/generate-guide.mjs --check && npm test && npm run docs:check && node scripts/check-package.mjs",
+    "start": "node dist/cli/bin.js",
+    "mcp": "node dist/cli/bin.js mcp"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@types/node": "24.10.1",
+    "@types/ws": "8.18.2",
+    "esbuild": "0.25.12",
+    "fast-xml-parser": "5.11.2",
+    "prettier": "3.9.9",
+    "tsx": "4.19.4",
+    "typescript": "5.9.3",
+    "ws": "8.22.0",
+    "zod": "3.25.76"
+  }
+}

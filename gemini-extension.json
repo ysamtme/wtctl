@@ -1,0 +1,11 @@
+{
+  "name": "wtctl",
+  "version": "0.1.1",
+  "description": "Неофициальный клиент WebSoft HCM (WebTutor): администрирование через штатные API сервера, MCP-сервер с инструментами hcm_* и гайд для агента.",
+  "mcpServers": {
+    "wtctl": {
+      "command": "node",
+      "args": ["${extensionPath}${/}dist${/}cli${/}bin.js", "mcp"]
+    }
+  }
+}
