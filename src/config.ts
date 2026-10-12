@@ -1,0 +1,364 @@
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { HcmError, inputObject } from "./errors.js";
+import type { ConnectionConfig } from "./contracts.js";
+
+export interface ConfigOptions {
+  readonly configPath?: string;
+  readonly connection?: string;
+  readonly password?: string;
+}
+const MAX_CONFIG_BYTES = 1024 * 1024;
+const SETUP_HINT =
+  "Нужно задать WTCTL_URL, WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init.";
+
+/** The client's own folder in the user's profile: the connections file and locally stored results. */
+export function homeDirectory(): string {
+  return resolve(process.env.WTCTL_HOME || join(homedir(), ".wtctl"));
+}
+/** Where the connections file is looked for when neither --config nor WTCTL_CONFIG names one. */
+export function defaultConfigPath(): string {
+  return join(homeDirectory(), "connections.json");
+}
+
+function readConfiguration(path: string): string {
+  let file: number;
+  try {
+    file = openSync(path, "r");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `Файл подключений не найден: ${path}.`,
+        "Нужно проверить --config и WTCTL_CONFIG или создать файл: wtctl config init.",
+      );
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Файл подключений не открывается: ${path}.`,
+      "Проверить права на файл.",
+    );
+  }
+  try {
+    const info = fstatSync(file);
+    if (!info.isFile())
+      throw new HcmError("INVALID_CONFIG", `Файл подключений — не файл: ${path}.`);
+    if (info.size > MAX_CONFIG_BYTES)
+      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
+    // Read one extra byte to bound growth after fstat as well as the initial size.
+    const bytes = Buffer.alloc(MAX_CONFIG_BYTES + 1);
+    let used = 0;
+    while (used < bytes.length) {
+      const count = readSync(file, bytes, used, bytes.length - used, null);
+      if (!count) break;
+      used += count;
+    }
+    if (used > MAX_CONFIG_BYTES)
+      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
+    // TextDecoder accepts the optional UTF-8 BOM used by Windows editors.
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, used));
+  } finally {
+    closeSync(file);
+  }
+}
+/** The file as an object. A syntax error is reported by position only: the text may hold a password. */
+export function parseConfiguration(text: string, path: string): Record<string, unknown> {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    const position = /position (\d+)/.exec(error instanceof Error ? error.message : "")?.[1];
+    const line =
+      position === undefined ? undefined : text.slice(0, Number(position)).split("\n").length;
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Файл подключений ${path} — не JSON${line === undefined ? "" : `: ошибка в строке ${line}`}.`,
+      "Образец файла показывает wtctl config example.",
+    );
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Файл подключений ${path} должен содержать объект JSON.`,
+      "Образец файла показывает wtctl config example.",
+    );
+  return value as Record<string, unknown>;
+}
+function bool(value: unknown, fallback: boolean, field: string): boolean {
+  if (value === undefined) return fallback;
+  if (value === true || value === "true" || value === "1") return true;
+  if (value === false || value === "false" || value === "0") return false;
+  throw new HcmError("INVALID_CONFIG", `${field}: нужно true или false.`);
+}
+function number(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  field: string,
+): number {
+  if (value === undefined) return fallback;
+  const parsed = typeof value === "string" ? Number(value) : value;
+  if (
+    typeof parsed !== "number" ||
+    !Number.isSafeInteger(parsed) ||
+    parsed < minimum ||
+    parsed > maximum
+  )
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `${field}: нужно целое число от ${minimum} до ${maximum}.`,
+    );
+  return parsed;
+}
+function string(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length === 0)
+    throw new HcmError("INVALID_CONFIG", `${field}: нужна непустая строка.`);
+  return value;
+}
+function credential(
+  profile: Record<string, unknown>,
+  field: "username" | "password",
+  globalOverrides: boolean,
+): string | undefined {
+  const envName = string(profile[`${field}Env`], `${field}Env`);
+  if (envName !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName))
+    throw new HcmError("INVALID_CONFIG", `${field}Env: это не имя переменной окружения.`);
+  return string(
+    (globalOverrides ? process.env[`WTCTL_${field.toUpperCase()}`] : undefined) ??
+      (envName === undefined ? profile[field] : process.env[envName]),
+    field,
+  );
+}
+
+/** Load named JSON profiles or WTCTL_* environment settings without exposing credentials. */
+export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
+  const explicit = options.configPath ?? process.env.WTCTL_CONFIG;
+  // A connection given by variables stands on its own; the user's file is the fallback.
+  const path =
+    explicit ??
+    (process.env.WTCTL_URL === undefined && existsSync(defaultConfigPath())
+      ? defaultConfigPath()
+      : undefined);
+  let document: Record<string, unknown> = {};
+  if (path !== undefined) {
+    let text: string;
+    try {
+      text = readConfiguration(path);
+    } catch (error) {
+      if (error instanceof HcmError) throw error;
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `Файл подключений не читается: ${path}.`,
+        "Файл должен быть текстом UTF-8.",
+      );
+    }
+    document = parseConfiguration(text, path);
+  }
+  const name =
+    options.connection ??
+    process.env.WTCTL_CONNECTION ??
+    string(document.defaultConnection, "defaultConnection") ??
+    "default";
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Имя подключения: до 64 латинских букв, цифр и знаков . _ -",
+    );
+  let profile: Record<string, unknown> = {};
+  const globalOverrides = document.connections === undefined;
+  if (document.connections !== undefined) {
+    const connections = inputObject(document.connections, "connections");
+    if (connections[name] === undefined)
+      throw new HcmError(
+        "UNKNOWN_CONNECTION",
+        `В файле подключений нет подключения ${name}.`,
+        `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}. Имя задают --connection, WTCTL_CONNECTION или defaultConnection в файле.`,
+        { connection: name },
+      );
+    profile = inputObject(connections[name], "connection");
+  } else if (Object.keys(document).length > 0) profile = document;
+  const baseUrl = string(
+    (globalOverrides ? process.env.WTCTL_URL : undefined) ?? profile.baseUrl,
+    "baseUrl",
+  );
+  if (baseUrl === undefined)
+    throw path === undefined
+      ? new HcmError("NOT_CONFIGURED", "Подключение к серверу не настроено.", SETUP_HINT)
+      : new HcmError(
+          "INVALID_CONFIG",
+          `В подключении ${name} не задан адрес сервера (baseUrl).`,
+          "Образец файла показывает wtctl config example.",
+        );
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера должен быть полным: http://сервер:порт или https://сервер.",
+    );
+  }
+  if (!/^(https?:)$/.test(url.protocol) || url.username || url.password || url.search || url.hash)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера: только http или https, без имени и пароля, без ? и #.",
+    );
+  const username = credential(profile, "username", globalOverrides);
+  const password = options.password ?? credential(profile, "password", globalOverrides);
+  if ((username === undefined) !== (password === undefined))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Имя пользователя и пароль задают вместе: не задан${username === undefined ? "о имя пользователя" : " пароль"}.`,
+      globalOverrides
+        ? "Переменные WTCTL_USERNAME и WTCTL_PASSWORD."
+        : "Поля username и password подключения либо переменные, названные в usernameEnv и passwordEnv.",
+    );
+  const permissions =
+    profile.permissions === undefined ? {} : inputObject(profile.permissions, "permissions");
+  const installationId = string(
+    process.env.WTCTL_INSTALLATION_ID ?? profile.installationId,
+    "installationId",
+  );
+  if (installationId !== undefined && !/^[0-9a-fA-F]{16}$/.test(installationId))
+    throw new HcmError("INVALID_CONFIG", "installationId: нужно 16 шестнадцатеричных цифр.");
+  const installationIdFile = string(
+    process.env.WTCTL_INSTALLATION_ID_FILE ?? profile.installationIdFile,
+    "installationIdFile",
+  );
+  return {
+    name,
+    baseUrl: url.href,
+    ...(username === undefined ? {} : { username }),
+    ...(password === undefined ? {} : { password }),
+    ...(installationId === undefined ? {} : { installationId }),
+    ...(installationIdFile === undefined
+      ? {}
+      : { installationIdFile: resolve(installationIdFile) }),
+    timeoutMs: number(
+      process.env.WTCTL_TIMEOUT_MS ?? profile.timeoutMs,
+      30000,
+      1,
+      600000,
+      "timeoutMs",
+    ),
+    maxResponseBytes: number(
+      profile.maxResponseBytes,
+      32 * 1024 * 1024,
+      1024,
+      512 * 1024 * 1024,
+      "maxResponseBytes",
+    ),
+    outputLimitBytes: number(
+      profile.outputLimitBytes,
+      24 * 1024,
+      1024,
+      1024 * 1024,
+      "outputLimitBytes",
+    ),
+    runtimeDir: resolve(
+      string(process.env.WTCTL_RUNTIME_DIR ?? profile.runtimeDir, "runtimeDir") ??
+        join(homeDirectory(), "runtime"),
+    ),
+    permissions: {
+      write: bool(
+        (globalOverrides ? process.env.WTCTL_ALLOW_WRITE : undefined) ?? permissions.write,
+        false,
+        "permissions.write",
+      ),
+      execute: bool(
+        (globalOverrides ? process.env.WTCTL_ALLOW_EXECUTE : undefined) ?? permissions.execute,
+        false,
+        "permissions.execute",
+      ),
+    },
+  };
+}
+
+/** A credential-free sample profile suitable for committing. */
+export function configExample(): Record<string, unknown> {
+  return {
+    defaultConnection: "dev",
+    connections: {
+      dev: {
+        baseUrl: "http://localhost:8088/",
+        usernameEnv: "WTCTL_USERNAME",
+        passwordEnv: "WTCTL_PASSWORD",
+        permissions: { write: false, execute: false },
+      },
+    },
+  };
+}
+
+export interface NewConnection {
+  readonly name: string;
+  readonly baseUrl: string;
+  readonly username: string;
+  /** The password itself, kept in the file, or the name of the variable that holds it. */
+  readonly password?: string;
+  readonly passwordEnv?: string;
+  readonly write: boolean;
+  readonly execute: boolean;
+}
+
+/** The connections document with one connection added; the first one becomes the default. */
+export function withConnection(
+  document: Record<string, unknown>,
+  connection: NewConnection,
+  replace: boolean,
+): Record<string, unknown> {
+  const connections =
+    document.connections === undefined ? {} : inputObject(document.connections, "connections");
+  if (document.connections === undefined && Object.keys(document).length > 0)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Файл подключений записан в старом виде, без списка connections.",
+      "Нужно перенести его содержимое в connections по образцу wtctl config example или указать другой файл.",
+    );
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(connection.name))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Имя подключения: до 64 латинских букв, цифр и знаков . _ -",
+    );
+  if (connections[connection.name] !== undefined && !replace)
+    throw new HcmError(
+      "CONNECTION_EXISTS",
+      `Подключение ${connection.name} уже есть в файле.`,
+      "Нужно выбрать другое имя (--name) или заменить подключение: --force.",
+    );
+  let url: URL;
+  try {
+    url = new URL(connection.baseUrl);
+  } catch {
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера должен быть полным: http://сервер:порт или https://сервер.",
+    );
+  }
+  if (!/^(https?:)$/.test(url.protocol) || url.username || url.password || url.search || url.hash)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера: только http или https, без имени и пароля, без ? и #.",
+    );
+  return {
+    defaultConnection:
+      typeof document.defaultConnection === "string" ? document.defaultConnection : connection.name,
+    ...Object.fromEntries(
+      Object.entries(document).filter(
+        ([key]) => key !== "defaultConnection" && key !== "connections",
+      ),
+    ),
+    connections: {
+      ...connections,
+      [connection.name]: {
+        baseUrl: url.href,
+        username: connection.username,
+        ...(connection.passwordEnv === undefined
+          ? { password: connection.password }
+          : { passwordEnv: connection.passwordEnv }),
+        permissions: { write: connection.write, execute: connection.execute },
+      },
+    },
+  };
+}

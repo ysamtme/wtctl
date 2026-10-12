@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.cache/
+.work/
+.runtime/
+coverage/
+*.tgz
+.env
+.env.*
+!.env.example
+.local/
+.claude/

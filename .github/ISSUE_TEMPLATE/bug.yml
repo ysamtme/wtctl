@@ -1,0 +1,56 @@
+name: Ошибка
+description: Клиент работает не так, как описано в документации
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ответ и исправление не обещаны, но сообщение будет прочитано.
+
+        Перед отправкой из текста нужно убрать пароли, адреса серверов, имена людей и другие данные с сервера.
+        Об уязвимостях пишут не сюда: вкладка Security, кнопка Report a vulnerability.
+  - type: textarea
+    id: what
+    attributes:
+      label: Что произошло
+      description: Что делалось, что ожидалось и что получилось.
+    validations:
+      required: true
+  - type: textarea
+    id: call
+    attributes:
+      label: Команда или вызов инструмента и ответ
+      description: В ответе важны error.code, message и hint.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Версия wtctl
+      description: Показывает команда wtctl version.
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: Версия сервера и база данных
+      description: Поля version и database из wtctl status.
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Интерфейс
+      options:
+        - MCP-сервер
+        - CLI
+        - SDK
+  - type: input
+    id: application
+    attributes:
+      label: Приложение и его версия
+      description: Для MCP-сервера, например Claude Code или Codex.
+  - type: textarea
+    id: check
+    attributes:
+      label: Вывод wtctl check
+      description: Нужен, если не работает подключение.
+      render: json

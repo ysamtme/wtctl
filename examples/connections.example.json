@@ -1,0 +1,11 @@
+{
+  "defaultConnection": "local",
+  "connections": {
+    "local": {
+      "baseUrl": "http://localhost:8088",
+      "usernameEnv": "WTCTL_USERNAME",
+      "passwordEnv": "WTCTL_PASSWORD",
+      "permissions": { "write": false, "execute": false }
+    }
+  }
+}

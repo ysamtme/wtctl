@@ -1,0 +1,6 @@
+{
+  "catalog": "collaborators",
+  "fields": ["id", "fullname"],
+  "limit": 10,
+  "startPosition": 0
+}
