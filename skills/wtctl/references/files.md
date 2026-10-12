@@ -10,12 +10,24 @@
 | --- | --- |
 | Есть ли файл или папка | `hcm_api_read {operationId:"files.exists", args:{url:"x-local://wt/web/default.html"}}` → `{"exists":true}` |
 | Прочитать | `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"…","bytes":48}`; если файл не текст в UTF-8 — `{"base64":"…","bytes":6}`. С `encoding:"base64"` в ответе всегда `base64` |
-| Записать текст | `hcm_api_write {operationId:"native.lds.putUrl", args:{url:"…", data:"текст файла"}}` |
+| Записать текст в папку данных | `hcm_api_write {operationId:"native.lds.putUrl", args:{url:"…", data:"текст файла"}}` |
 | Записать двоичные данные | то же с `data:{base64:"AAECAwT/"}` |
-| Удалить | `hcm_api_write {operationId:"native.lds.deleteUrl", args:{url:"…"}}` |
+| Удалить из папки данных | `hcm_api_write {operationId:"native.lds.deleteUrl", args:{url:"…"}}` |
 | Скопировать | `hcm_api_write {operationId:"web.pages.copyUrl", args:{srcUrl:"…", destUrl:"…"}}`; оба адреса — `x-local://…` |
 
 Запись заменяет файл целиком, прежнее содержимое не сохраняется: чтобы дописать строку, прочитай файл и запиши его заново. Запись, копирование и удаление отвечают пустым значением; результат проверяй через `files.exists` и `files.read`. Чтение несуществующего файла даёт `PLATFORM_SOAP-FAULT` с HTTP 500: сначала проверь адрес через `files.exists`. Папку логов (`x-local://Logs/…`) сервер так не отдаёт: логи читают инструменты `hcm_log_*`.
+
+`native.lds.putUrl` и `native.lds.deleteUrl` работают только в папках данных — тех, что стоят в настройке сервера `DATA-DB`: обычно это `share`, `source`, `wt_data`, `trash`. В папках кода (`wt`, `wtv`, `applications`, `custom` и других) сервер отвечает на них `PLATFORM_SOAP-FAULT` с HTTP 500 и файл не меняет. Читаются и те, и другие.
+
+В папку кода файл кладёт и удаляет код на сервере, для него нужно право `execute`:
+
+- записать текст: `hcm_script {code:"PutUrlData(PARAMS.url, PARAMS.text); RESULT = [UrlFileSize(PARAMS.url)];", params:{url:"x-local://wt/web/my_page.html", text:"…"}}` → размер файла в байтах; текст пишется в UTF-8 как есть;
+- записать двоичные данные: то же с `PutUrlData(PARAMS.url, Base64Decode(PARAMS.base64))`;
+- удалить: `hcm_script {code:"DeleteUrl(PARAMS.url); RESULT = [];", params:{url:"…"}}`.
+
+Вложенные папки сервер создаёт сам. Код вместе с `params` ограничен 1 МиБ: это файл примерно до 500 КБ.
+
+Списка папки среди операций нет, его тоже даёт код: `hcm_script {code:"RESULT = ReadDirectory(PARAMS.url);", params:{url:"x-local://wt/web"}}` → адреса файлов и папок одного уровня. Штатная функция `tools.read_directory_server` для этого не подходит: на версиях 2025.1.1171–2025.2.1535 она отвечает `Prohibited by security policy`.
 
 Большой файл читай командой: `wtctl files read АДРЕС --output ФАЙЛ.json` сохраняет ответ на диск и не тратит контекст.
 
