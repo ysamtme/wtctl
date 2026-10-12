@@ -1,0 +1,6 @@
+interface:
+  display_name: "wtctl"
+  short_description: "Работа с сервером WebSoft HCM через MCP, CLI и SDK"
+  default_prompt: "Используй $wtctl для работы с подключённым сервером WebSoft HCM."
+policy:
+  allow_implicit_invocation: true

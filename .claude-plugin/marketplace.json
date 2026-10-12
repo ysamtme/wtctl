@@ -1,0 +1,16 @@
+{
+  "name": "wtctl",
+  "owner": {
+    "name": "ysamtme"
+  },
+  "metadata": {
+    "description": "Неофициальный клиент WebSoft HCM (WebTutor) для агентов."
+  },
+  "plugins": [
+    {
+      "name": "wtctl",
+      "source": "./",
+      "description": "Неофициальный клиент WebSoft HCM (WebTutor): администрирование через штатные API сервера, MCP-сервер с инструментами hcm_* и гайд для агента."
+    }
+  ]
+}
