@@ -312,13 +312,6 @@ export const WIRE_CONTRACT = [
     operationName: "GetDoc",
   },
   {
-    id: "web-spxml-get-large-field",
-    transportId: "http-data",
-    httpMethod: "GET",
-    pathTemplate: "/api/spxml/GetLargeField",
-    operationName: "GetLargeField",
-  },
-  {
     id: "web-spxml-kill-async-method",
     transportId: "http-soap",
     httpMethod: "POST",

@@ -111,3 +111,17 @@ test("the URL operations of LDS are unknown from outside and still work inside f
   assert.deepEqual((await runtime.call("files.read", args)).data, { text: "ABC", bytes: 3 });
   assert.equal(sent[0]!.id, "native.lds.loadUrl");
 });
+
+test("the large-field read operations are unknown from outside", async () => {
+  const { runtime, sent } = fixture([]);
+  for (const id of ["web.spxml.getLargeField", "native.experimental.spxml.getLargeField"]) {
+    assert.throws(() => runtime.describe(id), { code: "UNKNOWN_OPERATION" }, id);
+    assert.equal((await runtime.call(id, {})).error?.code, "UNKNOWN_OPERATION");
+    assert.equal(
+      (await runtime.call("runtime.batch", { steps: [{ id, args: {} }] })).ok,
+      false,
+      id,
+    );
+  }
+  assert.equal(sent.length, 0);
+});

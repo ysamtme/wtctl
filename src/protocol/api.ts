@@ -44,16 +44,6 @@ export interface RunMethodRequest {
   argData: RawXml;
 }
 
-/** Web SPXML large-field streaming request. Lossless IDs are strings. */
-export interface GetLargeFieldRequest {
-  docUrl: string;
-  fieldId: DecimalId;
-  size: DecimalId;
-  contentType: string;
-  prepareHtmlImages?: boolean;
-  fileName?: string;
-}
-
 /** Web SPXML large-field upload request. `body` is forwarded without buffering. */
 export interface PutLargeFieldRequest {
   docUrl: string;
@@ -1143,26 +1133,6 @@ export class WebSpXmlApi {
       ),
     );
   }
-  /** Streams a web SPXML large field for a registered x-db-obj object type; consume or cancel the body. */
-  async getLargeField(
-    request: GetLargeFieldRequest,
-    options?: RequestOptions,
-  ): Promise<WsHcmBinaryResponse> {
-    assertLargeFieldDocumentUrl(request.docUrl);
-    const response = await this.transport.send(
-      query("/api/spxml/GetLargeField", {
-        DocUrl: request.docUrl,
-        FieldID: decimal(request.fieldId, "fieldId"),
-        Size: decimal(request.size, "size"),
-        ContentType: request.contentType,
-        PrepareHtmlImages: request.prepareHtmlImages ? 1 : undefined,
-        FileName: request.fileName,
-      }),
-      {},
-      options,
-    );
-    return binaryResponse(response, "GetLargeField");
-  }
   /**
    * Uploads a web SPXML large-field body without implicit buffering.
    * Requires an x-db-obj document URL backed by a registered object-type provider.
@@ -1313,13 +1283,6 @@ export class NativeExperimentalSpXmlApi {
   /** Reads document XML through the partial native SPXML route. */
   getDoc(...args: Parameters<WebSpXmlApi["getDoc"]>): ReturnType<WebSpXmlApi["getDoc"]> {
     return this.#data.getDoc(...args);
-  }
-
-  /** Streams a large field through the partial native SPXML route. */
-  getLargeField(
-    ...args: Parameters<WebSpXmlApi["getLargeField"]>
-  ): ReturnType<WebSpXmlApi["getLargeField"]> {
-    return this.#data.getLargeField(...args);
   }
 
   /**

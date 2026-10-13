@@ -13,7 +13,6 @@ export {
   type ClearUploadChunksRequest,
   type ClearUploadChunksResult,
   type CompoundResourceRequest,
-  type GetLargeFieldRequest,
   type LoadLargeFieldRequest,
   type LoadRequest,
   type NativeLdsApi,

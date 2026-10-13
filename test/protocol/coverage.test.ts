@@ -60,11 +60,7 @@ function responseFor(url: URL, init: RequestInit, operationId?: WireOperationId)
   ) {
     return Response.json({ Success: 1 });
   }
-  if (
-    operationId?.includes("resource") ||
-    url.pathname.includes("GetLargeField") ||
-    url.pathname.endsWith("get_image")
-  ) {
+  if (operationId?.includes("resource") || url.pathname.endsWith("get_image")) {
     return new Response(encoder.encode("binary"), {
       status: 200,
       headers: { "content-type": "application/octet-stream" },
@@ -77,7 +73,7 @@ async function cancel(response: WsHcmBinaryResponse): Promise<void> {
   await response.body?.cancel();
 }
 
-test("all 54 supported operation units construct a request through a public method", async () => {
+test("all 53 supported operation units construct a request through a public method", async () => {
   const pending: WireOperationId[] = [];
   const covered = new Set<WireOperationId>();
   const fetch: typeof globalThis.fetch = async (input, init = {}) => {
@@ -213,16 +209,6 @@ test("all 54 supported operation units construct a request through a public meth
   await cover("web-spxml-put-doc", () =>
     web.spxml.putDoc({ docUrl: "x-local://wt/test.xml", document: "<doc/>" }),
   );
-  await cancel(
-    await cover("web-spxml-get-large-field", () =>
-      web.spxml.getLargeField({
-        docUrl: "x-db-obj://wt/fixture/1.xml",
-        fieldId: "1",
-        size: "1024",
-        contentType: "text/plain",
-      }),
-    ),
-  );
   await cover("web-spxml-put-large-field", () =>
     web.spxml.putLargeField({
       docUrl: "x-db-obj://wt/fixture/1.xml",
@@ -269,6 +255,6 @@ test("all 54 supported operation units construct a request through a public meth
   await cover(["web-logout-page", "web-logout2-page"], () => web.lifecycle.logout());
   await web.close();
 
-  assert.equal(covered.size, 54);
+  assert.equal(covered.size, 53);
   assert.deepEqual([...covered].sort(), WIRE_CONTRACT.map(({ id }) => id).sort());
 });

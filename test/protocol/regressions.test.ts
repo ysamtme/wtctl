@@ -483,14 +483,6 @@ test("web large-field methods send every required input exactly", async () => {
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },
     fetch: webLifecycle((url, init) => {
-      if (url.pathname === "/api/spxml/GetLargeField") {
-        seen.push("get");
-        assert.equal(
-          url.search,
-          "?DocUrl=x-db-obj%3A%2F%2Fwt%2Ffixture%2F10.xml&FieldID=10&Size=4096&ContentType=text%2Fplain&PrepareHtmlImages=1&FileName=field.txt",
-        );
-        return new Response("large-field", { status: 200 });
-      }
       if (url.pathname === "/api/spxml/PutLargeField") {
         seen.push("put");
         assert.equal(
@@ -515,15 +507,6 @@ test("web large-field methods send every required input exactly", async () => {
   });
 
   await client.withWebSession(async (session) => {
-    const binary = await session.spxml.getLargeField({
-      docUrl: "x-db-obj://wt/fixture/10.xml",
-      fieldId: "10",
-      size: "4096",
-      contentType: "text/plain",
-      prepareHtmlImages: true,
-      fileName: "field.txt",
-    });
-    assert.equal(await new Response(binary.body).text(), "large-field");
     await session.spxml.putLargeField({
       docUrl: "x-db-obj://wt/fixture/10.xml",
       fieldId: "10",
@@ -539,7 +522,7 @@ test("web large-field methods send every required input exactly", async () => {
       srcUrl: "x-local://wt/source.png",
     });
   });
-  assert.deepEqual(seen, ["get", "put", "from-url"]);
+  assert.deepEqual(seen, ["put", "from-url"]);
 });
 
 test("buffered web XML honors response charset and GetDoc request fallback", async () => {

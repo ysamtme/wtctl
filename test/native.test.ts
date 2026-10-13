@@ -173,7 +173,7 @@ test("all LOB gateway schemas and direct vendor APIs reject classic document URL
     const operations = getNativeOperations().filter((operation) =>
       /LargeField/.test(operation.method),
     );
-    assert.equal(operations.length, 9);
+    assert.equal(operations.length, 7);
     for (const operation of operations) {
       assert.equal(
         (operation.inputSchema.properties as Record<string, Record<string, unknown>>).docUrl!
@@ -205,7 +205,6 @@ test("all LOB gateway schemas and direct vendor APIs reject classic document URL
       () => native.loadLargeField(args),
       () => native.putLargeField(args),
       () => native.deleteLargeField(args),
-      () => web.getLargeField(args),
       () => web.putLargeField(args),
       () => web.putLargeFieldFromUrl(args),
     ])
