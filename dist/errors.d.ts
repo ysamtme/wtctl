@@ -1,5 +1,5 @@
 import type { MutationOutcome, OperationError } from "./contracts.js";
-/** Actionable, serialisable error; never includes a request body or credentials. */
+/** Ошибка с подсказкой, сериализуемая; тело запроса и учётные данные в неё никогда не попадают. */
 export declare class HcmError extends Error {
     readonly code: string;
     readonly hint?: string | undefined;
@@ -11,5 +11,5 @@ export declare class HcmError extends Error {
 export declare function inputObject(value: unknown, label?: string): Record<string, unknown>;
 export declare function requiredString(value: unknown, path: string): string;
 export declare function boundedInteger(value: unknown, fallback: number, max: number, path: string): number;
-/** The text of an XML node that is a string or has #text; the answer of the server lacks it otherwise. */
+/** Текст XML-узла, являющегося строкой или имеющего #text; иначе в ответе сервера текста нет. */
 export declare function scalar(value: unknown, label: string): string;

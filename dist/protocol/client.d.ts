@@ -11,8 +11,8 @@ interface ClientDefaults {
     readonly webSocketFactory?: WebSocketFactory;
 }
 /**
- * Authenticated native Administrator context with its own cookie store and decimal LDS session ID.
- * Prefer `WsHcmClient.withNativeSession()` so cleanup always runs.
+ * Контекст native Administrator после входа: своё хранилище cookie, десятичный ID сессии LDS.
+ * Лучше `WsHcmClient.withNativeSession()`: так очистка выполняется всегда.
  */
 export declare class NativeSession {
     #private;
@@ -27,31 +27,31 @@ export declare class NativeSession {
     readonly sessionId: DecimalId;
     private constructor();
     static open(defaults: ClientDefaults): Promise<NativeSession>;
-    /** Drops local access without claiming that server-side LDS cleanup was acknowledged. */
+    /** Снять локальный доступ, не утверждая, что очистку LDS на сервере подтвердили. */
     disposeLocal(): void;
     /**
-     * Idempotently closes LDS, visits `/loggedoff.html`, and clears only this session's cookie.
-     * The landing-page leg is partial lifecycle metadata, not a standalone supported operation.
+     * Идемпотентно закрыть LDS, зайти на `/loggedoff.html` и очистить только cookie этой сессии.
+     * Шаг со страницей выхода — часть жизненного цикла, а не отдельная поддерживаемая операция.
      */
     close(): Promise<void>;
 }
-/** Web Administrator page/bootstrap/logout lifecycle bound to one web cookie store. */
+/** Страница, начальная загрузка и выход web Administrator; привязаны к одному хранилищу cookie. */
 export declare class WebLifecycleApi {
     private readonly transport;
     private readonly onMain?;
     constructor(transport: HttpTransport, onMain?: ((html: string | undefined) => void) | undefined);
-    /** Reads the `/admin` redirect response without following it. */
+    /** Прочитать ответ `/admin` с перенаправлением, не переходя по нему. */
     admin(options?: RequestOptions): Promise<WsHcmResponse<string>>;
-    /** Reads the authenticated web Administrator main page. */
+    /** Прочитать главную страницу веб-администратора после входа. */
     main(options?: RequestOptions): Promise<WsHcmResponse<string>>;
-    /** Runs both logout legs; observed transport loss stops further requests. */
+    /** Выполнить оба шага выхода; при потере связи дальнейшие запросы не отправляются. */
     logout(options?: RequestOptions): Promise<void>;
-    /** Executes the second web logout leg; `logout()` calls it. */
+    /** Выполнить второй шаг веб-выхода; его вызывает `logout()`. */
     private logout2;
 }
 /**
- * Authenticated web Administrator context with an isolated cookie store and web LDS session ID.
- * Web LDS/SPXML defaults intentionally differ from native ones; do not move IDs between sessions.
+ * Контекст web Administrator после входа: своё хранилище cookie, ID сессии web LDS.
+ * Умолчания web LDS/SPXML намеренно отличаются от native; ID между сессиями не переносить.
  */
 export declare class WebSession {
     #private;
@@ -68,35 +68,35 @@ export declare class WebSession {
     readonly sessionId: DecimalId;
     private constructor();
     static open(defaults: ClientDefaults): Promise<WebSession>;
-    /** One stock transport heartbeat, with bounded socket disposal before the receipt is returned. */
+    /** Один штатный heartbeat; ограниченное по времени закрытие сокета — до возврата сводки. */
     heartbeat(input?: WebSocketHeartbeatInput): Promise<WebSocketHeartbeatData>;
-    /** Invalidates the local context after a directly requested terminal web logout. */
+    /** Сделать локальный контекст недействительным после прямо запрошенного итогового веб-выхода. */
     disposeLocal(): void;
-    /** Idempotently closes web LDS, runs both logout pages, and clears only this session's cookie. */
+    /** Идемпотентно закрыть web LDS, пройти обе страницы выхода, очистить cookie лишь этой сессии. */
     close(): Promise<void>;
 }
 /**
- * Entry point for WebSoft HCM administrative APIs.
+ * Точка входа в административные API WebSoft HCM.
  *
- * Defaults: `http://localhost:8088/`, 30-second per-request timeout, built-in `fetch`. Each opened session receives
- * an independent transport/cookie store. Prefer `with*Session()` for guaranteed cleanup.
+ * Умолчания: `http://localhost:8088/`, таймаут запроса 30 секунд, встроенный `fetch`. Каждая сессия
+ * получает собственные транспорт и хранилище cookie. Очистка гарантирована в `with*Session()`.
  */
 export declare class WsHcmClient {
     #private;
     readonly diagnostics: DiagnosticsApi;
     readonly experimental: ExperimentalApi;
     constructor(options?: WsHcmClientOptions);
-    /** Disposes the standalone diagnostics/raw context. Session owners close their sessions separately. */
+    /** Освободить автономный контекст диагностики и сырых запросов; сессии закрывают их владельцы. */
     close(): void;
-    /** Local guard used before web bootstrap when a custom HTTP connector is supplied. */
+    /** Локальная проверка перед начальной загрузкой web, когда задан собственный коннектор HTTP. */
     assertWebSocketAvailable(): void;
-    /** Opens a native session. The caller owns it and must call `close()`. */
+    /** Открыть сессию native. Ею владеет вызывающий, он обязан вызвать `close()`. */
     openNativeSession(): Promise<NativeSession>;
-    /** Opens a web Administrator session. The caller owns it and must call `close()`. */
+    /** Открыть сессию web Administrator. Ею владеет вызывающий, он обязан вызвать `close()`. */
     openWebSession(): Promise<WebSession>;
-    /** Runs an action in a native session and closes it in `finally`, preserving operation error precedence. */
+    /** Выполнить действие в сессии native и закрыть её в `finally`; главная — ошибка операции. */
     withNativeSession<T>(action: (session: NativeSession) => Promise<T>): Promise<T>;
-    /** Runs an action in a web session and closes it in `finally`, preserving operation error precedence. */
+    /** Выполнить действие в сессии web и закрыть её в `finally`; главная — ошибка операции. */
     withWebSession<T>(action: (session: WebSession) => Promise<T>): Promise<T>;
 }
 export {};

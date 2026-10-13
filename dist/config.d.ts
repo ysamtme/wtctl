@@ -4,25 +4,25 @@ export interface ConfigOptions {
     readonly connection?: string;
     readonly password?: string;
 }
-/** The client's own folder in the user's profile: the connections file and locally stored results. */
+/** Папка клиента в профиле пользователя: файл подключений и сохранённые результаты. */
 export declare function homeDirectory(): string;
-/** Where the connections file is looked for when neither --config nor WTCTL_CONFIG names one. */
+/** Где ищется файл подключений, если ни --config, ни WTCTL_CONFIG его не назвали. */
 export declare function defaultConfigPath(): string;
-/** The file as an object. A syntax error is reported by position only: the text may hold a password. */
+/** Файл как объект. Ошибка синтаксиса называется только позицией: в тексте может быть пароль. */
 export declare function parseConfiguration(text: string, path: string): Record<string, unknown>;
-/** Load named JSON profiles or WTCTL_* environment settings without exposing credentials. */
+/** Читает именованные подключения из JSON или переменные WTCTL_*, не раскрывая учётных данных. */
 export declare function loadConfig(options?: ConfigOptions): ConnectionConfig;
-/** A credential-free sample profile suitable for committing. */
+/** Образец подключения без учётных данных, который можно коммитить. */
 export declare function configExample(): Record<string, unknown>;
 export interface NewConnection {
     readonly name: string;
     readonly baseUrl: string;
     readonly username: string;
-    /** The password itself, kept in the file, or the name of the variable that holds it. */
+    /** Сам пароль, хранимый в файле, или имя переменной, в которой он лежит. */
     readonly password?: string;
     readonly passwordEnv?: string;
     readonly write: boolean;
     readonly execute: boolean;
 }
-/** The connections document with one connection added; the first one becomes the default. */
+/** Документ подключений с добавленным подключением; первое становится подключением по умолчанию. */
 export declare function withConnection(document: Record<string, unknown>, connection: NewConnection, replace: boolean): Record<string, unknown>;

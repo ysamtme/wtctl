@@ -1,9 +1,9 @@
 import type { WebSocketFactory } from "./protocol/types.js";
-/** Public operation contracts shared by SDK, CLI, MCP and native adapters. */
+/** Публичные контракты операций, общие для SDK, CLI, MCP и адаптеров native. */
 export type OperationEffect = "read" | "write" | "execute" | "unknown";
 export type NativeProfile = "native" | "web" | "anonymous";
 export type JsonSchema = Readonly<Record<string, unknown>>;
-/** Transport settings. Credentials are never part of operation results. */
+/** Настройки транспорта. Учётные данные никогда не входят в результаты операций. */
 export interface NativeConfig {
     readonly baseUrl: string;
     readonly username?: string;
@@ -11,10 +11,10 @@ export interface NativeConfig {
     readonly timeoutMs: number;
     readonly maxResponseBytes: number;
     readonly fetch?: typeof globalThis.fetch;
-    /** Trusted in-process socket connector; required alongside a custom fetch for WebSocket calls. */
+    /** Доверенный коннектор сокета в процессе; с собственным fetch обязателен для WebSocket. */
     readonly webSocketFactory?: WebSocketFactory;
 }
-/** A named connection plus local runtime policy. No server installation is required. */
+/** Именованное подключение и локальные права runtime. Установка на сервер не требуется. */
 export interface ConnectionConfig extends NativeConfig {
     readonly name: string;
     readonly outputLimitBytes: number;
@@ -23,10 +23,10 @@ export interface ConnectionConfig extends NativeConfig {
         readonly write: boolean;
         readonly execute: boolean;
     };
-    /** How long the server keeps a log unreadable after writing to it; 5500 ms unless set. */
+    /** Сколько сервер держит лог нечитаемым после записи в него; по умолчанию 5500 мс. */
     readonly logBusyMs?: number;
 }
-/** Static description of one operation. Availability is decided by the connected server at call time. */
+/** Статическое описание одной операции. Доступность решает подключённый сервер в момент вызова. */
 export interface OperationDefinition {
     readonly id: string;
     readonly group: string;
@@ -42,7 +42,7 @@ export interface NativeOperation extends OperationDefinition {
     readonly profile: NativeProfile;
     readonly method: string;
 }
-/** Uncertain writes require inspection rather than automatic retry. */
+/** Неопределённая запись требует проверки, а не автоматического повтора. */
 export type MutationOutcome = "not_sent" | "confirmed" | "indeterminate";
 export interface OperationError {
     readonly code: string;

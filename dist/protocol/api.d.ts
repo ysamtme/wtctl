@@ -2,17 +2,17 @@ import { type SoapField, type SoapProfile } from "./protocol.js";
 import { HttpTransport } from "./transport.js";
 import { WsHcmBinaryResponse, type DecimalId, type RequestOptions, type TrackingId, type WsHcmResponse } from "./types.js";
 import { type RawXml, type XmlObject } from "./xml.js";
-/** Buffered parsed SOAP result with exact response bytes. */
+/** Буферизованный разобранный результат SOAP с точными байтами ответа. */
 export type SoapResult = WsHcmResponse<XmlObject>;
-/** Query parameter map whose defined values are serialized lexically. */
+/** Карта параметров запроса; заданные значения сериализуются в том виде, как записаны. */
 export type QueryValues = Readonly<Record<string, string | number | boolean | null | undefined>>;
-/** Exact external MIME-part data; strings and RawXml are encoded as UTF-8. */
+/** Точные данные внешней части MIME; строки и RawXml кодируются как UTF-8. */
 export type SoapAttachment = RawXml | string | Uint8Array | ArrayBuffer;
-/** Stock LDS library invocation. ArgData is inline typed child XML, never an XOP attachment. */
+/** Вызов штатной библиотеки LDS. ArgData — типизированный дочерний XML в теле, не вложение XOP. */
 export interface RunMethodRequest {
     libName: string;
     methodName: string;
-    /** Separate internal thread; no public task handle or completion acknowledgement is returned. */
+    /** Отдельный внутренний поток; наружу не отдаётся ни ID задачи, ни подтверждение завершения. */
     runAsync?: boolean;
     errorLogName?: string;
     argData: RawXml;
@@ -32,7 +32,7 @@ declare class LdsCaller {
     id(): DecimalId;
     getTransport(): HttpTransport;
 }
-/** Request shape for LDS XQuery. Cursor identifiers remain lossless decimal strings. */
+/** Вид запроса LDS XQuery. ID курсоров остаются десятичными строками без потерь. */
 export interface XQueryRequest {
     query: string;
     startPos?: number;
@@ -41,7 +41,7 @@ export interface XQueryRequest {
     keepCursor?: boolean;
     cursorId?: DecimalId;
 }
-/** Shared request fields for native `LoadUrl`/`LoadDoc`. */
+/** Общие поля запроса native `LoadUrl`/`LoadDoc`. */
 export interface LoadRequest {
     url: string;
     useBinaryResponse?: boolean;
@@ -49,46 +49,46 @@ export interface LoadRequest {
     tryLock?: boolean;
     compress?: boolean;
 }
-/** Load request that selects an unbuffered binary/multipart response. */
+/** Запрос загрузки, выбирающий небуферизованный двоичный или multipart-ответ. */
 export type StreamingLoadRequest = LoadRequest & ({
     useBinaryResponse: true;
 } | {
     useMultipartResponse: true;
 });
-/** Load request that keeps the normal parsed SOAP response. */
+/** Запрос загрузки, сохраняющий обычный разобранный ответ SOAP. */
 export type SoapLoadRequest = LoadRequest & {
     useBinaryResponse?: false;
     useMultipartResponse?: false;
 };
 /**
- * Native Administrator LDS SOAP 1.2 operations bound to one decimal LDS session ID.
- * Optional fields remain omitted unless explicitly supplied; large request bodies use multipart/XOP.
+ * Операции native Administrator LDS SOAP 1.2, привязанные к одному десятичному ID сессии LDS.
+ * Необязательные поля опускаются, пока не заданы; большие тела запросов идут как multipart/XOP.
  */
 export declare class NativeLdsApi {
     private readonly caller;
     constructor(caller: LdsCaller);
-    /** Closes the decimal LDS context. Prefer `NativeSession.close()` for the complete client lifecycle. */
+    /** Закрыть десятичный контекст LDS. Для закрытия всего клиента лучше `NativeSession.close()`. */
     closeSession(options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Returns ready entries from the current context's classic catalog-stat cache.
-     * An empty Catalogs response is valid; readiness and skip gates may hide entries.
-     * RecordsNum is cached metadata, not a fresh SQL COUNT or an object-type registry.
+     * Прочитать готовые записи из кэша статистики каталогов текущей сессии.
+     * Пустой ответ Catalogs допустим: неготовые и пропускаемые каталоги в него не попадают.
+     * RecordsNum — число из кэша, а не свежий SQL COUNT и не перечень типов объектов.
      */
     getCatalogsStat(options?: RequestOptions): Promise<SoapResult>;
-    /** Returns modified objects since optional `minModDate`. */
+    /** Прочитать объекты, изменённые после `minModDate`; дата необязательна. */
     getModObjects(request?: {
         minModDate?: string;
         compress?: boolean;
     }, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Loads URL data; response flags select a stream, while `tryLock` mutates lock state.
-     * @mutating When `tryLock` is enabled.
+     * Прочитать данные по URL; флаги ответа выбирают поток, а `tryLock` меняет состояние блокировки.
+     * @mutating Если включён `tryLock`.
      */
     loadUrl(request: StreamingLoadRequest, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
     loadUrl(request: SoapLoadRequest, options?: RequestOptions): Promise<SoapResult>;
     loadUrl(request: LoadRequest, options?: RequestOptions): Promise<SoapResult | WsHcmBinaryResponse>;
     /**
-     * Writes exact text/binary URL data as an XOP attachment.
+     * Записать по URL текст или двоичные данные как есть, вложением XOP.
      * @mutating
      */
     putUrl(request: {
@@ -96,7 +96,7 @@ export declare class NativeLdsApi {
         data: SoapAttachment;
     }, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Deletes a URL, optionally requiring strict existence.
+     * Удалить данные по URL; можно потребовать, чтобы они существовали.
      * @mutating
      */
     deleteUrl(request: {
@@ -104,19 +104,19 @@ export declare class NativeLdsApi {
         strictDelete?: boolean;
     }, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Loads a document; `tryLock` mutates lock state.
-     * In 1171, the LoadDoc handler ignores binary/multipart response flags and emits SOAP.
-     * Those flags select the client's raw stream, whose bytes may still contain a SOAP envelope;
-     * they do not guarantee the returned representation.
-     * @mutating When `tryLock` is enabled.
+     * Прочитать документ; `tryLock` меняет состояние блокировки.
+     * На сервере 2025.1.1171 LoadDoc отвечает SOAP и при флагах двоичного или multipart-ответа.
+     * Флаги включают выдачу ответа потоком байтов, в котором может оказаться конверт SOAP;
+     * вида ответа они не гарантируют.
+     * @mutating Если включён `tryLock`.
      */
     loadDoc(request: StreamingLoadRequest, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
     loadDoc(request: SoapLoadRequest, options?: RequestOptions): Promise<SoapResult>;
     loadDoc(request: LoadRequest, options?: RequestOptions): Promise<SoapResult | WsHcmBinaryResponse>;
     /**
-     * Persists caller-built XML as an XOP attachment.
-     * Omitted/false `skipActions` keeps server pre-save processing enabled; `true` suppresses its action-enable state.
-     * `data` must be created by `rawXml()`.
+     * Сохранить свой XML вложением XOP.
+     * Без `skipActions` или с `false` сервер выполняет обработку перед сохранением; `true` её отключает.
+     * `data` — только результат `rawXml()`.
      * @mutating
      */
     putDoc(request: {
@@ -127,7 +127,7 @@ export declare class NativeLdsApi {
         data: RawXml;
     }, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Deletes a physical document URL, optionally requiring strict existence.
+     * Удалить документ по URL; можно потребовать, чтобы он существовал.
      * @mutating
      */
     deleteDoc(request: {
@@ -135,59 +135,59 @@ export declare class NativeLdsApi {
         strictDelete?: boolean;
     }, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Allocates a new lossless object ID in the selected database.
+     * Выделить новый ID объекта в выбранной базе, без потери точности.
      * @mutating
      */
     getNewObjectId(request: {
         dbName: string;
         objectType?: string;
     }, options?: RequestOptions): Promise<SoapResult>;
-    /** Executes XQuery with optional pagination/cursor lifecycle. */
+    /** Выполнить XQuery; постраничное чтение и курсор необязательны. */
     xQuery(request: XQueryRequest, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Releases a cursor previously returned to this LDS context.
-     * @mutating Changes transient cursor state.
+     * Освободить курсор, выданный ранее этой сессии LDS.
+     * @mutating Меняет временное состояние курсора.
      */
     releaseCursor(cursorId: DecimalId, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Executes a server library method with inline XML `ArgData` children.
-     * Server 2025.1.1171 takes the arguments only as XML inside the SOAP body;
-     * it rejects external XOP attachments as Parameter is not XML.
-     * RunAsync uses a separate internal thread and returns no public task handle;
-     * its initial ResultData may be typed undefined and does not prove completion.
-     * GetAsyncMethodStatus and KillAsyncMethod cannot track this execution.
+     * Выполнить функцию библиотеки сервера; аргументы — дочерние элементы XML в `ArgData`.
+     * На сервере 2025.1.1171 аргументы принимаются только как XML в теле SOAP:
+     * внешнее вложение XOP отклоняется с Parameter is not XML.
+     * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
+     * первый ResultData может прийти с типом undefined и не означает завершения.
+     * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
      * @mutating
      */
     runMethod(request: RunMethodRequest, options?: RequestOptions): Promise<SoapResult>;
-    /** Keeps the current native LDS session active. */
+    /** Продлить текущую сессию native LDS. */
     idle(options?: RequestOptions): Promise<SoapResult>;
 }
-/** Web Administrator LDS SOAP 1.1 context and shared stock service methods, bound to one LDS ID. */
+/** Контекст Web Administrator LDS SOAP 1.1 и общие штатные методы службы для одного ID LDS. */
 export declare class WebLdsApi {
     private readonly caller;
     constructor(caller: LdsCaller);
     /**
-     * Executes web LDS XQuery. `keepCursor` defaults to `true`; pass `false` for one-shot reads.
-     * @mutating When cursor retention is enabled (the default).
+     * Выполнить XQuery через web LDS. `keepCursor` по умолчанию `true`; для разового чтения нужен `false`.
+     * @mutating Если курсор сохраняется (по умолчанию).
      */
     xQuery(request: XQueryRequest, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Releases a caller-owned web LDS cursor.
-     * @mutating Changes transient cursor state.
+     * Освободить свой курсор web LDS.
+     * @mutating Меняет временное состояние курсора.
      */
     releaseCursor(cursorId: DecimalId, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Executes the stock LDS RunMethod in this web SOAP 1.1 context.
-     * ArgData contains inline typed XML children; SessionID precedes that stream.
-     * RunAsync uses a separate internal thread and returns no public task handle;
-     * its initial ResultData may be typed undefined and does not prove completion.
-     * GetAsyncMethodStatus and KillAsyncMethod cannot track this execution.
-     * Server target permissions still apply, independently of the web profile.
+     * Выполнить штатный RunMethod LDS в этой веб-сессии по SOAP 1.1.
+     * ArgData содержит дочерние элементы XML с типами; SessionID идёт перед ними.
+     * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
+     * первый ResultData может прийти с типом undefined и не означает завершения.
+     * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
+     * Права сервера на вызываемую функцию действуют и здесь, независимо от профиля web.
      * @mutating
      */
     runMethod(request: RunMethodRequest, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Deletes a document; web wire sends `StrictDelete=1` only when enabled.
+     * Удалить документ; `StrictDelete=1` отправляется, только когда он включён.
      * @mutating
      */
     deleteDoc(request: {
@@ -195,37 +195,37 @@ export declare class WebLdsApi {
         strictDelete?: boolean;
     }, options?: RequestOptions): Promise<SoapResult>;
 }
-/** One RPC argument. Structured XmElem child XML uses no VALUE-TYPE attribute. */
+/** Один аргумент RPC. Структурированный дочерний XML XmElem не использует атрибут VALUE-TYPE. */
 export interface RpcArgument {
     readonly valueType?: string;
     readonly lexicalValue: string | RawXml;
 }
-/** Parsed RPC result plus the complete XML response tree. */
+/** Разобранный результат RPC и полное дерево XML ответа. */
 export interface RpcResult {
     readonly valueType?: string;
     readonly lexicalValue?: string;
     readonly xml: XmlObject;
 }
 /**
- * RPC argument helpers. Only the string case is automatically typed; use `typed()` for every other lexical type.
- * `RawXml` lexical values are inserted as exact child XML rather than escaped text.
+ * Функции аргументов RPC. Автоматически типизируется только строка; остальные — через `typed()`.
+ * Значения `RawXml` вставляются как точный дочерний XML, а не как экранированный текст.
  */
 export declare const rpc: Readonly<{
     string(value: string): RpcArgument;
     typed(valueType: string, lexicalValue: string | RawXml): RpcArgument;
-    /** Match the shipped XmElem serializer: validated child XML without an invented VALUE-TYPE. */
+    /** Повторяет штатный сериализатор XmElem: проверенный дочерний XML без выдуманного VALUE-TYPE. */
     xml(value: RawXml): RpcArgument;
 }>;
 /**
- * SPXML `CallMethod` client for existing native or web server libraries.
- * Target discovery is historical evidence; the server decides authorization and reachability for dynamic targets.
+ * Клиент SPXML `CallMethod` для существующих библиотек сервера, native или web.
+ * Обзор целей — исторические данные; авторизацию и достижимость динамических целей решает сервер.
  */
 export declare class RpcApi {
     private readonly transport;
     private readonly profile;
     constructor(transport: HttpTransport, profile: SoapProfile);
     /**
-     * Calls an existing server target; discovery evidence does not impose a hardcoded allowlist.
+     * Вызвать функцию библиотеки сервера; своим списком функций клиент вызов не ограничивает.
      * @mutating
      */
     call(request: {
@@ -233,13 +233,13 @@ export declare class RpcApi {
         args?: readonly RpcArgument[];
     }, options?: RequestOptions): Promise<WsHcmResponse<RpcResult>>;
 }
-/** Shipped web `/api/spxml` RPC, document and async-task surface. */
+/** Штатный web `/api/spxml`: RPC, документы и фоновые задачи. */
 export declare class WebSpXmlApi {
     private readonly transport;
     readonly rpc: RpcApi;
     constructor(transport: HttpTransport);
     /**
-     * Synchronous allowlisted RPC call. The selected target may change state.
+     * Вызвать функцию библиотеки синхронно. Вызванная функция может менять данные.
      * @mutating
      */
     callMethod(request: {
@@ -247,7 +247,7 @@ export declare class WebSpXmlApi {
         args?: readonly RpcArgument[];
     }, options?: RequestOptions): Promise<WsHcmResponse<RpcResult>>;
     /**
-     * Starts an allowlisted asynchronous RPC task and returns a lossless TrackingID.
+     * Запустить функцию библиотеки фоновой задачей; ответ содержит TrackingID без потери точности.
      * @mutating
      */
     callMethodAsync(request: {
@@ -255,36 +255,36 @@ export declare class WebSpXmlApi {
         args?: readonly RpcArgument[];
     }, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Lists background tasks filtered by library and method names.
-     * On server 2025.1.1171 the task pool is application-wide and can include other callers;
-     * matching a name does not establish task ownership. Expired nonrunning entries
-     * are removed before filtering. Recent terminal tasks are not
-     * consumed by this list, but their status/results are included in each Task.
-     * Use an independently journalled TrackingID for subsequent status or kill calls.
+     * Перечислить фоновые задачи по имени библиотеки и функции.
+     * На сервере 2025.1.1171 пул задач общий для приложения, в нём бывают чужие задачи;
+     * совпадение имени не значит, что задача своя. Устаревшие записи о завершённых задачах
+     * удаляются до отбора. Недавно завершённые задачи этот список
+     * не расходует: их состояние и результат входят в каждый Task.
+     * Для опроса и остановки нужен TrackingID, записанный отдельно при запуске.
      */
     getBackgroundTasksByName(request: {
         libName: string;
         methodName: string;
     }, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Reads async task state using the original decimal or `0x` TrackingID lexical form.
-     * On server 2025.1.1171 the first terminal response consumes the finished tracking entry.
-     * Retain that payload immediately and never poll the finished ID again: a lost HTTP
-     * terminal response can consume its result. Other builds require separate verification.
-     * Poll running tasks no more often than once every 250 ms.
+     * Прочитать состояние фоновой задачи по TrackingID в исходной записи: десятичной или `0x`.
+     * На сервере 2025.1.1171 первый ответ о завершении расходует запись о задаче.
+     * Этот ответ нужно сохранить сразу и завершённый ID больше не опрашивать:
+     * если ответ HTTP потерян, результат уже израсходован. Другие сборки проверяются отдельно.
+     * Идущую задачу опрашивать не чаще раза в 250 мс.
      */
     getAsyncMethodStatus(trackingId: TrackingId, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Requests task cancellation; successful cancellation of already-completed tasks is not guaranteed.
+     * Запросить остановку задачи; остановка уже завершённой задачи не гарантирована.
      * @mutating
      */
     killAsyncMethod(trackingId: TrackingId, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Reads document XML using UTF-8 unless `charset` is supplied; response charset headers take precedence.
-     * Server 2025.1.1171 does not accept a TryLock query parameter on this route:
-     * a value passed in the query is refused.
-     * Use native LDS LoadDoc for a verified document-lock route.
-     * @mutating When `tryLock` is enabled.
+     * Прочитать XML документа в UTF-8, если не задан `charset`; кодировка из заголовков ответа важнее.
+     * Сервер 2025.1.1171 не принимает параметр TryLock на этом маршруте:
+     * значение в строке запроса отклоняется.
+     * Проверенный способ заблокировать документ — LoadDoc через native LDS.
+     * @mutating Если включён `tryLock`.
      */
     getDoc(request: {
         docUrl: string;
@@ -292,8 +292,8 @@ export declare class WebSpXmlApi {
         tryLock?: boolean;
     }, options?: RequestOptions): Promise<WsHcmResponse<XmlObject>>;
     /**
-     * Persists caller XML through web SPXML server pre-save processing.
-     * `neverSaved=true` sends `NeverSaved=1`; false/omitted sends no flag. This route has no `SkipActions` control.
+     * Сохранить свой XML через web SPXML; сервер выполняет обработку перед сохранением.
+     * `neverSaved=true` отправляет `NeverSaved=1`; при false или без значения флаг не отправляется. Управления `SkipActions` на этом маршруте нет.
      * @mutating
      */
     putDoc(request: {
@@ -306,40 +306,41 @@ export declare class WebSpXmlApi {
 declare class SpXml2Base {
     protected readonly transport: HttpTransport;
     constructor(transport: HttpTransport);
-    /** Reads server application/bootstrap metadata; `application_module` is optional and may be absent. */
+    /** Прочитать сведения сервера о приложении; `application_module` необязателен и может отсутствовать. */
     getAppInfo(request?: {
         fastStart?: boolean;
         anonymous?: boolean;
         openSession?: boolean;
         rnd?: number;
     }, options?: RequestOptions): Promise<WsHcmResponse<unknown>>;
-    /** Loads a form payload by server-local URL as text using the response charset. */
+    /** Прочитать форму по локальному URL сервера как текст в кодировке ответа. */
     getForm(request: {
         url: string;
     }, options?: RequestOptions): Promise<WsHcmResponse<string>>;
 }
-/** Native SPXML2 app-info and form retrieval surface. */
+/** Native SPXML2: сведения о приложении и получение форм. */
 export declare class NativeSpXml2Api extends SpXml2Base {
 }
-/** Web SPXML2 surface; app-info defaults to `fast_start=1` and a random cache-busting `rnd`. */
+/** Web SPXML2; сведения о приложении по умолчанию идут с `fast_start=1` и случайным `rnd`. */
 export declare class WebSpXml2Api extends SpXml2Base {
+    /** Прочитать сведения сервера о приложении; по умолчанию отправляет `fast_start=1` и случайный `rnd`. */
     getAppInfo(request?: {
         fastStart?: boolean;
         anonymous?: boolean;
         openSession?: boolean;
         rnd?: number;
     }, options?: RequestOptions): Promise<WsHcmResponse<unknown>>;
-    /** Streams a web SPXML2 image with optional effect query values. */
+    /** Прочитать потоком картинку web SPXML2; параметры эффектов необязательны. */
     getImage(request: {
         url: string;
         effects?: QueryValues;
     }, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
-    /** Reads the default preloaded-design-file set. */
+    /** Прочитать набор предзагружаемых файлов оформления default. */
     getPreloadedDesignFiles(options?: RequestOptions): Promise<WsHcmResponse<string>>;
-    /** Calls the shipped server `std_encrypt` service; this is not a general client-side encryption primitive. */
+    /** Вызвать штатную службу сервера `std_encrypt`; это не средство шифрования общего назначения на стороне клиента. */
     stdEncrypt(text: string, options?: RequestOptions): Promise<WsHcmResponse<unknown>>;
 }
-/** One caller-selected part of the stock chunk uploader. offset and totalBytes count decoded bytes. */
+/** Часть штатной загрузки по выбору вызывающего; offset и totalBytes — в декодированных байтах. */
 export interface UploadChunkRequest {
     fileId: string;
     filename: string;
@@ -350,53 +351,53 @@ export interface UploadChunkRequest {
     data: SoapAttachment;
     contentType?: string;
 }
-/** The endpoint allocates a new Url on every request; this is not completion or file-existence proof. */
+/** Url новый на каждый запрос; это не доказательство завершения и не наличия файла. */
 export interface UploadChunkResult {
     error: 0;
     Url: string;
 }
-/** Exact indices [0, chunksTotal) in the caller-selected global filechunk namespace. */
+/** Точные индексы [0, chunksTotal) в выбранном вызывающим общем пространстве filechunk. */
 export interface ClearUploadChunksRequest {
     fileId: string;
     chunksTotal: number;
 }
-/** Server deletion errors are swallowed; an empty response proves acknowledgement only. */
+/** Ошибки удаления на сервере проглатываются; пустой ответ доказывает только приём запроса. */
 export interface ClearUploadChunksResult {
     acknowledged: true;
     fileId: string;
     chunksTotal: number;
     absenceVerified: false;
 }
-/** Shipped web Administrator page-service operations. */
+/** Штатные операции страничных служб web Administrator. */
 export declare class WebPageApi {
     private readonly transport;
     private readonly uploadToken?;
     private readonly maximumUploadBytes;
     constructor(transport: HttpTransport, uploadToken?: (() => string | undefined) | undefined, maximumUploadBytes?: number);
-    /** Reads the shipped PDF preview helper page as text. */
+    /** Прочитать штатную страницу предпросмотра PDF как текст. */
     filePreviewPdf(options?: RequestOptions): Promise<WsHcmResponse<string>>;
-    /** Reads a form by server-local URL as text. */
+    /** Прочитать форму по локальному URL сервера как текст. */
     getForm(request: {
         url: string;
     }, options?: RequestOptions): Promise<WsHcmResponse<string>>;
-    /** Reads a screen form by server-local URL as text. */
+    /** Прочитать экранную форму по локальному URL сервера как текст. */
     getScreenForm(request: {
         url: string;
     }, options?: RequestOptions): Promise<WsHcmResponse<string>>;
     /**
-     * Streams SVG through the stock web page image handler. The server accepts
-     * x-app/x-local SVG URLs and checks source read access. Optional state values
-     * hover/pressed/disabled select the shipped color substitution; other values
-     * preserve the original content. Omission sends state="" because the shipped
-     * page requires that query field. Consume or cancel the returned body.
+     * Прочитать потоком SVG через штатную страницу картинок веб-интерфейса. Сервер принимает
+     * URL SVG в x-app и x-local и проверяет право чтения источника. Необязательные значения state
+     * hover, pressed и disabled включают штатную подмену цветов; при других значениях
+     * содержимое остаётся исходным. Без значения отправляется state="": штатная
+     * страница требует это поле запроса. Тело ответа нужно дочитать или отменить.
      */
     getImage(request: {
         url: string;
         state?: string;
     }, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
-    /** Reads and parses web UI text XML using its declared application charset. */
+    /** Прочитать и разобрать XML текстов веб-интерфейса в кодировке, объявленной приложением. */
     getUiText(options?: RequestOptions): Promise<WsHcmResponse<XmlObject>>;
-    /** Streams page-service URL output; consume or cancel the returned body. */
+    /** Прочитать потоком ответ службы страниц по URL; тело нужно дочитать или отменить. */
     getUrl(request: {
         url: string;
         navigate?: boolean;
@@ -404,11 +405,11 @@ export declare class WebPageApi {
         base64?: boolean;
     }, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
     /**
-     * Uploads one file through the shipped multipart f/session_token workflow.
-     * The owning WebSession supplies its current private page token. Input is
-     * bounded by maxResponseBytes and an 8 MiB client input budget; no chunks or
-     * legacy base64 branch is implied. A successful response contains Url.
-     * @mutating Persists a server upload and runs the platform's upload rules.
+     * Загрузить один файл штатным способом: multipart с полями f и session_token.
+     * Текущий токен страницы подставляет веб-сессия, которой принадлежит вызов. Размер
+     * ограничен maxResponseBytes и пределом клиента 8 МиБ; части и старый вариант
+     * с base64 не используются. Успешный ответ содержит Url.
+     * @mutating Сохраняет файл на сервере; срабатывают правила загрузки платформы.
      */
     uploadFile(request: {
         filename: string;
@@ -416,24 +417,24 @@ export declare class WebPageApi {
         contentType?: string;
     }, options?: RequestOptions): Promise<WsHcmResponse<unknown>>;
     /**
-     * Sends one stock upload_chunk POST with exact data bytes and an explicit Content-Range.
-     * The caller supplies a known 32-hex fileId and coordinates chunk order; the last part joins the file.
-     * Receipts do not independently prove chunk persistence or final file bytes.
-     * Verify staging with a storage-appropriate read before submitting the final part.
-     * Final errors can leave an unknown output URL; do not retry or guess cleanup targets.
-     * Requires the installed WebSoft/libMain branch and its existing principal/upload policies.
-     * @mutating Writes global chunk storage and may create an assembled upload.
+     * Отправить один штатный POST upload_chunk с байтами данных как есть и явным Content-Range.
+     * Вызывающий задаёт известный fileId из 32 шестнадцатеричных цифр и следит за порядком частей; последняя часть собирает файл.
+     * Ответы сами по себе не доказывают, что часть сохранена и что байты итогового файла верны.
+     * Перед последней частью загруженное нужно проверить чтением, подходящим для хранилища.
+     * После ошибки на последней части URL результата может остаться неизвестным: не повторять и не угадывать, что удалять.
+     * Нужна установленная ветка WebSoft/libMain и её действующие правила для пользователя и загрузки.
+     * @mutating Пишет в общее хранилище частей и может создать собранный файл.
      */
     uploadChunk(request: UploadChunkRequest, options?: RequestOptions): Promise<WsHcmResponse<UploadChunkResult>>;
     /**
-     * Requests deletion of [0, chunksTotal) for a known caller-selected 32-hex fileId.
-     * The namespace is global; the server does not check who created this ID.
-     * An empty ACK does not prove chunk absence, directory removal, final-file or scratch cleanup.
-     * @mutating Requests chunk deletion; individual server errors are swallowed.
+     * Запросить удаление частей [0, chunksTotal) для известного fileId из 32 шестнадцатеричных цифр, выбранного вызывающим.
+     * Пространство ID общее: сервер не проверяет, кто создал этот ID.
+     * Пустой ответ не доказывает, что части, папка, итоговый файл и временные данные удалены.
+     * @mutating Запрашивает удаление частей; отдельные ошибки сервера не сообщаются.
      */
     clearUploadChunks(request: ClearUploadChunksRequest, options?: RequestOptions): Promise<WsHcmResponse<ClearUploadChunksResult>>;
 }
-/** Exactly one source for a named compound-attc attachment. */
+/** Ровно один источник именованного вложения compound-attc. */
 export type CompoundResourceRequest = {
     url: string;
     resId: string;
@@ -442,49 +443,50 @@ export type CompoundResourceRequest = {
     elemPath: string;
     resId: string;
 };
-/** Resource streaming API shared by native and web sessions. */
+/** API потокового чтения ресурсов, общий для сессий native и web. */
 export declare class ResourceApi {
     private readonly transport;
     constructor(transport: HttpTransport);
-    /** Streams a resource image by lossless decimal ID and optional image type. */
+    /** Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен. */
     getImage(request: {
         resourceId: DecimalId;
         imageType?: string;
     }, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
     /**
-     * Streams a named compound-attc attachment through GET /xhttp_res.
-     * Use url for an x-local/x-app HTML source, or docUrl plus elemPath for a
-     * document string field (also accepts a registered x-db-obj document).
-     * elemPath starts with the document element name, such as presence_state.name;
-     * obtain it from the actual document rather than guessing its root or layout.
-     * The server decodes the matching attachment data and selects media type
-     * from resId. Stock 1171 also requires URL sources under configured courses_path;
-     * a permitted local scheme alone does not establish that prefix.
-     * Native Administrator builds this route; the web alias uses
-     * the same server handler with its own HTTP context, not a distinct caller
-     * claim. Consume or cancel the returned body.
+     * Прочитать потоком именованное вложение compound-attc через GET /xhttp_res.
+     * Источник — url для HTML с адресом x-local или x-app либо docUrl вместе с elemPath
+     * для строкового поля документа (подходит и зарегистрированный документ x-db-obj).
+     * elemPath начинается с имени корневого элемента документа, например presence_state.name;
+     * его берут из самого документа, а не угадывают корень и структуру.
+     * Сервер декодирует данные найденного вложения и выбирает тип содержимого
+     * по resId. Штатный сервер 2025.1.1171 требует ещё, чтобы источник url лежал в настроенном courses_path:
+     * одной разрешённой локальной схемы для этого мало.
+     * Этим маршрутом пользуется штатный клиент администратора; варианты native и web —
+     * один маршрут сервера, различается только сессия HTTP. Тело ответа нужно дочитать или отменить.
      */
     getCompoundResource(request: CompoundResourceRequest, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
 }
-/** Read-only transport/server diagnostics that do not create an LDS session. */
+/** Диагностика транспорта и сервера только на чтение, без создания сессии LDS. */
 export declare class DiagnosticsApi {
     private readonly transport;
     constructor(transport: HttpTransport);
-    /** Observes the portal status without following redirects or retaining its body. */
+    /** Прочитать статус портала, не переходя по перенаправлениям и не сохраняя тело ответа. */
     portal(options?: RequestOptions): Promise<{
         status: number;
     }>;
-    /** Reads `/xhttp_info`, using Basic auth only when client credentials were configured. */
+    /** Прочитать `/xhttp_info`; авторизация Basic применяется, только если клиенту заданы учётные данные. */
     xhttpInfo(options?: RequestOptions): Promise<WsHcmResponse<string>>;
 }
-/** Explicit escape hatch for unknown/experimental wire requests. Prefer typed API groups. */
+/**
+ * Запасной путь для неизвестных и экспериментальных запросов протокола. Лучше типизированные API.
+ */
 export declare class ExperimentalApi {
     protected readonly transport: HttpTransport;
     constructor(transport: HttpTransport);
     /**
-     * Sends a same-origin caller-defined request and returns its body as a stream.
-     * `unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;
-     * configured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.
+     * Отправить свой запрос на тот же origin и вернуть тело ответа потоком.
+     * `unsafe: true` обязателен. Сериализация обычных операций, разбор ошибок сервера и гарантии об исходе записи не действуют;
+     * настроенные авторизация и cookie применяются, а метод, заголовки, тело и закрытие потока — на вызывающем.
      */
     rawRequest(request: {
         unsafe: true;
@@ -494,11 +496,11 @@ export declare class ExperimentalApi {
         body?: BodyInit;
     }, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
 }
-/** Schema-backed partial web operations plus the raw escape hatch. */
+/** Частичные операции web, подкреплённые схемой, и запасной путь — сырой запрос. */
 export declare class WebExperimentalApi extends ExperimentalApi {
     /**
-     * Calls the partial web authentication route; success cookie/body semantics are not fully established.
-     * @mutating Changes authentication/session state.
+     * Вызвать частично поддержанный маршрут веб-аутентификации; cookie и тело успешного ответа до конца не установлены.
+     * @mutating Меняет состояние аутентификации и сессии.
      */
     authenticate(request: {
         login: string;
@@ -506,7 +508,7 @@ export declare class WebExperimentalApi extends ExperimentalApi {
         token: string;
     }, options?: RequestOptions): Promise<WsHcmResponse<unknown>>;
 }
-/** Schema-backed partial native operations plus the raw escape hatch. */
+/** Частичные операции native, подкреплённые схемой, и запасной путь — сырой запрос. */
 export declare class NativeExperimentalApi extends ExperimentalApi {
 }
 export declare function createNativeLdsApi(transport: HttpTransport, sessionId: () => DecimalId): NativeLdsApi;

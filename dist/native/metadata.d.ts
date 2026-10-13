@@ -1,5 +1,10 @@
 import type { NativeOperation } from "../contracts.js";
-/** Replaces the generated description where the generic wording would mislead. */
-export declare function decorateOperation(operation: NativeOperation): NativeOperation;
-/** Lock flags change the effect even when the default document/URL retrieval is read-only. */
+/**
+ * Ставит названное право на сгенерированную операцию; где общая формулировка вводит
+ * в заблуждение, заменяет описание.
+ */
+export declare function decorateOperation(operation: Omit<NativeOperation, "effect">): NativeOperation;
+/** Runtime вызывает их сам; вызывающий их не видит. */
+export declare function isInternalNative(id: string): boolean;
+/** Эффект операции реестра для этих аргументов; у операции без строки остаётся собственный. */
 export declare function getEffectiveNativeEffect(operation: NativeOperation, args: Readonly<Record<string, unknown>>): NativeOperation["effect"];

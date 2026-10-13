@@ -6,6 +6,9 @@ import type { CheckData } from "./self-check.js";
 export type { CheckData } from "./self-check.js";
 import { HcmError } from "./errors.js";
 import type { AgentRunData, ScriptData } from "./scripts.js";
+import type { CreatedObjectData, PatchPreviewData, PatchedObjectData, DeletedObjectData } from "./objects.js";
+export type { PatchChange } from "./documents.js";
+export type { CreatedObjectData, PatchPreviewData, PatchedObjectData, DeletedObjectData, } from "./objects.js";
 import type { ServerInfoInput, ServerInfoData, ServerDatabase } from "./server-info.js";
 export type { ServerInfoInput, ServerInfoData } from "./server-info.js";
 import type { FileExistsInput, FileExistsData, FileReadInput, FileReadData } from "./files.js";
@@ -28,10 +31,10 @@ export type ResultMeta = OperationResult["meta"];
 export interface StoredResultData {
     readonly preview: unknown;
     readonly resultId: string;
-    /** Which operations read the stored answer. */
+    /** Какие операции читают сохранённый ответ. */
     readonly hint?: string;
 }
-/** A full value, a local reference, and a failed partial outcome are deliberately distinct. */
+/** Полное значение, локальная ссылка и неудавшийся частичный исход намеренно различаются. */
 export type HcmResult<T = unknown> = {
     readonly ok: true;
     readonly data: T;
@@ -80,13 +83,13 @@ export type PatchOperation = {
     readonly path: string;
 };
 export interface PatchOptions {
-    /** What to write: {path: value} or a list of operations. */
+    /** Что записать: {path: value} или список операций. */
     readonly patch?: HcmData | readonly PatchOperation[];
-    /** Paths to remove from the document. */
+    /** Пути, которые удалить из документа. */
     readonly remove?: readonly string[];
     readonly expectedFingerprint?: string;
     readonly preview?: boolean;
-    /** Save the document even when the patch changes nothing: the server refills what it computes on save. */
+    /** Сохранить документ, даже если правка ничего не меняет: сервер заново заполняет вычисляемое. */
     readonly resave?: boolean;
 }
 export interface DeleteOptions {
@@ -109,11 +112,14 @@ export interface QueryOptions {
     readonly limit?: number;
     readonly startPosition?: number;
 }
-/** Raw expressions must return homogeneous XML object rows; scalar/mixed sequences use LDS directly. */
+/**
+ * Сырые выражения должны возвращать однородные строки XML-объектов; скаляры и смесь — прямо
+ * через LDS.
+ */
 export type QueryInput = QueryOptions & ({
     readonly catalog: string;
     readonly where?: Record<string, FilterValue | FilterCondition>;
-    /** Catalog fields to sort by: "fullname", "hire_date desc". */
+    /** Поля каталога для сортировки: "fullname", "hire_date desc". */
     readonly order?: string | readonly string[];
     readonly query?: never;
 } | {
@@ -163,12 +169,12 @@ export interface UploadFileInput {
     readonly contentType?: string;
 }
 export interface UploadedFileData {
-    /** The address of the file: x-local://share/uploaded_files/<folder>/<name>. */
+    /** Адрес файла: x-local://share/uploaded_files/<folder>/<name>. */
     readonly url: string;
-    /** The folder the server made for the file; it stays after the file is deleted. */
+    /** Папка, которую сервер создал для файла; остаётся после удаления файла. */
     readonly folderUrl: string;
 }
-/** One stock upload_chunk request. Reuse fileId and send the final index last. */
+/** Один штатный запрос upload_chunk. fileId тот же, последний индекс слать последним. */
 export interface UploadChunkInput extends UploadFileInput {
     readonly fileId: string;
     readonly index: number;
@@ -176,7 +182,7 @@ export interface UploadChunkInput extends UploadFileInput {
     readonly totalBytes: number;
     readonly offset: number;
 }
-/** The advertised Url is an acknowledgement, not proof that a complete file exists. */
+/** Объявленный Url — подтверждение, а не доказательство существования полного файла. */
 export interface UploadedChunkData {
     readonly error: 0;
     readonly Url: string;
@@ -185,7 +191,7 @@ export interface ClearUploadChunksInput {
     readonly fileId: string;
     readonly chunksTotal: number;
 }
-/** Stock clear_chunks suppresses delete errors; its empty response cannot verify absence. */
+/** Штатный clear_chunks подавляет ошибки удаления; по пустому ответу отсутствие не проверить. */
 export interface ClearedUploadChunksData {
     readonly acknowledged: true;
     readonly fileId: string;
@@ -196,9 +202,9 @@ export interface StatusData {
     readonly connection: string;
     readonly baseUrl: string;
     readonly version: string;
-    /** Database behind the server, when the server describes it. */
+    /** База за сервером, если сервер её описывает. */
     readonly database?: ServerDatabase;
-    /** ID of the user the connection is signed in as, when the server names it. */
+    /** ID пользователя, под которым подключение вошло, если сервер его называет. */
     readonly userId?: string;
     readonly operationCount: number;
     readonly permissions: {
@@ -208,14 +214,14 @@ export interface StatusData {
 }
 export interface QueryData<T = HcmData> {
     readonly items: T[];
-    /** Rows matching the query on the server, when the server reports a consistent count. */
+    /** Строки, подходящие запросу на сервере, если сервер сообщает согласованный счётчик. */
     readonly total?: number;
-    /** More rows may follow: pass it as startPosition. Offsets are not a stable snapshot. */
+    /** Строки могут идти дальше: передать как startPosition. Смещения — не стабильный снимок. */
     readonly nextStartPosition?: number;
-    /** The end was not established and no offset advances; hint says why. */
+    /** Конец не установлен и смещение не растёт; hint говорит почему. */
     readonly incomplete?: true;
     readonly hint?: string;
-    /** Requested fields that are not fields of the catalog. */
+    /** Запрошенные поля, которых нет в каталоге. */
     readonly unknownFields?: string[];
 }
 export interface ObjectData<T extends object = HcmData> {
@@ -223,55 +229,14 @@ export interface ObjectData<T extends object = HcmData> {
     readonly type: string;
     readonly url: string;
     readonly data: T;
-    /** Requested fields the document does not keep: the server computes them for the catalog row. */
+    /** Запрошенные поля, которые документ не хранит: сервер вычисляет их для строки каталога. */
     readonly fromCatalog?: HcmData;
-    /** Fields asked for by name that the object has no value for. */
+    /** Поля, запрошенные по имени, для которых у объекта нет значения. */
     readonly emptyFields?: string[];
-    /** Requested fields that neither the type nor its catalog has. */
+    /** Запрошенные поля, которых нет ни у типа, ни у его каталога. */
     readonly unknownFields?: string[];
     readonly fingerprint: string;
     readonly formUrl?: string;
-}
-/** A write returns the receipt, not a copy of the document; read the object when its fields are needed. */
-export interface CreatedObjectData {
-    readonly id: string;
-    readonly type: string;
-    readonly url: string;
-    readonly fingerprint: string;
-    readonly mutationId: string;
-    readonly mutationOutcome: "confirmed";
-}
-/** Scalar values are shown as they were and as written; a structure is named, not copied. */
-export interface PatchChange {
-    readonly op: "set" | "remove";
-    readonly path: string;
-    readonly before?: unknown;
-    readonly after?: unknown;
-}
-/** Nothing was written: a preview was asked for, or the patch changes nothing (noop). */
-export interface PatchPreviewData {
-    readonly preview: boolean;
-    readonly noop: boolean;
-    readonly changes: PatchChange[];
-    readonly fingerprint: string;
-}
-export interface PatchedObjectData {
-    readonly id?: string;
-    readonly type: string;
-    readonly url: string;
-    readonly fingerprint: string;
-    readonly changes: PatchChange[];
-    /** Top-level fields outside the patch that the server itself changed on the save. */
-    readonly serverChanged?: string[];
-    readonly mutationId: string;
-    readonly mutationOutcome: "confirmed";
-}
-export interface DeletedObjectData {
-    readonly id?: string;
-    readonly mutationId: string;
-    readonly mutationOutcome: "confirmed";
-    readonly verification: string;
-    readonly catalog?: string;
 }
 export interface BatchData {
     readonly results: OperationResult[];
@@ -289,9 +254,9 @@ export type ResultPage<T = unknown> = {
         readonly bytes: number;
     };
     readonly hint?: string;
-    /** The page is shorter than asked: one answer holds no more. */
+    /** Страница короче запрошенной: в один ответ больше не входит. */
     readonly cutBySize?: true;
-    /** The member of the stored answer these items come from; absent for a bare list. */
+    /** Поле сохранённого ответа, откуда взяты элементы; для голого списка отсутствует. */
     readonly list?: string;
 } | {
     readonly text: string;
@@ -300,10 +265,10 @@ export type ResultPage<T = unknown> = {
     readonly format?: "text" | "json";
     readonly cutBySize?: true;
 };
-/** The complete safe runtime boundary; a client can borrow an existing runtime without opening a second session. */
+/** Полная безопасная граница runtime: клиент берёт готовый runtime, не открывая вторую сессию. */
 export interface HcmSdkRuntime extends Pick<RuntimePort, "listOperations" | "describe" | "call" | "close"> {
 }
-/** An actionable operation error retains partial results without serialising them automatically. */
+/** Ошибка операции с подсказкой сохраняет частичные результаты, не сериализуя их автоматически. */
 export declare class HcmOperationError extends HcmError {
     readonly result: OperationResult;
     readonly cleanupError?: HcmError;
@@ -311,19 +276,19 @@ export declare class HcmOperationError extends HcmError {
     constructor(result: OperationResult, operationError?: OperationError | undefined);
     toJSON(): OperationError;
 }
-/** A stored preview cannot be mistaken for the complete generic T. Read its pages explicitly. */
+/** Сохранённый предпросмотр нельзя принять за полный общий T. Страницы читаются явно. */
 export declare class HcmStoredResultError extends HcmOperationError {
     readonly resultId: string;
     constructor(result: OperationResult, resultId: string);
 }
-/** Cleanup failure after a successful action retains its value; repeating a write is unsafe. */
+/** Сбой очистки после успешного действия сохраняет его значение; повтор записи небезопасен. */
 export declare class HcmCleanupError<T = unknown> extends HcmError {
     readonly value: T;
     constructor(value: T);
 }
 export declare function unwrap<T>(result: HcmResult<T>): T;
 export declare function unwrap<T = unknown>(result: OperationResult): T;
-/** Typed convenience methods retain the same result envelope, policy, evidence and outcomes as call(). */
+/** Типизированные методы дают тот же ответ, права, доказательства и исходы, что и call(). */
 export declare class HcmClient {
     readonly runtime: HcmSdkRuntime;
     constructor(connection: ConnectionConfig | HcmSdkRuntime);
@@ -331,7 +296,7 @@ export declare class HcmClient {
     listOperations(filter?: OperationFilter): OperationPage;
     describe(id: string): OperationDefinition;
     call<T = unknown>(id: string, args?: HcmData): Promise<HcmResult<T>>;
-    /** Several objects in one call; an object that was not read has error in its element. */
+    /** Несколько объектов за один вызов; у непрочитанного объекта в его элементе стоит error. */
     getMany<T extends object = HcmData>(input: {
         ids: readonly string[];
         type?: string;
@@ -369,14 +334,14 @@ export declare class HcmClient {
     listRpc(input?: RpcCatalogFilter): Promise<HcmResult<RpcCatalogPage>>;
     describeRpc(targetId: string, options?: RpcDescribeOptions): Promise<HcmResult<RpcTargetDescription>>;
     /**
-     * The code as a string or, like the hcm_script tool takes it, as {code, params}.
-     * The code reads params as the ready variable PARAMS.
+     * Код строкой или, как принимает инструмент hcm_script, в виде {code, params}.
+     * Код читает params как готовую переменную PARAMS.
      */
     execute<T = unknown>(code: string | {
         code: string;
         params?: object;
     }, params?: object): Promise<HcmResult<ScriptData<T>>>;
-    /** Runs a server agent and waits for the end of its code; errors of the code are in the log only. */
+    /** Запускает агента на сервере и ждёт конца его кода; ошибки кода — только в логе. */
     runAgent(input: {
         id: string;
         objectId?: string;
@@ -394,14 +359,14 @@ export declare class HcmClient {
     searchLogs(input: LogSearchInput): Promise<HcmResult<LogMatches>>;
     followLog(input: LogFollowInput): Promise<HcmResult<LogNews>>;
     close(): Promise<void>;
-    /** This client owns the scope and closes exactly once after the callback, including failure. */
+    /** Клиент владеет областью и закрывает её ровно один раз после обратного вызова, и при сбое. */
     use<T>(action: (client: HcmClient) => Promise<T>): Promise<T>;
 }
-/** Inspect secondary cleanup evidence without casting an unknown caught value. */
+/** Разбирает сведения о вторичном сбое очистки, не приводя тип неизвестного пойманного значения. */
 export declare function getCleanupError(error: unknown): HcmError | undefined;
-/** Open one shared runtime for a typed script. Permissions are never expanded by the facade. */
+/** Открывает один общий runtime для типизированного скрипта. Фасад никогда не расширяет права. */
 export declare function withHcmClient<T>(config: ConnectionConfig, action: (client: HcmClient) => Promise<T>): Promise<T>;
-/** Compatible raw-runtime scope with complete cleanup/error preservation. */
+/** Совместимая область сырого runtime: очистка и ошибки сохраняются полностью. */
 export declare function withHcm<T>(config: ConnectionConfig, action: (runtime: HcmRuntime) => Promise<T>): Promise<T>;
 export type { MutationOutcome };
 export type { RpcCatalogFilter, RpcCatalogPage, RpcTargetDescription, RpcTargetCard, RpcDescribeOptions, } from "./rpc-catalog.js";

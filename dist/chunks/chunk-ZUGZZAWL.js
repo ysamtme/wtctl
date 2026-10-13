@@ -3717,17 +3717,17 @@ var require_websocket_server = __commonJS({
 
 // src/protocol/error.ts
 var WsHcmApiError = class extends Error {
-  /** Stable machine-readable category. */
+  /** Устойчивая машиночитаемая категория. */
   kind;
-  /** Wire operation/action name when known. */
+  /** Имя операции или действия в протоколе, если известно. */
   operation;
-  /** HTTP status when one was available. */
+  /** Статус HTTP, если он был. */
   status;
-  /** Bounded structured diagnostics; never a complete response body. */
+  /** Ограниченная структурированная диагностика; никогда не полное тело ответа. */
   details;
-  /** Explicit local preflight proof; absence leaves the mutation outcome uncertain. */
+  /** Явное локальное доказательство проверки до отправки; без него исход записи неопределённый. */
   requestSent;
-  /** Cleanup failure(s) attached without replacing this primary error. */
+  /** Сбои очистки, приложенные без замены этой основной ошибки. */
   cleanupError;
   constructor(kind, message, options = {}) {
     super(message, options.cause === void 0 ? void 0 : { cause: options.cause });
@@ -3763,7 +3763,7 @@ function attachCleanupError(operationError, cleanupError) {
   const previous = target.cleanupError;
   const value = previous === void 0 ? cleanupError : new AggregateError(
     previous instanceof AggregateError ? [...previous.errors, cleanupError] : [previous, cleanupError],
-    "Multiple cleanup failures"
+    "Несколько ошибок при очистке"
   );
   Object.defineProperty(target, "cleanupError", {
     configurable: true,
@@ -8738,7 +8738,7 @@ function createPlatformXmlParser(options = {}) {
     try {
       return restoreXmlNames(parse(text, validation ?? false));
     } catch {
-      throw new WsHcmApiError("protocol", "XML could not be parsed within supported limits.");
+      throw new WsHcmApiError("protocol", "XML не удалось разобрать в поддерживаемых пределах.");
     }
   };
   return result;
@@ -8896,7 +8896,7 @@ function parseSoapBody(method, source, status) {
   try {
     document = parseXml2(source);
   } catch (cause) {
-    throw new WsHcmApiError("protocol", "Invalid XML response", {
+    throw new WsHcmApiError("protocol", "Неверный XML в ответе", {
       operation: method,
       status,
       cause
@@ -8922,7 +8922,10 @@ function parseSoapBody(method, source, status) {
   );
   if (response === "") return {};
   if (response === void 0 || response === null || typeof response !== "object") {
-    throw new WsHcmApiError("protocol", `Missing ${method}Response`, { operation: method, status });
+    throw new WsHcmApiError("protocol", `В ответе нет ${method}Response`, {
+      operation: method,
+      status
+    });
   }
   return response;
 }
@@ -8967,22 +8970,22 @@ var HttpTransport = class {
   constructor(options) {
     this.baseUrl = new URL(options.baseUrl.endsWith("/") ? options.baseUrl : `${options.baseUrl}/`);
     if (!["http:", "https:"].includes(this.baseUrl.protocol) || this.baseUrl.username !== "" || this.baseUrl.password !== "") {
-      throw new TypeError("baseUrl must be an HTTP(S) URL without embedded credentials");
+      throw new TypeError("baseUrl: нужен URL HTTP(S) без имени и пароля в адресе");
     }
     this.#auth = options.auth;
     this.#timeoutMs = options.timeoutMs;
     if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1)
-      throw new TypeError("timeoutMs must be a positive integer");
+      throw new TypeError("timeoutMs: нужно положительное целое число");
     this.#fetch = options.fetch;
     this.#webHeaders = options.webHeaders ?? false;
     this.#maxResponseBytes = options.maxResponseBytes ?? 16 * 1024 * 1024;
     if (!Number.isSafeInteger(this.#maxResponseBytes) || this.#maxResponseBytes < 1)
-      throw new TypeError("maxResponseBytes must be a positive integer");
+      throw new TypeError("maxResponseBytes: нужно положительное целое число");
     if (this.baseUrl.search || this.baseUrl.hash)
-      throw new TypeError("baseUrl must not contain a query or fragment");
+      throw new TypeError("baseUrl: строка запроса и фрагмент не допускаются");
   }
   assertOpen() {
-    if (this.#disposed) throw new WsHcmApiError("protocol", "Session is closed");
+    if (this.#disposed) throw new WsHcmApiError("protocol", "Сессия закрыта");
   }
   dispose() {
     this.cookie.clear();
@@ -8995,10 +8998,7 @@ var HttpTransport = class {
       relativeTo
     );
     if (url.origin !== this.baseUrl.origin || url.username || url.password || !url.pathname.startsWith(this.baseUrl.pathname)) {
-      throw new WsHcmApiError(
-        "protocol",
-        "Request outside the configured server base is not allowed"
-      );
+      throw new WsHcmApiError("protocol", "Запрос за пределы адреса подключения запрещён");
     }
     return url;
   }
@@ -9006,7 +9006,8 @@ var HttpTransport = class {
     this.assertOpen();
     const headers = new Headers(init.headers);
     if (options.basic) {
-      if (this.#auth === void 0) throw new WsHcmApiError("auth", "Credentials are required");
+      if (this.#auth === void 0)
+        throw new WsHcmApiError("auth", "Нужны имя пользователя и пароль");
       headers.set(
         "Authorization",
         `Basic ${Buffer2.from(`${this.#auth.username}:${this.#auth.password}`, "utf8").toString("base64")}`
@@ -9034,20 +9035,21 @@ var HttpTransport = class {
         for (let hop = 0; [301, 302, 303, 307, 308].includes(response.status); hop++) {
           await response.body?.cancel();
           const redirected = { details: { network: "redirect" } };
-          if (hop >= 5) throw new WsHcmApiError("http", "Too many redirects", redirected);
+          if (hop >= 5)
+            throw new WsHcmApiError("http", "Слишком много перенаправлений", redirected);
           if (!["GET", "HEAD"].includes((requestInit.method ?? "GET").toUpperCase()))
             throw new WsHcmApiError(
               "http",
-              "Write redirect is not followed automatically",
+              "Перенаправление запроса на запись само не выполняется",
               redirected
             );
           const location = response.headers.get("location");
           if (location === null)
-            throw new WsHcmApiError("protocol", "Redirect is missing Location");
+            throw new WsHcmApiError("protocol", "В перенаправлении нет Location");
           try {
             requestUrl = this.resolve(location, requestUrl);
           } catch {
-            throw new WsHcmApiError("http", "Redirect leaves the configured server", redirected);
+            throw new WsHcmApiError("http", "Перенаправление ведёт на другой сервер", redirected);
           }
           if (this.cookie.value !== void 0) {
             headers.set("Cookie", `SessionID=${this.cookie.value}`);
@@ -9066,7 +9068,7 @@ var HttpTransport = class {
       const network = timedOut ? "timeout" : aborted ? "aborted" : networkFailure(error);
       throw new WsHcmApiError(
         "http",
-        timedOut ? "HTTP request timed out" : aborted ? "HTTP request aborted" : "HTTP request failed",
+        timedOut ? "Истекло время HTTP-запроса" : aborted ? "HTTP-запрос прерван" : "HTTP-запрос не выполнен",
         { details: { network } }
       );
     }
@@ -9076,18 +9078,20 @@ var HttpTransport = class {
         return limitResponse(response, this.#maxResponseBytes);
       await response.body?.cancel();
       if (response.status === 401)
-        throw new WsHcmApiError("auth", "Authentication or session boundary", { status: 401 });
+        throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", {
+          status: 401
+        });
       if (response.status === 403)
-        throw new WsHcmApiError("permission", "Permission denied", { status: 403 });
+        throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
       throw new WsHcmApiError("http", `HTTP ${response.status}`, { status: response.status });
     }
     if (response.status === 401) {
       await response.body?.cancel();
-      throw new WsHcmApiError("auth", "Authentication or session boundary", { status: 401 });
+      throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", { status: 401 });
     }
     if (response.status === 403) {
       await response.body?.cancel();
-      throw new WsHcmApiError("permission", "Permission denied", { status: 403 });
+      throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
     }
     return limitResponse(response, this.#maxResponseBytes);
   }
@@ -9128,7 +9132,7 @@ function limitResponse(response, maxBytes) {
         }
         read += result.value.byteLength;
         if (read > maxBytes) {
-          const error = new WsHcmApiError("protocol", "Response exceeds configured byte limit", {
+          const error = new WsHcmApiError("protocol", "Ответ превышает заданный предел в байтах", {
             details: { maxResponseBytes: maxBytes }
           });
           try {
@@ -9136,7 +9140,7 @@ function limitResponse(response, maxBytes) {
           } catch (cleanupError) {
             attachCleanupError(
               error,
-              cleanupError instanceof WsHcmApiError ? cleanupError : new WsHcmApiError("http", "HTTP response cancellation failed", {
+              cleanupError instanceof WsHcmApiError ? cleanupError : new WsHcmApiError("http", "Не удалось отменить чтение HTTP-ответа", {
                 cause: cleanupError
               })
             );
@@ -9151,7 +9155,7 @@ function limitResponse(response, maxBytes) {
         await reader.cancel().catch(() => void 0);
         reader.releaseLock();
         controller.error(
-          error instanceof WsHcmApiError ? error : new WsHcmApiError("http", "HTTP response body failed", { cause: error })
+          error instanceof WsHcmApiError ? error : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", { cause: error })
         );
       }
     },
@@ -9159,7 +9163,7 @@ function limitResponse(response, maxBytes) {
       try {
         await reader.cancel(reason);
       } catch (error) {
-        throw error instanceof WsHcmApiError ? error : new WsHcmApiError("http", "HTTP response body failed", { cause: error });
+        throw error instanceof WsHcmApiError ? error : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", { cause: error });
       } finally {
         reader.releaseLock();
       }
@@ -9328,7 +9332,7 @@ async function readResponse(response, parse, fallbackCharset = "utf-8") {
   try {
     source = new TextDecoder(responseCharset(response, fallbackCharset)).decode(rawBody);
   } catch (cause) {
-    throw new WsHcmApiError("protocol", "Unsupported response charset", {
+    throw new WsHcmApiError("protocol", "Кодировка ответа не поддерживается", {
       status: response.status,
       cause
     });
@@ -9336,7 +9340,7 @@ async function readResponse(response, parse, fallbackCharset = "utf-8") {
   try {
     return { status: response.status, headers: response.headers, data: parse(source), rawBody };
   } catch (cause) {
-    throw new WsHcmApiError("protocol", "Invalid response body", {
+    throw new WsHcmApiError("protocol", "Неверное тело ответа", {
       status: response.status,
       cause
     });
@@ -9373,7 +9377,7 @@ async function openLdsSession(transport2, profile, basic = false) {
   );
   const sessionId = xmlText(response.data, "SessionID");
   if (sessionId === void 0 || !/^\d+$/.test(sessionId)) {
-    throw new WsHcmApiError("protocol", "OpenSession did not return a decimal SessionID", {
+    throw new WsHcmApiError("protocol", "OpenSession не вернул десятичный SessionID", {
       operation: "OpenSession"
     });
   }
@@ -9431,19 +9435,19 @@ var NativeLdsApi = class {
   constructor(caller) {
     this.caller = caller;
   }
-  /** Closes the decimal LDS context. Prefer `NativeSession.close()` for the complete client lifecycle. */
+  /** Закрыть десятичный контекст LDS. Для закрытия всего клиента лучше `NativeSession.close()`. */
   closeSession(options) {
     return this.caller.call("CloseSession", [["SessionID", this.caller.id()]], options);
   }
   /**
-   * Returns ready entries from the current context's classic catalog-stat cache.
-   * An empty Catalogs response is valid; readiness and skip gates may hide entries.
-   * RecordsNum is cached metadata, not a fresh SQL COUNT or an object-type registry.
+   * Прочитать готовые записи из кэша статистики каталогов текущей сессии.
+   * Пустой ответ Catalogs допустим: неготовые и пропускаемые каталоги в него не попадают.
+   * RecordsNum — число из кэша, а не свежий SQL COUNT и не перечень типов объектов.
    */
   getCatalogsStat(options) {
     return this.caller.call("GetCatalogsStat", [["SessionID", this.caller.id()]], options);
   }
-  /** Returns modified objects since optional `minModDate`. */
+  /** Прочитать объекты, изменённые после `minModDate`; дата необязательна. */
   getModObjects(request = {}, options) {
     return this.caller.call(
       "GetModObjects",
@@ -9467,7 +9471,7 @@ var NativeLdsApi = class {
     return request.useBinaryResponse || request.useMultipartResponse ? this.caller.binaryCall("LoadUrl", fields, options) : this.caller.call("LoadUrl", fields, options);
   }
   /**
-   * Writes exact text/binary URL data as an XOP attachment.
+   * Записать по URL текст или двоичные данные как есть, вложением XOP.
    * @mutating
    */
   putUrl(request, options) {
@@ -9485,7 +9489,7 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Deletes a URL, optionally requiring strict existence.
+   * Удалить данные по URL; можно потребовать, чтобы они существовали.
    * @mutating
    */
   deleteUrl(request, options) {
@@ -9511,9 +9515,9 @@ var NativeLdsApi = class {
     return request.useBinaryResponse || request.useMultipartResponse ? this.caller.binaryCall("LoadDoc", fields, options) : this.caller.call("LoadDoc", fields, options);
   }
   /**
-   * Persists caller-built XML as an XOP attachment.
-   * Omitted/false `skipActions` keeps server pre-save processing enabled; `true` suppresses its action-enable state.
-   * `data` must be created by `rawXml()`.
+   * Сохранить свой XML вложением XOP.
+   * Без `skipActions` или с `false` сервер выполняет обработку перед сохранением; `true` её отключает.
+   * `data` — только результат `rawXml()`.
    * @mutating
    */
   putDoc(request, options) {
@@ -9535,7 +9539,7 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Deletes a physical document URL, optionally requiring strict existence.
+   * Удалить документ по URL; можно потребовать, чтобы он существовал.
    * @mutating
    */
   deleteDoc(request, options) {
@@ -9550,7 +9554,7 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Allocates a new lossless object ID in the selected database.
+   * Выделить новый ID объекта в выбранной базе, без потери точности.
    * @mutating
    */
   getNewObjectId(request, options) {
@@ -9564,7 +9568,7 @@ var NativeLdsApi = class {
       options
     );
   }
-  /** Executes XQuery with optional pagination/cursor lifecycle. */
+  /** Выполнить XQuery; постраничное чтение и курсор необязательны. */
   xQuery(request, options) {
     return this.caller.call(
       "XQuery",
@@ -9581,8 +9585,8 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Releases a cursor previously returned to this LDS context.
-   * @mutating Changes transient cursor state.
+   * Освободить курсор, выданный ранее этой сессии LDS.
+   * @mutating Меняет временное состояние курсора.
    */
   releaseCursor(cursorId, options) {
     return this.caller.call(
@@ -9595,18 +9599,18 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Executes a server library method with inline XML `ArgData` children.
-   * Server 2025.1.1171 takes the arguments only as XML inside the SOAP body;
-   * it rejects external XOP attachments as Parameter is not XML.
-   * RunAsync uses a separate internal thread and returns no public task handle;
-   * its initial ResultData may be typed undefined and does not prove completion.
-   * GetAsyncMethodStatus and KillAsyncMethod cannot track this execution.
+   * Выполнить функцию библиотеки сервера; аргументы — дочерние элементы XML в `ArgData`.
+   * На сервере 2025.1.1171 аргументы принимаются только как XML в теле SOAP:
+   * внешнее вложение XOP отклоняется с Parameter is not XML.
+   * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
+   * первый ResultData может прийти с типом undefined и не означает завершения.
+   * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
    * @mutating
    */
   runMethod(request, options) {
     return runLdsMethod(this.caller, request, options);
   }
-  /** Keeps the current native LDS session active. */
+  /** Продлить текущую сессию native LDS. */
   idle(options) {
     return this.caller.call("Idle", [["SessionID", this.caller.id()]], options);
   }
@@ -9631,8 +9635,8 @@ var WebLdsApi = class {
     this.caller = caller;
   }
   /**
-   * Executes web LDS XQuery. `keepCursor` defaults to `true`; pass `false` for one-shot reads.
-   * @mutating When cursor retention is enabled (the default).
+   * Выполнить XQuery через web LDS. `keepCursor` по умолчанию `true`; для разового чтения нужен `false`.
+   * @mutating Если курсор сохраняется (по умолчанию).
    */
   xQuery(request, options) {
     return this.caller.call(
@@ -9649,8 +9653,8 @@ var WebLdsApi = class {
     );
   }
   /**
-   * Releases a caller-owned web LDS cursor.
-   * @mutating Changes transient cursor state.
+   * Освободить свой курсор web LDS.
+   * @mutating Меняет временное состояние курсора.
    */
   releaseCursor(cursorId, options) {
     return this.caller.call(
@@ -9663,19 +9667,19 @@ var WebLdsApi = class {
     );
   }
   /**
-   * Executes the stock LDS RunMethod in this web SOAP 1.1 context.
-   * ArgData contains inline typed XML children; SessionID precedes that stream.
-   * RunAsync uses a separate internal thread and returns no public task handle;
-   * its initial ResultData may be typed undefined and does not prove completion.
-   * GetAsyncMethodStatus and KillAsyncMethod cannot track this execution.
-   * Server target permissions still apply, independently of the web profile.
+   * Выполнить штатный RunMethod LDS в этой веб-сессии по SOAP 1.1.
+   * ArgData содержит дочерние элементы XML с типами; SessionID идёт перед ними.
+   * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
+   * первый ResultData может прийти с типом undefined и не означает завершения.
+   * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
+   * Права сервера на вызываемую функцию действуют и здесь, независимо от профиля web.
    * @mutating
    */
   runMethod(request, options) {
     return runLdsMethod(this.caller, request, options);
   }
   /**
-   * Deletes a document; web wire sends `StrictDelete=1` only when enabled.
+   * Удалить документ; `StrictDelete=1` отправляется, только когда он включён.
    * @mutating
    */
   deleteDoc(request, options) {
@@ -9697,7 +9701,7 @@ var rpc = Object.freeze({
     if (valueType.trim() === "") throw new TypeError("valueType: нужна непустая строка.");
     return { valueType, lexicalValue };
   },
-  /** Match the shipped XmElem serializer: validated child XML without an invented VALUE-TYPE. */
+  /** Повторяет штатный сериализатор XmElem: проверенный дочерний XML без выдуманного VALUE-TYPE. */
   xml(value) {
     if (!isRawXml(value)) throw new TypeError("Аргумент XML: нужен проверенный XML (RawXml).");
     return { lexicalValue: rawXmlElement(value.xml) };
@@ -9722,7 +9726,7 @@ var RpcApi = class {
     this.profile = profile;
   }
   /**
-   * Calls an existing server target; discovery evidence does not impose a hardcoded allowlist.
+   * Вызвать функцию библиотеки сервера; своим списком функций клиент вызов не ограничивает.
    * @mutating
    */
   async call(request, options) {
@@ -9742,7 +9746,7 @@ var RpcApi = class {
     );
     const result = findXmlNode(response.data, "Result");
     if (result === void 0)
-      throw new WsHcmApiError("protocol", "RPC response is missing Result", {
+      throw new WsHcmApiError("protocol", "В ответе RPC нет Result", {
         operation: "CallMethod"
       });
     const valueType = result !== null && typeof result === "object" ? result["@_VALUE-TYPE"] : void 0;
@@ -9764,14 +9768,14 @@ var WebSpXmlApi = class {
   }
   rpc;
   /**
-   * Synchronous allowlisted RPC call. The selected target may change state.
+   * Вызвать функцию библиотеки синхронно. Вызванная функция может менять данные.
    * @mutating
    */
   callMethod(request, options) {
     return this.rpc.call(request, options);
   }
   /**
-   * Starts an allowlisted asynchronous RPC task and returns a lossless TrackingID.
+   * Запустить функцию библиотеки фоновой задачей; ответ содержит TrackingID без потери точности.
    * @mutating
    */
   callMethodAsync(request, options) {
@@ -9791,12 +9795,12 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Lists background tasks filtered by library and method names.
-   * On server 2025.1.1171 the task pool is application-wide and can include other callers;
-   * matching a name does not establish task ownership. Expired nonrunning entries
-   * are removed before filtering. Recent terminal tasks are not
-   * consumed by this list, but their status/results are included in each Task.
-   * Use an independently journalled TrackingID for subsequent status or kill calls.
+   * Перечислить фоновые задачи по имени библиотеки и функции.
+   * На сервере 2025.1.1171 пул задач общий для приложения, в нём бывают чужие задачи;
+   * совпадение имени не значит, что задача своя. Устаревшие записи о завершённых задачах
+   * удаляются до отбора. Недавно завершённые задачи этот список
+   * не расходует: их состояние и результат входят в каждый Task.
+   * Для опроса и остановки нужен TrackingID, записанный отдельно при запуске.
    */
   getBackgroundTasksByName(request, options) {
     return soapCall(
@@ -9812,11 +9816,11 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Reads async task state using the original decimal or `0x` TrackingID lexical form.
-   * On server 2025.1.1171 the first terminal response consumes the finished tracking entry.
-   * Retain that payload immediately and never poll the finished ID again: a lost HTTP
-   * terminal response can consume its result. Other builds require separate verification.
-   * Poll running tasks no more often than once every 250 ms.
+   * Прочитать состояние фоновой задачи по TrackingID в исходной записи: десятичной или `0x`.
+   * На сервере 2025.1.1171 первый ответ о завершении расходует запись о задаче.
+   * Этот ответ нужно сохранить сразу и завершённый ID больше не опрашивать:
+   * если ответ HTTP потерян, результат уже израсходован. Другие сборки проверяются отдельно.
+   * Идущую задачу опрашивать не чаще раза в 250 мс.
    */
   getAsyncMethodStatus(trackingId, options) {
     return soapCall(
@@ -9829,7 +9833,7 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Requests task cancellation; successful cancellation of already-completed tasks is not guaranteed.
+   * Запросить остановку задачи; остановка уже завершённой задачи не гарантирована.
    * @mutating
    */
   killAsyncMethod(trackingId, options) {
@@ -9843,11 +9847,11 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Reads document XML using UTF-8 unless `charset` is supplied; response charset headers take precedence.
-   * Server 2025.1.1171 does not accept a TryLock query parameter on this route:
-   * a value passed in the query is refused.
-   * Use native LDS LoadDoc for a verified document-lock route.
-   * @mutating When `tryLock` is enabled.
+   * Прочитать XML документа в UTF-8, если не задан `charset`; кодировка из заголовков ответа важнее.
+   * Сервер 2025.1.1171 не принимает параметр TryLock на этом маршруте:
+   * значение в строке запроса отклоняется.
+   * Проверенный способ заблокировать документ — LoadDoc через native LDS.
+   * @mutating Если включён `tryLock`.
    */
   async getDoc(request, options) {
     const charset = request.charset ?? "utf-8";
@@ -9865,8 +9869,8 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Persists caller XML through web SPXML server pre-save processing.
-   * `neverSaved=true` sends `NeverSaved=1`; false/omitted sends no flag. This route has no `SkipActions` control.
+   * Сохранить свой XML через web SPXML; сервер выполняет обработку перед сохранением.
+   * `neverSaved=true` отправляет `NeverSaved=1`; при false или без значения флаг не отправляется. Управления `SkipActions` на этом маршруте нет.
    * @mutating
    */
   async putDoc(request, options) {
@@ -9889,7 +9893,7 @@ var SpXml2Base = class {
   constructor(transport2) {
     this.transport = transport2;
   }
-  /** Reads server application/bootstrap metadata; `application_module` is optional and may be absent. */
+  /** Прочитать сведения сервера о приложении; `application_module` необязателен и может отсутствовать. */
   async getAppInfo(request = {}, options) {
     return jsonResponse(
       await this.transport.send(
@@ -9904,7 +9908,7 @@ var SpXml2Base = class {
       )
     );
   }
-  /** Loads a form payload by server-local URL as text using the response charset. */
+  /** Прочитать форму по локальному URL сервера как текст в кодировке ответа. */
   async getForm(request, options) {
     return textResponse(
       await this.transport.send(query("/api/spxml2/get_form", request), {}, options)
@@ -9914,6 +9918,7 @@ var SpXml2Base = class {
 var NativeSpXml2Api = class extends SpXml2Base {
 };
 var WebSpXml2Api = class extends SpXml2Base {
+  /** Прочитать сведения сервера о приложении; по умолчанию отправляет `fast_start=1` и случайный `rnd`. */
   getAppInfo(request = {}, options) {
     return super.getAppInfo(
       {
@@ -9924,7 +9929,7 @@ var WebSpXml2Api = class extends SpXml2Base {
       options
     );
   }
-  /** Streams a web SPXML2 image with optional effect query values. */
+  /** Прочитать потоком картинку web SPXML2; параметры эффектов необязательны. */
   async getImage(request, options) {
     const response = await this.transport.send(
       query("/api/spxml2/get_image", { ...request.effects, url: request.url }),
@@ -9933,13 +9938,13 @@ var WebSpXml2Api = class extends SpXml2Base {
     );
     return binaryResponse(response, "get_image");
   }
-  /** Reads the default preloaded-design-file set. */
+  /** Прочитать набор предзагружаемых файлов оформления default. */
   async getPreloadedDesignFiles(options) {
     return textResponse(
       await this.transport.send("/api/spxml2/get_preloaded_design_files?set=default", {}, options)
     );
   }
-  /** Calls the shipped server `std_encrypt` service; this is not a general client-side encryption primitive. */
+  /** Вызвать штатную службу сервера `std_encrypt`; это не средство шифрования общего назначения на стороне клиента. */
   async stdEncrypt(text, options) {
     return jsonResponse(
       await this.transport.send(query("/api/spxml2/std_encrypt", { text }), {}, options)
@@ -9960,7 +9965,7 @@ var WebPageApi = class {
     if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
       throw new TypeError("maximumUploadBytes: нужно целое число больше нуля.");
   }
-  /** Reads the shipped PDF preview helper page as text. */
+  /** Прочитать штатную страницу предпросмотра PDF как текст. */
   async filePreviewPdf(options) {
     return textResponse(
       await this.transport.send(
@@ -9970,13 +9975,13 @@ var WebPageApi = class {
       )
     );
   }
-  /** Reads a form by server-local URL as text. */
+  /** Прочитать форму по локальному URL сервера как текст. */
   async getForm(request, options) {
     return textResponse(
       await this.transport.send(query("/spxml_web/service/get_form.htm", request), {}, options)
     );
   }
-  /** Reads a screen form by server-local URL as text. */
+  /** Прочитать экранную форму по локальному URL сервера как текст. */
   async getScreenForm(request, options) {
     return textResponse(
       await this.transport.send(
@@ -9987,11 +9992,11 @@ var WebPageApi = class {
     );
   }
   /**
-   * Streams SVG through the stock web page image handler. The server accepts
-   * x-app/x-local SVG URLs and checks source read access. Optional state values
-   * hover/pressed/disabled select the shipped color substitution; other values
-   * preserve the original content. Omission sends state="" because the shipped
-   * page requires that query field. Consume or cancel the returned body.
+   * Прочитать потоком SVG через штатную страницу картинок веб-интерфейса. Сервер принимает
+   * URL SVG в x-app и x-local и проверяет право чтения источника. Необязательные значения state
+   * hover, pressed и disabled включают штатную подмену цветов; при других значениях
+   * содержимое остаётся исходным. Без значения отправляется state="": штатная
+   * страница требует это поле запроса. Тело ответа нужно дочитать или отменить.
    */
   async getImage(request, options) {
     return binaryResponse(
@@ -10003,13 +10008,13 @@ var WebPageApi = class {
       "get_image.htm"
     );
   }
-  /** Reads and parses web UI text XML using its declared application charset. */
+  /** Прочитать и разобрать XML текстов веб-интерфейса в кодировке, объявленной приложением. */
   async getUiText(options) {
     return xmlResponse(
       await this.transport.send("/spxml_web/service/get_ui_text.htm", {}, options)
     );
   }
-  /** Streams page-service URL output; consume or cancel the returned body. */
+  /** Прочитать потоком ответ службы страниц по URL; тело нужно дочитать или отменить. */
   async getUrl(request, options) {
     const response = await this.transport.send(
       query("/spxml_web/service/get_url.htm", {
@@ -10024,11 +10029,11 @@ var WebPageApi = class {
     return binaryResponse(response, "get_url");
   }
   /**
-   * Uploads one file through the shipped multipart f/session_token workflow.
-   * The owning WebSession supplies its current private page token. Input is
-   * bounded by maxResponseBytes and an 8 MiB client input budget; no chunks or
-   * legacy base64 branch is implied. A successful response contains Url.
-   * @mutating Persists a server upload and runs the platform's upload rules.
+   * Загрузить один файл штатным способом: multipart с полями f и session_token.
+   * Текущий токен страницы подставляет веб-сессия, которой принадлежит вызов. Размер
+   * ограничен maxResponseBytes и пределом клиента 8 МиБ; части и старый вариант
+   * с base64 не используются. Успешный ответ содержит Url.
+   * @mutating Сохраняет файл на сервере; срабатывают правила загрузки платформы.
    */
   async uploadFile(request, options) {
     const invalidInput = (message) => new WsHcmApiError("protocol", message, { operation: "uploadFile", requestSent: false });
@@ -10068,20 +10073,20 @@ var WebPageApi = class {
     const body = result.data;
     const uploadedPath = body && typeof body === "object" && "Url" in body && typeof body.Url === "string" ? body.Url.split("/") : void 0;
     if (!body || typeof body !== "object" || Array.isArray(body) || !uploadedPath || uploadedPath.length !== 2 || !/^[A-Za-z0-9_-]{1,256}$/.test(uploadedPath[0]) || uploadedPath[1] !== filename || "error" in body && body.error !== 0 && body.error !== false)
-      throw new WsHcmApiError("protocol", "The upload response did not confirm a resource URL", {
+      throw new WsHcmApiError("protocol", "Ответ на загрузку не подтвердил URL ресурса", {
         operation: "uploadFile",
         status: result.status
       });
     return result;
   }
   /**
-   * Sends one stock upload_chunk POST with exact data bytes and an explicit Content-Range.
-   * The caller supplies a known 32-hex fileId and coordinates chunk order; the last part joins the file.
-   * Receipts do not independently prove chunk persistence or final file bytes.
-   * Verify staging with a storage-appropriate read before submitting the final part.
-   * Final errors can leave an unknown output URL; do not retry or guess cleanup targets.
-   * Requires the installed WebSoft/libMain branch and its existing principal/upload policies.
-   * @mutating Writes global chunk storage and may create an assembled upload.
+   * Отправить один штатный POST upload_chunk с байтами данных как есть и явным Content-Range.
+   * Вызывающий задаёт известный fileId из 32 шестнадцатеричных цифр и следит за порядком частей; последняя часть собирает файл.
+   * Ответы сами по себе не доказывают, что часть сохранена и что байты итогового файла верны.
+   * Перед последней частью загруженное нужно проверить чтением, подходящим для хранилища.
+   * После ошибки на последней части URL результата может остаться неизвестным: не повторять и не угадывать, что удалять.
+   * Нужна установленная ветка WebSoft/libMain и её действующие правила для пользователя и загрузки.
+   * @mutating Пишет в общее хранилище частей и может создать собранный файл.
    */
   async uploadChunk(request, options) {
     const invalidInput = (message) => new WsHcmApiError("protocol", message, { operation: "uploadChunk", requestSent: false });
@@ -10160,7 +10165,7 @@ var WebPageApi = class {
     if (!body || typeof body !== "object" || Array.isArray(body) || !("error" in body) || body.error !== 0 || !parts || parts.length !== 2 || !/^[A-Za-z0-9_-]{1,256}$/.test(parts[0]) || parts[1] !== filename)
       throw new WsHcmApiError(
         "protocol",
-        "The chunk response did not acknowledge the requested filename",
+        "Ответ на загрузку части не подтвердил запрошенное имя файла",
         {
           operation: "uploadChunk",
           status: result.status
@@ -10169,10 +10174,10 @@ var WebPageApi = class {
     return result;
   }
   /**
-   * Requests deletion of [0, chunksTotal) for a known caller-selected 32-hex fileId.
-   * The namespace is global; the server does not check who created this ID.
-   * An empty ACK does not prove chunk absence, directory removal, final-file or scratch cleanup.
-   * @mutating Requests chunk deletion; individual server errors are swallowed.
+   * Запросить удаление частей [0, chunksTotal) для известного fileId из 32 шестнадцатеричных цифр, выбранного вызывающим.
+   * Пространство ID общее: сервер не проверяет, кто создал этот ID.
+   * Пустой ответ не доказывает, что части, папка, итоговый файл и временные данные удалены.
+   * @mutating Запрашивает удаление частей; отдельные ошибки сервера не сообщаются.
    */
   async clearUploadChunks(request, options) {
     const invalidInput = (message) => new WsHcmApiError("protocol", message, {
@@ -10199,14 +10204,10 @@ var WebPageApi = class {
       )
     );
     if (!result.rawBody.every((byte) => byte === 9 || byte === 10 || byte === 13 || byte === 32))
-      throw new WsHcmApiError(
-        "protocol",
-        "The clear_chunks response was not an empty acknowledgement",
-        {
-          operation: "clearUploadChunks",
-          status: result.status
-        }
-      );
+      throw new WsHcmApiError("protocol", "Ответ clear_chunks — не пустое подтверждение", {
+        operation: "clearUploadChunks",
+        status: result.status
+      });
     return {
       ...result,
       data: {
@@ -10222,7 +10223,7 @@ var ResourceApi = class {
   constructor(transport2) {
     this.transport = transport2;
   }
-  /** Streams a resource image by lossless decimal ID and optional image type. */
+  /** Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен. */
   async getImage(request, options) {
     const response = await this.transport.send(
       query("/lds/get_resource_image.html", {
@@ -10235,17 +10236,16 @@ var ResourceApi = class {
     return binaryResponse(response, "get_resource_image");
   }
   /**
-   * Streams a named compound-attc attachment through GET /xhttp_res.
-   * Use url for an x-local/x-app HTML source, or docUrl plus elemPath for a
-   * document string field (also accepts a registered x-db-obj document).
-   * elemPath starts with the document element name, such as presence_state.name;
-   * obtain it from the actual document rather than guessing its root or layout.
-   * The server decodes the matching attachment data and selects media type
-   * from resId. Stock 1171 also requires URL sources under configured courses_path;
-   * a permitted local scheme alone does not establish that prefix.
-   * Native Administrator builds this route; the web alias uses
-   * the same server handler with its own HTTP context, not a distinct caller
-   * claim. Consume or cancel the returned body.
+   * Прочитать потоком именованное вложение compound-attc через GET /xhttp_res.
+   * Источник — url для HTML с адресом x-local или x-app либо docUrl вместе с elemPath
+   * для строкового поля документа (подходит и зарегистрированный документ x-db-obj).
+   * elemPath начинается с имени корневого элемента документа, например presence_state.name;
+   * его берут из самого документа, а не угадывают корень и структуру.
+   * Сервер декодирует данные найденного вложения и выбирает тип содержимого
+   * по resId. Штатный сервер 2025.1.1171 требует ещё, чтобы источник url лежал в настроенном courses_path:
+   * одной разрешённой локальной схемы для этого мало.
+   * Этим маршрутом пользуется штатный клиент администратора; варианты native и web —
+   * один маршрут сервера, различается только сессия HTTP. Тело ответа нужно дочитать или отменить.
    */
   async getCompoundResource(request, options) {
     const value = request;
@@ -10281,7 +10281,7 @@ var DiagnosticsApi = class {
   constructor(transport2) {
     this.transport = transport2;
   }
-  /** Observes the portal status without following redirects or retaining its body. */
+  /** Прочитать статус портала, не переходя по перенаправлениям и не сохраняя тело ответа. */
   async portal(options) {
     const response = await this.transport.send(
       "/loggedoff.html",
@@ -10295,7 +10295,7 @@ var DiagnosticsApi = class {
     await response.body?.cancel();
     return { status: response.status };
   }
-  /** Reads `/xhttp_info`, using Basic auth only when client credentials were configured. */
+  /** Прочитать `/xhttp_info`; авторизация Basic применяется, только если клиенту заданы учётные данные. */
   async xhttpInfo(options) {
     return textResponse(
       await this.transport.send(
@@ -10311,13 +10311,13 @@ var ExperimentalApi = class {
     this.transport = transport2;
   }
   /**
-   * Sends a same-origin caller-defined request and returns its body as a stream.
-   * `unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;
-   * configured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.
+   * Отправить свой запрос на тот же origin и вернуть тело ответа потоком.
+   * `unsafe: true` обязателен. Сериализация обычных операций, разбор ошибок сервера и гарантии об исходе записи не действуют;
+   * настроенные авторизация и cookie применяются, а метод, заголовки, тело и закрытие потока — на вызывающем.
    */
   async rawRequest(request, options) {
     if (request.unsafe !== true)
-      throw new WsHcmApiError("protocol", "Experimental raw requests require unsafe: true");
+      throw new WsHcmApiError("protocol", "Экспериментальный rawRequest требует unsafe: true");
     const response = await this.transport.send(
       request.path,
       {
@@ -10335,8 +10335,8 @@ var ExperimentalApi = class {
 };
 var WebExperimentalApi = class extends ExperimentalApi {
   /**
-   * Calls the partial web authentication route; success cookie/body semantics are not fully established.
-   * @mutating Changes authentication/session state.
+   * Вызвать частично поддержанный маршрут веб-аутентификации; cookie и тело успешного ответа до конца не установлены.
+   * @mutating Меняет состояние аутентификации и сессии.
    */
   async authenticate(request, options) {
     return jsonResponse(
@@ -10365,7 +10365,7 @@ function createWebLdsApi(transport2, sessionId) {
 function lexical(value, name, operation) {
   const source = value !== null && typeof value === "object" && "#text" in value ? value["#text"] : value;
   if (typeof source !== "string" && typeof source !== "number" && typeof source !== "boolean") {
-    throw new WsHcmApiError("protocol", `Missing ${name}`, { operation });
+    throw new WsHcmApiError("protocol", `В ответе нет ${name}`, { operation });
   }
   return String(source).trim();
 }
@@ -10382,7 +10382,7 @@ function directDocumentId(value) {
   const ids = children.filter(([name]) => localName(name) === "id");
   if (ids.length !== 1 || Array.isArray(ids[0][1])) return void 0;
   try {
-    return lexical(ids[0][1], "document id", "PhysicalDocuments.createFromXml");
+    return lexical(ids[0][1], "ID документа", "PhysicalDocuments.createFromXml");
   } catch {
     return void 0;
   }
@@ -10426,9 +10426,9 @@ var NativePhysicalDocumentsApi = class {
     this.lds = lds;
   }
   /**
-   * Allocates an ID, writes caller-built XML, and verifies it with `LoadDoc`.
-   * Defaults to `WriteDocInfo=true`, `NeverSaved=true`, and enabled server pre-save processing.
-   * A failed write/verification triggers best-effort `DeleteDoc` cleanup before the original error is rethrown.
+   * Выделяет ID, записывает XML, собранный вызывающим, и проверяет его через `LoadDoc`.
+   * По умолчанию `WriteDocInfo=true`, `NeverSaved=true`, обработка сервера до сохранения включена.
+   * Сбой записи или проверки запускает попытку очистки `DeleteDoc`; затем ошибка бросается снова.
    *
    * @mutating
    */
@@ -10469,7 +10469,7 @@ var NativePhysicalDocumentsApi = class {
       if (loadedId?.toUpperCase() !== location.objectId.toUpperCase()) {
         throw new WsHcmApiError(
           "protocol",
-          "Loaded document id does not match allocated objectId",
+          "ID загруженного документа не совпадает с выделенным objectId",
           {
             operation: "LoadDoc",
             status: loadResponse.status
@@ -10482,11 +10482,15 @@ var NativePhysicalDocumentsApi = class {
         try {
           await this.lds.deleteDoc({ url: location.url, strictDelete: false });
         } catch (cause) {
-          const cleanupError = new WsHcmApiError("cleanup", "Physical document cleanup failed", {
-            operation: "DeleteDoc",
-            ...cause instanceof WsHcmApiError && cause.status !== void 0 ? { status: cause.status } : {},
-            cause
-          });
+          const cleanupError = new WsHcmApiError(
+            "cleanup",
+            "Не удалось удалить созданный документ",
+            {
+              operation: "DeleteDoc",
+              ...cause instanceof WsHcmApiError && cause.status !== void 0 ? { status: cause.status } : {},
+              cause
+            }
+          );
           attachCleanupError(operationError, cleanupError);
         }
       }
@@ -10664,7 +10668,7 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       if (!state.localSocketDisposed && !failure)
         failure = {
           code: "WS_DISPOSAL_FAILED",
-          message: "WebSocket local disposal was not observed"
+          message: "Закрытие локального сокета WebSocket не зафиксировано"
         };
       if (failure) reject(new WebSocketHeartbeatError(failure.code, receipt()));
       else if (state.handshakeValidated && state.heartbeatWritten && state.heartbeatObserved)
@@ -10702,7 +10706,7 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       state.peerEofObserved = true;
     }
     function onSocketError() {
-      if (!finished) fail("WS_TRANSPORT_ERROR", "WebSocket transport failed");
+      if (!finished) fail("WS_TRANSPORT_ERROR", "Сбой транспорта WebSocket");
     }
     function account(bytes, message = false) {
       if (failure || terminating || finished) return false;
@@ -10710,7 +10714,7 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       events++;
       if (message) messages++;
       if (bytes > MAX_MESSAGE_BYTES || receivedBytes > MAX_TOTAL_BYTES || messages > MAX_MESSAGES || events > 32) {
-        fail("WS_RESPONSE_LIMIT", "WebSocket response exceeded its bounded limits");
+        fail("WS_RESPONSE_LIMIT", "Ответ WebSocket превысил заданные пределы");
         return false;
       }
       return true;
@@ -10723,14 +10727,14 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       try {
         ws.close(1e3);
       } catch {
-        fail("WS_TRANSPORT_ERROR", "WebSocket close request failed");
+        fail("WS_TRANSPORT_ERROR", "Не удалось отправить запрос закрытия WebSocket");
       }
     }
     deadline = setTimeout(() => {
       if (state.heartbeatWritten && state.heartbeatObserved && state.closeRequested) {
         state.warning = "PEER_CLOSE_ACK_NOT_OBSERVED";
         terminate();
-      } else fail("WS_HEARTBEAT_FAILED", "Stock heartbeat deadline expired");
+      } else fail("WS_HEARTBEAT_FAILED", "Истёк срок ожидания штатного heartbeat");
     }, timeoutMs);
     try {
       ws = factory(
@@ -10752,14 +10756,14 @@ async function webSocketHeartbeat(http, factory, input = {}) {
         })
       );
     } catch {
-      fail("WS_HANDSHAKE_FAILED", "WebSocket connector failed");
+      fail("WS_HANDSHAKE_FAILED", "Соединение WebSocket не создано");
       return;
     }
     ws.on("error", (error) => {
       if (finished || terminating && failure) return;
       const code = error && typeof error === "object" && "code" in error ? error.code : void 0;
       const limited = code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" || code === "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH" || code === "WS_ERR_TOO_MANY_BUFFERED_PARTS";
-      fail(limited ? "WS_RESPONSE_LIMIT" : "WS_TRANSPORT_ERROR", "WebSocket connection failed");
+      fail(limited ? "WS_RESPONSE_LIMIT" : "WS_TRANSPORT_ERROR", "Сбой соединения WebSocket");
     });
     ws.on("upgrade", (response) => {
       const status = boundedInteger(response.statusCode, 100, 599, 0);
@@ -10772,7 +10776,7 @@ async function webSocketHeartbeat(http, factory, input = {}) {
         const candidate = new SessionCookie();
         for (const value of cookies) candidate.capture(new Headers({ "set-cookie": value }));
         if (cookies.some((value) => /^\s*SessionID\s*=/i.test(value)) && candidate.value !== cookie)
-          fail("WS_SESSION_CHANGED", "WebSocket handshake changed the owned session cookie");
+          fail("WS_SESSION_CHANGED", "Handshake WebSocket изменил cookie своей сессии");
       }
     });
     ws.on("unexpected-response", (request, response) => {
@@ -10780,7 +10784,7 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       if (status !== 0) state.httpStatus = status;
       fail(
         status === 401 ? "WS_AUTHENTICATION_REQUIRED" : status === 403 ? "WS_PERMISSION_DENIED" : "WS_HANDSHAKE_FAILED",
-        "Stock WebSocket handshake was rejected"
+        "Штатный handshake WebSocket отклонён"
       );
       response.destroy();
       request.destroy();
@@ -10792,14 +10796,15 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       try {
         ws.send("$hbt", (error) => {
           if (error) {
-            if (!terminating && !finished) fail("WS_TRANSPORT_ERROR", "Heartbeat write failed");
+            if (!terminating && !finished)
+              fail("WS_TRANSPORT_ERROR", "Не удалось отправить heartbeat");
             return;
           }
           state.heartbeatWritten = true;
           requestClose();
         });
       } catch {
-        fail("WS_TRANSPORT_ERROR", "Heartbeat write failed");
+        fail("WS_TRANSPORT_ERROR", "Не удалось отправить heartbeat");
       }
     });
     ws.on("message", (data, binary) => {
@@ -10816,10 +10821,10 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       try {
         ws.pong(data, true, (error) => {
           if (error && !terminating && !finished)
-            fail("WS_TRANSPORT_ERROR", "WebSocket pong write failed");
+            fail("WS_TRANSPORT_ERROR", "Не удалось отправить pong WebSocket");
         });
       } catch {
-        fail("WS_TRANSPORT_ERROR", "WebSocket pong write failed");
+        fail("WS_TRANSPORT_ERROR", "Не удалось отправить pong WebSocket");
       }
     });
     ws.on("pong", (data) => {
@@ -10835,13 +10840,13 @@ async function webSocketHeartbeat(http, factory, input = {}) {
         else
           failure = {
             code: "WS_TRANSPORT_ERROR",
-            message: "WebSocket ended without the expected heartbeat/close observations"
+            message: "WebSocket завершился без ожидаемых heartbeat и закрытия"
           };
       }
       if (!failure && code !== 1006 && code !== 1e3 && code !== 1005)
         failure = {
           code: "WS_HEARTBEAT_FAILED",
-          message: "WebSocket peer reported an unsuccessful close"
+          message: "Другая сторона WebSocket сообщила о неуспешном закрытии"
         };
       settle();
     });
@@ -10919,14 +10924,14 @@ var NativeSession = class _NativeSession {
       throw error;
     }
   }
-  /** Drops local access without claiming that server-side LDS cleanup was acknowledged. */
+  /** Снять локальный доступ, не утверждая, что очистку LDS на сервере подтвердили. */
   disposeLocal() {
     this.#closed = true;
     this.transport.dispose();
   }
   /**
-   * Idempotently closes LDS, visits `/loggedoff.html`, and clears only this session's cookie.
-   * The landing-page leg is partial lifecycle metadata, not a standalone supported operation.
+   * Идемпотентно закрыть LDS, зайти на `/loggedoff.html` и очистить только cookie этой сессии.
+   * Шаг со страницей выхода — часть жизненного цикла, а не отдельная поддерживаемая операция.
    */
   async close() {
     if (this.#closed) return;
@@ -10952,9 +10957,9 @@ var NativeSession = class _NativeSession {
       this.disposeLocal();
     }
     if (errors.length > 0) {
-      throw new WsHcmApiError("cleanup", "Native session cleanup failed", {
+      throw new WsHcmApiError("cleanup", "Не удалось закрыть сессию native", {
         details: { errorCount: errors.length },
-        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Native cleanup failures")
+        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Ошибки при закрытии сессии native")
       });
     }
   }
@@ -11044,7 +11049,7 @@ async function boundedWebBootstrap(response, maximumBytes) {
       if (part.done) break;
       length += part.value.byteLength;
       if (length > maximumBytes)
-        throw new WsHcmApiError("protocol", "Web bootstrap exceeds its bounded HTML limit");
+        throw new WsHcmApiError("protocol", "Стартовая страница web превышает предел размера HTML");
       chunks.push(part.value.slice());
     }
     const bytes = new Uint8Array(length);
@@ -11065,7 +11070,7 @@ var WebLifecycleApi = class {
     this.transport = transport2;
     this.onMain = onMain;
   }
-  /** Reads the `/admin` redirect response without following it. */
+  /** Прочитать ответ `/admin` с перенаправлением, не переходя по нему. */
   async admin(options) {
     const response = await this.transport.send(
       "/admin",
@@ -11085,7 +11090,7 @@ var WebLifecycleApi = class {
       rawBody
     };
   }
-  /** Reads the authenticated web Administrator main page. */
+  /** Прочитать главную страницу веб-администратора после входа. */
   async main(options) {
     this.onMain?.(void 0);
     const response = await this.transport.send("/spxml_web/main.htm", {}, options);
@@ -11096,7 +11101,7 @@ var WebLifecycleApi = class {
     this.onMain?.(data);
     return { status: response.status, headers: response.headers, data, rawBody };
   }
-  /** Runs both logout legs; observed transport loss stops further requests. */
+  /** Выполнить оба шага выхода; при потере связи дальнейшие запросы не отправляются. */
   async logout(options) {
     this.onMain?.(void 0);
     let logoutError;
@@ -11123,7 +11128,7 @@ var WebLifecycleApi = class {
     }
     if (logoutError !== void 0) throw logoutError;
   }
-  /** Executes the second web logout leg; `logout()` calls it. */
+  /** Выполнить второй шаг веб-выхода; его вызывает `logout()`. */
   async logout2(options) {
     this.onMain?.(void 0);
     const second = await this.transport.send(
@@ -11181,7 +11186,7 @@ var WebSession = class _WebSession {
       }
       const html = await boundedWebBootstrap(main, defaults.maxResponseBytes);
       if (http.cookie.value === void 0)
-        throw new WsHcmApiError("protocol", "Web bootstrap did not return SessionID cookie");
+        throw new WsHcmApiError("protocol", "Стартовая страница web не вернула cookie SessionID");
       const opened = await openLdsSession(http, "web");
       return new _WebSession(
         http,
@@ -11201,7 +11206,7 @@ var WebSession = class _WebSession {
       throw error;
     }
   }
-  /** One stock transport heartbeat, with bounded socket disposal before the receipt is returned. */
+  /** Один штатный heartbeat; ограниченное по времени закрытие сокета — до возврата сводки. */
   heartbeat(input = {}) {
     if (this.#closed)
       return Promise.reject(
@@ -11221,13 +11226,13 @@ var WebSession = class _WebSession {
     });
     return pending;
   }
-  /** Invalidates the local context after a directly requested terminal web logout. */
+  /** Сделать локальный контекст недействительным после прямо запрошенного итогового веб-выхода. */
   disposeLocal() {
     this.#closed = true;
     this.#uploadToken = void 0;
     this.transport.dispose();
   }
-  /** Idempotently closes web LDS, runs both logout pages, and clears only this session's cookie. */
+  /** Идемпотентно закрыть web LDS, пройти обе страницы выхода, очистить cookie лишь этой сессии. */
   async close() {
     if (this.#closed) return;
     this.#closed = true;
@@ -11248,9 +11253,9 @@ var WebSession = class _WebSession {
       this.transport.dispose();
     }
     if (errors.length > 0) {
-      throw new WsHcmApiError("cleanup", "Web session cleanup failed", {
+      throw new WsHcmApiError("cleanup", "Не удалось закрыть сессию web", {
         details: { errorCount: errors.length },
-        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Web cleanup failures")
+        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Ошибки при закрытии сессии web")
       });
     }
   }
@@ -11274,27 +11279,27 @@ var WsHcmClient = class {
     this.diagnostics = new DiagnosticsApi(anonymous);
     this.experimental = new ExperimentalApi(anonymous);
   }
-  /** Disposes the standalone diagnostics/raw context. Session owners close their sessions separately. */
+  /** Освободить автономный контекст диагностики и сырых запросов; сессии закрывают их владельцы. */
   close() {
     this.#anonymous.dispose();
   }
-  /** Local guard used before web bootstrap when a custom HTTP connector is supplied. */
+  /** Локальная проверка перед начальной загрузкой web, когда задан собственный коннектор HTTP. */
   assertWebSocketAvailable() {
     assertWebSocketAvailable(this.#defaults.webSocketFactory);
   }
-  /** Opens a native session. The caller owns it and must call `close()`. */
+  /** Открыть сессию native. Ею владеет вызывающий, он обязан вызвать `close()`. */
   openNativeSession() {
     return NativeSession.open(this.#defaults);
   }
-  /** Opens a web Administrator session. The caller owns it and must call `close()`. */
+  /** Открыть сессию web Administrator. Ею владеет вызывающий, он обязан вызвать `close()`. */
   openWebSession() {
     return WebSession.open(this.#defaults);
   }
-  /** Runs an action in a native session and closes it in `finally`, preserving operation error precedence. */
+  /** Выполнить действие в сессии native и закрыть её в `finally`; главная — ошибка операции. */
   async withNativeSession(action) {
     return withCleanup(await this.openNativeSession(), action);
   }
-  /** Runs an action in a web session and closes it in `finally`, preserving operation error precedence. */
+  /** Выполнить действие в сессии web и закрыть её в `finally`; главная — ошибка операции. */
   async withWebSession(action) {
     return withCleanup(await this.openWebSession(), action);
   }

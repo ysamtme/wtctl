@@ -32,8 +32,8 @@ export interface LogReadInput {
     readonly full?: boolean;
 }
 /**
- * The server's own reader refused a listed file, also on the repeated attempt. The server gives
- * no reason; on the stands this happens while it is writing to that file.
+ * Собственный читатель сервера отказал на файле из списка и при повторной попытке. Причину
+ * сервер не называет; на стендах это бывает, пока он пишет в этот файл.
  */
 export declare class LogReadUnavailableError extends HcmError {
     constructor();
@@ -43,7 +43,7 @@ export interface LogReadData {
     readonly text: string;
     readonly requestedMode: "full" | "tail";
     readonly requestedTailBytes?: number;
-    /** Actual bounded range passed to the server; it can be smaller than the requested tail. */
+    /** Фактически переданный серверу ограниченный диапазон; может быть меньше запрошенного хвоста. */
     readonly effectiveTailBytes: number;
     readonly sizeBytesBefore: string;
     readonly sizeBytesAfter: string;
@@ -73,7 +73,7 @@ export interface LogSearchInput extends LogReadInput {
     readonly context?: string;
     readonly offset?: number;
     readonly limit?: number;
-    /** Latest matches first; offset then counts from the end of the file. */
+    /** Сначала новейшие совпадения; offset тогда считается с конца файла. */
     readonly newestFirst?: boolean;
     readonly expectedFingerprint?: string;
 }
@@ -102,15 +102,15 @@ export interface LogFollowData {
     readonly semantics: "tail overlap; updated final events may be repeated; no byte cursor or exactly-once guarantee";
 }
 /**
- * Which log a file belongs to: its name without the date. The server's own type column puts most
- * logs into one group, so it does not tell them apart.
+ * К какому логу относится файл: его имя без даты. Собственный столбец типа на сервере
+ * сводит большинство логов в одну группу, поэтому по нему их не различить.
  */
 export declare function logKind(name: string): string;
-/** Parse the actual table-data cells returned by tools_report.server_log_report. */
+/** Разбирает фактические ячейки таблицы данных от tools_report.server_log_report. */
 export declare function parseLogReport(source: string): LogFile[];
-/** Preserve continuation lines and stack traces; timestamps stay in server-local text. */
+/** Сохраняет строки продолжения и стеки; время остаётся текстом в местном времени сервера. */
 export declare function parseLogEvents(source: string, dateHint?: string, partialBeginning?: boolean): LogEvent[];
-/** Remote-only log access through two existing, audited read-only platform methods. */
+/** Доступ к логам только удалённо: два существующих проверенных метода чтения платформы. */
 export declare class LogReader {
     private readonly gateway;
     private readonly maxTailBytes;
@@ -121,9 +121,9 @@ export declare class LogReader {
         readonly logBusyMs?: number;
     });
     /**
-     * The server keeps a log file to itself for about five seconds after writing a line to it
-     * (measured on 2025.1.1333 and 2025.2.1535) and refuses to read it meanwhile. The owner reports
-     * a request the server has just refused, since the refusal is what gets written.
+     * Сервер держит файл лога за собой около пяти секунд после записи в него строки
+     * (замер на 2025.1.1333 и 2025.2.1535) и всё это время отказывает в чтении. Владелец
+     * отмечает запрос, который сервер только что отклонил, потому что в лог пишется именно отказ.
      */
     serverWroteLog(): void;
     private whileBusy;

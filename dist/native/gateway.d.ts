@@ -1,11 +1,11 @@
 import type { NativeConfig, NativeOperation } from "../contracts.js";
 import { WsHcmClient, type NativeSession, type WebSession } from "../protocol/client.js";
 export declare function getNativeOperations(): readonly NativeOperation[];
-/** The effect of a registry operation for these arguments, internal operations included; undefined for an unknown ID. */
+/** Эффект операции реестра для этих аргументов (и внутренней); undefined для неизвестного ID. */
 export declare function nativeEffect(id: string, args: Record<string, unknown>): NativeOperation["effect"] | undefined;
-/** The failure happened while opening the session: the operation itself was not sent. */
+/** Сбой случился при открытии сессии: сама операция не отправлена. */
 export declare function loginFailed(error: unknown): boolean;
-/** Stateful owner shared by SDK, MCP and CLI. Calls are serialized to protect session/cursor identity. */
+/** Владелец состояния для SDK, MCP и CLI. Вызовы идут по очереди: сессия и курсор не путаются. */
 export declare class NativeGateway {
     readonly client: WsHcmClient;
     private nativeSession;
@@ -22,10 +22,11 @@ export declare class NativeGateway {
     closeProfile(profile: "native" | "web"): Promise<void>;
     call(id: string, args: Record<string, unknown>): Promise<unknown>;
     /**
-     * The server drops a session that stayed idle (within twenty minutes on the stands) or was closed
-     * from its side; every later request then gets HTTP 401. A long-lived owner would stay locked out,
-     * so the dropped session is replaced by a new login and the request is sent once more. The server
-     * rejects such a request before handling it, hence the repeat cannot run anything twice.
+     * Сервер сбрасывает сессию, простоявшую без дела (на стендах — в пределах двадцати минут),
+     * или закрытую с его стороны; каждый следующий запрос получает HTTP 401. Долгоживущий владелец
+     * остался бы без доступа, поэтому сброшенная сессия заменяется новым входом, и запрос
+     * отправляется ещё раз. Сервер отклоняет такой запрос до обработки, поэтому повтор не может
+     * выполнить что-либо дважды.
      */
     private invoke;
     private output;

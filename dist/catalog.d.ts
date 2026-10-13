@@ -1,5 +1,5 @@
 import type { OperationDefinition, OperationFilter, OperationPage } from "./contracts.js";
-/** Packaged operation metadata only; no connection, credentials or server probe. */
+/** Только упакованные метаданные операций: без подключения, учётных данных и проверки сервера. */
 export declare function listHcmOperations(filter?: OperationFilter): OperationPage;
-/** Exact descriptor of one operation; no connection or server probe. */
+/** Точное описание одной операции; без подключения и проверки сервера. */
 export declare function describeHcmOperation(id: string): OperationDefinition;

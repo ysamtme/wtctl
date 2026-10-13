@@ -14,9 +14,9 @@ declare const ERROR_MESSAGES: {
     readonly WS_DISPOSAL_FAILED: "Не удалось убедиться, что соединение WebSocket закрыто с этой стороны.";
 };
 export type WebSocketHeartbeatErrorCode = keyof typeof ERROR_MESSAGES;
-/** Uses only the pinned library's public constructor and public events/methods. */
+/** Использует лишь публичный конструктор закреплённой библиотеки, её публичные события и методы. */
 export declare const defaultWebSocketFactory: WebSocketFactory;
-/** Fixed diagnostics and canonical observations; arbitrary upstream details are never copied. */
+/** Фиксированная диагностика и канонические наблюдения; произвольные подробности не копируются. */
 export declare class WebSocketHeartbeatError extends WsHcmApiError {
     readonly errorCode: WebSocketHeartbeatErrorCode;
     readonly hint: string;
@@ -25,8 +25,11 @@ export declare class WebSocketHeartbeatError extends WsHcmApiError {
         requestSent?: false;
     });
 }
-/** Fail before HTTP bootstrap when a synthetic HTTP connector has no matching socket connector. */
+/** Отказать до начальной загрузки HTTP, если у подставного коннектора HTTP нет парного сокета. */
 export declare function assertWebSocketAvailable(factory: WebSocketFactory | undefined): asserts factory is WebSocketFactory;
-/** A single bounded stock heartbeat; no app payloads, LDS tags, reconnects or delivery guarantees. */
+/**
+ * Один ограниченный штатный heartbeat: без payload приложения, тегов LDS, переподключений
+ * и гарантий доставки.
+ */
 export declare function webSocketHeartbeat(http: HttpTransport, factory: WebSocketFactory | undefined, input?: WebSocketHeartbeatInput): Promise<WebSocketHeartbeatData>;
 export {};

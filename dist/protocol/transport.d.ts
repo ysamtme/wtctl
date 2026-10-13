@@ -9,7 +9,7 @@ export interface TransportOptions {
 }
 export interface SendOptions extends RequestOptions {
     basic?: boolean;
-    /** "any": a response with any HTTP status completes the request (the logout landing page). */
+    /** "any": ответ с любым статусом HTTP завершает запрос (страница выхода). */
     allowStatuses?: readonly number[] | "any";
     redirect?: RequestRedirect;
 }
@@ -30,9 +30,9 @@ export declare class HttpTransport {
     private resolve;
     send(path: string, init?: RequestInit, options?: SendOptions): Promise<Response>;
 }
-/** Why a request got no HTTP response, as a fixed word; the system error text itself is not kept. */
+/** Почему на запрос не пришёл ответ HTTP, одним словом; текст системной ошибки не хранится. */
 export type NetworkFailure = "refused" | "unknown_host" | "unreachable" | "certificate" | "tls" | "not_http" | "redirect" | "timeout" | "reset" | "aborted" | "failed";
-/** Enforces a byte budget before any consumer can buffer an untrusted response. */
+/** Ограничивает число байтов до того, как потребитель сможет буферизовать недоверенный ответ. */
 export declare function limitResponse(response: Response, maxBytes: number): Response;
 export declare function responseBytes<T>(response: Response, data: T): Promise<WsHcmResponse<T>>;
 export declare function query(path: string, values: Readonly<Record<string, unknown>>): string;

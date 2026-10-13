@@ -2,49 +2,51 @@ import type { NativeLdsApi, SoapResult } from "./api.js";
 import type { RequestOptions } from "./types.js";
 import { type RawXml } from "./xml.js";
 export interface PhysicalDocumentLocation {
-    /** Canonical ID lexical form stored in the document. */
+    /** Каноническая запись ID, хранящаяся в документе. */
     objectId: string;
-    /** Physical x-local URL accepted by native LDS document operations. */
+    /** Физический URL x-local, который принимают операции документов native LDS. */
     url: string;
 }
 export interface CreatePhysicalDocumentRequest {
-    /** Target physical database. Defaults to the classic WebTutor database `wt_data`. */
+    /** Целевая физическая база. По умолчанию классическая база WebTutor `wt_data`. */
     dbName?: string;
-    /** Populate server-managed `doc_info` metadata. Defaults to `true`. */
+    /** Заполнить управляемые сервером метаданные `doc_info`. По умолчанию `true`. */
     writeDocInfo?: boolean;
-    /** Suppress server pre-save action processing. Defaults to `false`/omitted. */
+    /** Отключить обработку действий сервера перед сохранением. По умолчанию `false` или не задано. */
     skipActions?: boolean;
-    /** Set the server document-state `NeverSaved` marker. Defaults to `true`; broader semantics are form-dependent. */
+    /** Установить маркер документа `NeverSaved`. По умолчанию `true`; шире смысл зависит от формы. */
     neverSaved?: boolean;
-    /** Builds one complete XML document containing the exact supplied `objectId`. */
+    /** Строит один полный XML-документ с точно заданным `objectId`. */
     document: (location: PhysicalDocumentLocation) => RawXml;
 }
 export interface CreatedPhysicalDocument extends PhysicalDocumentLocation {
-    /** Buffered LDS `PutDoc` response proving transport success. */
+    /** Буферизованный ответ LDS `PutDoc`, подтверждающий успех транспорта. */
     putResponse: SoapResult;
-    /** Buffered LDS `LoadDoc` response whose direct root ID was verified against `objectId`. */
+    /** Буферизованный ответ LDS `LoadDoc`, у которого ID корня сверен с `objectId`. */
     loadResponse: SoapResult;
 }
 /**
- * Applies the shipped web `XmBuildMessObjectUrl` layout without converting the ID through `number`.
+ * Применяет штатную раскладку веб-версии `XmBuildMessObjectUrl`, не превращая ID в `number`.
  *
- * IDs below 4,000,000,000 use the decimal `/100` layout. All other IDs use the fixed 16-hex `14/2` layout.
- * This helper implements the shipped web layout; it does not claim to reproduce every internal `BindToDb` decision.
+ * ID меньше 4 000 000 000 идут по десятичной раскладке `/100`, остальные — по раскладке `14/2`
+ * из 16 шестнадцатеричных цифр. Это штатная раскладка веба; воспроизведения каждого решения
+ * `BindToDb` она не заявляет.
  */
 export declare function resolvePhysicalDocumentLocation(idLexeme: string, dbName?: string): PhysicalDocumentLocation;
 export declare function parsePhysicalDocumentId(url: string): string | undefined;
 /**
- * Composes native physical persistence primitives without executing a client XMD runtime or registering an object type.
- * Native LDS executes server pre-save processing unless `skipActions` is true.
- * A successful return verifies physical round-trip and root ID, not arbitrary catalog visibility or full XMD/business rules.
+ * Собирает примитивы физического сохранения native без клиентского XMD и регистрации типа объекта.
+ * LDS native выполняет серверную обработку перед сохранением, если не задан `skipActions`.
+ * Успешный возврат подтверждает, что документ записан и читается обратно, и ID корня,
+ * но не видимость в каталоге и не полные правила XMD и бизнес-правила.
  */
 export declare class NativePhysicalDocumentsApi {
     private readonly lds;
     constructor(lds: NativeLdsApi);
     /**
-     * Allocates an ID, writes caller-built XML, and verifies it with `LoadDoc`.
-     * Defaults to `WriteDocInfo=true`, `NeverSaved=true`, and enabled server pre-save processing.
-     * A failed write/verification triggers best-effort `DeleteDoc` cleanup before the original error is rethrown.
+     * Выделяет ID, записывает XML, собранный вызывающим, и проверяет его через `LoadDoc`.
+     * По умолчанию `WriteDocInfo=true`, `NeverSaved=true`, обработка сервера до сохранения включена.
+     * Сбой записи или проверки запускает попытку очистки `DeleteDoc`; затем ошибка бросается снова.
      *
      * @mutating
      */

@@ -15,6 +15,6 @@ export interface CheckData {
     };
 }
 type Invoke = (id: string, args: Record<string, unknown>) => Promise<unknown>;
-/** Fixed probes retain neither server payloads nor error messages in the report. */
+/** Фиксированные пробы не сохраняют в отчёте ни payload сервера, ни тексты ошибок. */
 export declare function checkServer(config: ConnectionConfig, invoke: Invoke): Promise<CheckData>;
 export {};

@@ -1,32 +1,32 @@
 import type { HcmServer } from "./hcm-server.js";
 import type { WriteOutcome } from "./write-outcome.js";
-/** One absolute platform URL; this predicate does not read its contents. */
+/** Один абсолютный URL платформы; предикат не читает содержимое. */
 export interface FileExistsInput {
     readonly url: string;
 }
 export interface FileExistsData {
-    /** A file, a directory or a configured storage address exists; contents and access are not checked. */
+    /** Существует файл, папка или адрес хранилища из настроек; содержимое и доступ не проверяются. */
     readonly exists: boolean;
 }
-/** One address of a file on the server. */
+/** Один адрес файла на сервере. */
 export interface FileReadInput {
     readonly url: string;
-    /** "base64" gives the bytes even when the file is text. */
+    /** "base64" отдаёт байты, даже если файл текстовый. */
     readonly encoding?: "base64";
 }
 export interface FileReadData {
-    /** The contents when they are UTF-8 text; a leading byte order mark is removed. */
+    /** Содержимое, если это текст UTF-8; метка порядка байтов в начале убирается. */
     readonly text?: string;
-    /** The contents when they are not text, or when base64 was asked for. */
+    /** Содержимое, если это не текст или запрошен base64. */
     readonly base64?: string;
     readonly bytes: number;
 }
-/** The loader answers with base64 broken into lines; a caller wants the file itself. */
+/** Загрузчик отвечает base64, разбитым на строки; вызывающему нужен сам файл. */
 export declare function fileContent(response: unknown, encoding?: unknown): FileReadData;
 export declare const FILE_EXISTS_URL_MAX_LENGTH = 256;
-/** Validate without normalizing the URL passed to the stock predicate. */
+/** Проверяет, не нормализуя URL, который передаётся штатному предикату. */
 export declare function fileExistsUrl(value: unknown): string;
-/** Exactly one of text (written in UTF-8) and base64. */
+/** Ровно одно из text (запись в UTF-8) и base64. */
 export type FileWriteInput = {
     readonly url: string;
     readonly text?: string;
@@ -43,13 +43,13 @@ export type FileDeleteData = {
     readonly deleted: true;
     readonly mutationOutcome: "confirmed";
 };
-/** Folders of the server: data ones take files through LDS, code ones only code on the server. */
+/** Папки сервера: в папки данных файлы идут через LDS, в папки кода — только код на сервере. */
 export type FileFolders = {
     readonly data: readonly string[];
     readonly code: readonly string[];
 };
 export interface FileListData {
-    /** By name; a file has its size in bytes, a folder has folder:true. */
+    /** По имени; у файла указан размер в байтах, у папки folder:true. */
     readonly items: readonly ({
         name: string;
         bytes: number;
@@ -59,14 +59,14 @@ export interface FileListData {
     })[];
     readonly total: number;
 }
-/** Decode only the fixed stock predicate's direct ResultData/Result boolean. */
+/** Разбирает только прямой булев ResultData/Result фиксированного штатного предиката. */
 export declare function parseFileExists(response: unknown): FileExistsData;
-/** What an operation tells the runtime about one call: the outcome and the failure hint are built from it. */
+/** Что операция сообщает runtime об одном вызове: из этого строятся исход и подсказка при сбое. */
 export interface FileCall {
     outcome: WriteOutcome;
-    refusal?: string;
+    causeRuledOut?: true;
 }
-/** The file operations: a method is the whole sequence of one, from the address check to the check after the answer. */
+/** Файловые операции: метод — вся цепочка одной, от проверки адреса до проверки после ответа. */
 export declare class ServerFiles {
     private readonly server;
     private readonly permissions;
@@ -78,7 +78,7 @@ export declare class ServerFiles {
     list(args: Record<string, unknown>, call: FileCall): Promise<FileListData>;
     write(args: Record<string, unknown>, call: FileCall): Promise<FileWriteData>;
     delete(args: Record<string, unknown>, call: FileCall): Promise<FileDeleteData>;
-    /** A failure to read the application info means the server gave no folder lists. */
+    /** Сбой чтения сведений о приложении означает, что сервер не дал списков папок. */
     folders(): Promise<FileFolders | undefined>;
     private route;
 }

@@ -3,7 +3,7 @@ export interface RpcTargetCard {
     readonly id: string;
     readonly parameters: readonly string[];
     readonly allowed: boolean | null;
-    /** The function has no client gate: it is called from server code only. */
+    /** Функция не допускает вызова с клиента: её зовёт только код сервера. */
     readonly serverOnly?: true;
 }
 export interface RpcCatalogFilter {
@@ -11,7 +11,7 @@ export interface RpcCatalogFilter {
     readonly library?: string;
     readonly method?: string;
     readonly builtIn?: boolean;
-    /** Include functions that only server code can call. */
+    /** Включить функции, которые может вызывать только код сервера. */
     readonly all?: boolean;
     readonly cursor?: number;
     readonly limit?: number;
@@ -27,23 +27,23 @@ interface RpcCatalogSource {
 export interface RpcCatalogPage extends RpcCatalogSource {
     readonly targets: readonly RpcTargetCard[];
     readonly total: number;
-    /** Matching functions left out because a client cannot call them; all:true lists them. */
+    /** Подходящие функции, пропущенные из-за того, что клиент их не вызовет; all:true выводит их. */
     readonly serverOnlyHidden?: number;
     readonly nextCursor?: number;
 }
 export interface RpcTargetDescription extends RpcTargetCard, RpcCatalogSource {
-    /** How to call a function that a client cannot call. */
+    /** Как вызвать функцию, которую клиент вызвать не может. */
     readonly note?: string;
     readonly code?: string;
     readonly codeTruncated?: true;
 }
 export declare const RPC_CATALOG_PAGE_MAX_BYTES: number;
-/** Runtime-local discovery; calling a target remains a separate operation. */
+/** Поиск целей внутри runtime; вызов цели остаётся отдельной операцией. */
 export declare class RpcCatalog {
     private readonly reader;
     constructor(applicationInfo?: () => Promise<Record<string, unknown>>, readFile?: (url: string) => Promise<unknown>);
     private catalog;
-    /** Why the server refused a call, when its own list of functions explains it. */
+    /** Почему сервер отказал в вызове, если это объясняет его собственный список функций. */
     refusal(targetId: string): Promise<HcmError | undefined>;
     list(filter?: RpcCatalogFilter): Promise<RpcCatalogPage>;
     describe(targetId: string, options?: RpcDescribeOptions): Promise<RpcTargetDescription>;

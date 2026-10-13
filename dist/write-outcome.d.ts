@@ -1,32 +1,35 @@
 import type { MutationOutcome, OperationEffect } from "./contracts.js";
-/** IDs by which a write is found after a failure. */
+/** ID, по которым запись находится после сбоя. */
 export interface WriteIds {
     mutationId?: string;
     objectId?: string;
     url?: string;
     executionId?: string;
 }
-/** The server turned this very request away at the door: HTTP 401, or no session could be opened for it. */
+/** Сервер отклонил именно этот запрос на входе: HTTP 401 или для него не удалось открыть сессию. */
 export declare function refusedAtDoor(error: unknown): boolean;
 export interface Verdict {
-    /** A request that may have changed the server was sent and not withdrawn. */
+    /** Запрос, способный изменить сервер, отправлен и не отозван. */
     sent: boolean;
-    /** Only when an error is given. */
+    /** Только когда дана ошибка. */
     mutationOutcome?: MutationOutcome;
-    /** Indeterminate, and the error is a refusal at the door: an earlier request went through. */
+    /** Неопределён, а ошибка — отказ на входе: более ранний запрос прошёл. */
     refusedAfterSend?: true;
-    /** As the handlers noted them. */
+    /** Как их отметили обработчики. */
     ids: WriteIds;
-    /** mutationId, objectId, executionId that passed the format check. */
+    /** mutationId, objectId, executionId, прошедшие проверку формата. */
     exactIds: WriteIds;
 }
-/** The write outcome of one call: the marks, the IDs and the rule of the three outcomes. */
+/** Исход записи одного вызова: отметки, ID и правило трёх исходов. */
 export declare class WriteOutcome {
     private marks;
     private readonly ids;
-    /** Before a request that may change the server; returns the withdrawal of this one mark. */
+    /** Перед запросом, способным изменить сервер; возвращает снятие этой отметки. */
     sending(): () => void;
     note(ids: WriteIds): void;
-    /** The first line that fits: no error, a read, a refusal at the door, a mark not withdrawn, otherwise not sent. */
+    /**
+     * Первая подходящая строка: нет ошибки, чтение, отказ на входе, неснятая отметка,
+     * иначе not_sent.
+     */
     verdict(effect: OperationEffect, error?: unknown): Verdict;
 }

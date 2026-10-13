@@ -6,7 +6,10 @@ export interface ResultExportInput {
     overwrite?: boolean;
 }
 export declare function writeResultFile(path: string, chunks: AsyncIterable<string> | string[], overwrite?: boolean): Promise<number>;
-/** Opaque IDs are connection/principal scoped. Published metadata points only to complete local payloads. */
+/**
+ * Непрозрачные ID привязаны к подключению и пользователю. Опубликованные метаданные
+ * указывают только на полные локальные payload.
+ */
 export declare class ResultStore {
     readonly config: ConnectionConfig;
     readonly directory: string;
@@ -32,6 +35,6 @@ export declare class ResultStore {
     private plain;
     private json;
     private textPage;
-    /** Version-one artifacts retain their bounded reader; all new references use indexed v2. */
+    /** Артефакты версии 1 читает прежний ограниченный читатель; новые ссылки — индексированная v2. */
     private legacy;
 }

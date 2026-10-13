@@ -1,50 +1,50 @@
 declare const RAW_XML: unique symbol;
-/** Primitive value accepted by the object-to-XML builder. */
+/** Примитивное значение, которое принимает построитель XML из объекта. */
 export type XmlPrimitive = string | number | boolean | null;
-/** XML node value: a primitive, nested element map, or repeated-element array. */
+/** Значение узла XML: примитив, карта вложенных элементов или массив повторяющихся элементов. */
 export type XmlValue = XmlPrimitive | XmlObject | XmlValue[];
 /**
- * Object representation used by `parseXml()`/`buildXml()`.
- * `@_` keys are attributes, `#text` is text, and arrays create repeated sibling elements.
+ * Представление объекта для `parseXml()`/`buildXml()`.
+ * Ключи `@_` — атрибуты, `#text` — текст, массивы создают повторяющиеся соседние элементы.
  */
 export interface XmlObject {
     [key: string]: XmlValue;
 }
-/** Validated exact XML fragment accepted by raw child/attachment fields. */
+/** Проверенный точный фрагмент XML, который принимают поля сырых дочерних элементов и вложений. */
 export interface RawXml {
     readonly [RAW_XML]: true;
     readonly xml: string;
 }
-/** Rejects literal characters excluded by XML 1.0, including unpaired UTF-16 surrogates. */
+/** Отклоняет литеральные символы, запрещённые XML 1.0, включая непарные суррогаты UTF-16. */
 export declare function assertXmlCharacters(source: string): void;
-/** Validates document syntax and XML-only character/entity rules without parsing its values. */
+/** Проверяет синтаксис документа и правила XML для символов и сущностей, не разбирая значения. */
 export declare function validatePlatformXmlSource(source: string): void;
 /**
- * Parses one well-formed XML document without coercing lexical values.
- * Namespace prefixes and attributes are preserved; DTD/entity declarations are rejected.
+ * Разбирает один корректный документ XML, не приводя значения к типам.
+ * Префиксы пространств имён и атрибуты сохраняются; объявления DTD и сущностей отклоняются.
  */
 export declare function parseXml(source: string): XmlObject;
 /**
- * Serializes an `XmlObject`, escaping values and validating the result.
- * This is not XMD/schema-aware and is not a byte-for-byte round-trip formatter.
+ * Сериализует `XmlObject`, экранируя значения и проверяя результат.
+ * Не учитывает XMD и схему и не гарантирует побайтного совпадения при обратном разборе.
  */
 export declare function buildXml(value: XmlObject): string;
 /**
- * Validates an exact XML fragment and brands it for raw child/attachment fields.
- * The fragment is inserted without escaping; DTD/entity declarations remain forbidden.
+ * Проверяет точный фрагмент XML и помечает его для полей сырых дочерних элементов и вложений.
+ * Фрагмент вставляется без экранирования; объявления DTD и сущностей по-прежнему запрещены.
  */
 export declare function rawXml(source: string): RawXml;
-/** Exactly one child element, as required by an untyped structured XmElem RPC argument. */
+/** Ровно один дочерний элемент, как требует нетипизированный структурный аргумент XmElem RPC. */
 export declare function rawXmlElement(source: string): RawXml;
-/** Returns whether a value was created by `rawXml()`. */
+/** Показывает, создано ли значение через `rawXml()`. */
 export declare function isRawXml(value: unknown): value is RawXml;
-/** Escapes a scalar for XML text/attribute content; it does not build a complete document. */
+/** Экранирует скаляр для текста и атрибутов XML; полный документ не строит. */
 export declare function escapeXml(value: unknown): string;
-/** Returns the local part of a possibly namespace-prefixed XML name. */
+/** Возвращает локальную часть имени XML, возможно с префиксом пространства имён. */
 export declare function localName(name: string): string;
 /**
- * Finds the first element by local name using depth-first traversal.
- * Do not use this convenience search to enforce direct-child/cardinality schema rules.
+ * Находит первый элемент по локальному имени обходом в глубину.
+ * Не использовать этот поиск для проверки правил схемы о прямых потомках и кратности.
  */
 export declare function findXmlNode(value: unknown, name: string): unknown;
 export {};

@@ -2036,9 +2036,9 @@ var require_event_target = __commonJS({
             return;
           }
         }
-        let wrapper3;
+        let wrapper2;
         if (type === "message") {
-          wrapper3 = function onMessage(data2, isBinary2) {
+          wrapper2 = function onMessage(data2, isBinary2) {
             const event = new MessageEvent("message", {
               data: isBinary2 ? data2 : data2.toString()
             });
@@ -2046,7 +2046,7 @@ var require_event_target = __commonJS({
             callListener(handler, this, event);
           };
         } else if (type === "close") {
-          wrapper3 = function onClose(code, message) {
+          wrapper2 = function onClose(code, message) {
             const event = new CloseEvent("close", {
               code,
               reason: message.toString(),
@@ -2056,7 +2056,7 @@ var require_event_target = __commonJS({
             callListener(handler, this, event);
           };
         } else if (type === "error") {
-          wrapper3 = function onError(error2) {
+          wrapper2 = function onError(error2) {
             const event = new ErrorEvent("error", {
               error: error2,
               message: error2.message
@@ -2065,7 +2065,7 @@ var require_event_target = __commonJS({
             callListener(handler, this, event);
           };
         } else if (type === "open") {
-          wrapper3 = function onOpen() {
+          wrapper2 = function onOpen() {
             const event = new Event("open");
             event[kTarget] = this;
             callListener(handler, this, event);
@@ -2073,12 +2073,12 @@ var require_event_target = __commonJS({
         } else {
           return;
         }
-        wrapper3[kForOnEventAttribute] = !!options[kForOnEventAttribute];
-        wrapper3[kListener] = handler;
+        wrapper2[kForOnEventAttribute] = !!options[kForOnEventAttribute];
+        wrapper2[kListener] = handler;
         if (options.once) {
-          this.once(type, wrapper3);
+          this.once(type, wrapper2);
         } else {
-          this.on(type, wrapper3);
+          this.on(type, wrapper2);
         }
       },
       /**
@@ -8278,12 +8278,12 @@ var require_core = __commonJS({
           return this;
         }
         keywordMetaschema.call(this, def);
-        const definition2 = {
+        const definition = {
           ...def,
           type: (0, dataType_1.getJSONTypes)(def.type),
           schemaType: (0, dataType_1.getJSONTypes)(def.schemaType)
         };
-        (0, util_1.eachItem)(keyword, definition2.type.length === 0 ? (k) => addRule.call(this, k, definition2) : (k) => definition2.type.forEach((t) => addRule.call(this, k, definition2, t)));
+        (0, util_1.eachItem)(keyword, definition.type.length === 0 ? (k) => addRule.call(this, k, definition) : (k) => definition.type.forEach((t) => addRule.call(this, k, definition, t)));
         return this;
       }
       getKeyword(keyword) {
@@ -8476,9 +8476,9 @@ var require_core = __commonJS({
         throw new Error('$data keyword must have "code" or "validate" function');
       }
     }
-    function addRule(keyword, definition2, dataType) {
+    function addRule(keyword, definition, dataType) {
       var _a;
-      const post = definition2 === null || definition2 === void 0 ? void 0 : definition2.post;
+      const post = definition === null || definition === void 0 ? void 0 : definition.post;
       if (dataType && post)
         throw new Error('keyword with "post" flag cannot have "type"');
       const { RULES } = this;
@@ -8488,22 +8488,22 @@ var require_core = __commonJS({
         RULES.rules.push(ruleGroup);
       }
       RULES.keywords[keyword] = true;
-      if (!definition2)
+      if (!definition)
         return;
       const rule = {
         keyword,
         definition: {
-          ...definition2,
-          type: (0, dataType_1.getJSONTypes)(definition2.type),
-          schemaType: (0, dataType_1.getJSONTypes)(definition2.schemaType)
+          ...definition,
+          type: (0, dataType_1.getJSONTypes)(definition.type),
+          schemaType: (0, dataType_1.getJSONTypes)(definition.schemaType)
         }
       };
-      if (definition2.before)
-        addBeforeRule.call(this, ruleGroup, rule, definition2.before);
+      if (definition.before)
+        addBeforeRule.call(this, ruleGroup, rule, definition.before);
       else
         ruleGroup.rules.push(rule);
       RULES.all[keyword] = rule;
-      (_a = definition2.implements) === null || _a === void 0 ? void 0 : _a.forEach((kwd) => this.addKeyword(kwd));
+      (_a = definition.implements) === null || _a === void 0 ? void 0 : _a.forEach((kwd) => this.addKeyword(kwd));
     }
     function addBeforeRule(ruleGroup, rule, before) {
       const i = ruleGroup.rules.findIndex((_rule) => _rule.keyword === before);
@@ -11228,22 +11228,31 @@ function withConnection(document, connection, replace) {
   };
 }
 
+// src/immutable.ts
+function freezeRegistry(value) {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) freezeRegistry(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 // src/protocol/api.ts
 import { randomBytes, randomInt } from "node:crypto";
 
 // src/protocol/error.ts
 var WsHcmApiError = class extends Error {
-  /** Stable machine-readable category. */
+  /** Устойчивая машиночитаемая категория. */
   kind;
-  /** Wire operation/action name when known. */
+  /** Имя операции или действия в протоколе, если известно. */
   operation;
-  /** HTTP status when one was available. */
+  /** Статус HTTP, если он был. */
   status;
-  /** Bounded structured diagnostics; never a complete response body. */
+  /** Ограниченная структурированная диагностика; никогда не полное тело ответа. */
   details;
-  /** Explicit local preflight proof; absence leaves the mutation outcome uncertain. */
+  /** Явное локальное доказательство проверки до отправки; без него исход записи неопределённый. */
   requestSent;
-  /** Cleanup failure(s) attached without replacing this primary error. */
+  /** Сбои очистки, приложенные без замены этой основной ошибки. */
   cleanupError;
   constructor(kind, message, options = {}) {
     super(message, options.cause === void 0 ? void 0 : { cause: options.cause });
@@ -11279,7 +11288,7 @@ function attachCleanupError(operationError, cleanupError) {
   const previous = target.cleanupError;
   const value = previous === void 0 ? cleanupError : new AggregateError(
     previous instanceof AggregateError ? [...previous.errors, cleanupError] : [previous, cleanupError],
-    "Multiple cleanup failures"
+    "Несколько ошибок при очистке"
   );
   Object.defineProperty(target, "cleanupError", {
     configurable: true,
@@ -15951,22 +15960,22 @@ Builder.prototype.buildAttrPairStr = function(attrName, val, isStopNode) {
     return " " + attrName;
   } else return " " + attrName + '="' + escapeAttribute(val) + '"';
 };
-function processTextOrObjNode(object6, key, level, matcher, qNameValidator) {
-  const attrValues = this.extractAttributes(object6);
+function processTextOrObjNode(object5, key, level, matcher, qNameValidator) {
+  const attrValues = this.extractAttributes(object5);
   matcher.push(key, attrValues);
   const isStopNode = this.checkStopNode(matcher);
   if (isStopNode) {
-    const rawContent = this.buildRawContent(object6);
-    const attrStr = this.buildAttributesForStopNode(object6);
+    const rawContent = this.buildRawContent(object5);
+    const attrStr = this.buildAttributesForStopNode(object5);
     matcher.pop();
     return this.buildObjectNode(rawContent, key, attrStr, level);
   }
-  const result = this.j2x(object6, level + 1, matcher, qNameValidator);
+  const result = this.j2x(object5, level + 1, matcher, qNameValidator);
   matcher.pop();
   if (key[0] === "?") {
     return this.buildTextValNode("", key, result.attrStr, level, matcher);
-  } else if (object6[this.options.textNodeName] !== void 0 && Object.keys(object6).length === 1) {
-    return this.buildTextValNode(object6[this.options.textNodeName], key, result.attrStr, level, matcher);
+  } else if (object5[this.options.textNodeName] !== void 0 && Object.keys(object5).length === 1) {
+    return this.buildTextValNode(object5[this.options.textNodeName], key, result.attrStr, level, matcher);
   } else {
     return this.buildObjectNode(result.val, key, result.attrStr, level);
   }
@@ -16254,7 +16263,7 @@ function createPlatformXmlParser(options = {}) {
     try {
       return restoreXmlNames(parse3(text4, validation ?? false));
     } catch {
-      throw new WsHcmApiError("protocol", "XML could not be parsed within supported limits.");
+      throw new WsHcmApiError("protocol", "XML не удалось разобрать в поддерживаемых пределах.");
     }
   };
   return result;
@@ -16397,7 +16406,7 @@ function parseSoapBody(method, source, status) {
   try {
     document = parseXml2(source);
   } catch (cause) {
-    throw new WsHcmApiError("protocol", "Invalid XML response", {
+    throw new WsHcmApiError("protocol", "Неверный XML в ответе", {
       operation: method,
       status,
       cause
@@ -16423,7 +16432,10 @@ function parseSoapBody(method, source, status) {
   );
   if (response === "") return {};
   if (response === void 0 || response === null || typeof response !== "object") {
-    throw new WsHcmApiError("protocol", `Missing ${method}Response`, { operation: method, status });
+    throw new WsHcmApiError("protocol", `В ответе нет ${method}Response`, {
+      operation: method,
+      status
+    });
   }
   return response;
 }
@@ -16468,22 +16480,22 @@ var HttpTransport = class {
   constructor(options) {
     this.baseUrl = new URL(options.baseUrl.endsWith("/") ? options.baseUrl : `${options.baseUrl}/`);
     if (!["http:", "https:"].includes(this.baseUrl.protocol) || this.baseUrl.username !== "" || this.baseUrl.password !== "") {
-      throw new TypeError("baseUrl must be an HTTP(S) URL without embedded credentials");
+      throw new TypeError("baseUrl: нужен URL HTTP(S) без имени и пароля в адресе");
     }
     this.#auth = options.auth;
     this.#timeoutMs = options.timeoutMs;
     if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1)
-      throw new TypeError("timeoutMs must be a positive integer");
+      throw new TypeError("timeoutMs: нужно положительное целое число");
     this.#fetch = options.fetch;
     this.#webHeaders = options.webHeaders ?? false;
     this.#maxResponseBytes = options.maxResponseBytes ?? 16 * 1024 * 1024;
     if (!Number.isSafeInteger(this.#maxResponseBytes) || this.#maxResponseBytes < 1)
-      throw new TypeError("maxResponseBytes must be a positive integer");
+      throw new TypeError("maxResponseBytes: нужно положительное целое число");
     if (this.baseUrl.search || this.baseUrl.hash)
-      throw new TypeError("baseUrl must not contain a query or fragment");
+      throw new TypeError("baseUrl: строка запроса и фрагмент не допускаются");
   }
   assertOpen() {
-    if (this.#disposed) throw new WsHcmApiError("protocol", "Session is closed");
+    if (this.#disposed) throw new WsHcmApiError("protocol", "Сессия закрыта");
   }
   dispose() {
     this.cookie.clear();
@@ -16496,10 +16508,7 @@ var HttpTransport = class {
       relativeTo
     );
     if (url.origin !== this.baseUrl.origin || url.username || url.password || !url.pathname.startsWith(this.baseUrl.pathname)) {
-      throw new WsHcmApiError(
-        "protocol",
-        "Request outside the configured server base is not allowed"
-      );
+      throw new WsHcmApiError("protocol", "Запрос за пределы адреса подключения запрещён");
     }
     return url;
   }
@@ -16507,7 +16516,8 @@ var HttpTransport = class {
     this.assertOpen();
     const headers = new Headers(init.headers);
     if (options.basic) {
-      if (this.#auth === void 0) throw new WsHcmApiError("auth", "Credentials are required");
+      if (this.#auth === void 0)
+        throw new WsHcmApiError("auth", "Нужны имя пользователя и пароль");
       headers.set(
         "Authorization",
         `Basic ${Buffer2.from(`${this.#auth.username}:${this.#auth.password}`, "utf8").toString("base64")}`
@@ -16535,20 +16545,21 @@ var HttpTransport = class {
         for (let hop = 0; [301, 302, 303, 307, 308].includes(response.status); hop++) {
           await response.body?.cancel();
           const redirected = { details: { network: "redirect" } };
-          if (hop >= 5) throw new WsHcmApiError("http", "Too many redirects", redirected);
+          if (hop >= 5)
+            throw new WsHcmApiError("http", "Слишком много перенаправлений", redirected);
           if (!["GET", "HEAD"].includes((requestInit.method ?? "GET").toUpperCase()))
             throw new WsHcmApiError(
               "http",
-              "Write redirect is not followed automatically",
+              "Перенаправление запроса на запись само не выполняется",
               redirected
             );
           const location = response.headers.get("location");
           if (location === null)
-            throw new WsHcmApiError("protocol", "Redirect is missing Location");
+            throw new WsHcmApiError("protocol", "В перенаправлении нет Location");
           try {
             requestUrl = this.resolve(location, requestUrl);
           } catch {
-            throw new WsHcmApiError("http", "Redirect leaves the configured server", redirected);
+            throw new WsHcmApiError("http", "Перенаправление ведёт на другой сервер", redirected);
           }
           if (this.cookie.value !== void 0) {
             headers.set("Cookie", `SessionID=${this.cookie.value}`);
@@ -16567,7 +16578,7 @@ var HttpTransport = class {
       const network2 = timedOut ? "timeout" : aborted2 ? "aborted" : networkFailure(error2);
       throw new WsHcmApiError(
         "http",
-        timedOut ? "HTTP request timed out" : aborted2 ? "HTTP request aborted" : "HTTP request failed",
+        timedOut ? "Истекло время HTTP-запроса" : aborted2 ? "HTTP-запрос прерван" : "HTTP-запрос не выполнен",
         { details: { network: network2 } }
       );
     }
@@ -16577,18 +16588,20 @@ var HttpTransport = class {
         return limitResponse(response, this.#maxResponseBytes);
       await response.body?.cancel();
       if (response.status === 401)
-        throw new WsHcmApiError("auth", "Authentication or session boundary", { status: 401 });
+        throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", {
+          status: 401
+        });
       if (response.status === 403)
-        throw new WsHcmApiError("permission", "Permission denied", { status: 403 });
+        throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
       throw new WsHcmApiError("http", `HTTP ${response.status}`, { status: response.status });
     }
     if (response.status === 401) {
       await response.body?.cancel();
-      throw new WsHcmApiError("auth", "Authentication or session boundary", { status: 401 });
+      throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", { status: 401 });
     }
     if (response.status === 403) {
       await response.body?.cancel();
-      throw new WsHcmApiError("permission", "Permission denied", { status: 403 });
+      throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
     }
     return limitResponse(response, this.#maxResponseBytes);
   }
@@ -16629,7 +16642,7 @@ function limitResponse(response, maxBytes) {
         }
         read += result.value.byteLength;
         if (read > maxBytes) {
-          const error2 = new WsHcmApiError("protocol", "Response exceeds configured byte limit", {
+          const error2 = new WsHcmApiError("protocol", "Ответ превышает заданный предел в байтах", {
             details: { maxResponseBytes: maxBytes }
           });
           try {
@@ -16637,7 +16650,7 @@ function limitResponse(response, maxBytes) {
           } catch (cleanupError) {
             attachCleanupError(
               error2,
-              cleanupError instanceof WsHcmApiError ? cleanupError : new WsHcmApiError("http", "HTTP response cancellation failed", {
+              cleanupError instanceof WsHcmApiError ? cleanupError : new WsHcmApiError("http", "Не удалось отменить чтение HTTP-ответа", {
                 cause: cleanupError
               })
             );
@@ -16652,7 +16665,7 @@ function limitResponse(response, maxBytes) {
         await reader.cancel().catch(() => void 0);
         reader.releaseLock();
         controller.error(
-          error2 instanceof WsHcmApiError ? error2 : new WsHcmApiError("http", "HTTP response body failed", { cause: error2 })
+          error2 instanceof WsHcmApiError ? error2 : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", { cause: error2 })
         );
       }
     },
@@ -16660,7 +16673,7 @@ function limitResponse(response, maxBytes) {
       try {
         await reader.cancel(reason);
       } catch (error2) {
-        throw error2 instanceof WsHcmApiError ? error2 : new WsHcmApiError("http", "HTTP response body failed", { cause: error2 });
+        throw error2 instanceof WsHcmApiError ? error2 : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", { cause: error2 });
       } finally {
         reader.releaseLock();
       }
@@ -16841,7 +16854,7 @@ async function readResponse(response, parse3, fallbackCharset = "utf-8") {
   try {
     source = new TextDecoder(responseCharset(response, fallbackCharset)).decode(rawBody);
   } catch (cause) {
-    throw new WsHcmApiError("protocol", "Unsupported response charset", {
+    throw new WsHcmApiError("protocol", "Кодировка ответа не поддерживается", {
       status: response.status,
       cause
     });
@@ -16849,7 +16862,7 @@ async function readResponse(response, parse3, fallbackCharset = "utf-8") {
   try {
     return { status: response.status, headers: response.headers, data: parse3(source), rawBody };
   } catch (cause) {
-    throw new WsHcmApiError("protocol", "Invalid response body", {
+    throw new WsHcmApiError("protocol", "Неверное тело ответа", {
       status: response.status,
       cause
     });
@@ -16864,12 +16877,12 @@ function textResponse(response) {
 function xmlResponse(response, fallbackCharset) {
   return readResponse(response, parseXml2, fallbackCharset);
 }
-async function binaryResponse(response, operation) {
+async function binaryResponse(response, operation2) {
   if (response.ok) return new WsHcmBinaryResponse(response);
   await response.body?.cancel();
   throw new WsHcmApiError("http", `HTTP ${response.status}`, {
     status: response.status,
-    ...operation === void 0 ? {} : { operation }
+    ...operation2 === void 0 ? {} : { operation: operation2 }
   });
 }
 function withRnd(path) {
@@ -16886,7 +16899,7 @@ async function openLdsSession(transport2, profile, basic = false) {
   );
   const sessionId = xmlText(response.data, "SessionID");
   if (sessionId === void 0 || !/^\d+$/.test(sessionId)) {
-    throw new WsHcmApiError("protocol", "OpenSession did not return a decimal SessionID", {
+    throw new WsHcmApiError("protocol", "OpenSession не вернул десятичный SessionID", {
       operation: "OpenSession"
     });
   }
@@ -16944,19 +16957,19 @@ var NativeLdsApi = class {
   constructor(caller) {
     this.caller = caller;
   }
-  /** Closes the decimal LDS context. Prefer `NativeSession.close()` for the complete client lifecycle. */
+  /** Закрыть десятичный контекст LDS. Для закрытия всего клиента лучше `NativeSession.close()`. */
   closeSession(options) {
     return this.caller.call("CloseSession", [["SessionID", this.caller.id()]], options);
   }
   /**
-   * Returns ready entries from the current context's classic catalog-stat cache.
-   * An empty Catalogs response is valid; readiness and skip gates may hide entries.
-   * RecordsNum is cached metadata, not a fresh SQL COUNT or an object-type registry.
+   * Прочитать готовые записи из кэша статистики каталогов текущей сессии.
+   * Пустой ответ Catalogs допустим: неготовые и пропускаемые каталоги в него не попадают.
+   * RecordsNum — число из кэша, а не свежий SQL COUNT и не перечень типов объектов.
    */
   getCatalogsStat(options) {
     return this.caller.call("GetCatalogsStat", [["SessionID", this.caller.id()]], options);
   }
-  /** Returns modified objects since optional `minModDate`. */
+  /** Прочитать объекты, изменённые после `minModDate`; дата необязательна. */
   getModObjects(request = {}, options) {
     return this.caller.call(
       "GetModObjects",
@@ -16980,7 +16993,7 @@ var NativeLdsApi = class {
     return request.useBinaryResponse || request.useMultipartResponse ? this.caller.binaryCall("LoadUrl", fields3, options) : this.caller.call("LoadUrl", fields3, options);
   }
   /**
-   * Writes exact text/binary URL data as an XOP attachment.
+   * Записать по URL текст или двоичные данные как есть, вложением XOP.
    * @mutating
    */
   putUrl(request, options) {
@@ -16998,7 +17011,7 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Deletes a URL, optionally requiring strict existence.
+   * Удалить данные по URL; можно потребовать, чтобы они существовали.
    * @mutating
    */
   deleteUrl(request, options) {
@@ -17024,9 +17037,9 @@ var NativeLdsApi = class {
     return request.useBinaryResponse || request.useMultipartResponse ? this.caller.binaryCall("LoadDoc", fields3, options) : this.caller.call("LoadDoc", fields3, options);
   }
   /**
-   * Persists caller-built XML as an XOP attachment.
-   * Omitted/false `skipActions` keeps server pre-save processing enabled; `true` suppresses its action-enable state.
-   * `data` must be created by `rawXml()`.
+   * Сохранить свой XML вложением XOP.
+   * Без `skipActions` или с `false` сервер выполняет обработку перед сохранением; `true` её отключает.
+   * `data` — только результат `rawXml()`.
    * @mutating
    */
   putDoc(request, options) {
@@ -17048,7 +17061,7 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Deletes a physical document URL, optionally requiring strict existence.
+   * Удалить документ по URL; можно потребовать, чтобы он существовал.
    * @mutating
    */
   deleteDoc(request, options) {
@@ -17063,7 +17076,7 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Allocates a new lossless object ID in the selected database.
+   * Выделить новый ID объекта в выбранной базе, без потери точности.
    * @mutating
    */
   getNewObjectId(request, options) {
@@ -17077,7 +17090,7 @@ var NativeLdsApi = class {
       options
     );
   }
-  /** Executes XQuery with optional pagination/cursor lifecycle. */
+  /** Выполнить XQuery; постраничное чтение и курсор необязательны. */
   xQuery(request, options) {
     return this.caller.call(
       "XQuery",
@@ -17094,8 +17107,8 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Releases a cursor previously returned to this LDS context.
-   * @mutating Changes transient cursor state.
+   * Освободить курсор, выданный ранее этой сессии LDS.
+   * @mutating Меняет временное состояние курсора.
    */
   releaseCursor(cursorId, options) {
     return this.caller.call(
@@ -17108,18 +17121,18 @@ var NativeLdsApi = class {
     );
   }
   /**
-   * Executes a server library method with inline XML `ArgData` children.
-   * Server 2025.1.1171 takes the arguments only as XML inside the SOAP body;
-   * it rejects external XOP attachments as Parameter is not XML.
-   * RunAsync uses a separate internal thread and returns no public task handle;
-   * its initial ResultData may be typed undefined and does not prove completion.
-   * GetAsyncMethodStatus and KillAsyncMethod cannot track this execution.
+   * Выполнить функцию библиотеки сервера; аргументы — дочерние элементы XML в `ArgData`.
+   * На сервере 2025.1.1171 аргументы принимаются только как XML в теле SOAP:
+   * внешнее вложение XOP отклоняется с Parameter is not XML.
+   * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
+   * первый ResultData может прийти с типом undefined и не означает завершения.
+   * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
    * @mutating
    */
   runMethod(request, options) {
     return runLdsMethod(this.caller, request, options);
   }
-  /** Keeps the current native LDS session active. */
+  /** Продлить текущую сессию native LDS. */
   idle(options) {
     return this.caller.call("Idle", [["SessionID", this.caller.id()]], options);
   }
@@ -17144,8 +17157,8 @@ var WebLdsApi = class {
     this.caller = caller;
   }
   /**
-   * Executes web LDS XQuery. `keepCursor` defaults to `true`; pass `false` for one-shot reads.
-   * @mutating When cursor retention is enabled (the default).
+   * Выполнить XQuery через web LDS. `keepCursor` по умолчанию `true`; для разового чтения нужен `false`.
+   * @mutating Если курсор сохраняется (по умолчанию).
    */
   xQuery(request, options) {
     return this.caller.call(
@@ -17162,8 +17175,8 @@ var WebLdsApi = class {
     );
   }
   /**
-   * Releases a caller-owned web LDS cursor.
-   * @mutating Changes transient cursor state.
+   * Освободить свой курсор web LDS.
+   * @mutating Меняет временное состояние курсора.
    */
   releaseCursor(cursorId, options) {
     return this.caller.call(
@@ -17176,19 +17189,19 @@ var WebLdsApi = class {
     );
   }
   /**
-   * Executes the stock LDS RunMethod in this web SOAP 1.1 context.
-   * ArgData contains inline typed XML children; SessionID precedes that stream.
-   * RunAsync uses a separate internal thread and returns no public task handle;
-   * its initial ResultData may be typed undefined and does not prove completion.
-   * GetAsyncMethodStatus and KillAsyncMethod cannot track this execution.
-   * Server target permissions still apply, independently of the web profile.
+   * Выполнить штатный RunMethod LDS в этой веб-сессии по SOAP 1.1.
+   * ArgData содержит дочерние элементы XML с типами; SessionID идёт перед ними.
+   * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
+   * первый ResultData может прийти с типом undefined и не означает завершения.
+   * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
+   * Права сервера на вызываемую функцию действуют и здесь, независимо от профиля web.
    * @mutating
    */
   runMethod(request, options) {
     return runLdsMethod(this.caller, request, options);
   }
   /**
-   * Deletes a document; web wire sends `StrictDelete=1` only when enabled.
+   * Удалить документ; `StrictDelete=1` отправляется, только когда он включён.
    * @mutating
    */
   deleteDoc(request, options) {
@@ -17210,7 +17223,7 @@ var rpc = Object.freeze({
     if (valueType.trim() === "") throw new TypeError("valueType: нужна непустая строка.");
     return { valueType, lexicalValue };
   },
-  /** Match the shipped XmElem serializer: validated child XML without an invented VALUE-TYPE. */
+  /** Повторяет штатный сериализатор XmElem: проверенный дочерний XML без выдуманного VALUE-TYPE. */
   xml(value) {
     if (!isRawXml(value)) throw new TypeError("Аргумент XML: нужен проверенный XML (RawXml).");
     return { lexicalValue: rawXmlElement(value.xml) };
@@ -17235,7 +17248,7 @@ var RpcApi = class {
     this.profile = profile;
   }
   /**
-   * Calls an existing server target; discovery evidence does not impose a hardcoded allowlist.
+   * Вызвать функцию библиотеки сервера; своим списком функций клиент вызов не ограничивает.
    * @mutating
    */
   async call(request, options) {
@@ -17255,7 +17268,7 @@ var RpcApi = class {
     );
     const result = findXmlNode(response.data, "Result");
     if (result === void 0)
-      throw new WsHcmApiError("protocol", "RPC response is missing Result", {
+      throw new WsHcmApiError("protocol", "В ответе RPC нет Result", {
         operation: "CallMethod"
       });
     const valueType = result !== null && typeof result === "object" ? result["@_VALUE-TYPE"] : void 0;
@@ -17277,14 +17290,14 @@ var WebSpXmlApi = class {
   }
   rpc;
   /**
-   * Synchronous allowlisted RPC call. The selected target may change state.
+   * Вызвать функцию библиотеки синхронно. Вызванная функция может менять данные.
    * @mutating
    */
   callMethod(request, options) {
     return this.rpc.call(request, options);
   }
   /**
-   * Starts an allowlisted asynchronous RPC task and returns a lossless TrackingID.
+   * Запустить функцию библиотеки фоновой задачей; ответ содержит TrackingID без потери точности.
    * @mutating
    */
   callMethodAsync(request, options) {
@@ -17304,12 +17317,12 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Lists background tasks filtered by library and method names.
-   * On server 2025.1.1171 the task pool is application-wide and can include other callers;
-   * matching a name does not establish task ownership. Expired nonrunning entries
-   * are removed before filtering. Recent terminal tasks are not
-   * consumed by this list, but their status/results are included in each Task.
-   * Use an independently journalled TrackingID for subsequent status or kill calls.
+   * Перечислить фоновые задачи по имени библиотеки и функции.
+   * На сервере 2025.1.1171 пул задач общий для приложения, в нём бывают чужие задачи;
+   * совпадение имени не значит, что задача своя. Устаревшие записи о завершённых задачах
+   * удаляются до отбора. Недавно завершённые задачи этот список
+   * не расходует: их состояние и результат входят в каждый Task.
+   * Для опроса и остановки нужен TrackingID, записанный отдельно при запуске.
    */
   getBackgroundTasksByName(request, options) {
     return soapCall(
@@ -17325,11 +17338,11 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Reads async task state using the original decimal or `0x` TrackingID lexical form.
-   * On server 2025.1.1171 the first terminal response consumes the finished tracking entry.
-   * Retain that payload immediately and never poll the finished ID again: a lost HTTP
-   * terminal response can consume its result. Other builds require separate verification.
-   * Poll running tasks no more often than once every 250 ms.
+   * Прочитать состояние фоновой задачи по TrackingID в исходной записи: десятичной или `0x`.
+   * На сервере 2025.1.1171 первый ответ о завершении расходует запись о задаче.
+   * Этот ответ нужно сохранить сразу и завершённый ID больше не опрашивать:
+   * если ответ HTTP потерян, результат уже израсходован. Другие сборки проверяются отдельно.
+   * Идущую задачу опрашивать не чаще раза в 250 мс.
    */
   getAsyncMethodStatus(trackingId, options) {
     return soapCall(
@@ -17342,7 +17355,7 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Requests task cancellation; successful cancellation of already-completed tasks is not guaranteed.
+   * Запросить остановку задачи; остановка уже завершённой задачи не гарантирована.
    * @mutating
    */
   killAsyncMethod(trackingId, options) {
@@ -17356,11 +17369,11 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Reads document XML using UTF-8 unless `charset` is supplied; response charset headers take precedence.
-   * Server 2025.1.1171 does not accept a TryLock query parameter on this route:
-   * a value passed in the query is refused.
-   * Use native LDS LoadDoc for a verified document-lock route.
-   * @mutating When `tryLock` is enabled.
+   * Прочитать XML документа в UTF-8, если не задан `charset`; кодировка из заголовков ответа важнее.
+   * Сервер 2025.1.1171 не принимает параметр TryLock на этом маршруте:
+   * значение в строке запроса отклоняется.
+   * Проверенный способ заблокировать документ — LoadDoc через native LDS.
+   * @mutating Если включён `tryLock`.
    */
   async getDoc(request, options) {
     const charset = request.charset ?? "utf-8";
@@ -17378,8 +17391,8 @@ var WebSpXmlApi = class {
     );
   }
   /**
-   * Persists caller XML through web SPXML server pre-save processing.
-   * `neverSaved=true` sends `NeverSaved=1`; false/omitted sends no flag. This route has no `SkipActions` control.
+   * Сохранить свой XML через web SPXML; сервер выполняет обработку перед сохранением.
+   * `neverSaved=true` отправляет `NeverSaved=1`; при false или без значения флаг не отправляется. Управления `SkipActions` на этом маршруте нет.
    * @mutating
    */
   async putDoc(request, options) {
@@ -17402,7 +17415,7 @@ var SpXml2Base = class {
   constructor(transport2) {
     this.transport = transport2;
   }
-  /** Reads server application/bootstrap metadata; `application_module` is optional and may be absent. */
+  /** Прочитать сведения сервера о приложении; `application_module` необязателен и может отсутствовать. */
   async getAppInfo(request = {}, options) {
     return jsonResponse(
       await this.transport.send(
@@ -17417,7 +17430,7 @@ var SpXml2Base = class {
       )
     );
   }
-  /** Loads a form payload by server-local URL as text using the response charset. */
+  /** Прочитать форму по локальному URL сервера как текст в кодировке ответа. */
   async getForm(request, options) {
     return textResponse(
       await this.transport.send(query("/api/spxml2/get_form", request), {}, options)
@@ -17427,6 +17440,7 @@ var SpXml2Base = class {
 var NativeSpXml2Api = class extends SpXml2Base {
 };
 var WebSpXml2Api = class extends SpXml2Base {
+  /** Прочитать сведения сервера о приложении; по умолчанию отправляет `fast_start=1` и случайный `rnd`. */
   getAppInfo(request = {}, options) {
     return super.getAppInfo(
       {
@@ -17437,7 +17451,7 @@ var WebSpXml2Api = class extends SpXml2Base {
       options
     );
   }
-  /** Streams a web SPXML2 image with optional effect query values. */
+  /** Прочитать потоком картинку web SPXML2; параметры эффектов необязательны. */
   async getImage(request, options) {
     const response = await this.transport.send(
       query("/api/spxml2/get_image", { ...request.effects, url: request.url }),
@@ -17446,13 +17460,13 @@ var WebSpXml2Api = class extends SpXml2Base {
     );
     return binaryResponse(response, "get_image");
   }
-  /** Reads the default preloaded-design-file set. */
+  /** Прочитать набор предзагружаемых файлов оформления default. */
   async getPreloadedDesignFiles(options) {
     return textResponse(
       await this.transport.send("/api/spxml2/get_preloaded_design_files?set=default", {}, options)
     );
   }
-  /** Calls the shipped server `std_encrypt` service; this is not a general client-side encryption primitive. */
+  /** Вызвать штатную службу сервера `std_encrypt`; это не средство шифрования общего назначения на стороне клиента. */
   async stdEncrypt(text4, options) {
     return jsonResponse(
       await this.transport.send(query("/api/spxml2/std_encrypt", { text: text4 }), {}, options)
@@ -17473,7 +17487,7 @@ var WebPageApi = class {
     if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
       throw new TypeError("maximumUploadBytes: нужно целое число больше нуля.");
   }
-  /** Reads the shipped PDF preview helper page as text. */
+  /** Прочитать штатную страницу предпросмотра PDF как текст. */
   async filePreviewPdf(options) {
     return textResponse(
       await this.transport.send(
@@ -17483,13 +17497,13 @@ var WebPageApi = class {
       )
     );
   }
-  /** Reads a form by server-local URL as text. */
+  /** Прочитать форму по локальному URL сервера как текст. */
   async getForm(request, options) {
     return textResponse(
       await this.transport.send(query("/spxml_web/service/get_form.htm", request), {}, options)
     );
   }
-  /** Reads a screen form by server-local URL as text. */
+  /** Прочитать экранную форму по локальному URL сервера как текст. */
   async getScreenForm(request, options) {
     return textResponse(
       await this.transport.send(
@@ -17500,11 +17514,11 @@ var WebPageApi = class {
     );
   }
   /**
-   * Streams SVG through the stock web page image handler. The server accepts
-   * x-app/x-local SVG URLs and checks source read access. Optional state values
-   * hover/pressed/disabled select the shipped color substitution; other values
-   * preserve the original content. Omission sends state="" because the shipped
-   * page requires that query field. Consume or cancel the returned body.
+   * Прочитать потоком SVG через штатную страницу картинок веб-интерфейса. Сервер принимает
+   * URL SVG в x-app и x-local и проверяет право чтения источника. Необязательные значения state
+   * hover, pressed и disabled включают штатную подмену цветов; при других значениях
+   * содержимое остаётся исходным. Без значения отправляется state="": штатная
+   * страница требует это поле запроса. Тело ответа нужно дочитать или отменить.
    */
   async getImage(request, options) {
     return binaryResponse(
@@ -17516,13 +17530,13 @@ var WebPageApi = class {
       "get_image.htm"
     );
   }
-  /** Reads and parses web UI text XML using its declared application charset. */
+  /** Прочитать и разобрать XML текстов веб-интерфейса в кодировке, объявленной приложением. */
   async getUiText(options) {
     return xmlResponse(
       await this.transport.send("/spxml_web/service/get_ui_text.htm", {}, options)
     );
   }
-  /** Streams page-service URL output; consume or cancel the returned body. */
+  /** Прочитать потоком ответ службы страниц по URL; тело нужно дочитать или отменить. */
   async getUrl(request, options) {
     const response = await this.transport.send(
       query("/spxml_web/service/get_url.htm", {
@@ -17537,11 +17551,11 @@ var WebPageApi = class {
     return binaryResponse(response, "get_url");
   }
   /**
-   * Uploads one file through the shipped multipart f/session_token workflow.
-   * The owning WebSession supplies its current private page token. Input is
-   * bounded by maxResponseBytes and an 8 MiB client input budget; no chunks or
-   * legacy base64 branch is implied. A successful response contains Url.
-   * @mutating Persists a server upload and runs the platform's upload rules.
+   * Загрузить один файл штатным способом: multipart с полями f и session_token.
+   * Текущий токен страницы подставляет веб-сессия, которой принадлежит вызов. Размер
+   * ограничен maxResponseBytes и пределом клиента 8 МиБ; части и старый вариант
+   * с base64 не используются. Успешный ответ содержит Url.
+   * @mutating Сохраняет файл на сервере; срабатывают правила загрузки платформы.
    */
   async uploadFile(request, options) {
     const invalidInput = (message) => new WsHcmApiError("protocol", message, { operation: "uploadFile", requestSent: false });
@@ -17581,20 +17595,20 @@ var WebPageApi = class {
     const body = result.data;
     const uploadedPath = body && typeof body === "object" && "Url" in body && typeof body.Url === "string" ? body.Url.split("/") : void 0;
     if (!body || typeof body !== "object" || Array.isArray(body) || !uploadedPath || uploadedPath.length !== 2 || !/^[A-Za-z0-9_-]{1,256}$/.test(uploadedPath[0]) || uploadedPath[1] !== filename2 || "error" in body && body.error !== 0 && body.error !== false)
-      throw new WsHcmApiError("protocol", "The upload response did not confirm a resource URL", {
+      throw new WsHcmApiError("protocol", "Ответ на загрузку не подтвердил URL ресурса", {
         operation: "uploadFile",
         status: result.status
       });
     return result;
   }
   /**
-   * Sends one stock upload_chunk POST with exact data bytes and an explicit Content-Range.
-   * The caller supplies a known 32-hex fileId and coordinates chunk order; the last part joins the file.
-   * Receipts do not independently prove chunk persistence or final file bytes.
-   * Verify staging with a storage-appropriate read before submitting the final part.
-   * Final errors can leave an unknown output URL; do not retry or guess cleanup targets.
-   * Requires the installed WebSoft/libMain branch and its existing principal/upload policies.
-   * @mutating Writes global chunk storage and may create an assembled upload.
+   * Отправить один штатный POST upload_chunk с байтами данных как есть и явным Content-Range.
+   * Вызывающий задаёт известный fileId из 32 шестнадцатеричных цифр и следит за порядком частей; последняя часть собирает файл.
+   * Ответы сами по себе не доказывают, что часть сохранена и что байты итогового файла верны.
+   * Перед последней частью загруженное нужно проверить чтением, подходящим для хранилища.
+   * После ошибки на последней части URL результата может остаться неизвестным: не повторять и не угадывать, что удалять.
+   * Нужна установленная ветка WebSoft/libMain и её действующие правила для пользователя и загрузки.
+   * @mutating Пишет в общее хранилище частей и может создать собранный файл.
    */
   async uploadChunk(request, options) {
     const invalidInput = (message) => new WsHcmApiError("protocol", message, { operation: "uploadChunk", requestSent: false });
@@ -17673,7 +17687,7 @@ var WebPageApi = class {
     if (!body || typeof body !== "object" || Array.isArray(body) || !("error" in body) || body.error !== 0 || !parts || parts.length !== 2 || !/^[A-Za-z0-9_-]{1,256}$/.test(parts[0]) || parts[1] !== filename2)
       throw new WsHcmApiError(
         "protocol",
-        "The chunk response did not acknowledge the requested filename",
+        "Ответ на загрузку части не подтвердил запрошенное имя файла",
         {
           operation: "uploadChunk",
           status: result.status
@@ -17682,10 +17696,10 @@ var WebPageApi = class {
     return result;
   }
   /**
-   * Requests deletion of [0, chunksTotal) for a known caller-selected 32-hex fileId.
-   * The namespace is global; the server does not check who created this ID.
-   * An empty ACK does not prove chunk absence, directory removal, final-file or scratch cleanup.
-   * @mutating Requests chunk deletion; individual server errors are swallowed.
+   * Запросить удаление частей [0, chunksTotal) для известного fileId из 32 шестнадцатеричных цифр, выбранного вызывающим.
+   * Пространство ID общее: сервер не проверяет, кто создал этот ID.
+   * Пустой ответ не доказывает, что части, папка, итоговый файл и временные данные удалены.
+   * @mutating Запрашивает удаление частей; отдельные ошибки сервера не сообщаются.
    */
   async clearUploadChunks(request, options) {
     const invalidInput = (message) => new WsHcmApiError("protocol", message, {
@@ -17712,14 +17726,10 @@ var WebPageApi = class {
       )
     );
     if (!result.rawBody.every((byte) => byte === 9 || byte === 10 || byte === 13 || byte === 32))
-      throw new WsHcmApiError(
-        "protocol",
-        "The clear_chunks response was not an empty acknowledgement",
-        {
-          operation: "clearUploadChunks",
-          status: result.status
-        }
-      );
+      throw new WsHcmApiError("protocol", "Ответ clear_chunks — не пустое подтверждение", {
+        operation: "clearUploadChunks",
+        status: result.status
+      });
     return {
       ...result,
       data: {
@@ -17735,7 +17745,7 @@ var ResourceApi = class {
   constructor(transport2) {
     this.transport = transport2;
   }
-  /** Streams a resource image by lossless decimal ID and optional image type. */
+  /** Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен. */
   async getImage(request, options) {
     const response = await this.transport.send(
       query("/lds/get_resource_image.html", {
@@ -17748,17 +17758,16 @@ var ResourceApi = class {
     return binaryResponse(response, "get_resource_image");
   }
   /**
-   * Streams a named compound-attc attachment through GET /xhttp_res.
-   * Use url for an x-local/x-app HTML source, or docUrl plus elemPath for a
-   * document string field (also accepts a registered x-db-obj document).
-   * elemPath starts with the document element name, such as presence_state.name;
-   * obtain it from the actual document rather than guessing its root or layout.
-   * The server decodes the matching attachment data and selects media type
-   * from resId. Stock 1171 also requires URL sources under configured courses_path;
-   * a permitted local scheme alone does not establish that prefix.
-   * Native Administrator builds this route; the web alias uses
-   * the same server handler with its own HTTP context, not a distinct caller
-   * claim. Consume or cancel the returned body.
+   * Прочитать потоком именованное вложение compound-attc через GET /xhttp_res.
+   * Источник — url для HTML с адресом x-local или x-app либо docUrl вместе с elemPath
+   * для строкового поля документа (подходит и зарегистрированный документ x-db-obj).
+   * elemPath начинается с имени корневого элемента документа, например presence_state.name;
+   * его берут из самого документа, а не угадывают корень и структуру.
+   * Сервер декодирует данные найденного вложения и выбирает тип содержимого
+   * по resId. Штатный сервер 2025.1.1171 требует ещё, чтобы источник url лежал в настроенном courses_path:
+   * одной разрешённой локальной схемы для этого мало.
+   * Этим маршрутом пользуется штатный клиент администратора; варианты native и web —
+   * один маршрут сервера, различается только сессия HTTP. Тело ответа нужно дочитать или отменить.
    */
   async getCompoundResource(request, options) {
     const value = request;
@@ -17794,7 +17803,7 @@ var DiagnosticsApi = class {
   constructor(transport2) {
     this.transport = transport2;
   }
-  /** Observes the portal status without following redirects or retaining its body. */
+  /** Прочитать статус портала, не переходя по перенаправлениям и не сохраняя тело ответа. */
   async portal(options) {
     const response = await this.transport.send(
       "/loggedoff.html",
@@ -17808,7 +17817,7 @@ var DiagnosticsApi = class {
     await response.body?.cancel();
     return { status: response.status };
   }
-  /** Reads `/xhttp_info`, using Basic auth only when client credentials were configured. */
+  /** Прочитать `/xhttp_info`; авторизация Basic применяется, только если клиенту заданы учётные данные. */
   async xhttpInfo(options) {
     return textResponse(
       await this.transport.send(
@@ -17824,13 +17833,13 @@ var ExperimentalApi = class {
     this.transport = transport2;
   }
   /**
-   * Sends a same-origin caller-defined request and returns its body as a stream.
-   * `unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;
-   * configured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.
+   * Отправить свой запрос на тот же origin и вернуть тело ответа потоком.
+   * `unsafe: true` обязателен. Сериализация обычных операций, разбор ошибок сервера и гарантии об исходе записи не действуют;
+   * настроенные авторизация и cookie применяются, а метод, заголовки, тело и закрытие потока — на вызывающем.
    */
   async rawRequest(request, options) {
     if (request.unsafe !== true)
-      throw new WsHcmApiError("protocol", "Experimental raw requests require unsafe: true");
+      throw new WsHcmApiError("protocol", "Экспериментальный rawRequest требует unsafe: true");
     const response = await this.transport.send(
       request.path,
       {
@@ -17848,8 +17857,8 @@ var ExperimentalApi = class {
 };
 var WebExperimentalApi = class extends ExperimentalApi {
   /**
-   * Calls the partial web authentication route; success cookie/body semantics are not fully established.
-   * @mutating Changes authentication/session state.
+   * Вызвать частично поддержанный маршрут веб-аутентификации; cookie и тело успешного ответа до конца не установлены.
+   * @mutating Меняет состояние аутентификации и сессии.
    */
   async authenticate(request, options) {
     return jsonResponse(
@@ -17875,10 +17884,10 @@ function createWebLdsApi(transport2, sessionId) {
 }
 
 // src/protocol/physical-documents.ts
-function lexical(value, name3, operation) {
+function lexical(value, name3, operation2) {
   const source = value !== null && typeof value === "object" && "#text" in value ? value["#text"] : value;
   if (typeof source !== "string" && typeof source !== "number" && typeof source !== "boolean") {
-    throw new WsHcmApiError("protocol", `Missing ${name3}`, { operation });
+    throw new WsHcmApiError("protocol", `В ответе нет ${name3}`, { operation: operation2 });
   }
   return String(source).trim();
 }
@@ -17895,7 +17904,7 @@ function directDocumentId(value) {
   const ids = children3.filter(([name3]) => localName(name3) === "id");
   if (ids.length !== 1 || Array.isArray(ids[0][1])) return void 0;
   try {
-    return lexical(ids[0][1], "document id", "PhysicalDocuments.createFromXml");
+    return lexical(ids[0][1], "ID документа", "PhysicalDocuments.createFromXml");
   } catch {
     return void 0;
   }
@@ -17939,9 +17948,9 @@ var NativePhysicalDocumentsApi = class {
     this.lds = lds;
   }
   /**
-   * Allocates an ID, writes caller-built XML, and verifies it with `LoadDoc`.
-   * Defaults to `WriteDocInfo=true`, `NeverSaved=true`, and enabled server pre-save processing.
-   * A failed write/verification triggers best-effort `DeleteDoc` cleanup before the original error is rethrown.
+   * Выделяет ID, записывает XML, собранный вызывающим, и проверяет его через `LoadDoc`.
+   * По умолчанию `WriteDocInfo=true`, `NeverSaved=true`, обработка сервера до сохранения включена.
+   * Сбой записи или проверки запускает попытку очистки `DeleteDoc`; затем ошибка бросается снова.
    *
    * @mutating
    */
@@ -17982,7 +17991,7 @@ var NativePhysicalDocumentsApi = class {
       if (loadedId?.toUpperCase() !== location.objectId.toUpperCase()) {
         throw new WsHcmApiError(
           "protocol",
-          "Loaded document id does not match allocated objectId",
+          "ID загруженного документа не совпадает с выделенным objectId",
           {
             operation: "LoadDoc",
             status: loadResponse.status
@@ -17995,11 +18004,15 @@ var NativePhysicalDocumentsApi = class {
         try {
           await this.lds.deleteDoc({ url: location.url, strictDelete: false });
         } catch (cause) {
-          const cleanupError = new WsHcmApiError("cleanup", "Physical document cleanup failed", {
-            operation: "DeleteDoc",
-            ...cause instanceof WsHcmApiError && cause.status !== void 0 ? { status: cause.status } : {},
-            cause
-          });
+          const cleanupError = new WsHcmApiError(
+            "cleanup",
+            "Не удалось удалить созданный документ",
+            {
+              operation: "DeleteDoc",
+              ...cause instanceof WsHcmApiError && cause.status !== void 0 ? { status: cause.status } : {},
+              cause
+            }
+          );
           attachCleanupError(operationError, cleanupError);
         }
       }
@@ -18177,7 +18190,7 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
       if (!state.localSocketDisposed && !failure2)
         failure2 = {
           code: "WS_DISPOSAL_FAILED",
-          message: "WebSocket local disposal was not observed"
+          message: "Закрытие локального сокета WebSocket не зафиксировано"
         };
       if (failure2) reject(new WebSocketHeartbeatError(failure2.code, receipt()));
       else if (state.handshakeValidated && state.heartbeatWritten && state.heartbeatObserved)
@@ -18215,7 +18228,7 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
       state.peerEofObserved = true;
     }
     function onSocketError() {
-      if (!finished) fail("WS_TRANSPORT_ERROR", "WebSocket transport failed");
+      if (!finished) fail("WS_TRANSPORT_ERROR", "Сбой транспорта WebSocket");
     }
     function account(bytes, message = false) {
       if (failure2 || terminating || finished) return false;
@@ -18223,7 +18236,7 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
       events++;
       if (message) messages++;
       if (bytes > MAX_MESSAGE_BYTES || receivedBytes > MAX_TOTAL_BYTES || messages > MAX_MESSAGES || events > 32) {
-        fail("WS_RESPONSE_LIMIT", "WebSocket response exceeded its bounded limits");
+        fail("WS_RESPONSE_LIMIT", "Ответ WebSocket превысил заданные пределы");
         return false;
       }
       return true;
@@ -18236,14 +18249,14 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
       try {
         ws.close(1e3);
       } catch {
-        fail("WS_TRANSPORT_ERROR", "WebSocket close request failed");
+        fail("WS_TRANSPORT_ERROR", "Не удалось отправить запрос закрытия WebSocket");
       }
     }
     deadline = setTimeout(() => {
       if (state.heartbeatWritten && state.heartbeatObserved && state.closeRequested) {
         state.warning = "PEER_CLOSE_ACK_NOT_OBSERVED";
         terminate();
-      } else fail("WS_HEARTBEAT_FAILED", "Stock heartbeat deadline expired");
+      } else fail("WS_HEARTBEAT_FAILED", "Истёк срок ожидания штатного heartbeat");
     }, timeoutMs);
     try {
       ws = factory(
@@ -18265,14 +18278,14 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
         })
       );
     } catch {
-      fail("WS_HANDSHAKE_FAILED", "WebSocket connector failed");
+      fail("WS_HANDSHAKE_FAILED", "Соединение WebSocket не создано");
       return;
     }
     ws.on("error", (error2) => {
       if (finished || terminating && failure2) return;
       const code = error2 && typeof error2 === "object" && "code" in error2 ? error2.code : void 0;
       const limited = code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" || code === "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH" || code === "WS_ERR_TOO_MANY_BUFFERED_PARTS";
-      fail(limited ? "WS_RESPONSE_LIMIT" : "WS_TRANSPORT_ERROR", "WebSocket connection failed");
+      fail(limited ? "WS_RESPONSE_LIMIT" : "WS_TRANSPORT_ERROR", "Сбой соединения WebSocket");
     });
     ws.on("upgrade", (response) => {
       const status = boundedInteger2(response.statusCode, 100, 599, 0);
@@ -18285,7 +18298,7 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
         const candidate = new SessionCookie();
         for (const value of cookies) candidate.capture(new Headers({ "set-cookie": value }));
         if (cookies.some((value) => /^\s*SessionID\s*=/i.test(value)) && candidate.value !== cookie)
-          fail("WS_SESSION_CHANGED", "WebSocket handshake changed the owned session cookie");
+          fail("WS_SESSION_CHANGED", "Handshake WebSocket изменил cookie своей сессии");
       }
     });
     ws.on("unexpected-response", (request, response) => {
@@ -18293,7 +18306,7 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
       if (status !== 0) state.httpStatus = status;
       fail(
         status === 401 ? "WS_AUTHENTICATION_REQUIRED" : status === 403 ? "WS_PERMISSION_DENIED" : "WS_HANDSHAKE_FAILED",
-        "Stock WebSocket handshake was rejected"
+        "Штатный handshake WebSocket отклонён"
       );
       response.destroy();
       request.destroy();
@@ -18305,14 +18318,15 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
       try {
         ws.send("$hbt", (error2) => {
           if (error2) {
-            if (!terminating && !finished) fail("WS_TRANSPORT_ERROR", "Heartbeat write failed");
+            if (!terminating && !finished)
+              fail("WS_TRANSPORT_ERROR", "Не удалось отправить heartbeat");
             return;
           }
           state.heartbeatWritten = true;
           requestClose();
         });
       } catch {
-        fail("WS_TRANSPORT_ERROR", "Heartbeat write failed");
+        fail("WS_TRANSPORT_ERROR", "Не удалось отправить heartbeat");
       }
     });
     ws.on("message", (data2, binary) => {
@@ -18329,10 +18343,10 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
       try {
         ws.pong(data2, true, (error2) => {
           if (error2 && !terminating && !finished)
-            fail("WS_TRANSPORT_ERROR", "WebSocket pong write failed");
+            fail("WS_TRANSPORT_ERROR", "Не удалось отправить pong WebSocket");
         });
       } catch {
-        fail("WS_TRANSPORT_ERROR", "WebSocket pong write failed");
+        fail("WS_TRANSPORT_ERROR", "Не удалось отправить pong WebSocket");
       }
     });
     ws.on("pong", (data2) => {
@@ -18348,13 +18362,13 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
         else
           failure2 = {
             code: "WS_TRANSPORT_ERROR",
-            message: "WebSocket ended without the expected heartbeat/close observations"
+            message: "WebSocket завершился без ожидаемых heartbeat и закрытия"
           };
       }
       if (!failure2 && code !== 1006 && code !== 1e3 && code !== 1005)
         failure2 = {
           code: "WS_HEARTBEAT_FAILED",
-          message: "WebSocket peer reported an unsuccessful close"
+          message: "Другая сторона WebSocket сообщила о неуспешном закрытии"
         };
       settle();
     });
@@ -18432,14 +18446,14 @@ var NativeSession = class _NativeSession {
       throw error2;
     }
   }
-  /** Drops local access without claiming that server-side LDS cleanup was acknowledged. */
+  /** Снять локальный доступ, не утверждая, что очистку LDS на сервере подтвердили. */
   disposeLocal() {
     this.#closed = true;
     this.transport.dispose();
   }
   /**
-   * Idempotently closes LDS, visits `/loggedoff.html`, and clears only this session's cookie.
-   * The landing-page leg is partial lifecycle metadata, not a standalone supported operation.
+   * Идемпотентно закрыть LDS, зайти на `/loggedoff.html` и очистить только cookie этой сессии.
+   * Шаг со страницей выхода — часть жизненного цикла, а не отдельная поддерживаемая операция.
    */
   async close() {
     if (this.#closed) return;
@@ -18465,9 +18479,9 @@ var NativeSession = class _NativeSession {
       this.disposeLocal();
     }
     if (errors.length > 0) {
-      throw new WsHcmApiError("cleanup", "Native session cleanup failed", {
+      throw new WsHcmApiError("cleanup", "Не удалось закрыть сессию native", {
         details: { errorCount: errors.length },
-        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Native cleanup failures")
+        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Ошибки при закрытии сессии native")
       });
     }
   }
@@ -18557,7 +18571,7 @@ async function boundedWebBootstrap(response, maximumBytes) {
       if (part.done) break;
       length += part.value.byteLength;
       if (length > maximumBytes)
-        throw new WsHcmApiError("protocol", "Web bootstrap exceeds its bounded HTML limit");
+        throw new WsHcmApiError("protocol", "Стартовая страница web превышает предел размера HTML");
       chunks.push(part.value.slice());
     }
     const bytes = new Uint8Array(length);
@@ -18578,7 +18592,7 @@ var WebLifecycleApi = class {
     this.transport = transport2;
     this.onMain = onMain;
   }
-  /** Reads the `/admin` redirect response without following it. */
+  /** Прочитать ответ `/admin` с перенаправлением, не переходя по нему. */
   async admin(options) {
     const response = await this.transport.send(
       "/admin",
@@ -18598,7 +18612,7 @@ var WebLifecycleApi = class {
       rawBody
     };
   }
-  /** Reads the authenticated web Administrator main page. */
+  /** Прочитать главную страницу веб-администратора после входа. */
   async main(options) {
     this.onMain?.(void 0);
     const response = await this.transport.send("/spxml_web/main.htm", {}, options);
@@ -18609,7 +18623,7 @@ var WebLifecycleApi = class {
     this.onMain?.(data2);
     return { status: response.status, headers: response.headers, data: data2, rawBody };
   }
-  /** Runs both logout legs; observed transport loss stops further requests. */
+  /** Выполнить оба шага выхода; при потере связи дальнейшие запросы не отправляются. */
   async logout(options) {
     this.onMain?.(void 0);
     let logoutError;
@@ -18636,7 +18650,7 @@ var WebLifecycleApi = class {
     }
     if (logoutError !== void 0) throw logoutError;
   }
-  /** Executes the second web logout leg; `logout()` calls it. */
+  /** Выполнить второй шаг веб-выхода; его вызывает `logout()`. */
   async logout2(options) {
     this.onMain?.(void 0);
     const second = await this.transport.send(
@@ -18694,7 +18708,7 @@ var WebSession = class _WebSession {
       }
       const html = await boundedWebBootstrap(main, defaults.maxResponseBytes);
       if (http.cookie.value === void 0)
-        throw new WsHcmApiError("protocol", "Web bootstrap did not return SessionID cookie");
+        throw new WsHcmApiError("protocol", "Стартовая страница web не вернула cookie SessionID");
       const opened = await openLdsSession(http, "web");
       return new _WebSession(
         http,
@@ -18714,7 +18728,7 @@ var WebSession = class _WebSession {
       throw error2;
     }
   }
-  /** One stock transport heartbeat, with bounded socket disposal before the receipt is returned. */
+  /** Один штатный heartbeat; ограниченное по времени закрытие сокета — до возврата сводки. */
   heartbeat(input2 = {}) {
     if (this.#closed)
       return Promise.reject(
@@ -18734,13 +18748,13 @@ var WebSession = class _WebSession {
     });
     return pending;
   }
-  /** Invalidates the local context after a directly requested terminal web logout. */
+  /** Сделать локальный контекст недействительным после прямо запрошенного итогового веб-выхода. */
   disposeLocal() {
     this.#closed = true;
     this.#uploadToken = void 0;
     this.transport.dispose();
   }
-  /** Idempotently closes web LDS, runs both logout pages, and clears only this session's cookie. */
+  /** Идемпотентно закрыть web LDS, пройти обе страницы выхода, очистить cookie лишь этой сессии. */
   async close() {
     if (this.#closed) return;
     this.#closed = true;
@@ -18761,9 +18775,9 @@ var WebSession = class _WebSession {
       this.transport.dispose();
     }
     if (errors.length > 0) {
-      throw new WsHcmApiError("cleanup", "Web session cleanup failed", {
+      throw new WsHcmApiError("cleanup", "Не удалось закрыть сессию web", {
         details: { errorCount: errors.length },
-        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Web cleanup failures")
+        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Ошибки при закрытии сессии web")
       });
     }
   }
@@ -18787,27 +18801,27 @@ var WsHcmClient = class {
     this.diagnostics = new DiagnosticsApi(anonymous);
     this.experimental = new ExperimentalApi(anonymous);
   }
-  /** Disposes the standalone diagnostics/raw context. Session owners close their sessions separately. */
+  /** Освободить автономный контекст диагностики и сырых запросов; сессии закрывают их владельцы. */
   close() {
     this.#anonymous.dispose();
   }
-  /** Local guard used before web bootstrap when a custom HTTP connector is supplied. */
+  /** Локальная проверка перед начальной загрузкой web, когда задан собственный коннектор HTTP. */
   assertWebSocketAvailable() {
     assertWebSocketAvailable(this.#defaults.webSocketFactory);
   }
-  /** Opens a native session. The caller owns it and must call `close()`. */
+  /** Открыть сессию native. Ею владеет вызывающий, он обязан вызвать `close()`. */
   openNativeSession() {
     return NativeSession.open(this.#defaults);
   }
-  /** Opens a web Administrator session. The caller owns it and must call `close()`. */
+  /** Открыть сессию web Administrator. Ею владеет вызывающий, он обязан вызвать `close()`. */
   openWebSession() {
     return WebSession.open(this.#defaults);
   }
-  /** Runs an action in a native session and closes it in `finally`, preserving operation error precedence. */
+  /** Выполнить действие в сессии native и закрыть её в `finally`; главная — ошибка операции. */
   async withNativeSession(action) {
     return withCleanup(await this.openNativeSession(), action);
   }
-  /** Runs an action in a web session and closes it in `finally`, preserving operation error precedence. */
+  /** Выполнить действие в сессии web и закрыть её в `finally`; главная — ошибка операции. */
   async withWebSession(action) {
     return withCleanup(await this.openWebSession(), action);
   }
@@ -18874,12 +18888,12 @@ function validate2(value, schema2, path = "args") {
   } else if (schema2.type === "object") {
     if (value === null || typeof value !== "object" || Array.isArray(value))
       throw new TypeError(`${path}: нужен объект.`);
-    const object6 = value;
+    const object5 = value;
     const properties = schema2.properties ?? {};
     for (const key of schema2.required ?? [])
-      if (!Object.hasOwn(object6, key) || object6[key] === void 0)
+      if (!Object.hasOwn(object5, key) || object5[key] === void 0)
         throw new TypeError(`${path}.${key}: обязательное значение не задано.`);
-    for (const [key, child] of Object.entries(object6)) {
+    for (const [key, child] of Object.entries(object5)) {
       const childSchema = Object.hasOwn(properties, key) ? properties[key] : void 0;
       if (childSchema) validate2(child, childSchema, `${path}.${key}`);
       else if (schema2.additionalProperties === false)
@@ -18940,92 +18954,155 @@ function prepare(value, schema2) {
 
 // src/native/metadata.ts
 var compatibilityDescriptions = {
-  "web.websocket.heartbeat": "One bounded raw $hbt/$ok exchange on the fixed stock /services/main_ws_service route. Uses the gateway-owned web cookie, closes the socket locally and reports peer EOF separately from a close acknowledgement. No business payload, event subscription, browser LDS WebSocket binding or automatic reconnect is implied. On server 2025.1.1171 the main service returned $ok and then EOF without a peer close frame.",
-  "web.experimental.authenticate": "Partial shipped browser JSON login shape requiring its own login-page token. Server 2025.1.1171 has no authenticate route in its built-in SPXML2 API; optional application hooks may differ. On the tested installation the stock login page returned HTTP 200 with a rendered error and no token, so no authenticate POST or managed-ticket revocation was exercised. Successful body and cookie semantics remain unverified."
+  "web.experimental.authenticate": "Войти штатным способом браузера через JSON (поддержан частично); нужен свой токен страницы входа. На сервере 2025.1.1171 во встроенном API SPXML2 маршрута authenticate нет; расширения приложения могут его добавлять. На проверенной установке штатная страница входа вернула HTTP 200 с текстом ошибки и без токена, поэтому POST authenticate и отзыв выданного билета не проверялись. Тело и cookie успешного ответа не проверены."
 };
-function decorateOperation(operation) {
-  const description = compatibilityDescriptions[operation.id];
-  return description === void 0 ? operation : { ...operation, description };
+var isReference = (value) => value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 1 && typeof value.$ref === "string";
+var lockable = (args) => isReference(args) || args.tryLock === true || isReference(args.tryLock) ? "write" : void 0;
+var byHttpVerb = (args) => {
+  if (typeof args.method !== "string") return void 0;
+  const verb = args.method.toUpperCase();
+  return verb === "GET" || verb === "HEAD" ? "read" : void 0;
+};
+var RIGHTS = {
+  "native.lds.getCatalogsStat": "read",
+  "native.lds.getModObjects": "read",
+  "native.lds.releaseCursor": "read",
+  "native.lds.idle": "read",
+  "web.lds.releaseCursor": "read",
+  "web.spxml.getBackgroundTasksByName": "read",
+  "web.spxml.getAsyncMethodStatus": "read",
+  "native.spxml2.getAppInfo": "read",
+  "native.spxml2.getForm": "read",
+  "web.spxml2.getAppInfo": "read",
+  "web.spxml2.getForm": "read",
+  "web.spxml2.getImage": "read",
+  "web.spxml2.getPreloadedDesignFiles": "read",
+  "web.spxml2.stdEncrypt": "read",
+  "web.pages.filePreviewPdf": "read",
+  "web.pages.getForm": "read",
+  "web.pages.getScreenForm": "read",
+  "web.pages.getImage": "read",
+  "web.pages.getUiText": "read",
+  "web.pages.getUrl": "read",
+  "native.resources.getImage": "read",
+  "native.resources.getCompoundResource": "read",
+  "web.resources.getImage": "read",
+  "web.resources.getCompoundResource": "read",
+  "anonymous.diagnostics.xhttpInfo": "read",
+  "web.lifecycle.admin": "read",
+  "web.lifecycle.main": "read",
+  "web.lifecycle.logout": "read",
+  "native.lds.loadDoc": { effect: "read", byArguments: lockable },
+  "web.spxml.getDoc": { effect: "read", byArguments: lockable },
+  "native.lds.loadUrl": { effect: "read", internal: true },
+  "native.lds.putDoc": "write",
+  "native.lds.deleteDoc": "write",
+  "native.lds.getNewObjectId": "write",
+  "web.lds.deleteDoc": "write",
+  "web.spxml.killAsyncMethod": "write",
+  "web.spxml.putDoc": "write",
+  "web.pages.uploadFile": "write",
+  "web.pages.uploadChunk": "write",
+  "web.pages.clearUploadChunks": "write",
+  "native.lds.putUrl": { effect: "write", internal: true },
+  "native.lds.deleteUrl": { effect: "write", internal: true },
+  "native.lds.xQuery": "execute",
+  "native.lds.runMethod": "execute",
+  "web.lds.xQuery": "execute",
+  "web.lds.runMethod": "execute",
+  "native.rpc.call": "execute",
+  "web.rpc.call": "execute",
+  "native.spxml.call": "execute",
+  "web.spxml.callMethod": "execute",
+  "web.spxml.callMethodAsync": "execute",
+  "web.experimental.authenticate": "execute",
+  "anonymous.experimental.rawRequest": { effect: "unknown", byArguments: byHttpVerb },
+  "native.experimental.rawRequest": { effect: "unknown", byArguments: byHttpVerb },
+  "web.experimental.rawRequest": { effect: "unknown", byArguments: byHttpVerb }
+};
+function rightOf(id) {
+  if (!Object.hasOwn(RIGHTS, id)) return void 0;
+  const row = RIGHTS[id];
+  return typeof row === "string" ? { effect: row } : row;
 }
-function getEffectiveNativeEffect(operation, args) {
-  const isReference = (value) => value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 1 && typeof value.$ref === "string";
-  const deferredArgs = isReference(args);
-  if ((operation.method === "loadDoc" || operation.method === "getDoc") && (deferredArgs || args.tryLock === true || isReference(args.tryLock)))
-    return "write";
-  if (operation.method === "rawRequest" && typeof args.method === "string") {
-    const verb = args.method.toUpperCase();
-    if (verb === "GET" || verb === "HEAD") return "read";
-  }
-  return operation.effect;
+function decorateOperation(operation2) {
+  const right = rightOf(operation2.id);
+  if (!right) throw new Error(`Для ${operation2.id} не указано право`);
+  const description = compatibilityDescriptions[operation2.id];
+  const { status, inputSchema, ...head } = operation2;
+  return {
+    ...head,
+    ...description === void 0 ? {} : { description },
+    effect: right.effect,
+    status,
+    inputSchema
+  };
+}
+function isInternalNative(id) {
+  return rightOf(id)?.internal === true;
+}
+function getEffectiveNativeEffect(operation2, args) {
+  return rightOf(operation2.id)?.byArguments?.(args) ?? operation2.effect;
 }
 
 // src/native/generated.ts
 var NATIVE_ENTRIES = [
-  { operation: decorateOperation({ "id": "native.lds.getCatalogsStat", "profile": "native", "group": "lds", "method": "getCatalogsStat", "title": "native lds getCatalogsStat", "description": "Returns ready entries from the current context's classic catalog-stat cache.\nAn empty Catalogs response is valid; readiness and skip gates may hide entries.\nRecordsNum is cached metadata, not a fresh SQL COUNT or an object-type registry.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.getCatalogsStat() },
-  { operation: decorateOperation({ "id": "native.lds.getModObjects", "profile": "native", "group": "lds", "method": "getModObjects", "title": "native lds getModObjects", "description": "Returns modified objects since optional `minModDate`.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "minModDate": { "type": "string" }, "compress": { "type": "boolean" } }, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.getModObjects(prepare(args, { "type": "object", "properties": { "minModDate": { "type": "string" }, "compress": { "type": "boolean" } }, "required": [], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.loadUrl", "profile": "native", "group": "lds", "method": "loadUrl", "title": "native lds loadUrl", "description": "Calls the implemented NativeLdsApi.loadUrl wire operation. Server authorization and availability are checked at execution time.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.loadUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.putUrl", "profile": "native", "group": "lds", "method": "putUrl", "title": "native lds putUrl", "description": "Writes exact text/binary URL data as an XOP attachment.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] } }, "required": ["url", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.putUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] } }, "required": ["url", "data"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.deleteUrl", "profile": "native", "group": "lds", "method": "deleteUrl", "title": "native lds deleteUrl", "description": "Deletes a URL, optionally requiring strict existence.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.deleteUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.loadDoc", "profile": "native", "group": "lds", "method": "loadDoc", "title": "native lds loadDoc", "description": "Calls the implemented NativeLdsApi.loadDoc wire operation. Server authorization and availability are checked at execution time.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.loadDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.putDoc", "profile": "native", "group": "lds", "method": "putDoc", "title": "native lds putDoc", "description": "Persists caller-built XML as an XOP attachment.\nOmitted/false `skipActions` keeps server pre-save processing enabled; `true` suppresses its action-enable state.\n`data` must be created by `rawXml()`.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "writeDocInfo": { "type": "boolean" }, "skipActions": { "type": "boolean" }, "neverSaved": { "type": "boolean" }, "data": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["url", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.putDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "writeDocInfo": { "type": "boolean" }, "skipActions": { "type": "boolean" }, "neverSaved": { "type": "boolean" }, "data": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["url", "data"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.deleteDoc", "profile": "native", "group": "lds", "method": "deleteDoc", "title": "native lds deleteDoc", "description": "Deletes a physical document URL, optionally requiring strict existence.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.deleteDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.getNewObjectId", "profile": "native", "group": "lds", "method": "getNewObjectId", "title": "native lds getNewObjectId", "description": "Allocates a new lossless object ID in the selected database.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "dbName": { "type": "string" }, "objectType": { "type": "string" } }, "required": ["dbName"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.getNewObjectId(prepare(args, { "type": "object", "properties": { "dbName": { "type": "string" }, "objectType": { "type": "string" } }, "required": ["dbName"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.xQuery", "profile": "native", "group": "lds", "method": "xQuery", "title": "native lds xQuery", "description": "Executes XQuery with optional pagination/cursor lifecycle.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "expectToReadAll": { "type": "boolean" }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.xQuery(prepare(args, { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "expectToReadAll": { "type": "boolean" }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.releaseCursor", "profile": "native", "group": "lds", "method": "releaseCursor", "title": "native lds releaseCursor", "description": "Releases a cursor previously returned to this LDS context.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.releaseCursor(prepare(args, { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false })["cursorId"]) },
-  { operation: decorateOperation({ "id": "native.lds.runMethod", "profile": "native", "group": "lds", "method": "runMethod", "title": "native lds runMethod", "description": "Executes a server library method with inline XML `ArgData` children.\nServer 2025.1.1171 takes the arguments only as XML inside the SOAP body;\nit rejects external XOP attachments as Parameter is not XML.\nRunAsync uses a separate internal thread and returns no public task handle;\nits initial ResultData may be typed undefined and does not prove completion.\nGetAsyncMethodStatus and KillAsyncMethod cannot track this execution.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.runMethod(prepare(args, { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.idle", "profile": "native", "group": "lds", "method": "idle", "title": "native lds idle", "description": "Keeps the current native LDS session active.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.idle() },
-  { operation: decorateOperation({ "id": "web.lds.xQuery", "profile": "web", "group": "lds", "method": "xQuery", "title": "web lds xQuery", "description": "Executes web LDS XQuery. `keepCursor` defaults to `true`; pass `false` for one-shot reads.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.xQuery(prepare(args, { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.lds.releaseCursor", "profile": "web", "group": "lds", "method": "releaseCursor", "title": "web lds releaseCursor", "description": "Releases a caller-owned web LDS cursor.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.releaseCursor(prepare(args, { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false })["cursorId"]) },
-  { operation: decorateOperation({ "id": "web.lds.runMethod", "profile": "web", "group": "lds", "method": "runMethod", "title": "web lds runMethod", "description": "Executes the stock LDS RunMethod in this web SOAP 1.1 context.\nArgData contains inline typed XML children; SessionID precedes that stream.\nRunAsync uses a separate internal thread and returns no public task handle;\nits initial ResultData may be typed undefined and does not prove completion.\nGetAsyncMethodStatus and KillAsyncMethod cannot track this execution.\nServer target permissions still apply, independently of the web profile.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.runMethod(prepare(args, { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.lds.deleteDoc", "profile": "web", "group": "lds", "method": "deleteDoc", "title": "web lds deleteDoc", "description": "Deletes a document; web wire sends `StrictDelete=1` only when enabled.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.deleteDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.rpc.call", "profile": "native", "group": "rpc", "method": "call", "title": "native rpc call", "description": "Calls an existing server target; discovery evidence does not impose a hardcoded allowlist.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).rpc.call(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.rpc.call", "profile": "web", "group": "rpc", "method": "call", "title": "web rpc call", "description": "Calls an existing server target; discovery evidence does not impose a hardcoded allowlist.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).rpc.call(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.spxml.call", "profile": "native", "group": "spxml", "method": "call", "title": "native spxml call", "description": "Calls an existing server target; discovery evidence does not impose a hardcoded allowlist.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).spxml.call(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.spxml.callMethod", "profile": "web", "group": "spxml", "method": "callMethod", "title": "web spxml callMethod", "description": "Synchronous existing RPC call. The selected target may change state.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.callMethod(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.spxml.callMethodAsync", "profile": "web", "group": "spxml", "method": "callMethodAsync", "title": "web spxml callMethodAsync", "description": "Starts an existing asynchronous RPC task and returns a lossless TrackingID.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.callMethodAsync(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.spxml.getBackgroundTasksByName", "profile": "web", "group": "spxml", "method": "getBackgroundTasksByName", "title": "web spxml getBackgroundTasksByName", "description": "Lists background tasks filtered by library and method names.\nOn server 2025.1.1171 the task pool is application-wide and can include other callers;\nmatching a name does not establish task ownership. Expired nonrunning entries\nare removed before filtering. Recent terminal tasks are not\nconsumed by this list, but their status/results are included in each Task.\nUse an independently journalled TrackingID for subsequent status or kill calls.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" } }, "required": ["libName", "methodName"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.getBackgroundTasksByName(prepare(args, { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" } }, "required": ["libName", "methodName"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.spxml.getAsyncMethodStatus", "profile": "web", "group": "spxml", "method": "getAsyncMethodStatus", "title": "web spxml getAsyncMethodStatus", "description": "Reads async task state using the original decimal or `0x` TrackingID lexical form.\nOn server 2025.1.1171 the first terminal response consumes the finished tracking entry.\nRetain that payload immediately and never poll the finished ID again: a lost HTTP\nterminal response can consume its result. Other builds require separate verification.\nPoll running tasks no more often than once every 250 ms.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "trackingId": { "type": "string", "pattern": "^(?:\\d+|0x[0-9a-fA-F]+)$" } }, "required": ["trackingId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.getAsyncMethodStatus(prepare(args, { "type": "object", "properties": { "trackingId": { "type": "string", "pattern": "^(?:\\d+|0x[0-9a-fA-F]+)$" } }, "required": ["trackingId"], "additionalProperties": false })["trackingId"]) },
-  { operation: decorateOperation({ "id": "web.spxml.killAsyncMethod", "profile": "web", "group": "spxml", "method": "killAsyncMethod", "title": "web spxml killAsyncMethod", "description": "Requests task cancellation; successful cancellation of already-completed tasks is not guaranteed.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "trackingId": { "type": "string", "pattern": "^(?:\\d+|0x[0-9a-fA-F]+)$" } }, "required": ["trackingId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.killAsyncMethod(prepare(args, { "type": "object", "properties": { "trackingId": { "type": "string", "pattern": "^(?:\\d+|0x[0-9a-fA-F]+)$" } }, "required": ["trackingId"], "additionalProperties": false })["trackingId"]) },
-  { operation: decorateOperation({ "id": "web.spxml.getDoc", "profile": "web", "group": "spxml", "method": "getDoc", "title": "web spxml getDoc", "description": "Reads document XML using UTF-8 unless `charset` is supplied; response charset headers take precedence.\nServer 2025.1.1171 does not accept a TryLock query parameter on this route:\na value passed in the query is refused.\nUse native LDS LoadDoc for a verified document-lock route.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "docUrl": { "type": "string" }, "charset": { "type": "string" }, "tryLock": { "type": "boolean" } }, "required": ["docUrl"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.getDoc(prepare(args, { "type": "object", "properties": { "docUrl": { "type": "string" }, "charset": { "type": "string" }, "tryLock": { "type": "boolean" } }, "required": ["docUrl"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.spxml.putDoc", "profile": "web", "group": "spxml", "method": "putDoc", "title": "web spxml putDoc", "description": "Persists caller XML through web SPXML server pre-save processing.\n`neverSaved=true` sends `NeverSaved=1`; false/omitted sends no flag. This route has no `SkipActions` control.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "docUrl": { "type": "string" }, "document": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, "writeDocInfo": { "type": "boolean" }, "neverSaved": { "type": "boolean" } }, "required": ["docUrl", "document"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.putDoc(prepare(args, { "type": "object", "properties": { "docUrl": { "type": "string" }, "document": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, "writeDocInfo": { "type": "boolean" }, "neverSaved": { "type": "boolean" } }, "required": ["docUrl", "document"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.spxml2.getAppInfo", "profile": "native", "group": "spxml2", "method": "getAppInfo", "title": "native spxml2 getAppInfo", "description": "Reads server application/bootstrap metadata; `application_module` is optional and may be absent.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fastStart": { "type": "boolean" }, "anonymous": { "type": "boolean" }, "openSession": { "type": "boolean" }, "rnd": { "type": "number" } }, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).spxml2.getAppInfo(prepare(args, { "type": "object", "properties": { "fastStart": { "type": "boolean" }, "anonymous": { "type": "boolean" }, "openSession": { "type": "boolean" }, "rnd": { "type": "number" } }, "required": [], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.spxml2.getForm", "profile": "native", "group": "spxml2", "method": "getForm", "title": "native spxml2 getForm", "description": "Loads a form payload by server-local URL as text using the response charset.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).spxml2.getForm(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.spxml2.getAppInfo", "profile": "web", "group": "spxml2", "method": "getAppInfo", "title": "web spxml2 getAppInfo", "description": "Calls the implemented WebSpXml2Api.getAppInfo wire operation. Server authorization and availability are checked at execution time.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fastStart": { "type": "boolean" }, "anonymous": { "type": "boolean" }, "openSession": { "type": "boolean" }, "rnd": { "type": "number" } }, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getAppInfo(prepare(args, { "type": "object", "properties": { "fastStart": { "type": "boolean" }, "anonymous": { "type": "boolean" }, "openSession": { "type": "boolean" }, "rnd": { "type": "number" } }, "required": [], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.spxml2.getForm", "profile": "web", "group": "spxml2", "method": "getForm", "title": "web spxml2 getForm", "description": "Loads a form payload by server-local URL as text using the response charset.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getForm(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.spxml2.getImage", "profile": "web", "group": "spxml2", "method": "getImage", "title": "web spxml2 getImage", "description": "Streams a web SPXML2 image with optional effect query values.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "effects": { "type": "object", "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }] } } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getImage(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "effects": { "type": "object", "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }] } } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.spxml2.getPreloadedDesignFiles", "profile": "web", "group": "spxml2", "method": "getPreloadedDesignFiles", "title": "web spxml2 getPreloadedDesignFiles", "description": "Reads the default preloaded-design-file set.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getPreloadedDesignFiles() },
-  { operation: decorateOperation({ "id": "web.spxml2.stdEncrypt", "profile": "web", "group": "spxml2", "method": "stdEncrypt", "title": "web spxml2 stdEncrypt", "description": "Calls the shipped server `std_encrypt` service; this is not a general client-side encryption primitive.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.stdEncrypt(prepare(args, { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"], "additionalProperties": false })["text"]) },
-  { operation: decorateOperation({ "id": "web.pages.filePreviewPdf", "profile": "web", "group": "pages", "method": "filePreviewPdf", "title": "web pages filePreviewPdf", "description": "Reads the shipped PDF preview helper page as text.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.filePreviewPdf() },
-  { operation: decorateOperation({ "id": "web.pages.getForm", "profile": "web", "group": "pages", "method": "getForm", "title": "web pages getForm", "description": "Reads a form by server-local URL as text.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getForm(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.pages.getScreenForm", "profile": "web", "group": "pages", "method": "getScreenForm", "title": "web pages getScreenForm", "description": "Reads a screen form by server-local URL as text.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getScreenForm(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.pages.getImage", "profile": "web", "group": "pages", "method": "getImage", "title": "web pages getImage", "description": 'Streams SVG through the stock web page image handler. The server accepts\nx-app/x-local SVG URLs and checks source read access. Optional state values\nhover/pressed/disabled select the shipped color substitution; other values\npreserve the original content. Omission sends state="" because the shipped\npage requires that query field. Consume or cancel the returned body.', "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "state": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getImage(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "state": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.pages.getUiText", "profile": "web", "group": "pages", "method": "getUiText", "title": "web pages getUiText", "description": "Reads and parses web UI text XML using its declared application charset.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getUiText() },
-  { operation: decorateOperation({ "id": "web.pages.getUrl", "profile": "web", "group": "pages", "method": "getUrl", "title": "web pages getUrl", "description": "Streams page-service URL output; consume or cancel the returned body.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "navigate": { "type": "boolean" }, "download": { "type": "boolean" }, "base64": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "navigate": { "type": "boolean" }, "download": { "type": "boolean" }, "base64": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.pages.uploadFile", "profile": "web", "group": "pages", "method": "uploadFile", "title": "web pages uploadFile", "description": "Uploads one file through the shipped multipart f/session_token workflow.\nThe owning WebSession supplies its current private page token. Input is\nbounded by maxResponseBytes and an 8 MiB client input budget; no chunks or\nlegacy base64 branch is implied. A successful response contains Url.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["filename", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.uploadFile(prepare(args, { "type": "object", "properties": { "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["filename", "data"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.pages.uploadChunk", "profile": "web", "group": "pages", "method": "uploadChunk", "title": "web pages uploadChunk", "description": "Sends one stock upload_chunk POST with exact data bytes and an explicit Content-Range.\nThe caller supplies a known 32-hex fileId and coordinates chunk order; the last part joins the file.\nReceipts do not independently prove chunk persistence or final file bytes.\nVerify staging with a storage-appropriate read before submitting the final part.\nFinal errors can leave an unknown output URL; do not retry or guess cleanup targets.\nRequires the installed WebSoft/libMain branch and its existing principal/upload policies.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "index": { "type": "integer", "minimum": 0, "maximum": 99999 }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 }, "totalBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }, "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["fileId", "filename", "index", "chunksTotal", "totalBytes", "offset", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.uploadChunk(prepare(args, { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "index": { "type": "integer", "minimum": 0, "maximum": 99999 }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 }, "totalBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }, "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["fileId", "filename", "index", "chunksTotal", "totalBytes", "offset", "data"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.pages.clearUploadChunks", "profile": "web", "group": "pages", "method": "clearUploadChunks", "title": "web pages clearUploadChunks", "description": "Requests deletion of [0, chunksTotal) for a known caller-selected 32-hex fileId.\nThe namespace is global; the server does not check who created this ID.\nAn empty ACK does not prove chunk absence, directory removal, final-file or scratch cleanup.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 } }, "required": ["fileId", "chunksTotal"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.clearUploadChunks(prepare(args, { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 } }, "required": ["fileId", "chunksTotal"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.resources.getImage", "profile": "native", "group": "resources", "method": "getImage", "title": "native resources getImage", "description": "Streams a resource image by lossless decimal ID and optional image type.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).resources.getImage(prepare(args, { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.resources.getCompoundResource", "profile": "native", "group": "resources", "method": "getCompoundResource", "title": "native resources getCompoundResource", "description": "Streams a named compound-attc attachment through GET /xhttp_res.\nUse url for an x-local/x-app HTML source, or docUrl plus elemPath for a\ndocument string field (also accepts a registered x-db-obj document).\nelemPath starts with the document element name, such as presence_state.name;\nobtain it from the actual document rather than guessing its root or layout.\nThe server decodes the matching attachment data and selects media type\nfrom resId. Stock 1171 also requires URL sources under configured courses_path;\na permitted local scheme alone does not establish that prefix.\nNative Administrator builds this route; the web alias uses\nthe same server handler with its own HTTP context, not a distinct caller\nclaim. Consume or cancel the returned body.", "effect": "read", "status": "implemented", "inputSchema": { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] } }), invoke: async (gateway, args) => (await gateway.native()).resources.getCompoundResource(prepare(args, { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] })) },
-  { operation: decorateOperation({ "id": "web.resources.getImage", "profile": "web", "group": "resources", "method": "getImage", "title": "web resources getImage", "description": "Streams a resource image by lossless decimal ID and optional image type.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).resources.getImage(prepare(args, { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.resources.getCompoundResource", "profile": "web", "group": "resources", "method": "getCompoundResource", "title": "web resources getCompoundResource", "description": "Streams a named compound-attc attachment through GET /xhttp_res.\nUse url for an x-local/x-app HTML source, or docUrl plus elemPath for a\ndocument string field (also accepts a registered x-db-obj document).\nelemPath starts with the document element name, such as presence_state.name;\nobtain it from the actual document rather than guessing its root or layout.\nThe server decodes the matching attachment data and selects media type\nfrom resId. Stock 1171 also requires URL sources under configured courses_path;\na permitted local scheme alone does not establish that prefix.\nNative Administrator builds this route; the web alias uses\nthe same server handler with its own HTTP context, not a distinct caller\nclaim. Consume or cancel the returned body.", "effect": "read", "status": "implemented", "inputSchema": { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] } }), invoke: async (gateway, args) => (await gateway.web()).resources.getCompoundResource(prepare(args, { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] })) },
-  { operation: decorateOperation({ "id": "anonymous.diagnostics.xhttpInfo", "profile": "anonymous", "group": "diagnostics", "method": "xhttpInfo", "title": "anonymous diagnostics xhttpInfo", "description": "Reads `/xhttp_info`, using Basic auth only when client credentials were configured.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => gateway.client.diagnostics.xhttpInfo() },
-  { operation: decorateOperation({ "id": "anonymous.experimental.rawRequest", "profile": "anonymous", "group": "experimental", "method": "rawRequest", "title": "anonymous experimental rawRequest", "description": "Sends a same-origin caller-defined request and returns its body as a stream.\n`unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;\nconfigured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.", "effect": "unknown", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => gateway.client.experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.experimental.rawRequest", "profile": "native", "group": "experimental", "method": "rawRequest", "title": "native experimental rawRequest", "description": "Sends a same-origin caller-defined request and returns its body as a stream.\n`unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;\nconfigured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.", "effect": "unknown", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.experimental.rawRequest", "profile": "web", "group": "experimental", "method": "rawRequest", "title": "web experimental rawRequest", "description": "Sends a same-origin caller-defined request and returns its body as a stream.\n`unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;\nconfigured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.", "effect": "unknown", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.experimental.authenticate", "profile": "web", "group": "experimental", "method": "authenticate", "title": "web experimental authenticate", "description": "Calls the partial web authentication route; success cookie/body semantics are not fully established.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "login": { "type": "string" }, "password": { "type": "string" }, "token": { "type": "string" } }, "required": ["login", "password", "token"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).experimental.authenticate(prepare(args, { "type": "object", "properties": { "login": { "type": "string" }, "password": { "type": "string" }, "token": { "type": "string" } }, "required": ["login", "password", "token"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.lifecycle.admin", "profile": "web", "group": "lifecycle", "method": "admin", "title": "web lifecycle admin", "description": "Reads the `/admin` redirect response without following it.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lifecycle.admin() },
-  { operation: decorateOperation({ "id": "web.lifecycle.main", "profile": "web", "group": "lifecycle", "method": "main", "title": "web lifecycle main", "description": "Reads the authenticated web Administrator main page.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lifecycle.main() },
-  { operation: decorateOperation({ "id": "web.lifecycle.logout", "profile": "web", "group": "lifecycle", "method": "logout", "title": "web lifecycle logout", "description": "Runs both logout legs; observed transport loss stops further requests.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lifecycle.logout() }
+  { operation: decorateOperation({ "id": "native.lds.getCatalogsStat", "profile": "native", "group": "lds", "method": "getCatalogsStat", "title": "native lds getCatalogsStat", "description": "Прочитать готовые записи из кэша статистики каталогов текущей сессии.\nПустой ответ Catalogs допустим: неготовые и пропускаемые каталоги в него не попадают.\nRecordsNum — число из кэша, а не свежий SQL COUNT и не перечень типов объектов.", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.getCatalogsStat() },
+  { operation: decorateOperation({ "id": "native.lds.getModObjects", "profile": "native", "group": "lds", "method": "getModObjects", "title": "native lds getModObjects", "description": "Прочитать объекты, изменённые после `minModDate`; дата необязательна.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "minModDate": { "type": "string" }, "compress": { "type": "boolean" } }, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.getModObjects(prepare(args, { "type": "object", "properties": { "minModDate": { "type": "string" }, "compress": { "type": "boolean" } }, "required": [], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.loadUrl", "profile": "native", "group": "lds", "method": "loadUrl", "title": "native lds loadUrl", "description": "Прочитать данные по URL; флаги ответа выбирают поток, а `tryLock` меняет состояние блокировки.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.loadUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.putUrl", "profile": "native", "group": "lds", "method": "putUrl", "title": "native lds putUrl", "description": "Записать по URL текст или двоичные данные как есть, вложением XOP.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] } }, "required": ["url", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.putUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] } }, "required": ["url", "data"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.deleteUrl", "profile": "native", "group": "lds", "method": "deleteUrl", "title": "native lds deleteUrl", "description": "Удалить данные по URL; можно потребовать, чтобы они существовали.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.deleteUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.loadDoc", "profile": "native", "group": "lds", "method": "loadDoc", "title": "native lds loadDoc", "description": "Прочитать документ; `tryLock` меняет состояние блокировки.\nНа сервере 2025.1.1171 LoadDoc отвечает SOAP и при флагах двоичного или multipart-ответа.\nФлаги включают выдачу ответа потоком байтов, в котором может оказаться конверт SOAP;\nвида ответа они не гарантируют.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.loadDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.putDoc", "profile": "native", "group": "lds", "method": "putDoc", "title": "native lds putDoc", "description": "Сохранить свой XML вложением XOP.\nБез `skipActions` или с `false` сервер выполняет обработку перед сохранением; `true` её отключает.\n`data` — только результат `rawXml()`.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "writeDocInfo": { "type": "boolean" }, "skipActions": { "type": "boolean" }, "neverSaved": { "type": "boolean" }, "data": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["url", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.putDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "writeDocInfo": { "type": "boolean" }, "skipActions": { "type": "boolean" }, "neverSaved": { "type": "boolean" }, "data": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["url", "data"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.deleteDoc", "profile": "native", "group": "lds", "method": "deleteDoc", "title": "native lds deleteDoc", "description": "Удалить документ по URL; можно потребовать, чтобы он существовал.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.deleteDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.getNewObjectId", "profile": "native", "group": "lds", "method": "getNewObjectId", "title": "native lds getNewObjectId", "description": "Выделить новый ID объекта в выбранной базе, без потери точности.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "dbName": { "type": "string" }, "objectType": { "type": "string" } }, "required": ["dbName"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.getNewObjectId(prepare(args, { "type": "object", "properties": { "dbName": { "type": "string" }, "objectType": { "type": "string" } }, "required": ["dbName"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.xQuery", "profile": "native", "group": "lds", "method": "xQuery", "title": "native lds xQuery", "description": "Выполнить XQuery; постраничное чтение и курсор необязательны.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "expectToReadAll": { "type": "boolean" }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.xQuery(prepare(args, { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "expectToReadAll": { "type": "boolean" }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.releaseCursor", "profile": "native", "group": "lds", "method": "releaseCursor", "title": "native lds releaseCursor", "description": "Освободить курсор, выданный ранее этой сессии LDS.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.releaseCursor(prepare(args, { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false })["cursorId"]) },
+  { operation: decorateOperation({ "id": "native.lds.runMethod", "profile": "native", "group": "lds", "method": "runMethod", "title": "native lds runMethod", "description": "Выполнить функцию библиотеки сервера; аргументы — дочерние элементы XML в `ArgData`.\nНа сервере 2025.1.1171 аргументы принимаются только как XML в теле SOAP:\nвнешнее вложение XOP отклоняется с Parameter is not XML.\nRunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;\nпервый ResultData может прийти с типом undefined и не означает завершения.\nGetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.runMethod(prepare(args, { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.lds.idle", "profile": "native", "group": "lds", "method": "idle", "title": "native lds idle", "description": "Продлить текущую сессию native LDS.", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.idle() },
+  { operation: decorateOperation({ "id": "web.lds.xQuery", "profile": "web", "group": "lds", "method": "xQuery", "title": "web lds xQuery", "description": "Выполнить XQuery через web LDS. `keepCursor` по умолчанию `true`; для разового чтения нужен `false`.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.xQuery(prepare(args, { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.lds.releaseCursor", "profile": "web", "group": "lds", "method": "releaseCursor", "title": "web lds releaseCursor", "description": "Освободить свой курсор web LDS.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.releaseCursor(prepare(args, { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false })["cursorId"]) },
+  { operation: decorateOperation({ "id": "web.lds.runMethod", "profile": "web", "group": "lds", "method": "runMethod", "title": "web lds runMethod", "description": "Выполнить штатный RunMethod LDS в этой веб-сессии по SOAP 1.1.\nArgData содержит дочерние элементы XML с типами; SessionID идёт перед ними.\nRunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;\nпервый ResultData может прийти с типом undefined и не означает завершения.\nGetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.\nПрава сервера на вызываемую функцию действуют и здесь, независимо от профиля web.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.runMethod(prepare(args, { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.lds.deleteDoc", "profile": "web", "group": "lds", "method": "deleteDoc", "title": "web lds deleteDoc", "description": "Удалить документ; `StrictDelete=1` отправляется, только когда он включён.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.deleteDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.rpc.call", "profile": "native", "group": "rpc", "method": "call", "title": "native rpc call", "description": "Вызвать функцию библиотеки сервера; своим списком функций клиент вызов не ограничивает.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).rpc.call(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.rpc.call", "profile": "web", "group": "rpc", "method": "call", "title": "web rpc call", "description": "Вызвать функцию библиотеки сервера; своим списком функций клиент вызов не ограничивает.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).rpc.call(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.spxml.call", "profile": "native", "group": "spxml", "method": "call", "title": "native spxml call", "description": "Вызвать функцию библиотеки сервера; своим списком функций клиент вызов не ограничивает.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).spxml.call(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.spxml.callMethod", "profile": "web", "group": "spxml", "method": "callMethod", "title": "web spxml callMethod", "description": "Вызвать функцию библиотеки синхронно. Вызванная функция может менять данные.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.callMethod(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.spxml.callMethodAsync", "profile": "web", "group": "spxml", "method": "callMethodAsync", "title": "web spxml callMethodAsync", "description": "Запустить функцию библиотеки фоновой задачей; ответ содержит TrackingID без потери точности.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.callMethodAsync(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.spxml.getBackgroundTasksByName", "profile": "web", "group": "spxml", "method": "getBackgroundTasksByName", "title": "web spxml getBackgroundTasksByName", "description": "Перечислить фоновые задачи по имени библиотеки и функции.\nНа сервере 2025.1.1171 пул задач общий для приложения, в нём бывают чужие задачи;\nсовпадение имени не значит, что задача своя. Устаревшие записи о завершённых задачах\nудаляются до отбора. Недавно завершённые задачи этот список\nне расходует: их состояние и результат входят в каждый Task.\nДля опроса и остановки нужен TrackingID, записанный отдельно при запуске.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" } }, "required": ["libName", "methodName"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.getBackgroundTasksByName(prepare(args, { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" } }, "required": ["libName", "methodName"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.spxml.getAsyncMethodStatus", "profile": "web", "group": "spxml", "method": "getAsyncMethodStatus", "title": "web spxml getAsyncMethodStatus", "description": "Прочитать состояние фоновой задачи по TrackingID в исходной записи: десятичной или `0x`.\nНа сервере 2025.1.1171 первый ответ о завершении расходует запись о задаче.\nЭтот ответ нужно сохранить сразу и завершённый ID больше не опрашивать:\nесли ответ HTTP потерян, результат уже израсходован. Другие сборки проверяются отдельно.\nИдущую задачу опрашивать не чаще раза в 250 мс.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "trackingId": { "type": "string", "pattern": "^(?:\\d+|0x[0-9a-fA-F]+)$" } }, "required": ["trackingId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.getAsyncMethodStatus(prepare(args, { "type": "object", "properties": { "trackingId": { "type": "string", "pattern": "^(?:\\d+|0x[0-9a-fA-F]+)$" } }, "required": ["trackingId"], "additionalProperties": false })["trackingId"]) },
+  { operation: decorateOperation({ "id": "web.spxml.killAsyncMethod", "profile": "web", "group": "spxml", "method": "killAsyncMethod", "title": "web spxml killAsyncMethod", "description": "Запросить остановку задачи; остановка уже завершённой задачи не гарантирована.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "trackingId": { "type": "string", "pattern": "^(?:\\d+|0x[0-9a-fA-F]+)$" } }, "required": ["trackingId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.killAsyncMethod(prepare(args, { "type": "object", "properties": { "trackingId": { "type": "string", "pattern": "^(?:\\d+|0x[0-9a-fA-F]+)$" } }, "required": ["trackingId"], "additionalProperties": false })["trackingId"]) },
+  { operation: decorateOperation({ "id": "web.spxml.getDoc", "profile": "web", "group": "spxml", "method": "getDoc", "title": "web spxml getDoc", "description": "Прочитать XML документа в UTF-8, если не задан `charset`; кодировка из заголовков ответа важнее.\nСервер 2025.1.1171 не принимает параметр TryLock на этом маршруте:\nзначение в строке запроса отклоняется.\nПроверенный способ заблокировать документ — LoadDoc через native LDS.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "docUrl": { "type": "string" }, "charset": { "type": "string" }, "tryLock": { "type": "boolean" } }, "required": ["docUrl"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.getDoc(prepare(args, { "type": "object", "properties": { "docUrl": { "type": "string" }, "charset": { "type": "string" }, "tryLock": { "type": "boolean" } }, "required": ["docUrl"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.spxml.putDoc", "profile": "web", "group": "spxml", "method": "putDoc", "title": "web spxml putDoc", "description": "Сохранить свой XML через web SPXML; сервер выполняет обработку перед сохранением.\n`neverSaved=true` отправляет `NeverSaved=1`; при false или без значения флаг не отправляется. Управления `SkipActions` на этом маршруте нет.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "docUrl": { "type": "string" }, "document": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, "writeDocInfo": { "type": "boolean" }, "neverSaved": { "type": "boolean" } }, "required": ["docUrl", "document"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml.putDoc(prepare(args, { "type": "object", "properties": { "docUrl": { "type": "string" }, "document": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, "writeDocInfo": { "type": "boolean" }, "neverSaved": { "type": "boolean" } }, "required": ["docUrl", "document"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.spxml2.getAppInfo", "profile": "native", "group": "spxml2", "method": "getAppInfo", "title": "native spxml2 getAppInfo", "description": "Прочитать сведения сервера о приложении; `application_module` необязателен и может отсутствовать.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fastStart": { "type": "boolean" }, "anonymous": { "type": "boolean" }, "openSession": { "type": "boolean" }, "rnd": { "type": "number" } }, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).spxml2.getAppInfo(prepare(args, { "type": "object", "properties": { "fastStart": { "type": "boolean" }, "anonymous": { "type": "boolean" }, "openSession": { "type": "boolean" }, "rnd": { "type": "number" } }, "required": [], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.spxml2.getForm", "profile": "native", "group": "spxml2", "method": "getForm", "title": "native spxml2 getForm", "description": "Прочитать форму по локальному URL сервера как текст в кодировке ответа.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).spxml2.getForm(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.spxml2.getAppInfo", "profile": "web", "group": "spxml2", "method": "getAppInfo", "title": "web spxml2 getAppInfo", "description": "Прочитать сведения сервера о приложении; по умолчанию отправляет `fast_start=1` и случайный `rnd`.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fastStart": { "type": "boolean" }, "anonymous": { "type": "boolean" }, "openSession": { "type": "boolean" }, "rnd": { "type": "number" } }, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getAppInfo(prepare(args, { "type": "object", "properties": { "fastStart": { "type": "boolean" }, "anonymous": { "type": "boolean" }, "openSession": { "type": "boolean" }, "rnd": { "type": "number" } }, "required": [], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.spxml2.getForm", "profile": "web", "group": "spxml2", "method": "getForm", "title": "web spxml2 getForm", "description": "Прочитать форму по локальному URL сервера как текст в кодировке ответа.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getForm(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.spxml2.getImage", "profile": "web", "group": "spxml2", "method": "getImage", "title": "web spxml2 getImage", "description": "Прочитать потоком картинку web SPXML2; параметры эффектов необязательны.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "effects": { "type": "object", "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }] } } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getImage(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "effects": { "type": "object", "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }] } } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.spxml2.getPreloadedDesignFiles", "profile": "web", "group": "spxml2", "method": "getPreloadedDesignFiles", "title": "web spxml2 getPreloadedDesignFiles", "description": "Прочитать набор предзагружаемых файлов оформления default.", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getPreloadedDesignFiles() },
+  { operation: decorateOperation({ "id": "web.spxml2.stdEncrypt", "profile": "web", "group": "spxml2", "method": "stdEncrypt", "title": "web spxml2 stdEncrypt", "description": "Вызвать штатную службу сервера `std_encrypt`; это не средство шифрования общего назначения на стороне клиента.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.stdEncrypt(prepare(args, { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"], "additionalProperties": false })["text"]) },
+  { operation: decorateOperation({ "id": "web.pages.filePreviewPdf", "profile": "web", "group": "pages", "method": "filePreviewPdf", "title": "web pages filePreviewPdf", "description": "Прочитать штатную страницу предпросмотра PDF как текст.", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.filePreviewPdf() },
+  { operation: decorateOperation({ "id": "web.pages.getForm", "profile": "web", "group": "pages", "method": "getForm", "title": "web pages getForm", "description": "Прочитать форму по локальному URL сервера как текст.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getForm(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.pages.getScreenForm", "profile": "web", "group": "pages", "method": "getScreenForm", "title": "web pages getScreenForm", "description": "Прочитать экранную форму по локальному URL сервера как текст.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getScreenForm(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.pages.getImage", "profile": "web", "group": "pages", "method": "getImage", "title": "web pages getImage", "description": 'Прочитать потоком SVG через штатную страницу картинок веб-интерфейса. Сервер принимает\nURL SVG в x-app и x-local и проверяет право чтения источника. Необязательные значения state\nhover, pressed и disabled включают штатную подмену цветов; при других значениях\nсодержимое остаётся исходным. Без значения отправляется state="": штатная\nстраница требует это поле запроса. Тело ответа нужно дочитать или отменить.', "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "state": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getImage(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "state": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.pages.getUiText", "profile": "web", "group": "pages", "method": "getUiText", "title": "web pages getUiText", "description": "Прочитать и разобрать XML текстов веб-интерфейса в кодировке, объявленной приложением.", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getUiText() },
+  { operation: decorateOperation({ "id": "web.pages.getUrl", "profile": "web", "group": "pages", "method": "getUrl", "title": "web pages getUrl", "description": "Прочитать потоком ответ службы страниц по URL; тело нужно дочитать или отменить.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "navigate": { "type": "boolean" }, "download": { "type": "boolean" }, "base64": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "navigate": { "type": "boolean" }, "download": { "type": "boolean" }, "base64": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.pages.uploadFile", "profile": "web", "group": "pages", "method": "uploadFile", "title": "web pages uploadFile", "description": "Загрузить один файл штатным способом: multipart с полями f и session_token.\nТекущий токен страницы подставляет веб-сессия, которой принадлежит вызов. Размер\nограничен maxResponseBytes и пределом клиента 8 МиБ; части и старый вариант\nс base64 не используются. Успешный ответ содержит Url.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["filename", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.uploadFile(prepare(args, { "type": "object", "properties": { "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["filename", "data"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.pages.uploadChunk", "profile": "web", "group": "pages", "method": "uploadChunk", "title": "web pages uploadChunk", "description": "Отправить один штатный POST upload_chunk с байтами данных как есть и явным Content-Range.\nВызывающий задаёт известный fileId из 32 шестнадцатеричных цифр и следит за порядком частей; последняя часть собирает файл.\nОтветы сами по себе не доказывают, что часть сохранена и что байты итогового файла верны.\nПеред последней частью загруженное нужно проверить чтением, подходящим для хранилища.\nПосле ошибки на последней части URL результата может остаться неизвестным: не повторять и не угадывать, что удалять.\nНужна установленная ветка WebSoft/libMain и её действующие правила для пользователя и загрузки.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "index": { "type": "integer", "minimum": 0, "maximum": 99999 }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 }, "totalBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }, "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["fileId", "filename", "index", "chunksTotal", "totalBytes", "offset", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.uploadChunk(prepare(args, { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "index": { "type": "integer", "minimum": 0, "maximum": 99999 }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 }, "totalBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }, "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["fileId", "filename", "index", "chunksTotal", "totalBytes", "offset", "data"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.pages.clearUploadChunks", "profile": "web", "group": "pages", "method": "clearUploadChunks", "title": "web pages clearUploadChunks", "description": "Запросить удаление частей [0, chunksTotal) для известного fileId из 32 шестнадцатеричных цифр, выбранного вызывающим.\nПространство ID общее: сервер не проверяет, кто создал этот ID.\nПустой ответ не доказывает, что части, папка, итоговый файл и временные данные удалены.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 } }, "required": ["fileId", "chunksTotal"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.clearUploadChunks(prepare(args, { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 } }, "required": ["fileId", "chunksTotal"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.resources.getImage", "profile": "native", "group": "resources", "method": "getImage", "title": "native resources getImage", "description": "Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).resources.getImage(prepare(args, { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.resources.getCompoundResource", "profile": "native", "group": "resources", "method": "getCompoundResource", "title": "native resources getCompoundResource", "description": "Прочитать потоком именованное вложение compound-attc через GET /xhttp_res.\nИсточник — url для HTML с адресом x-local или x-app либо docUrl вместе с elemPath\nдля строкового поля документа (подходит и зарегистрированный документ x-db-obj).\nelemPath начинается с имени корневого элемента документа, например presence_state.name;\nего берут из самого документа, а не угадывают корень и структуру.\nСервер декодирует данные найденного вложения и выбирает тип содержимого\nпо resId. Штатный сервер 2025.1.1171 требует ещё, чтобы источник url лежал в настроенном courses_path:\nодной разрешённой локальной схемы для этого мало.\nЭтим маршрутом пользуется штатный клиент администратора; варианты native и web —\nодин маршрут сервера, различается только сессия HTTP. Тело ответа нужно дочитать или отменить.", "status": "implemented", "inputSchema": { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] } }), invoke: async (gateway, args) => (await gateway.native()).resources.getCompoundResource(prepare(args, { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] })) },
+  { operation: decorateOperation({ "id": "web.resources.getImage", "profile": "web", "group": "resources", "method": "getImage", "title": "web resources getImage", "description": "Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).resources.getImage(prepare(args, { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.resources.getCompoundResource", "profile": "web", "group": "resources", "method": "getCompoundResource", "title": "web resources getCompoundResource", "description": "Прочитать потоком именованное вложение compound-attc через GET /xhttp_res.\nИсточник — url для HTML с адресом x-local или x-app либо docUrl вместе с elemPath\nдля строкового поля документа (подходит и зарегистрированный документ x-db-obj).\nelemPath начинается с имени корневого элемента документа, например presence_state.name;\nего берут из самого документа, а не угадывают корень и структуру.\nСервер декодирует данные найденного вложения и выбирает тип содержимого\nпо resId. Штатный сервер 2025.1.1171 требует ещё, чтобы источник url лежал в настроенном courses_path:\nодной разрешённой локальной схемы для этого мало.\nЭтим маршрутом пользуется штатный клиент администратора; варианты native и web —\nодин маршрут сервера, различается только сессия HTTP. Тело ответа нужно дочитать или отменить.", "status": "implemented", "inputSchema": { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] } }), invoke: async (gateway, args) => (await gateway.web()).resources.getCompoundResource(prepare(args, { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] })) },
+  { operation: decorateOperation({ "id": "anonymous.diagnostics.xhttpInfo", "profile": "anonymous", "group": "diagnostics", "method": "xhttpInfo", "title": "anonymous diagnostics xhttpInfo", "description": "Прочитать `/xhttp_info`; авторизация Basic применяется, только если клиенту заданы учётные данные.", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => gateway.client.diagnostics.xhttpInfo() },
+  { operation: decorateOperation({ "id": "anonymous.experimental.rawRequest", "profile": "anonymous", "group": "experimental", "method": "rawRequest", "title": "anonymous experimental rawRequest", "description": "Отправить свой запрос на тот же origin и вернуть тело ответа потоком.\n`unsafe: true` обязателен. Сериализация обычных операций, разбор ошибок сервера и гарантии об исходе записи не действуют;\nнастроенные авторизация и cookie применяются, а метод, заголовки, тело и закрытие потока — на вызывающем.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => gateway.client.experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "native.experimental.rawRequest", "profile": "native", "group": "experimental", "method": "rawRequest", "title": "native experimental rawRequest", "description": "Отправить свой запрос на тот же origin и вернуть тело ответа потоком.\n`unsafe: true` обязателен. Сериализация обычных операций, разбор ошибок сервера и гарантии об исходе записи не действуют;\nнастроенные авторизация и cookie применяются, а метод, заголовки, тело и закрытие потока — на вызывающем.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.experimental.rawRequest", "profile": "web", "group": "experimental", "method": "rawRequest", "title": "web experimental rawRequest", "description": "Отправить свой запрос на тот же origin и вернуть тело ответа потоком.\n`unsafe: true` обязателен. Сериализация обычных операций, разбор ошибок сервера и гарантии об исходе записи не действуют;\nнастроенные авторизация и cookie применяются, а метод, заголовки, тело и закрытие потока — на вызывающем.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.experimental.authenticate", "profile": "web", "group": "experimental", "method": "authenticate", "title": "web experimental authenticate", "description": "Вызвать частично поддержанный маршрут веб-аутентификации; cookie и тело успешного ответа до конца не установлены.", "status": "implemented", "inputSchema": { "type": "object", "properties": { "login": { "type": "string" }, "password": { "type": "string" }, "token": { "type": "string" } }, "required": ["login", "password", "token"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).experimental.authenticate(prepare(args, { "type": "object", "properties": { "login": { "type": "string" }, "password": { "type": "string" }, "token": { "type": "string" } }, "required": ["login", "password", "token"], "additionalProperties": false })) },
+  { operation: decorateOperation({ "id": "web.lifecycle.admin", "profile": "web", "group": "lifecycle", "method": "admin", "title": "web lifecycle admin", "description": "Прочитать ответ `/admin` с перенаправлением, не переходя по нему.", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lifecycle.admin() },
+  { operation: decorateOperation({ "id": "web.lifecycle.main", "profile": "web", "group": "lifecycle", "method": "main", "title": "web lifecycle main", "description": "Прочитать главную страницу веб-администратора после входа.", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lifecycle.main() },
+  { operation: decorateOperation({ "id": "web.lifecycle.logout", "profile": "web", "group": "lifecycle", "method": "logout", "title": "web lifecycle logout", "description": "Выполнить оба шага выхода; при потере связи дальнейшие запросы не отправляются.", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lifecycle.logout() }
 ];
-
-// src/immutable.ts
-function freezeRegistry(value) {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
-    for (const child of Object.values(value)) freezeRegistry(child);
-    Object.freeze(value);
-  }
-  return value;
-}
 
 // src/native/gateway.ts
 var empty = { type: "object", properties: {}, required: [], additionalProperties: false };
@@ -19037,7 +19114,7 @@ managed.push({
     group: "diagnostics",
     method: "portal",
     title: "Portal status",
-    description: "Read the portal landing status without redirects or body.",
+    description: "Прочитать статус стартовой страницы портала без перенаправлений и тела.",
     effect: "read",
     status: "implemented",
     inputSchema: empty
@@ -19051,7 +19128,7 @@ managed.push({
     group: "websocket",
     method: "heartbeat",
     title: "Stock WebSocket heartbeat",
-    description: "Sends one bounded $hbt on /services/main_ws_service and observes $ok. A receipt distinguishes peer Close from missing acknowledgement; app messages and browser /api/spxml2/ws are not covered.",
+    description: "Отправить один $hbt на /services/main_ws_service с ограничением по времени и дождаться $ok. Ответ различает закрытие со стороны сервера и отсутствие подтверждения; прикладные сообщения и браузерный /api/spxml2/ws не охвачены.",
     effect: "read",
     status: "implemented",
     inputSchema: {
@@ -19075,7 +19152,7 @@ for (const profile of ["native", "web"]) {
         group: "session",
         method,
         title: `${profile} session ${method}`,
-        description: "Opens or closes the gateway-owned session. Cookies and LDS IDs remain private to this process.",
+        description: "Открыть или закрыть сессию, которой владеет клиент. Cookie и ID сессии LDS остаются внутри этого процесса.",
         effect: "read",
         status: "implemented",
         inputSchema: empty
@@ -19098,7 +19175,7 @@ managed.push({
     group: "lds",
     method: "closeSession",
     title: "Close native LDS context",
-    description: "Closes the LDS and HTTP context and removes it from the gateway session cache.",
+    description: "Закрыть сессию LDS и HTTP и убрать её из кэша сессий клиента.",
     effect: "read",
     status: "implemented",
     inputSchema: empty
@@ -19115,7 +19192,7 @@ managed.push({
     group: "lds",
     method: "closeSession",
     title: "Close web LDS context",
-    description: "Closes the web LDS and HTTP context and removes it from the gateway session cache.",
+    description: "Закрыть сессию web LDS и HTTP и убрать её из кэша сессий клиента.",
     effect: "read",
     status: "implemented",
     inputSchema: empty
@@ -19132,7 +19209,7 @@ managed.push({
     group: "lds",
     method: "openSession",
     title: "Open native LDS context",
-    description: "Opens the gateway-owned native session. Internal session IDs remain in the gateway.",
+    description: "Открыть сессию native, которой владеет клиент. Внутренние ID сессии остаются в клиенте.",
     effect: "read",
     status: "implemented",
     inputSchema: empty
@@ -19149,7 +19226,7 @@ managed.push({
     group: "lds",
     method: "openSession",
     title: "Open web LDS context",
-    description: "Opens the gateway-owned web session. Internal session IDs remain in the gateway.",
+    description: "Открыть сессию web, которой владеет клиент. Внутренние ID сессии остаются в клиенте.",
     effect: "read",
     status: "implemented",
     inputSchema: empty
@@ -19166,7 +19243,7 @@ managed.push({
     group: "physicalDocuments",
     method: "createFromXml",
     title: "Create a physical XML document",
-    description: "Allocates an ID and replaces {{objectId}} in documentXmlTemplate, then PutDoc and LoadDoc verify its root ID. This does not reproduce client XMD lifecycle.",
+    description: "Выделить ID, подставить его вместо {{objectId}} в documentXmlTemplate, сохранить через PutDoc и сверить ID корня через LoadDoc. Обработка XMD, как в клиенте администратора, не воспроизводится.",
     effect: "write",
     status: "implemented",
     inputSchema: {
@@ -19195,10 +19272,9 @@ managed.push({
 });
 var entries = freezeRegistry([...NATIVE_ENTRIES, ...managed]);
 var byId = new Map(entries.map((entry2) => [entry2.operation.id, entry2]));
-if (byId.size !== entries.length) throw new Error("Duplicate native operation ID");
-var INTERNAL = /* @__PURE__ */ new Set(["native.lds.loadUrl", "native.lds.putUrl", "native.lds.deleteUrl"]);
+if (byId.size !== entries.length) throw new Error("ID низкоуровневой операции повторяется");
 function getNativeOperations() {
-  return entries.map((entry2) => entry2.operation).filter((item) => !INTERNAL.has(item.id));
+  return entries.map((entry2) => entry2.operation).filter((item) => !isInternalNative(item.id));
 }
 function nativeEffect(id, args) {
   const entry2 = byId.get(id);
@@ -19234,7 +19310,7 @@ var NativeGateway = class {
     });
   }
   assertOpen() {
-    if (this.closed) throw new WsHcmApiError("protocol", "Gateway is closed");
+    if (this.closed) throw new WsHcmApiError("protocol", "Шлюз закрыт");
   }
   native() {
     this.assertOpen();
@@ -19263,9 +19339,10 @@ var NativeGateway = class {
     if (session) await (await session).close();
   }
   call(id, args) {
-    if (!this.accepting) return Promise.reject(new WsHcmApiError("protocol", "Gateway is closed"));
+    if (!this.accepting) return Promise.reject(new WsHcmApiError("protocol", "Шлюз закрыт"));
     const entry2 = byId.get(id);
-    if (!entry2) return Promise.reject(new WsHcmApiError("protocol", "Unknown native operation"));
+    if (!entry2)
+      return Promise.reject(new WsHcmApiError("protocol", "Неизвестная низкоуровневая операция"));
     let snapshot;
     try {
       snapshot = structuredClone(args);
@@ -19301,10 +19378,11 @@ var NativeGateway = class {
     return run;
   }
   /**
-   * The server drops a session that stayed idle (within twenty minutes on the stands) or was closed
-   * from its side; every later request then gets HTTP 401. A long-lived owner would stay locked out,
-   * so the dropped session is replaced by a new login and the request is sent once more. The server
-   * rejects such a request before handling it, hence the repeat cannot run anything twice.
+   * Сервер сбрасывает сессию, простоявшую без дела (на стендах — в пределах двадцати минут),
+   * или закрытую с его стороны; каждый следующий запрос получает HTTP 401. Долгоживущий владелец
+   * остался бы без доступа, поэтому сброшенная сессия заменяется новым входом, и запрос
+   * отправляется ещё раз. Сервер отклоняет такой запрос до обработки, поэтому повтор не может
+   * выполнить что-либо дважды.
    */
   async invoke(entry2, args) {
     const profile = entry2.operation.profile;
@@ -19364,60 +19442,83 @@ var NativeGateway = class {
     }
     this.client.close();
     if (errors.length)
-      throw new WsHcmApiError("cleanup", "Gateway session cleanup failed", {
+      throw new WsHcmApiError("cleanup", "Не удалось закрыть сессии шлюза", {
         details: { errorCount: errors.length, remoteCleanupStopped: transportLost },
-        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Gateway cleanup failures")
+        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Ошибки при закрытии сессий шлюза")
       });
   }
 };
 
-// src/scripts.ts
-import { randomUUID } from "node:crypto";
-var TARGET = "ms_tools.evaluate_remote_collection_obj";
-var FORM = "x-local://wtv/wtv_remote_collection.xmd";
-function prepareScript(value, params) {
-  const code = (params === void 0 ? "" : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(JSON.stringify(inputObject(params, "params"))).toString("base64")}"), "utf-8")); `) + requiredString(value, "code");
-  if (Buffer.byteLength(code) > 1024 * 1024)
-    throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");
-  const marker = `hcm_inline_${randomUUID().replaceAll("-", "")}`;
-  const xml = `<remote_collection SPXML-FORM="${FORM}" SPXML-FORM-ELEM="remote_collection"><code>${marker}</code><name>${marker}</name><use_cache>0</use_cache><script>${escapeXml(code)}</script></remote_collection>`;
-  return { request: { target: TARGET, args: [{ lexicalValue: { xml } }] }, executionId: marker };
+// src/operation.ts
+function operation(spec) {
+  return spec;
 }
-var ID = /^(?:0x[0-9a-f]{1,16}|\d{1,20})$/i;
-var AGENT_RUN = `var doc = OpenDoc(UrlFromDocID(Int(PARAMS.id)));
-if (doc.TopElem.Name != 'server_agent') throw 'Объект с этим ID — не агент сервера (server_agent).';
-var from = StrXmlDate(Date());
-var started = doc.TopElem.run_agent(PARAMS.objectId, PARAMS.objectIds, Date(), true);
-if (started) doc.Save();
-RESULT = [{ started: started, from: from, to: StrXmlDate(Date()) }];`;
-function agentRun(args) {
-  const id = (value, path) => {
-    if (typeof value !== "string" || !ID.test(value))
-      throw new HcmError("INVALID_ARGUMENT", `${path}: нужен ID строкой, 0x… или десятичный.`);
-    return BigInt(value).toString();
-  };
-  const list2 = args.objectIds ?? [];
-  if (!Array.isArray(list2) || list2.length > 1e3)
-    throw new HcmError("INVALID_ARGUMENT", "objectIds: нужен список до 1000 ID.");
-  return {
-    code: AGENT_RUN,
-    params: {
-      id: id(args.id, "id"),
-      objectId: args.objectId === void 0 ? null : id(args.objectId, "objectId"),
-      objectIds: list2.map((item, index) => id(item, `objectIds[${index}]`)).join(";")
-    }
+function definitionOf(spec) {
+  return spec.native ?? {
+    id: spec.id,
+    group: spec.id.split(".")[0],
+    title: spec.id,
+    description: spec.description,
+    effect: spec.effect,
+    status: "implemented",
+    inputSchema: spec.inputSchema
   };
 }
-function agentRunResult(data2) {
-  const row = data2.result[0];
-  const time3 = (value) => String(value ?? "").slice(0, 19);
-  const started = row?.started === "1";
-  return {
-    started,
-    startedAt: time3(row?.from),
-    finishedAt: time3(row?.to),
-    hint: started ? "Код агента отработал до конца или до ошибки: ошибку сервер пишет только в лог. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt." : "Сервер агента не запустил; причину он пишет в лог agent."
-  };
+var string2 = { type: "string" };
+var integer = { type: "integer", minimum: 0 };
+var boolean = { type: "boolean" };
+var object = { type: "object" };
+var fields = { type: "array", items: string2 };
+function schema(properties, required2 = []) {
+  return { type: "object", properties, required: required2, additionalProperties: false };
+}
+
+// src/server-value.ts
+function rpcArgument(value) {
+  if (value === null) return { valueType: "null", lexicalValue: "" };
+  if (typeof value === "string") return { valueType: "string", lexicalValue: value };
+  if (typeof value === "boolean") return { valueType: "bool", lexicalValue: value ? "1" : "0" };
+  if (typeof value === "number" && Number.isSafeInteger(value))
+    return { valueType: "integer", lexicalValue: String(value) };
+  throw new HcmError(
+    "INVALID_RPC_ARGUMENT",
+    "Такой аргумент функции задаётся явно: {valueType, lexicalValue}. Так передают дробные и большие числа, даты, объекты и XML."
+  );
+}
+function object2(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error();
+  return value;
+}
+function blank(value) {
+  return value === void 0 || typeof value === "string" && value.trim() === "";
+}
+function exactKeys(node, allowed) {
+  if (Object.keys(node).some((key) => !allowed.includes(key))) throw new Error();
+}
+function isType(value, type) {
+  return typeof value === "string" && value.toLowerCase() === type;
+}
+function wrapper(value, child) {
+  const node = object2(value);
+  if (!blank(node["#text"]) || Object.keys(node).some((key) => {
+    if (key === child || key === "#text") return false;
+    return !/^@_xmlns(?::[A-Za-z_][\w.-]*)?$/.test(key) || typeof node[key] !== "string" || node[key].length > 1024;
+  }))
+    throw new Error();
+  return node[child];
+}
+function typedText(value, type) {
+  const node = object2(value);
+  exactKeys(node, ["@_VALUE-TYPE", "#text"]);
+  if (!isType(node["@_VALUE-TYPE"], type)) throw new Error();
+  const text4 = node["#text"] ?? "";
+  if (typeof text4 !== "string") throw new Error();
+  return text4;
+}
+function strictResponse(response) {
+  const rpc2 = object2(response);
+  exactKeys(rpc2, ["xml", "valueType", "lexicalValue"]);
+  return { rpc: rpc2, result: object2(wrapper(wrapper(rpc2.xml, "ResultData"), "Result")) };
 }
 function decodeRpcValue(value, depth = 0) {
   if (depth > 64) throw new HcmError("SCRIPT_RESPONSE", "Результат вложен глубже 64 уровней.");
@@ -19473,981 +19574,169 @@ function rpcValue(response) {
     throw error2;
   }
 }
-function scriptResult(response, executionId) {
-  const decoded = decodeRpcValue(findXmlNode(response, "Result"));
-  if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода в неожиданном виде: это не объект."
-    );
-  const value = decoded;
-  if (typeof value.error !== "string" || !/^\d+$/.test(value.error))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода без числового кода ошибки."
-    );
-  if (value.error !== "0") {
-    const reason = (typeof value.error_text === "string" ? value.error_text : "").split(/\r?\n/).map((line) => line.trim()).filter(
-      (line) => line !== "" && !line.startsWith("Error evaluating collection") && !line.includes("wtv_remote_collection.xmd")
-    ).join("\n");
-    const unread = /syntax error/i.test(reason) && !/^\(/m.test(reason);
-    throw new HcmError(
-      "SCRIPT_FAILED",
-      "Сервер сообщил об ошибке в коде SP-XML Script.",
-      unread ? "Сообщение сервера — в details.scriptError. Код не разобран и не выполнялся: данные не менялись." : "Сообщение сервера — в details.scriptError. До ошибки код мог изменить данные: их нужно проверить перед повтором.",
-      reason === "" ? void 0 : { scriptError: reason },
-      unread ? "not_sent" : "indeterminate"
-    );
-  }
-  if (!Array.isArray(value.result))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "RESULT — не массив.",
-      "Нужно присвоить RESULT массив, даже когда возвращать нечего: RESULT = [];"
-    );
-  if (!Array.isArray(value.columns) || value.data === null || typeof value.data !== "object" || Array.isArray(value.data))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода не полностью: нет columns или data."
-    );
-  const total = value.total;
-  const serverTicks = value.ticks;
-  if (typeof total !== "string" || typeof serverTicks !== "string" || !/^\d+$/.test(total) || !/^\d+$/.test(serverTicks))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода с неверными счётчиками total или ticks."
-    );
-  const data2 = value.data;
-  return {
-    result: value.result,
-    ...value.columns.length ? { columns: value.columns } : {},
-    ...Object.keys(data2).length ? { data: data2 } : {},
-    executionId
-  };
-}
 
-// src/files.ts
-function fileContent(response, encoding) {
-  if (encoding !== void 0 && encoding !== "base64")
-    throw new HcmError(
-      "INVALID_ARGUMENT",
-      'encoding: допустимо только "base64".',
-      "Без encoding текст в UTF-8 приходит в text, остальное — в base64."
-    );
-  const data2 = response !== null && typeof response === "object" ? response.Data : void 0;
-  if (typeof data2 !== "string" || /[^A-Za-z0-9+/=\s]/.test(data2))
-    throw new HcmError("FILE_READ_RESPONSE", "Сервер вернул файл в неожиданном виде.");
-  const content = Buffer.from(data2.replace(/\s+/g, ""), "base64");
-  const binary = { base64: content.toString("base64"), bytes: content.length };
-  if (encoding === "base64") return binary;
-  try {
-    const text4 = new TextDecoder("utf-8", { fatal: true }).decode(content);
-    return /[\u0000-\u0008\u000b\u000e-\u001f]/.test(text4) ? binary : { text: text4, bytes: content.length };
-  } catch {
-    return binary;
-  }
-}
-var FILE_EXISTS_TARGET = "tools.file_url_exists_server";
-var FILE_EXISTS_URL_MAX_LENGTH = 256;
-function fileExistsUrl(value) {
-  const invalid2 = () => new HcmError(
-    "INVALID_ARGUMENT",
-    "url: нужен адрес x-local://… не длиннее 256 знаков.",
-    "Адрес вида x-local://папка/путь: без имени пользователя и пароля, порта, знаков ? и #, обратной косой черты и управляющих символов."
-  );
-  if (typeof value !== "string" || value.length > FILE_EXISTS_URL_MAX_LENGTH || !value.startsWith("x-local://") || /[\\?#\u0000-\u001f\u007f]/u.test(value))
-    throw invalid2();
-  const authority = value.slice("x-local://".length).split("/", 1)[0];
-  if (!authority || /[\s@:\\]/u.test(authority)) throw invalid2();
-  for (let index = 0; index < value.length; index++) {
-    const unit = value.charCodeAt(index);
-    if (unit >= 55296 && unit <= 56319) {
-      const next = value.charCodeAt(++index);
-      if (!(next >= 56320 && next <= 57343)) throw invalid2();
-    } else if (unit >= 56320 && unit <= 57343) throw invalid2();
-    else if (unit === 65534 || unit === 65535) throw invalid2();
-  }
-  return value;
-}
-function fileFolders(info) {
-  const data2 = /* @__PURE__ */ new Set();
-  const design = /* @__PURE__ */ new Set();
-  const entries2 = Array.isArray(info?.config_entries) ? info.config_entries : [];
-  for (const entry2 of entries2) {
-    const list2 = entry2?.name === "DATA-DB" ? data2 : entry2?.name === "DESIGN-DB" ? design : void 0;
-    if (list2 && typeof entry2.value === "string" && entry2.value) list2.add(entry2.value);
-  }
-  if (!data2.size && !design.size) return void 0;
-  return { data: [...data2], code: [...design].filter((name3) => !data2.has(name3)) };
-}
-function fileTarget(value, listing = false) {
-  const text4 = listing && typeof value === "string" ? value.replace(/\/$/, "") : value;
-  const [folder = "", ...path] = typeof text4 === "string" ? text4.slice(10).split("/") : [];
-  const plain = (part) => !/^[. ]*$|%(?:2e|2f|5c|[01][0-9a-f]|7f)/i.test(part);
-  if (typeof text4 !== "string" || !text4.startsWith("x-local://") || /[\\?#\p{Cc}\p{Cs}]/u.test(text4) || !/^[\w-]+$/.test(folder) || !(listing || path.length) || !path.every(plain))
-    throw new HcmError(
-      "INVALID_ARGUMENT",
-      listing ? "url: нужен адрес x-local://папка или x-local://папка/путь." : "url: нужен адрес x-local://папка/путь.",
-      `${listing ? "Без" : "Путь не пустой, без"} частей из одних точек и пробелов, без %2e, %2f, %5c, знаков \\ ? #. Например, x-local://share/report.txt.`
-    );
-  return { url: text4, folder };
-}
-function assertFileDeletable(folder) {
-  if (folder === "wt_data" || folder === "trash")
-    throw new HcmError(
-      "FILE_NOT_DELETABLE",
-      `В папке ${folder} сервер не удаляет файлы и папки по адресу.`,
-      "Это папка базы сервера. Документ объекта удаляет objects.delete; обычный файл клиент здесь не удаляет."
-    );
-}
-function fileRoute(operation, folders, folder, canExecute) {
-  if (!folders) return "unlisted";
-  if (folders.data.includes(folder)) return "data";
-  if (!folders.code.includes(folder))
-    throw new HcmError(
-      "FOLDER_NOT_WRITABLE",
-      `Папка ${folder} не принимает файлы.`,
-      `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`
-    );
-  if (!canExecute)
-    throw new HcmError(
-      "EXECUTE_DISABLED",
-      `Папка ${folder} на этом сервере принимает ${operation === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
-      "Право execute включает владелец подключения в настройках подключения (permissions.execute)."
-    );
-  return "code";
-}
-function fileWriteContent(args) {
-  const { text: text4, base64: base642 } = args;
-  const bytes = typeof text4 === "string" && !new RegExp("\\p{Cs}", "u").test(text4) ? Buffer.from(text4) : typeof base642 === "string" ? Buffer.from(base642, "base64") : void 0;
-  if (text4 === void 0 === (base642 === void 0) || !bytes || text4 === void 0 && bytes.toString("base64") !== base642)
-    throw new HcmError(
-      "INVALID_ARGUMENT",
-      "Нужно ровно одно из text (без непарных суррогатов) и base64 (без переводов строк)."
-    );
-  return {
-    ...typeof text4 === "string" ? { text: text4 } : {},
-    base64: bytes.toString("base64"),
-    bytes: bytes.length
-  };
-}
-function fileScript(code, params) {
-  try {
-    return prepareScript(code, params);
-  } catch (error2) {
-    if (!(error2 instanceof HcmError) || error2.code !== "SCRIPT_TOO_LARGE") throw error2;
-    throw new HcmError(
-      "FILE_TOO_LARGE",
-      "Файл не помещается в код для сервера.",
-      "В папку кода файл записывает код на сервере: текст — до 750 КБ (меньше, если в нём много переводов строк), двоичные данные — до 580 КБ."
-    );
-  }
-}
-function codeWrite(url, content) {
-  const text4 = content.text !== void 0;
-  return fileScript(
-    `PutUrlData(PARAMS.url, ${text4 ? "PARAMS.text" : "Base64Decode(PARAMS.base64)"});
-RESULT = [UrlFileSize(PARAMS.url)];`,
-    text4 ? { url, text: content.text } : { url, base64: content.base64 }
+// src/operations/native.ts
+function withoutXmlFormatting(value) {
+  if (Array.isArray(value)) return value.map(withoutXmlFormatting);
+  if (!value || typeof value !== "object" || value instanceof Uint8Array) return value;
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key, child]) => key !== "@_xmlns" && !(key === "#text" && typeof child === "string" && child.trim() === "")
+    ).map(([key, child]) => [
+      key,
+      // Перевод строки и отступ закрывающего тега — форматирование пустого элемента.
+      typeof child === "string" && /^\s*\n[ \t]+$/.test(child) ? "" : withoutXmlFormatting(child)
+    ])
   );
 }
-function codeDelete(url) {
-  return fileScript(
-    `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
-else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
-else { DeleteUrl(PARAMS.url); if (UrlExists(PARAMS.url)) RESULT = ['remains']; else RESULT = ['deleted']; }`,
-    { url }
-  );
-}
-function fileRemains() {
-  return new HcmError(
-    "READ_BACK_MISMATCH",
-    "Сервер ответил на удаление без ошибки, но файл или папка по адресу остались.",
-    "Адрес нужно проверить через files.exists перед повтором.",
-    void 0,
-    "indeterminate"
-  );
-}
-function codeDeleteRefusal(data2) {
-  if (data2.result[0] === "directory")
-    return new HcmError("FILE_IS_FOLDER", "Адрес — папка: в папке кода удаляется только файл.");
-  if (data2.result[0] === "absent")
-    return new HcmError("FILE_NOT_FOUND", "По адресу нет файла.", "Адрес проверяет files.exists.");
-  return void 0;
-}
-function codeList(url) {
-  return fileScript(
-    `var rows = [];
-var item = '';
-var folder = false;
-var dir = false;
-try { dir = IsDirectory(PARAMS.url); } catch (e) { dir = false; }
-if (dir) { for (item in ReadDirectory(PARAMS.url)) { folder = IsDirectory(item); rows.push({ u: item, f: folder, b: folder ? 0 : UrlFileSize(item) }); } }
-RESULT = dir ? rows : ['none'];`,
-    { url }
-  );
-}
-function fileList(data2, folder, search = "") {
-  if (data2.result[0] === "none")
-    throw new HcmError(
-      "FOLDER_NOT_FOUND",
-      "По адресу нет папки.",
-      "Список показывает только папку; файл читает files.read, адрес проверяет files.exists."
-    );
-  const rows2 = data2.result.map((row) => {
-    const name3 = typeof row?.u === "string" && row.u.startsWith(`${folder}/`) ? row.u.slice(folder.length + 1).replace(/\/$/, "") : "";
-    const bytes = Number(row?.b);
-    if (!name3 || /[/\\]/.test(name3) || row.f !== "1" && !Number.isFinite(bytes))
-      throw new HcmError("SCRIPT_RESPONSE", "Сервер вернул список папки в неожиданном виде.");
-    return row.f === "1" ? { name: name3, folder: true } : { name: name3, bytes };
-  });
-  const part = search.toLowerCase();
-  const items = rows2.filter((item) => item.name.toLowerCase().includes(part));
-  items.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-  return { items, total: items.length };
-}
-function object(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error();
-  return value;
-}
-function wrapper(value, child) {
-  const node = object(value);
-  if (node["#text"] !== void 0 && (typeof node["#text"] !== "string" || node["#text"].trim() !== "") || Object.keys(node).some((key) => {
-    if (key === child || key === "#text") return false;
-    return !/^@_xmlns(?::[A-Za-z_][\w.-]*)?$/.test(key) || typeof node[key] !== "string" || node[key].length > 1024;
-  }))
-    throw new Error();
-  return node[child];
-}
-function parseFileExists(response) {
-  try {
-    const rpc2 = object(response);
-    if (Object.keys(rpc2).some((key) => !["xml", "valueType", "lexicalValue"].includes(key)) || typeof rpc2.valueType !== "string" || rpc2.valueType.toLowerCase() !== "bool")
-      throw new Error();
-    const result = object(wrapper(wrapper(rpc2.xml, "ResultData"), "Result"));
-    if (Object.keys(result).some((key) => !["@_VALUE-TYPE", "#text"].includes(key)) || typeof result["@_VALUE-TYPE"] !== "string" || result["@_VALUE-TYPE"].toLowerCase() !== "bool" || result["#text"] !== "0" && result["#text"] !== "1" || rpc2.lexicalValue !== result["#text"])
-      throw new Error();
-    return freezeRegistry({
-      exists: result["#text"] === "1"
-    });
-  } catch {
-    throw new HcmError(
-      "FILE_EXISTS_RESPONSE",
-      "Сервер ответил на проверку файла в неожиданном виде.",
-      "Ожидается значение Bool 0 или 1 от функции tools.file_url_exists_server. Её ответ как есть покажет rpc.call."
-    );
+function uploadedFile(answer) {
+  if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return answer;
+  const data2 = answer;
+  if (typeof data2.Url === "string" && data2.Url) {
+    const url = `x-local://share/uploaded_files/${data2.Url}`;
+    const { Url: _, ...rest } = data2;
+    return { ...rest, url, folderUrl: url.slice(0, url.lastIndexOf("/")) };
   }
+  return answer;
 }
-var ServerFiles = class {
-  constructor(server, permissions) {
-    this.server = server;
-    this.permissions = permissions;
-  }
-  async exists(args) {
-    return parseFileExists(
-      await this.server.read("native.rpc.call", {
-        target: FILE_EXISTS_TARGET,
-        args: [{ valueType: "string", lexicalValue: fileExistsUrl(args.url) }]
-      })
-    );
-  }
-  async read(args) {
-    return fileContent(
-      await this.server.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
-      args.encoding
-    );
-  }
-  async list(args, call) {
-    const folder = fileTarget(args.url, true).url;
-    const search = args.search === void 0 ? "" : requiredString(args.search, "search");
-    const data2 = await this.server.runCode(
-      codeList(folder),
-      call.outcome,
-      (answer) => answer.result[0] === "none"
-    );
-    return fileList(data2, folder, search);
-  }
-  async write(args, call) {
-    const target = fileTarget(args.url);
-    const content = fileWriteContent(args);
-    if (await this.route("write", target.folder, call) === "code") {
-      const data2 = await this.server.runCode(codeWrite(target.url, content), call.outcome);
-      return { bytes: Number(data2.result[0]), mutationOutcome: "confirmed" };
+function asyncStatus(answer) {
+  if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return answer;
+  const data2 = answer;
+  if (data2.ResultData !== void 0)
+    try {
+      const decoded = rpcValue(data2);
+      if (decoded !== data2) {
+        const { ResultData: _typed, ...state } = data2;
+        return { ...state, ...decoded };
+      }
+    } catch {
     }
-    await this.server.call(
-      "native.lds.putUrl",
-      { url: target.url, data: { base64: content.base64 } },
-      call.outcome
-    );
-    return { bytes: content.bytes, mutationOutcome: "confirmed" };
+  return answer;
+}
+var FACES = {
+  // Тема tasks.
+  "web.spxml.callMethodAsync": {
+    summary: "Запустить функцию библиотеки фоновой задачей; ответ содержит TrackingID.",
+    details: "target — «библиотека.функция». Удобнее rpc.call с async:true: он принимает обычные значения аргументов."
+  },
+  "web.spxml.getAsyncMethodStatus": {
+    summary: "Состояние задачи по TrackingID. Итог выдаётся один раз: его нужно сохранить и больше не опрашивать.",
+    details: "trackingId — как в ответе запуска: 0x… или десятичный. Пока задача идёт, IsRunning «1»; у завершённой IsRunning «0» и value — её результат, как у обычного rpc.call. После такого ответа сервер запись о задаче удаляет: второй раз результат не получить. Опрашивать не чаще четырёх раз в секунду.",
+    answer: asyncStatus
+  },
+  "web.spxml.getBackgroundTasksByName": {
+    summary: "Найти задачи по имени библиотеки и функции.",
+    details: "В списке бывают задачи других пользователей: совпадение имени не значит, что задача своя. Недавно завершённые задачи остаются в списке вместе с итогом."
+  },
+  "web.spxml.killAsyncMethod": {
+    summary: "Попросить сервер остановить задачу.",
+    details: "Уже сделанные изменения не откатываются. Остановка завершённой задачи не гарантирована."
+  },
+  // Тема files.
+  "web.pages.uploadFile": {
+    summary: "Загрузить файл до 8 МБ в папку загрузок сервера; ответ содержит его адрес.",
+    details: 'filename — имя без пути; data — текст или {base64:"…"}. Ответ: url — адрес файла, folderUrl — папка, которую сервер создал для него.',
+    answer: uploadedFile
+  },
+  "web.pages.uploadChunk": {
+    summary: "Загрузить одну часть большого файла.",
+    details: "fileId — 32 шестнадцатеричных знака, его выбирает вызывающий. Части идут по порядку, последняя собирает файл. Ответ сервера не доказывает, что часть сохранена. При ошибке на последней части вслепую повторять нельзя: адрес итогового файла может остаться неизвестным."
+  },
+  "web.pages.clearUploadChunks": {
+    summary: "Удалить загруженные части файла.",
+    details: "Удаляет части с 0 по chunksTotal − 1 для заданного fileId. Сервер не проверяет, кто создал этот ID; пустой ответ не доказывает, что части удалены."
+  },
+  // Тема documents.
+  "native.lds.loadDoc": {
+    summary: "Прочитать документ по адресу; приходит разобранным в JSON.",
+    details: "Документ приходит разобранным: data.Data.<тип объекта>. Повторяемый элемент из одного элемента здесь объект, а не список. Даты записаны как на сервере, со смещением +00:00: это местное время сервера. Текст XML того же документа отдаёт files.read по тому же адресу.",
+    usualCause: "по этому адресу ничего нет"
+  },
+  "native.lds.putDoc": {
+    summary: "Сохранить документ по адресу из текста XML.",
+    details: "data — текст XML всего документа; он заменяет документ целиком. writeDocInfo:true — сервер обновляет дату и автора изменения; без него они остаются как в тексте, и поиск по modification_date правку не видит. neverSaved:true — документ записывается впервые (так пишет новый объект objects.create). skipActions:true отключает обработку, которую сервер выполняет перед сохранением. Чужую правку операция не замечает: fingerprint из objects.get нужно сверять до записи самому."
+  },
+  "native.lds.deleteDoc": {
+    summary: "Удалить документ по адресу.",
+    details: "strictDelete:true требует, чтобы документ существовал."
+  },
+  "native.lds.getNewObjectId": {
+    summary: "Выделить новый ID объекта; каждый вызов расходует ID.",
+    details: "ObjectID — новый ID десятичной записью; остальные операции принимают его и так, и в записи 0x…."
+  },
+  "native.physicalDocuments.createFromXml": {
+    summary: "Создать документ из готового XML; новый ID подставляется вместо {{objectId}}.",
+    details: "documentXmlTemplate — текст XML документа с {{objectId}} на месте ID. После записи документ перечитывается, и его ID сверяется. Обработчики, которые админка выполняет при создании, не запускаются."
+  },
+  // Тема changes.
+  "native.lds.getModObjects": {
+    summary: "Объекты, изменённые после даты minModDate; на 2025.1–2025.2 ответ пуст и при изменениях.",
+    details: "На проверенных серверах ответ пуст и при свежих изменениях. Изменённые объекты находит runtime.query по modification_date в нужном каталоге. compress передавать нельзя: сжатый ответ клиент не разбирает."
+  },
+  "native.lds.getCatalogsStat": {
+    summary: "Число записей по каталогам из кэша сервера; пустой ответ не значит, что записей нет.",
+    details: "Числа — из кэша сервера, а не свежий подсчёт. Каталога в ответе может не быть; пустой ответ тоже возможен."
+  },
+  // Тема server.
+  "native.spxml2.getAppInfo": {
+    summary: "Каталоги, типы объектов, общие документы и настройки приложения.",
+    details: "Ответ большой и сохраняется целиком. Каталоги — databases[i].catalogs: {id, form_url, object_type}; основная база названа в default_db_name. Типы и их каталоги короче показывает schema.types."
+  },
+  "anonymous.diagnostics.portal": {
+    summary: "Отвечает ли портал."
+  },
+  "anonymous.diagnostics.xhttpInfo": {
+    summary: "Служебная страница /xhttp_info.",
+    details: "Ответ — страница HTML со сведениями о сборке сервера."
+  },
+  "web.websocket.heartbeat": {
+    summary: "Отвечает ли служба WebSocket.",
+    details: "Одна проверка: соединение, служебное сообщение, ответ. heartbeatObserved:true — служба ответила."
+  },
+  // Тема forms.
+  "native.spxml2.getForm": {
+    summary: "Текст формы (.xmd, .xms) по адресу."
+  },
+  "web.pages.getScreenForm": {
+    summary: "Текст экранной формы по адресу."
+  },
+  "web.pages.getUiText": {
+    summary: "Тексты интерфейса."
+  },
+  "native.resources.getImage": {
+    summary: "Картинка ресурса по ID."
+  },
+  "native.resources.getCompoundResource": {
+    summary: "Вложение составного документа.",
+    details: "Источник — url (адрес HTML-файла, x-local или x-app) либо docUrl и elemPath (строковое поле документа). elemPath начинается с имени корневого элемента документа: presence_state.name."
   }
-  async delete(args, call) {
-    const target = fileTarget(args.url);
-    assertFileDeletable(target.folder);
-    if (await this.route("delete", target.folder, call) === "code") {
-      const data2 = await this.server.runCode(
-        codeDelete(target.url),
-        call.outcome,
-        (answer) => !!codeDeleteRefusal(answer)
+};
+var nativeOperations = getNativeOperations().map((native) => {
+  const { answer, ...texts } = FACES[native.id] ?? {};
+  return operation({
+    id: native.id,
+    effect: native.effect,
+    effectFor: (args) => getEffectiveNativeEffect(native, args),
+    description: native.description,
+    ...texts,
+    inputSchema: native.inputSchema,
+    native,
+    run: async (context, args, call) => {
+      prepare(args, native.inputSchema);
+      const raw = withoutXmlFormatting(
+        await context.server.call(
+          native.id,
+          args,
+          call.effect === "read" ? void 0 : call.outcome
+        )
       );
-      const refusal = codeDeleteRefusal(data2);
-      if (refusal) throw refusal;
-      if (data2.result[0] === "remains") throw fileRemains();
-      return { deleted: true, mutationOutcome: "confirmed" };
+      return answer ? answer(raw) : raw;
     }
-    await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
-    if (target.url.length <= FILE_EXISTS_URL_MAX_LENGTH) {
-      if ((await this.exists({ url: target.url })).exists) throw fileRemains();
-    }
-    return { deleted: true, mutationOutcome: "confirmed" };
-  }
-  /** A failure to read the application info means the server gave no folder lists. */
-  async folders() {
-    return fileFolders(await this.server.applicationInfo().catch(() => void 0));
-  }
-  async route(operation, folder, call) {
-    const route = fileRoute(operation, await this.folders(), folder, this.permissions.execute);
-    if (operation === "write" && route !== "unlisted") call.refusal = "files.write:listed";
-    return route;
-  }
-};
-
-// src/operations.ts
-var string2 = { type: "string" };
-var integer = { type: "integer", minimum: 0 };
-var boolean = { type: "boolean" };
-var object2 = { type: "object" };
-var fields = { type: "array", items: string2 };
-function schema(properties, required2 = []) {
-  return { type: "object", properties, required: required2, additionalProperties: false };
-}
-function definition(id, effect, description, inputSchema) {
-  return {
-    id,
-    group: id.split(".")[0],
-    title: id,
-    description,
-    effect,
-    status: "implemented",
-    inputSchema
-  };
-}
-var address = { id: string2, type: string2, url: string2, fields };
-var schemaPage = { search: string2, limit: { type: "integer", minimum: 1 }, cursor: integer };
-var logWindow = { file: string2, full: boolean, tailBytes: integer };
-var composite = [
-  definition(
-    "files.exists",
-    "read",
-    "Есть ли файл или папка по адресу x-local://…. Ответ ничего не говорит о содержимом, размере и правах на чтение. Адрес — до 256 знаков.",
-    schema(
-      {
-        url: {
-          type: "string",
-          minLength: 1,
-          maxLength: FILE_EXISTS_URL_MAX_LENGTH,
-          pattern: "^x-local://"
-        }
-      },
-      ["url"]
-    )
-  ),
-  definition(
-    "files.read",
-    "read",
-    'Прочитать файл по адресу сервера: text, если содержимое — текст в UTF-8, иначе base64. encoding:"base64" отдаёт base64 и для текста. Документы объектов читает objects.get.',
-    schema({ url: string2, encoding: { type: "string", enum: ["base64"] } }, ["url"])
-  ),
-  definition(
-    "files.list",
-    "execute",
-    "Один уровень папки x-local://папка или x-local://папка/путь: items — файлы с размером (bytes) и вложенные папки (folder:true), по имени. search оставляет имена с этой частью, регистр не важен. Список даёт код на сервере: нужно право execute.",
-    schema({ url: string2, search: string2 }, ["url"])
-  ),
-  definition(
-    "files.write",
-    "write",
-    "Записать файл по адресу x-local://…: text — текст (пишется в UTF-8), base64 — двоичные данные. Файл заменяется целиком, вложенные папки сервер создаёт сам. В папку кода (wt, wtv, custom…) файл записывает код на сервере: нужно ещё право execute. Какие папки принимают запись, показывает server.info.",
-    schema({ url: string2, text: string2, base64: string2 }, ["url"])
-  ),
-  definition(
-    "files.delete",
-    "write",
-    "Удалить файл по адресу x-local://…. В папке данных так же удаляется пустая папка; в папке кода — только файл, и нужно ещё право execute.",
-    schema({ url: string2 }, ["url"])
-  ),
-  definition(
-    "server.info",
-    "read",
-    "Сведения, которые сервер отдаёт админке при запуске: версия, операционная система, маска возможностей, ограничения на число записей по типам объектов; в профиле native ещё папки: dataFolders принимают запись через LDS, codeFolders — только кодом на сервере. Маска — не права пользователя, ограничения — не список каталогов. profile: native (по умолчанию) или web.",
-    schema({ profile: { type: "string", enum: ["native", "web"] } })
-  ),
-  definition(
-    "runtime.status",
-    "read",
-    "Проверить связь: версия сервера и права подключения. Ничего не меняет.",
-    schema({})
-  ),
-  definition(
-    "runtime.check",
-    "read",
-    "Проверить подключение по шагам: вход, версия, запрос, документ, схема, библиотеки, логи, портал; при праве execute — ещё код RESULT = [1 + 1]. Запись не проверяется.",
-    schema({})
-  ),
-  definition(
-    "runtime.query",
-    "unknown",
-    "Поиск в каталоге: {catalog, where, fields, order}, условия соединяются через «и»; order — поле или список полей каталога, по убыванию — «поле desc». Или запрос XQuery целиком: {query}; он требует права execute и заканчивается на return $elem. Ответ: items, total; nextStartPosition есть, пока строки не кончились. Запрос, который возвращает отдельные значения, выполняет native.lds.xQuery.",
-    schema({
-      query: string2,
-      catalog: string2,
-      where: object2,
-      order: { anyOf: [string2, { type: "array", items: string2 }] },
-      fields,
-      limit: { type: "integer", minimum: 1, maximum: 1e3 },
-      startPosition: { type: "integer", minimum: 0, maximum: 1e6 }
-    })
-  ),
-  definition(
-    "objects.get",
-    "read",
-    "Прочитать документ объекта по id или url; несколько объектов — ids (до 100), ответ — items, у непрочитанного в элементе error. fields — поля верхнего уровня. Повторяющийся элемент приходит списком и при одном значении. unknownFields — запрошенные имена, которых у типа нет; пустое поле в ответ не попадает.",
-    schema({ ...address, ids: { type: "array", items: string2, minItems: 1, maxItems: 100 } })
-  ),
-  definition(
-    "objects.create",
-    "write",
-    "Создать объект типа type с полями data. ID выдаёт сервер; после записи объект перечитывается и сверяется с запросом. Обработчики, которые админка выполняет при создании, не запускаются.",
-    schema({ type: string2, data: object2, dbName: string2, formUrl: string2 }, ["type", "data"])
-  ),
-  definition(
-    "objects.patch",
-    "write",
-    "Изменить поля объекта, сохранив остальное содержимое документа. patch — {путь: значение} или список {op:'set'|'remove', path, value}; remove — пути, которые удалить. preview:true ничего не записывает. Правка, которая ничего не меняет, не записывается: в ответе noop:true; resave:true записывает документ и без правок — сервер при сохранении заново заполняет поля, которые берёт из связанных объектов. expectedFingerprint отклоняет запись, если объект изменился после чтения; это сверка перед записью, а не блокировка.",
-    schema({
-      ...address,
-      patch: {},
-      remove: { type: "array", items: string2 },
-      expectedFingerprint: string2,
-      preview: boolean,
-      resave: boolean
-    })
-  ),
-  definition(
-    "objects.delete",
-    "write",
-    "Удалить документ объекта безвозвратно; permanent:true обязателен. catalog — проверить, что объект был в этом каталоге и исчез из него.",
-    schema({ ...address, permanent: boolean, catalog: string2 })
-  ),
-  definition(
-    "schema.get",
-    "read",
-    "Поля типа объекта: свои, унаследованные, настраиваемые и поля каталога, с заголовками на языке сервера. deep:true — вложенные поля любой глубины сразу, а не один уровень. Ответ постраничный.",
-    schema({
-      ...schemaPage,
-      type: string2,
-      url: string2,
-      path: string2,
-      deep: boolean,
-      origin: {
-        type: "array",
-        items: { type: "string", enum: ["own", "inherited", "custom", "catalog"] }
-      },
-      kind: string2,
-      include: { type: "array", items: { type: "string", enum: ["methods"] } },
-      language: string2
-    })
-  ),
-  definition(
-    "schema.types",
-    "read",
-    "Типы объектов сервера: тип, каталог, заголовок, число настраиваемых полей. Каталога у типа может не быть. catalogs — сколько на сервере каталогов всего, считая каталоги без своего типа объекта.",
-    schema(schemaPage)
-  ),
-  definition(
-    "logs.list",
-    "read",
-    "Логи сервера, сначала свежие. type — имя лога без даты (xhttp, agent…); nameContains, startDate и endDate отбирают по имени и дате сервера. По умолчанию 30 файлов.",
-    schema({
-      type: string2,
-      nameContains: string2,
-      startDate: string2,
-      endDate: string2,
-      offset: integer,
-      limit: integer
-    })
-  ),
-  definition(
-    "logs.read",
-    "read",
-    "Текст лога: конец файла (tailBytes) или весь файл (full:true). Пока сервер пишет в файл, он может его не отдать: чтение повторяется один раз, затем ошибка LOG_READ_UNAVAILABLE.",
-    schema(logWindow, ["file"])
-  ),
-  definition(
-    "logs.search",
-    "read",
-    "События лога по тексту, уровню или потоку в прочитанной части файла. Многострочное событие возвращается целиком. Уровень определяется по словам в тексте, время — местное время сервера. newestFirst:true отдаёт сначала последние события. cutBySize:true — событий на странице меньше limit, потому что больше не поместилось в ответ; дальше — nextOffset. expectedFingerprint из прошлого ответа защищает следующую страницу от изменившегося файла.",
-    schema(
-      {
-        ...logWindow,
-        text: string2,
-        level: {
-          type: "string",
-          enum: ["normal", "debug", "info", "warning", "error", "critical"]
-        },
-        context: string2,
-        offset: integer,
-        limit: integer,
-        newestFirst: boolean,
-        expectedFingerprint: string2
-      },
-      ["file"]
-    )
-  ),
-  definition(
-    "logs.follow",
-    "read",
-    "Новые события лога с прошлого вызова по cursor. Последнее событие может повториться; gapPossible:true — часть событий могла быть пропущена. После ошибки чтения использовать прежний cursor; другой файл начинать без cursor.",
-    schema({ ...logWindow, cursor: string2 }, ["file"])
-  ),
-  definition(
-    "results.export",
-    "read",
-    "Сохранить большой результат целиком в файл на этом компьютере: json — как есть, jsonl — по строке на элемент списка ответа, text — текст лога или файла. Папка должна существовать.",
-    schema({ resultId: string2, path: string2, format: string2, overwrite: boolean }, [
-      "resultId",
-      "path"
-    ])
-  ),
-  definition(
-    "results.read",
-    "read",
-    "Дочитать сохранённый результат по resultId: список — по элементам, текст лога или файла — по символам. format:json читает любой результат как текст JSON по частям.",
-    schema(
-      {
-        resultId: string2,
-        offset: integer,
-        limit: integer,
-        format: { type: "string", enum: ["auto", "json", "text"] }
-      },
-      ["resultId"]
-    )
-  ),
-  definition(
-    "rpc.call",
-    "execute",
-    "Вызвать функцию библиотеки сервера: {library, method, arguments:[…]}. Строки, целые, логические значения и null передаются как есть; дата, объект, XML и большое целое — как {valueType, lexicalValue}. async:true запускает фоновой задачей.",
-    schema({ library: string2, method: string2, arguments: { type: "array" }, async: boolean }, [
-      "library",
-      "method"
-    ])
-  ),
-  definition(
-    "rpc.list",
-    "read",
-    "Найти функции библиотек сервера: query, library, method. Без all — только те, что можно вызвать с клиента (rpc.call); all:true добавляет функции, которые вызываются только из кода на сервере (serverOnly:true). builtIn:true берёт встроенную таблицу сборки 2025.1.1171 без обращения к серверу. Список не говорит о типах аргументов и о том, меняет ли функция данные.",
-    schema({
-      query: { type: "string", maxLength: 512 },
-      library: { type: "string", maxLength: 128, pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
-      method: { type: "string", maxLength: 128, pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
-      builtIn: boolean,
-      all: boolean,
-      cursor: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
-      limit: { type: "integer", minimum: 1, maximum: 100 }
-    })
-  ),
-  definition(
-    "rpc.describe",
-    "read",
-    "Параметры функции по targetId «библиотека.функция»; source:true добавляет до 8 КБ её кода. serverOnly:true в ответе — функция вызывается только из кода на сервере. Сама функция не вызывается.",
-    schema(
-      {
-        targetId: {
-          type: "string",
-          maxLength: 257,
-          pattern: "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$"
-        },
-        builtIn: boolean,
-        source: boolean
-      },
-      ["targetId"]
-    )
-  ),
-  definition(
-    "execute.script",
-    "execute",
-    "Выполнить код SP-XML Script на сервере. Код присваивает массив переменной RESULT; числа, даты и логические значения приходят строками. params — объект JSON, в коде это готовая переменная PARAMS. На сервер ничего не устанавливается. Код может менять данные, отката нет.",
-    schema(
-      {
-        code: { type: "string", minLength: 1, maxLength: 1048576 },
-        params: { type: "object" }
-      },
-      ["code"]
-    )
-  ),
-  definition(
-    "agents.run",
-    "execute",
-    "Запустить агента сервера и дождаться конца его кода. Ответ: started, startedAt и finishedAt — местное время сервера. Ошибку в коде агента ответ не показывает: она в логе xhttp между этими отметками. Дата последнего запуска сохраняется в агенте, как при запуске из админки.",
-    schema(
-      {
-        id: { type: "string", description: "ID агента (server_agent)." },
-        objectId: { type: "string", description: "ID объекта: в коде агента это OBJECT_ID." },
-        objectIds: {
-          type: "array",
-          items: string2,
-          maxItems: 1e3,
-          description: "ID нескольких объектов: в коде агента это OBJECTS_ID_STR, через «;»."
-        }
-      },
-      ["id"]
-    )
-  ),
-  definition(
-    "runtime.batch",
-    "unknown",
-    "Несколько операций одним вызовом: steps — список {id, args, as}. Значение из прошлого шага: {$ref:'имя.data.items.0.id'}, где имя — as того шага, дальше путь по его ответу. Класс вызова — по самому сильному шагу: все шаги читают — чтение, есть запись — запись, есть выполнение кода — выполнение. Права проверяются для каждого шага. Это не транзакция: выполненные шаги не откатываются; первый сбой останавливает остальные, если не задано stopOnError:false.",
-    schema(
-      {
-        steps: {
-          type: "array",
-          minItems: 1,
-          maxItems: 100,
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string", description: "ID операции шага." },
-              args: {
-                type: "object",
-                description: "Аргументы операции; значение из прошлого шага — {$ref:'имя.путь'}."
-              },
-              as: {
-                type: "string",
-                description: "Имя шага для ссылок из следующих шагов: латинские буквы, цифры и _, первой не цифра."
-              }
-            },
-            required: ["id"],
-            additionalProperties: false
-          }
-        },
-        stopOnError: boolean
-      },
-      ["steps"]
-    )
-  )
-];
-var operations = freezeRegistry([...composite, ...getNativeOperations()]);
-var byId2 = new Map(operations.map((operation) => [operation.id, operation]));
-if (byId2.size !== operations.length) throw new Error("Duplicate runtime operation ID");
-function operationDefinition(id) {
-  return byId2.get(id);
-}
-function operationSearchRank(operation, query2) {
-  const id = operation.id.toLowerCase();
-  if (id === query2) return 5;
-  if (id.split(".").includes(query2)) return 4;
-  if (id.includes(query2)) return 3;
-  const text4 = `${operation.title} ${operation.description}`.toLowerCase();
-  if (!text4.includes(query2)) return 0;
-  return text4.split(/[^\p{L}\p{N}_]+/u).includes(query2) ? 2 : 1;
-}
-
-// src/operation-map.ts
-var PROTOCOL = "protocol";
-var TOPICS = [
-  {
-    id: "functions",
-    title: "Функции библиотек сервера: найти, посмотреть параметры и код, вызвать",
-    operations: {
-      "rpc.list": "Найти функции, разрешённые для вызова с клиента: query, library, method; all:true — вместе с функциями только для кода на сервере.",
-      "rpc.describe": "Параметры функции по targetId «библиотека.функция»; source:true добавляет код. Знает и функции, которые вызываются только из кода на сервере.",
-      "rpc.call": "Вызвать функцию: {library, method, arguments:[…]}; async:true запускает фоновой задачей."
-    }
-  },
-  {
-    id: "tasks",
-    title: "Фоновые задачи: запустить, узнать состояние, остановить",
-    operations: {
-      "web.spxml.callMethodAsync": "Запустить функцию библиотеки фоновой задачей; ответ содержит TrackingID.",
-      "web.spxml.getAsyncMethodStatus": "Состояние задачи по TrackingID. Итог выдаётся один раз: его нужно сохранить и больше не опрашивать.",
-      "web.spxml.getBackgroundTasksByName": "Найти задачи по имени библиотеки и функции.",
-      "web.spxml.killAsyncMethod": "Попросить сервер остановить задачу."
-    }
-  },
-  {
-    id: "agents",
-    title: "Агенты сервера: запустить и дождаться конца",
-    operations: {
-      "agents.run": "Запустить агента по ID и дождаться конца: {id}; objectId и objectIds — объекты, над которыми он работает."
-    }
-  },
-  {
-    id: "files",
-    title: "Файлы сервера по адресу x-local://…: проверить, прочитать, показать папку, записать, удалить, загрузить",
-    operations: {
-      "files.exists": "Есть ли файл или папка по адресу.",
-      "files.read": 'Прочитать файл: текст, если это текст в UTF-8, иначе base64; encoding:"base64" — всегда base64.',
-      "files.list": "Показать один уровень папки: файлы с размером и вложенные папки.",
-      "files.write": "Записать файл: text или base64; способ записи операция выбирает по папке.",
-      "files.delete": "Удалить файл (в папке данных — и пустую папку).",
-      "web.pages.uploadFile": "Загрузить файл до 8 МБ в папку загрузок сервера; ответ содержит его адрес.",
-      "web.pages.uploadChunk": "Загрузить одну часть большого файла.",
-      "web.pages.clearUploadChunks": "Удалить загруженные части файла."
-    }
-  },
-  {
-    id: "documents",
-    title: "Документ объекта как XML: чтение, сохранение, удаление",
-    operations: {
-      "native.lds.loadDoc": "Прочитать документ по адресу; приходит разобранным в JSON.",
-      "native.lds.putDoc": "Сохранить документ по адресу из текста XML.",
-      "native.lds.deleteDoc": "Удалить документ по адресу.",
-      "native.lds.getNewObjectId": "Выделить новый ID объекта; каждый вызов расходует ID.",
-      "native.physicalDocuments.createFromXml": "Создать документ из готового XML; новый ID подставляется вместо {{objectId}}."
-    }
-  },
-  {
-    id: "changes",
-    title: "Учёт изменений самим сервером: на 2025.1–2025.2 отвечает пусто, см. описания операций",
-    operations: {
-      "native.lds.getModObjects": "Объекты, изменённые после даты minModDate; на 2025.1–2025.2 ответ пуст и при изменениях.",
-      "native.lds.getCatalogsStat": "Число записей по каталогам из кэша сервера; пустой ответ не значит, что записей нет."
-    }
-  },
-  {
-    id: "server",
-    title: "Сведения о сервере и проверка служб",
-    operations: {
-      "server.info": "Версия, операционная система и ограничения сервера.",
-      "native.spxml2.getAppInfo": "Каталоги, типы объектов, общие документы и настройки приложения.",
-      "anonymous.diagnostics.portal": "Отвечает ли портал.",
-      "anonymous.diagnostics.xhttpInfo": "Служебная страница /xhttp_info.",
-      "web.websocket.heartbeat": "Отвечает ли служба WebSocket."
-    }
-  },
-  {
-    id: "forms",
-    title: "Формы, тексты интерфейса и картинки",
-    operations: {
-      "native.spxml2.getForm": "Текст формы (.xmd, .xms) по адресу.",
-      "web.pages.getScreenForm": "Текст экранной формы по адресу.",
-      "web.pages.getUiText": "Тексты интерфейса.",
-      "native.resources.getImage": "Картинка ресурса по ID.",
-      "native.resources.getCompoundResource": "Вложение составного документа."
-    }
-  },
-  {
-    id: "basic",
-    title: "Основные операции. У каждой есть своя команда и свой инструмент; по ID они нужны в runtime.batch — несколько операций одним вызовом",
-    operations: {},
-    prefixes: ["runtime.", "objects.", "schema.", "logs.", "results.", "execute."]
-  },
-  {
-    id: PROTOCOL,
-    title: "Прямые вызовы протокола: те же действия через веб-профиль, сессии, сырые запросы. Обычно не нужны",
-    operations: {}
-  }
-];
-var NOTES = {
-  "agents.run": "Вызов ждёт, пока код агента не кончится, и ограничен временем ожидания подключения (timeoutMs): долгого агента нужно запускать без ожидания — rpc.call {library:'tools', method:'start_agent', arguments:[id]} — и следить за логом agent. Параметры агента берутся из его документа. Агенты на C# и агенты выгрузки и импорта не проверялись.",
-  "native.spxml2.getAppInfo": "Ответ большой и сохраняется целиком. Каталоги — databases[i].catalogs: {id, form_url, object_type}; основная база названа в default_db_name. Типы и их каталоги короче показывает schema.types.",
-  "web.pages.uploadFile": 'filename — имя без пути; data — текст или {base64:"…"}. Ответ: url — адрес файла, folderUrl — папка, которую сервер создал для него.',
-  "web.pages.uploadChunk": "fileId — 32 шестнадцатеричных знака, его выбирает вызывающий. Части идут по порядку, последняя собирает файл. Ответ сервера не доказывает, что часть сохранена. При ошибке на последней части вслепую повторять нельзя: адрес итогового файла может остаться неизвестным.",
-  "web.pages.clearUploadChunks": "Удаляет части с 0 по chunksTotal − 1 для заданного fileId. Сервер не проверяет, кто создал этот ID; пустой ответ не доказывает, что части удалены.",
-  "native.lds.loadDoc": "Документ приходит разобранным: data.Data.<тип объекта>. Повторяемый элемент из одного элемента здесь объект, а не список. Даты записаны как на сервере, со смещением +00:00: это местное время сервера. Текст XML того же документа отдаёт files.read по тому же адресу.",
-  "native.lds.putDoc": "data — текст XML всего документа; он заменяет документ целиком. writeDocInfo:true — сервер обновляет дату и автора изменения; без него они остаются как в тексте, и поиск по modification_date правку не видит. neverSaved:true — документ записывается впервые (так пишет новый объект objects.create). skipActions:true отключает обработку, которую сервер выполняет перед сохранением. Чужую правку операция не замечает: fingerprint из objects.get нужно сверять до записи самому.",
-  "native.lds.deleteDoc": "strictDelete:true требует, чтобы документ существовал.",
-  "native.lds.getNewObjectId": "ObjectID — новый ID десятичной записью; остальные операции принимают его и так, и в записи 0x….",
-  "native.physicalDocuments.createFromXml": "documentXmlTemplate — текст XML документа с {{objectId}} на месте ID. После записи документ перечитывается, и его ID сверяется. Обработчики, которые админка выполняет при создании, не запускаются.",
-  "native.lds.getModObjects": "На проверенных серверах ответ пуст и при свежих изменениях. Изменённые объекты находит runtime.query по modification_date в нужном каталоге. compress передавать нельзя: сжатый ответ клиент не разбирает.",
-  "native.lds.getCatalogsStat": "Числа — из кэша сервера, а не свежий подсчёт. Каталога в ответе может не быть; пустой ответ тоже возможен.",
-  "web.spxml.callMethodAsync": "target — «библиотека.функция». Удобнее rpc.call с async:true: он принимает обычные значения аргументов.",
-  "web.spxml.getBackgroundTasksByName": "В списке бывают задачи других пользователей: совпадение имени не значит, что задача своя. Недавно завершённые задачи остаются в списке вместе с итогом.",
-  "web.spxml.getAsyncMethodStatus": "trackingId — как в ответе запуска: 0x… или десятичный. Пока задача идёт, IsRunning «1»; у завершённой IsRunning «0» и value — её результат, как у обычного rpc.call. После такого ответа сервер запись о задаче удаляет: второй раз результат не получить. Опрашивать не чаще четырёх раз в секунду.",
-  "web.spxml.killAsyncMethod": "Уже сделанные изменения не откатываются. Остановка завершённой задачи не гарантирована.",
-  "anonymous.diagnostics.xhttpInfo": "Ответ — страница HTML со сведениями о сборке сервера.",
-  "web.websocket.heartbeat": "Одна проверка: соединение, служебное сообщение, ответ. heartbeatObserved:true — служба ответила.",
-  "native.resources.getCompoundResource": "Источник — url (адрес HTML-файла, x-local или x-app) либо docUrl и elemPath (строковое поле документа). elemPath начинается с имени корневого элемента документа: presence_state.name."
-};
-var topicOfOperation = /* @__PURE__ */ new Map();
-for (const operation of operations) {
-  const topic = TOPICS.find((item) => Object.hasOwn(item.operations, operation.id)) ?? TOPICS.find((item) => item.prefixes?.some((prefix) => operation.id.startsWith(prefix))) ?? TOPICS.find((item) => item.id === PROTOCOL);
-  topicOfOperation.set(operation.id, topic);
-}
-for (const topic of TOPICS)
-  for (const id of Object.keys(topic.operations))
-    if (topicOfOperation.get(id) !== topic) throw new Error(`Unknown operation in topic: ${id}`);
-function operationMap() {
-  return {
-    topics: TOPICS.map((topic) => {
-      const listed = Object.keys(topic.operations);
-      return listed.length ? { topic: topic.id, title: topic.title, operations: listed } : {
-        topic: topic.id,
-        title: topic.title,
-        count: operations.filter((item) => topicOfOperation.get(item.id) === topic).length
-      };
-    }),
-    total: operations.length,
-    effects: Object.fromEntries(
-      ["read", "write", "execute", "unknown"].map((effect) => [effect, operations.filter((item) => item.effect === effect).length]).filter(([, count]) => count)
-    ),
-    hint: 'Операции темы с описаниями: список с topic; операции одного эффекта: query "read", "write", "execute" или "unknown". Эффект — право, которого операция требует: write может менять данные, но не обязана; unknown — зависит от аргументов (запрос, пакет, сырой вызов). Аргументы одной операции: describe по её id.'
-  };
-}
-function operationTopic(id) {
-  return topicOfOperation.get(id)?.id ?? PROTOCOL;
-}
-function operationOrder(id) {
-  const position = Object.keys(topicOfOperation.get(id)?.operations ?? {}).indexOf(id);
-  return position < 0 ? Number.MAX_SAFE_INTEGER : position;
-}
-function operationSummary(id) {
-  return topicOfOperation.get(id)?.operations[id];
-}
-function operationNotes(id) {
-  return NOTES[id];
-}
-function requireTopic(id) {
-  if (TOPICS.some((topic) => topic.id === id)) return id;
-  throw new HcmError(
-    "UNKNOWN_TOPIC",
-    "Такой темы нет.",
-    `Темы: ${TOPICS.map((topic) => topic.id).join(", ")}.`
-  );
-}
-function overviewMatches(id, query2) {
-  const topic = topicOfOperation.get(id);
-  return `${topic?.title} ${topic?.operations[id] ?? ""}`.toLowerCase().includes(query2);
-}
-
-// src/catalog.ts
-function listHcmOperations(filter = {}) {
-  const asked = filter.query?.toLowerCase().trim();
-  const effect = filter.effect ?? ["read", "write", "execute", "unknown"].find((name3) => name3 === asked);
-  const query2 = effect && effect === asked ? void 0 : asked;
-  const topic = filter.topic === void 0 ? void 0 : requireTopic(filter.topic);
-  const selected = operations.filter(
-    (operation) => (!topic || operationTopic(operation.id) === topic) && (!filter.group || operation.group === filter.group) && (!effect || operation.effect === effect) && (!filter.status || operation.status === filter.status) && (!query2 || operationSearchRank(operation, query2) > 0 || overviewMatches(operation.id, query2))
-  );
-  if (topic && !query2)
-    selected.sort((left, right) => operationOrder(left.id) - operationOrder(right.id));
-  if (query2)
-    selected.sort(
-      (left, right) => operationSearchRank(right, query2) - operationSearchRank(left, query2)
-    );
-  const start = boundedInteger(filter.cursor, 0, Number.MAX_SAFE_INTEGER, "cursor");
-  const limit = boundedInteger(filter.limit, 30, 1e3, "limit");
-  if (limit === 0)
-    throw new HcmError("INVALID_ARGUMENT", "limit: нужно целое число от 1 до 1000.", void 0, {
-      path: "limit"
-    });
-  return {
-    operations: selected.slice(start, start + limit),
-    total: selected.length,
-    ...start + limit < selected.length ? { nextCursor: start + limit } : {}
-  };
-}
-function describeHcmOperation(id) {
-  if (typeof id !== "string" || id.length > 128 || !/^[A-Za-z][A-Za-z0-9_.]*$/.test(id))
-    throw new HcmError(
-      "INVALID_OPERATION_ID",
-      "ID операции записан неверно: допустимы латинские буквы, цифры, точка и _, первой идёт буква, не больше 128 знаков."
-    );
-  const operation = operationDefinition(id);
-  if (!operation) {
-    const asked = id.split(".").at(-1).toLowerCase();
-    const near = operations.map((item) => item.id).filter((known2) => {
-      const last = known2.split(".").at(-1).toLowerCase();
-      return last.includes(asked) || asked.includes(last);
-    }).slice(0, 5);
-    throw new HcmError(
-      "UNKNOWN_OPERATION",
-      `Операции ${id} нет.`,
-      `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Список операций показывает api.list.`,
-      { operationId: id }
-    );
-  }
-  return operation;
-}
-
-// src/log-output.ts
-function summary(file) {
-  return {
-    name: file.name,
-    type: file.type,
-    sizeBytes: Number(file.sizeBytes),
-    ...file.dateHint === void 0 ? {} : { date: file.dateHint }
-  };
-}
-function entry(event) {
-  return {
-    sequence: event.sequence,
-    ...event.time === void 0 ? {} : { time: event.time },
-    ...event.context === void 0 ? {} : { context: event.context },
-    level: event.level,
-    text: [event.message, ...event.text.split("\n").slice(1)].join("\n"),
-    ...event.partialBeginning ? { partialBeginning: true } : {}
-  };
-}
-function logFiles(data2) {
-  return {
-    files: data2.files.map(summary),
-    total: data2.total,
-    ...data2.nextOffset === void 0 ? {} : { nextOffset: data2.nextOffset }
-  };
-}
-function logText(data2) {
-  return {
-    file: data2.file.name,
-    text: data2.text,
-    sizeBytes: Number(data2.sizeBytesAfter),
-    tailOnly: data2.truncated,
-    fingerprint: data2.fingerprint
-  };
-}
-function fitting(entries2, budgetBytes, fromEnd) {
-  let bytes = 0;
-  let count = 0;
-  for (let index = 0; index < entries2.length; index++) {
-    const item = entries2[fromEnd ? entries2.length - 1 - index : index];
-    bytes += Buffer.byteLength(JSON.stringify(item)) + 1;
-    if (bytes > budgetBytes && count > 0) break;
-    count++;
-  }
-  return count;
-}
-function logMatches(data2, budgetBytes) {
-  const events = data2.events.map(entry);
-  const kept = fitting(events, budgetBytes, false);
-  const offset = (data2.nextOffset ?? data2.matches) - events.length;
-  const nextOffset = kept < events.length ? offset + kept : data2.nextOffset;
-  return {
-    file: data2.file.name,
-    events: events.slice(0, kept),
-    totalEvents: data2.totalEvents,
-    matches: data2.matches,
-    fingerprint: data2.fingerprint,
-    tailOnly: data2.truncated,
-    ...nextOffset === void 0 ? {} : { nextOffset },
-    ...kept < events.length ? { cutBySize: true } : {}
-  };
-}
-function logNews(data2, first, budgetBytes) {
-  const all = data2.events.map(entry);
-  const recent = first ? all.slice(-10) : all;
-  const events = recent.slice(recent.length - fitting(recent, budgetBytes, true));
-  const omitted = first ? 0 : all.length - events.length;
-  return {
-    file: data2.file.name,
-    events,
-    ...omitted ? { omitted } : {},
-    cursor: data2.cursor,
-    changed: data2.changed,
-    gapPossible: data2.gapPossible,
-    windowTruncated: data2.windowTruncated,
-    ...data2.resetReason === void 0 ? {} : { resetReason: data2.resetReason }
-  };
-}
+  });
+});
+for (const id of Object.keys(FACES))
+  if (!nativeOperations.some((item) => item.id === id))
+    throw new Error(`Строка таблицы для неизвестной низкоуровневой операции: ${id}`);
 
 // src/query.ts
 var IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -20518,23 +19807,23 @@ function catalogQuery(catalog, where = {}, dates = /* @__PURE__ */ new Set(), or
           void 0,
           { field }
         );
-      for (const [operation, value] of operators) {
-        if (operation === "eq" || operation === "ne" || operation === "gt" || operation === "gte" || operation === "lt" || operation === "lte") {
-          const operator = { eq: "=", ne: "!=", gt: ">", gte: ">=", lt: "<", lte: "<=" }[operation];
-          if (operation === "eq") conditions.push(equals(value));
-          else if (operation === "ne" && (value === "" || value === null))
+      for (const [operation2, value] of operators) {
+        if (operation2 === "eq" || operation2 === "ne" || operation2 === "gt" || operation2 === "gte" || operation2 === "lt" || operation2 === "lte") {
+          const operator = { eq: "=", ne: "!=", gt: ">", gte: ">=", lt: "<", lte: "<=" }[operation2];
+          if (operation2 === "eq") conditions.push(equals(value));
+          else if (operation2 === "ne" && (value === "" || value === null))
             conditions.push(`IsEmpty(${path}) = false()`);
           else conditions.push(`${path} ${operator} ${literal(value, date4, integer4)}`);
-        } else if (operation === "contains")
+        } else if (operation2 === "contains")
           conditions.push(`contains(${path}, ${literal(value)})`);
-        else if (operation === "in" && Array.isArray(value) && value.length > 0 && value.length <= 100)
+        else if (operation2 === "in" && Array.isArray(value) && value.length > 0 && value.length <= 100)
           conditions.push(`(${value.map(equals).join(" or ")})`);
         else
           throw new HcmError(
             "INVALID_FILTER_OPERATOR",
             "Операторы условия: eq, ne, gt, gte, lt, lte, contains, in. Для in нужен массив от 1 до 100 значений.",
             void 0,
-            { field, operation }
+            { field, operation: operation2 }
           );
       }
     } else conditions.push(equals(condition));
@@ -20734,6 +20023,237 @@ function queryPage(response, start, limit, fields3, rawQuery) {
 function hasStructure(data2) {
   return Object.values(data2).some((value) => value !== null && typeof value === "object");
 }
+
+// src/write-outcome.ts
+function refusedAtDoor(error2) {
+  return error2 instanceof WsHcmApiError && error2.status === 401 || loginFailed(error2);
+}
+var WriteOutcome = class {
+  marks = 0;
+  ids = {};
+  /** Перед запросом, способным изменить сервер; возвращает снятие этой отметки. */
+  sending() {
+    this.marks++;
+    let withdrawn = false;
+    return () => {
+      if (!withdrawn) this.marks--;
+      withdrawn = true;
+    };
+  }
+  note(ids) {
+    for (const [key, value] of Object.entries(ids))
+      if (value !== void 0) this.ids[key] = value;
+  }
+  /**
+   * Первая подходящая строка: нет ошибки, чтение, отказ на входе, неснятая отметка,
+   * иначе not_sent.
+   */
+  verdict(effect, error2) {
+    const { mutationId, objectId, executionId } = this.ids;
+    const exactIds = {
+      ...mutationId !== void 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId) ? { mutationId } : {},
+      ...objectId !== void 0 && /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(objectId) && BigInt(objectId) <= 0xffffffffffffffffn ? { objectId } : {},
+      ...executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(executionId) ? { executionId } : {}
+    };
+    const sent = effect !== "read" && this.marks > 0;
+    const verdict = { sent, ids: { ...this.ids }, exactIds };
+    if (error2 === void 0) return verdict;
+    const turnedAway = error2 instanceof HcmError && (error2.code === "RPC_SERVER_ONLY" || error2.code === "UNKNOWN_RPC_TARGET");
+    const mutationOutcome = effect === "read" ? error2 instanceof HcmError ? error2.mutationOutcome : void 0 : sent && !turnedAway ? "indeterminate" : "not_sent";
+    if (mutationOutcome === void 0) return verdict;
+    const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error2);
+    return { ...verdict, mutationOutcome, ...refusedAfterSend && { refusedAfterSend } };
+  }
+};
+
+// src/operations/batch.ts
+var batchEffect = (args, effectOf) => {
+  const steps = args.steps;
+  if (!Array.isArray(steps)) return "unknown";
+  const effects = steps.map((raw) => {
+    const step = inputObject(raw, "step");
+    const id = requiredString(step.id, "step.id");
+    if (id === "runtime.batch")
+      throw new HcmError("NESTED_BATCH", "Пакет внутри пакета не поддерживается.");
+    return effectOf(id)(step.args === void 0 ? {} : inputObject(step.args));
+  });
+  if (effects.includes("unknown") || effects.includes("write") && effects.includes("execute"))
+    return "unknown";
+  return effects.includes("execute") ? "execute" : effects.includes("write") ? "write" : "read";
+};
+var batchFailed = (data2, stored) => {
+  if (data2 === null || typeof data2 !== "object" || !("ok" in data2) || data2.ok !== false)
+    return void 0;
+  const batch = data2;
+  const failedSteps = batch.results.flatMap(
+    (result, index) => result.ok ? [] : [{ index, id: result.meta.operationId, code: result.error?.code ?? "UNKNOWN" }]
+  );
+  return {
+    code: "BATCH_FAILED",
+    message: `Отказало шагов пакета: ${failedSteps.length} из ${batch.requested}${batch.requested > batch.completed ? `; после отказа не запускались: ${batch.requested - batch.completed}` : ""}. До повтора нужно посмотреть исход каждого шага.`,
+    hint: stored ? "Номера и коды отказавших шагов — в error.details.failed; ответы шагов сохранены, их читает results.read." : "Номера и коды отказавших шагов — в error.details.failed, ответы шагов — в data.results.",
+    retryable: false,
+    details: {
+      failed: failedSteps.slice(0, 20),
+      ...failedSteps.length > 20 ? { failedTotal: failedSteps.length } : {}
+    }
+  };
+};
+function stepSummary(step) {
+  const { as, ok, data: data2, error: error2 } = step;
+  return {
+    ...as === void 0 ? {} : { as },
+    ok,
+    ...error2?.code ? { code: error2.code } : {},
+    ...typeof data2?.total === "number" ? { total: data2.total } : {},
+    ...Array.isArray(data2?.items) ? { rows: data2.items.length } : {},
+    ...data2?.incomplete ? { incomplete: true } : {}
+  };
+}
+var batchOperations = [
+  operation({
+    id: "runtime.batch",
+    effect: "unknown",
+    effectFor: batchEffect,
+    reply: { failed: batchFailed, preview: { results: stepSummary } },
+    description: "Несколько операций одним вызовом: steps — список {id, args, as}. Значение из прошлого шага: {$ref:'имя.data.items.0.id'}, где имя — as того шага, дальше путь по его ответу. Класс вызова — по самому сильному шагу: все шаги читают — чтение, есть запись — запись, есть выполнение кода — выполнение. Права проверяются для каждого шага. Это не транзакция: выполненные шаги не откатываются; первый сбой останавливает остальные, если не задано stopOnError:false.",
+    inputSchema: schema(
+      {
+        steps: {
+          type: "array",
+          minItems: 1,
+          maxItems: 100,
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "ID операции шага." },
+              args: {
+                type: "object",
+                description: "Аргументы операции; значение из прошлого шага — {$ref:'имя.путь'}."
+              },
+              as: {
+                type: "string",
+                description: "Имя шага для ссылок из следующих шагов: латинские буквы, цифры и _, первой не цифра."
+              }
+            },
+            required: ["id"],
+            additionalProperties: false
+          }
+        },
+        stopOnError: boolean
+      },
+      ["steps"]
+    ),
+    run: async (context, args, call) => {
+      if (!Array.isArray(args.steps) || args.steps.length === 0 || args.steps.length > 100)
+        throw new HcmError("INVALID_BATCH", "steps: в пакете должно быть от 1 до 100 шагов.");
+      const labels = /* @__PURE__ */ new Set();
+      for (const [index, raw] of args.steps.entries()) {
+        const at = `steps[${index}]`;
+        const step = inputObject(raw, at);
+        const stepId = requiredString(step.id, `${at}.id`);
+        if (stepId === "runtime.batch")
+          throw new HcmError("NESTED_BATCH", "Пакет внутри пакета не поддерживается.");
+        context.pipeline.describe(stepId);
+        if (step.args !== void 0) inputObject(step.args, `${at}.args`);
+        if (step.as !== void 0) {
+          const label = identifier(step.as, `${at}.as`);
+          if (labels.has(label))
+            throw new HcmError(
+              "DUPLICATE_STEP",
+              `${at}.as: имя ${label} уже дано другому шагу; имена шагов пакета не повторяются.`,
+              void 0,
+              { path: `${at}.as` },
+              "not_sent"
+            );
+          labels.add(label);
+        }
+      }
+      const named = /* @__PURE__ */ new Map();
+      const results = [];
+      const recovery = {
+        completed: 0,
+        requested: args.steps.length,
+        sentMutationSteps: 0,
+        receipts: []
+      };
+      call.batchRecovery = recovery;
+      const resolveRefs = (value, depth = 0) => {
+        if (depth > 32)
+          throw new HcmError("REFERENCE_DEPTH", "Аргументы шага вложены глубже 32 уровней.");
+        if (Array.isArray(value)) return value.map((item) => resolveRefs(item, depth + 1));
+        if (value === null || typeof value !== "object") return value;
+        const record5 = inputObject(value);
+        if (Object.keys(record5).length === 1 && typeof record5.$ref === "string") {
+          const [stepName, ...path] = record5.$ref.split(".");
+          let result = named.get(stepName);
+          for (const key of path) {
+            if (["__proto__", "constructor", "prototype"].includes(key) || result === null || typeof result !== "object" || !Object.hasOwn(result, key))
+              throw new HcmError(
+                "INVALID_REFERENCE",
+                "Ссылка $ref не находит значение: такого шага раньше не было, или в его результате нет такого поля."
+              );
+            result = result[key];
+          }
+          if (result === void 0)
+            throw new HcmError(
+              "INVALID_REFERENCE",
+              "Ссылка $ref называет шаг, которого раньше в пакете не было."
+            );
+          return result;
+        }
+        return Object.fromEntries(
+          Object.entries(record5).map(([key, item]) => [key, resolveRefs(item, depth + 1)])
+        );
+      };
+      for (const raw of args.steps) {
+        const step = inputObject(raw, "step");
+        const stepId = requiredString(step.id, "step.id");
+        let result;
+        const childState = { outcome: new WriteOutcome(), effect: "read" };
+        try {
+          const resolved = step.args === void 0 ? {} : inputObject(resolveRefs(step.args), "step.args");
+          result = await context.pipeline.step(stepId, resolved, childState);
+        } catch (error2) {
+          result = context.pipeline.failure(stepId, error2);
+        }
+        const written = childState.outcome.verdict(childState.effect);
+        if (written.sent) {
+          call.outcome.sending();
+          recovery.sentMutationSteps++;
+        }
+        results.push(
+          typeof step.as === "string" ? { as: step.as, ...result } : result
+        );
+        recovery.completed = results.length;
+        const returned = result.data !== null && typeof result.data === "object" ? result.data : void 0;
+        recovery.receipts.push({
+          index: results.length - 1,
+          operationId: stepId,
+          ok: result.ok,
+          ...result.error === void 0 ? {} : {
+            errorCode: result.error.code,
+            ...result.error.mutationOutcome === void 0 ? {} : { mutationOutcome: result.error.mutationOutcome }
+          },
+          ...returned?.mutationOutcome === "confirmed" ? { mutationOutcome: "confirmed" } : {},
+          ...written.ids.mutationId === void 0 ? {} : { mutationId: written.ids.mutationId },
+          ...written.ids.objectId === void 0 ? {} : { objectId: written.ids.objectId },
+          ...written.ids.executionId === void 0 ? {} : { executionId: written.ids.executionId },
+          ...written.ids.url === void 0 ? {} : { url: written.ids.url }
+        });
+        if (step.as !== void 0) named.set(identifier(step.as, "step.as"), result);
+        if (!result.ok && args.stopOnError !== false) break;
+      }
+      return {
+        results,
+        completed: results.length,
+        requested: args.steps.length,
+        atomic: false,
+        ok: results.every((result) => result.ok)
+      };
+    }
+  })
+];
 
 // src/documents.ts
 import { createHash } from "node:crypto";
@@ -20960,13 +20480,13 @@ var XmlDocument = class _XmlDocument {
       throw new HcmError("PATCH_LIMIT", "В одном patch не больше 1000 изменений.");
     const changes = [];
     for (const raw of operations2) {
-      const operation = inputObject(raw, "элемент patch");
-      const path = requiredString(operation.path, "path");
+      const operation2 = inputObject(raw, "элемент patch");
+      const path = requiredString(operation2.path, "path");
       const segments = patchSegments(path);
       const upTo = (count) => segments.slice(0, count).map((part) => part[0]).join(".");
       let createdKeyedElement = false;
       let created = false;
-      if (operation.op !== "set" && operation.op !== "remove")
+      if (operation2.op !== "set" && operation2.op !== "remove")
         throw new HcmError("INVALID_PATCH", "op: поддерживаются set и remove.");
       let parent = children(workingRoot);
       for (let index = 0; index < segments.length; index++) {
@@ -20986,7 +20506,7 @@ var XmlDocument = class _XmlDocument {
           throw new HcmError(
             "AMBIGUOUS_PATCH",
             "Таких полей несколько: нужно указать номер элемента, например [0], или ключ [имя=значение], который есть только у одного.",
-            operation.op === "remove" && key === void 0 && index > 0 && index === segments.length - 1 ? `Чтобы убрать все элементы, нужно удалить сам список: remove ["${upTo(index)}"].` : void 0,
+            operation2.op === "remove" && key === void 0 && index > 0 && index === segments.length - 1 ? `Чтобы убрать все элементы, нужно удалить сам список: remove ["${upTo(index)}"].` : void 0,
             { path }
           );
         let chosen = matches2[position ?? 0];
@@ -21000,7 +20520,7 @@ var XmlDocument = class _XmlDocument {
           );
         if (index < segments.length - 1) {
           if (!chosen && position === void 0 && (createdKeyedElement || segments.slice(index).some((part) => part[3] !== void 0))) {
-            if (operation.op === "remove") break;
+            if (operation2.op === "remove") break;
             const node = encodeValue(field, key === void 0 ? {} : { [key]: keyValue });
             chosen = { node, i: parent.length };
             parent.push(node);
@@ -21019,22 +20539,22 @@ var XmlDocument = class _XmlDocument {
           parent = children(chosen.node);
           continue;
         }
-        if (operation.op === "remove") {
+        if (operation2.op === "remove") {
           if (chosen) parent.splice(chosen.i, 1);
           else if (key !== void 0) break;
         } else {
-          if (!Object.hasOwn(operation, "value"))
+          if (!Object.hasOwn(operation2, "value"))
             throw new HcmError("INVALID_PATCH", "Для set нужно value.", void 0, { path });
-          if (key !== void 0) inputObject(operation.value, "значение элемента с ключом");
+          if (key !== void 0) inputObject(operation2.value, "значение элемента с ключом");
           const made = segments[index - 1];
-          if (created && made?.[3] === field && !sameKey(operation.value, made[4]))
+          if (created && made?.[3] === field && !sameKey(operation2.value, made[4]))
             throw new HcmError(
               "INVALID_PATCH",
               "Ключ в значении не совпадает с ключом в пути.",
               "Элемент создан с ключом из пути: в значение нужно записать его же.",
               { path }
             );
-          const replacement = Array.isArray(operation.value) ? operation.value.map((value) => encodeValue(field, value)) : [encodeValue(field, operation.value)];
+          const replacement = Array.isArray(operation2.value) ? operation2.value.map((value) => encodeValue(field, value)) : [encodeValue(field, operation2.value)];
           if (key !== void 0 && !sameKey(
             inputObject(compact(children(replacement[0])), "значение элемента с ключом")[key],
             keyValue
@@ -21048,7 +20568,7 @@ var XmlDocument = class _XmlDocument {
               }
             );
           const stored = chosen ? compact(children(chosen.node)) : void 0;
-          if (stored !== operation.value && withoutFalseOffset(stored) === operation.value) {
+          if (stored !== operation2.value && withoutFalseOffset(stored) === operation2.value) {
           } else if (chosen) {
             if (chosen.node[":@"] !== void 0 && replacement.length === 1)
               replacement[0][":@"] = chosen.node[":@"];
@@ -21067,10 +20587,10 @@ var XmlDocument = class _XmlDocument {
           }
         }
         changes.push({
-          op: operation.op,
+          op: operation2.op,
           path,
           ...chosen && !created ? { before: brief(withoutFalseOffset(compact(children(chosen.node)))) } : {},
-          ...operation.op === "set" ? { after: brief(operation.value) } : {}
+          ...operation2.op === "set" ? { after: brief(operation2.value) } : {}
         });
       }
     }
@@ -21276,8 +20796,8 @@ var SchemaReader = class {
     return cached2;
   }
   /**
-   * Field types for the check after a write. A base type gives its fields to the place that names
-   * it: without them a logical value the server stores as 1 would not equal the true that was sent.
+   * Типы полей для проверки после записи. Базовый тип отдаёт свои поля тому месту, которое его
+   * называет: без них логическое true, отправленное серверу, не равнялось бы хранимому им 1.
    */
   async documentForm(url) {
     const samples = /* @__PURE__ */ new Map();
@@ -21321,7 +20841,7 @@ var SchemaReader = class {
     }
     return this.common;
   }
-  /** Object types the server declares; an empty list when the declaration cannot be read. */
+  /** Типы объектов, которые объявляет сервер; пустой список, если объявление не читается. */
   async declaredTypes(info) {
     const common = await this.commonData(info).catch(() => ({}));
     return list(data(common.exchange_object_types).exchange_object_type);
@@ -21369,8 +20889,8 @@ var SchemaReader = class {
     );
   }
   /**
-   * A name that is not an object type is refused before anything is written. The check needs the
-   * server's lists: when they cannot be read, the name is left to the server.
+   * Имя, не являющееся типом объекта, отклоняется до записи. Проверке нужны списки сервера:
+   * если их не прочитать, имя оставляется серверу.
    */
   async requireType(type) {
     const info = await this.applicationInfo().catch(() => void 0);
@@ -21383,8 +20903,8 @@ var SchemaReader = class {
       throw this.unknownType(info, type, declared);
   }
   /**
-   * Whether rows of this type are documents. Rows of the other catalogs (group_collaborators)
-   * are built by the server and have no document; the answer is yes when it cannot be told.
+   * Являются ли строки этого типа документами. Строки других каталогов (group_collaborators)
+   * строит сервер, документа у них нет; если не определить, ответ — да.
    */
   async hasDocuments(info, type) {
     if (this.catalogs(info).some((item) => item.object_type === type)) return true;
@@ -21392,8 +20912,8 @@ var SchemaReader = class {
     return !declared.length || declared.some((item) => item.name === type);
   }
   /**
-   * Catalogs of the main database. The server names the object type only for some of them. Next to
-   * them it lists its common lists (common.…): those are not catalogs and are left out.
+   * Каталоги основной базы. Тип объекта сервер называет только у части из них. Рядом он
+   * перечисляет общие списки (common.…): это не каталоги, и они пропускаются.
    */
   catalogs(info) {
     const databases = list(info.databases);
@@ -21401,7 +20921,7 @@ var SchemaReader = class {
       (databases.find((db) => db.id === info.default_db_name) ?? databases[0])?.catalogs
     ).filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)));
   }
-  /** Type of the rows of a catalog: named by the server or, failing that, by the catalog form. */
+  /** Тип строк каталога: названный сервером или, если нет, по форме каталога. */
   async rowType(catalog) {
     const named = text(catalog.object_type);
     if (named || !text(catalog.form_url)) return named;
@@ -21412,8 +20932,8 @@ var SchemaReader = class {
     return row ? name2(row) : "";
   }
   /**
-   * Catalogs whose rows are objects of the type. For some types (event) the server leaves the
-   * catalog unnamed: then the catalog called after the type counts, if its form agrees.
+   * Каталоги, строки которых — объекты этого типа. У некоторых типов (event) сервер оставляет
+   * каталог без имени: тогда засчитывается каталог, названный по типу, если форма согласна.
    */
   async catalogsOf(info, type) {
     const catalogs = this.catalogs(info);
@@ -21457,13 +20977,13 @@ var SchemaReader = class {
     }
     return cached2;
   }
-  typeTitle(definition2, dictionary, translations) {
-    const expression = text(definition2.title).trim();
+  typeTitle(definition, dictionary, translations) {
+    const expression = text(definition.title).trim();
     const call = /^(i18n\.t|ms_tools\.get_const)\s*\(\s*'([^'\\]*)'\s*\)$/.exec(expression);
     if (call) return (call[1] === "i18n.t" ? translations : dictionary).get(call[2]) ?? "";
     const literal3 = /^'([^'\\]*)'$/.exec(expression);
     if (literal3) return literal3[1];
-    const constant = text(definition2.web_const);
+    const constant = text(definition.web_const);
     return constant ? this.title(constant.startsWith("const=") ? constant : `const=${constant}`, dictionary) : "";
   }
   async samples(url, samples, visited = /* @__PURE__ */ new Set()) {
@@ -21486,7 +21006,7 @@ var SchemaReader = class {
       if (!/^(USE|INCLUDE|On|DocDesc)/.test(name2(node))) samples.set(name2(node), node);
     return nodes;
   }
-  /** Fields of one catalog row by path, read from the catalog form. */
+  /** Поля одной строки каталога по пути, прочитанные из формы каталога. */
   async catalogFields(catalog, type, samples) {
     const query2 = /* @__PURE__ */ new Map();
     if (!catalog || !text(catalog.form_url)) return query2;
@@ -21513,7 +21033,7 @@ var SchemaReader = class {
     if (record5) collect(children2(record5));
     return query2;
   }
-  /** Shape of a document of one type, with inherited fields; read once per form. */
+  /** Структура документа одного типа с унаследованными полями; читается один раз на форму. */
   documentShape(type, formUrl = `x-local://wtv/wtv_${type}.xmd`) {
     return this.shape(`${formUrl}#${type}`, async () => {
       const samples = /* @__PURE__ */ new Map();
@@ -21553,7 +21073,7 @@ var SchemaReader = class {
       return shape;
     });
   }
-  /** Shape of one catalog row; the catalog is named or found by the object type of its rows. */
+  /** Структура одной строки каталога; каталог назван или находится по типу объекта его строк. */
   async catalogShape(selector) {
     const info = await this.applicationInfo();
     const catalogs = selector.catalog === void 0 ? await this.catalogsOf(info, selector.type ?? "") : this.catalogs(info).filter((item) => item.id === selector.catalog);
@@ -21587,8 +21107,8 @@ var SchemaReader = class {
     return cached2;
   }
   /**
-   * The server answers a refused catalog query with a bare HTTP 500. After such a refusal this
-   * names the usual cause: a catalog that does not exist or a field that is not in the catalog.
+   * Сервер отвечает на отклонённый запрос к каталогу голым HTTP 500. После такого отказа здесь
+   * называется обычная причина: каталога не существует или поля нет в каталоге.
    */
   async explainQuery(catalogId, fields3) {
     const info = await this.applicationInfo();
@@ -21852,15 +21372,15 @@ var SchemaReader = class {
     const definitions = list(data(common.exchange_object_types).exchange_object_type);
     const named = this.catalogs(info).filter((item) => text(item.object_type));
     const unnamed = [];
-    for (const definition2 of definitions) {
-      const type = text(definition2.name);
+    for (const definition of definitions) {
+      const type = text(definition.name);
       if (!type || named.some((item) => item.object_type === type)) continue;
       unnamed.push((await this.catalogsOf(info, type))[0] ?? { object_type: type });
     }
     const types = [...named, ...unnamed].map((catalog) => {
       const type = text(catalog.object_type);
-      const definition2 = definitions.find((item) => item.name === type);
-      const title = this.typeTitle(definition2 ?? {}, dictionary, translations);
+      const definition = definitions.find((item) => item.name === type);
+      const title = this.typeTitle(definition ?? {}, dictionary, translations);
       const template = data(custom3[type]);
       return {
         type,
@@ -21891,6 +21411,1546 @@ var SchemaReader = class {
     };
   }
 };
+
+// src/platform-errors.ts
+function refusalHint(cause) {
+  return `${cause ? `Обычная причина: ${cause}. ` : ""}Причину сервер в ответе не сообщает. Строка о ней может быть в логе xhttp за сегодня (последние строки показывает logs.follow); отклонённый запрос часто строки не оставляет.`;
+}
+var ADDRESS_HINT = "Проверить адрес и порт подключения: WTCTL_URL или baseUrl в файле подключений.";
+function network(reason, address2, host) {
+  switch (reason) {
+    case "refused":
+      return {
+        message: `Сервер ${address2} не отвечает: соединение отклонено.`,
+        hint: `Проверить, что сервер запущен. ${ADDRESS_HINT}`
+      };
+    case "unknown_host":
+      return { message: `Адрес сервера не найден: ${host}.`, hint: ADDRESS_HINT };
+    case "unreachable":
+      return { message: `Сервер ${address2} недоступен по сети.`, hint: ADDRESS_HINT };
+    case "certificate":
+      return {
+        message: `Сертификат сервера ${address2} не прошёл проверку.`,
+        hint: "Если сертификат выпущен внутренним центром сертификации, нужно указать его корневой сертификат в переменной NODE_EXTRA_CA_CERTS."
+      };
+    case "tls":
+      return {
+        message: `Не удалось установить защищённое соединение с ${address2}.`,
+        hint: "Проверить схему в адресе подключения: https для защищённого порта, http для обычного."
+      };
+    case "not_http":
+      return { message: `По адресу ${address2} отвечает не сервер HTTP.`, hint: ADDRESS_HINT };
+    case "redirect":
+      return {
+        message: `Сервер ${address2} перенаправляет запросы на другой адрес.`,
+        hint: "Нужно указать в подключении конечный адрес сервера, например с https вместо http."
+      };
+    case "timeout":
+      return {
+        message: `Сервер ${address2} не ответил за отведённое время.`,
+        hint: "Проверить, что сервер работает. Для долгих операций увеличить timeoutMs подключения."
+      };
+    case "reset":
+      return {
+        message: `Соединение с ${address2} оборвалось.`,
+        hint: "Проверить, что сервер работает, и повторить."
+      };
+    case "aborted":
+      return { message: `Запрос к ${address2} прерван.` };
+    default:
+      return {
+        message: `Запрос к ${address2} не выполнен: нет связи с сервером.`,
+        hint: `Проверить, что сервер запущен. ${ADDRESS_HINT}`
+      };
+  }
+}
+function platformFailure(error2, baseUrl, usualCause) {
+  let address2 = baseUrl.replace(/\/+$/, "");
+  let host = address2;
+  try {
+    const url = new URL(baseUrl);
+    address2 = `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+    host = url.hostname;
+  } catch {
+  }
+  const status = error2.status;
+  if (status === void 0) {
+    const reason = error2.details?.network;
+    if (error2.kind === "http")
+      return network(
+        typeof reason === "string" ? reason : "reset",
+        address2,
+        host
+      );
+    if (error2.kind === "auth")
+      return {
+        message: "Не заданы имя пользователя и пароль подключения.",
+        hint: "Нужно задать WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init."
+      };
+    if (error2.requestSent === false) return { message: error2.message };
+    if (error2.kind === "cleanup") return { message: "Не удалось закрыть сессию на сервере." };
+    return {
+      message: "Ответ сервера не соответствует ожидаемому виду.",
+      hint: "Если так отвечает любая операция, по адресу подключения может работать не сервер WebSoft HCM или его версия не поддерживается: выполнить runtime.check."
+    };
+  }
+  if (status === 401)
+    return {
+      message: "Сервер отказал во входе (HTTP 401).",
+      hint: "Проверить имя пользователя и пароль подключения."
+    };
+  if (status === 403)
+    return {
+      message: "Сервер запретил запрос (HTTP 403).",
+      hint: "У пользователя подключения нет прав на это действие."
+    };
+  if (status === 500)
+    return { message: "Сервер отклонил запрос (HTTP 500).", hint: refusalHint(usualCause) };
+  if (status === 404)
+    return {
+      message: "Сервер ответил HTTP 404: по этому адресу ничего нет.",
+      hint: "Если так отвечает любая операция, проверить адрес подключения: по нему может работать не сервер WebSoft HCM."
+    };
+  if (status === 502 || status === 503 || status === 504)
+    return {
+      message: `Сервер недоступен (HTTP ${status}).`,
+      hint: "Так отвечает промежуточный сервер, когда сам сервер WebSoft HCM остановлен или перегружен."
+    };
+  if (error2.requestSent === false) return { message: error2.message };
+  if (status >= 200 && status < 300)
+    return { message: `Сервер ответил HTTP ${status}, но разобрать ответ не удалось.` };
+  return { message: `Сервер ответил ошибкой HTTP ${status}.` };
+}
+
+// src/self-check.ts
+async function checkServer(config2, invoke) {
+  const report = {
+    permissions: config2.permissions,
+    checks: [],
+    summary: { ok: 0, failed: 0, skipped: 0 }
+  };
+  let info = {};
+  const rows2 = (value) => Array.isArray(value) ? value.filter((v) => v && typeof v === "object") : [];
+  const text4 = (value, max = 128) => {
+    const result = requiredString(value, "ответ проверки");
+    if (result.length > max) throw new Error();
+    return result;
+  };
+  const probe = async (name3, id, args = {}, accept = (_) => {
+  }) => {
+    const skipped = name3 !== "login" && report.checks[0]?.result === "failed" ? "сессия не открыта" : name3 === "execute" && !config2.permissions.execute ? "выполнение кода не разрешено подключением" : void 0;
+    if (skipped) {
+      report.checks.push({ name: name3, result: "skipped", reason: skipped });
+      return;
+    }
+    let late2 = false;
+    let timer;
+    try {
+      const timeout2 = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          late2 = true;
+          reject(new Error());
+        }, config2.timeoutMs);
+      });
+      const pending = invoke(id, args);
+      pending.catch(() => {
+      });
+      accept(await Promise.race([pending, timeout2]));
+      report.checks.push({ name: name3, result: "ok" });
+    } catch (error2) {
+      const status = error2 instanceof WsHcmApiError ? error2.status : void 0;
+      const explained = error2 instanceof WsHcmApiError && (name3 === "login" || status === void 0) ? platformFailure(error2, config2.baseUrl) : void 0;
+      const reason = late2 ? "превышено время проверки" : status === 500 && name3 === "portal" ? "HTTP 500: проверить порт в объекте «хост» и адрес подключения" : explained ? [explained.message, explained.hint].filter(Boolean).join(" ") : status !== void 0 ? `HTTP ${status}` : error2 instanceof HcmError ? `проверка не пройдена: ${error2.code}` : "проверка не пройдена";
+      report.checks.push({ name: name3, result: "failed", reason });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  await probe("login", "native.session.open", {}, (v) => {
+    if (inputObject(v).opened !== true) throw new Error();
+  });
+  await probe("version", "runtime.status", {}, (v) => {
+    report.version = text4(inputObject(v).version);
+  });
+  await probe("appInfo", "native.spxml2.getAppInfo", { fastStart: true }, (v) => {
+    info = inputObject(v);
+    if (typeof info.ui_lang_id === "string") report.language = text4(info.ui_lang_id, 16);
+    const database2 = rows2(info.databases).find((db) => db.id === text4(info.default_db_name));
+    if (!rows2(database2?.catalogs).length) throw new Error();
+  });
+  await probe("query", "runtime.query", { catalog: "collaborators", limit: 1, fields: ["id"] });
+  await probe("document", "objects.get", {
+    url: rows2(info.shared_docs).find((doc) => doc.id === "custom_templates")?.url
+  });
+  await probe("schema", "schema.get", { type: "collaborator", cursor: 0 }, (v) => {
+    const fields3 = rows2(inputObject(v).fields);
+    if (!fields3.length || !fields3.some((f) => String(f.origin).startsWith("inherited:")))
+      throw new Error();
+  });
+  await probe("titles", "objects.get", { url: languageFileUrl(info.ui_lang_id) });
+  await probe("libraries", "rpc.list", { library: "tools", limit: 1 }, (v) => {
+    if (inputObject(v).source !== "server") throw new Error();
+  });
+  await probe("logs", "logs.list", { limit: 1 });
+  await probe("portal", "anonymous.diagnostics.portal", {}, (v) => {
+    const status = Number(inputObject(v).status);
+    if (!Number.isInteger(status) || status < 100 || status > 599) throw new Error();
+    if (status >= 500) throw new WsHcmApiError("http", "Ошибка портала", { status });
+  });
+  await probe("execute", "execute.script", { code: "RESULT = [1 + 1];" }, (v) => {
+    const result = inputObject(v).result;
+    if (!Array.isArray(result) || result.length !== 1 || String(result[0]) !== "2")
+      throw new Error();
+  });
+  for (const { result } of report.checks) report.summary[result]++;
+  return report;
+}
+
+// src/server-info.ts
+var fields2 = ["sys_db_capability", "catalog_limits", "version_server", "os_type"];
+var maxCatalogXmlBytes = 256 * 1024;
+var maxCatalogRows = 4096;
+function signedInteger(value) {
+  if (!/^(?:0x[0-9a-fA-F]{1,16}|[+-]?\d{1,20})$/.test(value)) throw new Error();
+  const integer4 = BigInt(value);
+  if (integer4 < -0x8000000000000000n || integer4 > 0x7fffffffffffffffn) throw new Error();
+  return value;
+}
+function database(mask) {
+  if ((mask & 1n) === 0n) return "xml";
+  if ((mask & 0x10000n) !== 0n) return "mssql";
+  if ((mask & 0x20000n) !== 0n) return "oracle";
+  if ((mask & 0x8000n) !== 0n) return "azure";
+  return (mask & 0x200000000n) !== 0n ? "postgresql" : "other";
+}
+function catalogLimits(source) {
+  if (Buffer.byteLength(source) > maxCatalogXmlBytes) throw new Error();
+  const document = parseXml2(source);
+  exactKeys(document, ["catalogs"]);
+  const root = document.catalogs;
+  if (typeof root === "string" && root.trim() === "") return [];
+  const container = object2(root);
+  exactKeys(container, ["catalog", "#text"]);
+  if (!blank(container["#text"])) throw new Error();
+  const children3 = container.catalog;
+  const rows2 = children3 === void 0 ? [] : Array.isArray(children3) ? children3 : [children3];
+  if (rows2.length > maxCatalogRows) throw new Error();
+  const names2 = /* @__PURE__ */ new Set();
+  return rows2.map((value) => {
+    const row = object2(value);
+    exactKeys(row, ["name", "max_records_num", "#text"]);
+    if (!blank(row["#text"]) || typeof row.name !== "string" || typeof row.max_records_num !== "string")
+      throw new Error();
+    const name3 = row.name;
+    if (name3.length === 0 || name3.length > 512 || names2.has(name3)) throw new Error();
+    names2.add(name3);
+    return { objectTypeName: name3, maxRecordsNum: signedInteger(row.max_records_num) };
+  });
+}
+function parseServerInfo(response, profile = "native") {
+  try {
+    if (profile !== "native" && profile !== "web") throw new Error();
+    const { rpc: rpc2, result } = strictResponse(response);
+    if (rpc2.valueType !== void 0 && !isType(rpc2.valueType, "object") || !blank(rpc2.lexicalValue))
+      throw new Error();
+    exactKeys(result, ["@_VALUE-TYPE", "#text", ...fields2]);
+    if (!isType(result["@_VALUE-TYPE"], "object") || !blank(result["#text"])) throw new Error();
+    const capabilityMask = signedInteger(typedText(result.sys_db_capability, "integer"));
+    const versionServer = typedText(result.version_server, "string");
+    const osType = typedText(result.os_type, "string");
+    if (versionServer.length === 0 || versionServer.length > 256 || !["windows", "linux"].includes(osType))
+      throw new Error();
+    return freezeRegistry({
+      profile,
+      versionServer,
+      osType,
+      capabilityMask,
+      database: database(BigInt(capabilityMask)),
+      catalogLimits: catalogLimits(typedText(result.catalog_limits, "string"))
+    });
+  } catch {
+    throw new HcmError(
+      "SERVER_INFO_RESPONSE",
+      "Сервер вернул сведения о себе в неожиданном виде.",
+      "Ожидаются четыре поля функции ms_tools.get_admin_init_server_data: sys_db_capability, catalog_limits, version_server, os_type. Её ответ как есть покажет rpc.call."
+    );
+  }
+}
+
+// src/operations/connection.ts
+var checkFailed = (data2) => {
+  const check2 = data2;
+  if (!(check2.summary.failed > 0)) return void 0;
+  return {
+    code: "CHECK_FAILED",
+    message: `Проверка подключения не пройдена: ${check2.checks.filter((item) => item.result === "failed").map((item) => item.name).join(", ")}.`,
+    hint: check2.checks.find((item) => item.result === "failed")?.reason ?? "Причины — в data.checks.",
+    retryable: false
+  };
+};
+async function serverInfo(context, profile) {
+  return parseServerInfo(
+    await context.server.read(`${profile}.rpc.call`, {
+      target: "ms_tools.get_admin_init_server_data",
+      args: []
+    }),
+    profile
+  );
+}
+var connectionOperations = [
+  operation({
+    id: "server.info",
+    effect: "read",
+    description: "Сведения, которые сервер отдаёт админке при запуске: версия, операционная система, маска возможностей, ограничения на число записей по типам объектов; в профиле native ещё папки: dataFolders принимают запись через LDS, codeFolders — только кодом на сервере. Маска — не права пользователя, ограничения — не список каталогов. profile: native (по умолчанию) или web.",
+    inputSchema: schema({ profile: { type: "string", enum: ["native", "web"] } }),
+    summary: "Версия, операционная система и ограничения сервера.",
+    run: async (context, args) => {
+      const info = await serverInfo(context, args.profile === "web" ? "web" : "native");
+      const folders = info.profile === "native" ? await context.files.folders() : void 0;
+      return folders ? { ...info, dataFolders: folders.data, codeFolders: folders.code } : info;
+    }
+  }),
+  operation({
+    id: "runtime.status",
+    effect: "read",
+    description: "Проверить связь: версия сервера и права подключения. Ничего не меняет.",
+    inputSchema: schema({}),
+    run: async (context) => {
+      const version2 = await context.server.read("native.rpc.call", {
+        target: "tools.get_version",
+        args: [rpcArgument("wtv")]
+      });
+      const info = await context.server.applicationInfo().catch(() => void 0);
+      const userId = typeof info?.auth_object_url === "string" ? parsePhysicalDocumentId(info.auth_object_url) : void 0;
+      const database2 = (await serverInfo(context, "native").catch(() => void 0))?.database;
+      return {
+        connection: context.config.name,
+        baseUrl: context.config.baseUrl,
+        version: scalar(findXmlNode(version2, "Result"), "версии"),
+        ...database2 ? { database: database2 } : {},
+        ...userId ? { userId } : {},
+        operationCount: context.operationCount,
+        permissions: context.config.permissions
+      };
+    }
+  }),
+  operation({
+    id: "runtime.check",
+    effect: "read",
+    description: "Проверить подключение по шагам: вход, версия, запрос, документ, схема, библиотеки, логи, портал; при праве execute — ещё код RESULT = [1 + 1]. Запись не проверяется.",
+    inputSchema: schema({}),
+    reply: { store: "never", failed: checkFailed },
+    run: (context) => checkServer(context.config, (id, input2) => context.pipeline.invoke(id, input2))
+  })
+];
+
+// src/scripts.ts
+import { randomUUID } from "node:crypto";
+var TARGET = "ms_tools.evaluate_remote_collection_obj";
+var FORM = "x-local://wtv/wtv_remote_collection.xmd";
+function prepareScript(value, params) {
+  const code = (params === void 0 ? "" : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(JSON.stringify(inputObject(params, "params"))).toString("base64")}"), "utf-8")); `) + requiredString(value, "code");
+  if (Buffer.byteLength(code) > 1024 * 1024)
+    throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");
+  const marker = `hcm_inline_${randomUUID().replaceAll("-", "")}`;
+  const xml = `<remote_collection SPXML-FORM="${FORM}" SPXML-FORM-ELEM="remote_collection"><code>${marker}</code><name>${marker}</name><use_cache>0</use_cache><script>${escapeXml(code)}</script></remote_collection>`;
+  return { request: { target: TARGET, args: [{ lexicalValue: { xml } }] }, executionId: marker };
+}
+var ID = /^(?:0x[0-9a-f]{1,16}|\d{1,20})$/i;
+var AGENT_RUN = `var doc = OpenDoc(UrlFromDocID(Int(PARAMS.id)));
+if (doc.TopElem.Name != 'server_agent') throw 'Объект с этим ID — не агент сервера (server_agent).';
+var from = StrXmlDate(Date());
+var started = doc.TopElem.run_agent(PARAMS.objectId, PARAMS.objectIds, Date(), true);
+if (started) doc.Save();
+RESULT = [{ started: started, from: from, to: StrXmlDate(Date()) }];`;
+function agentRun(args) {
+  const id = (value, path) => {
+    if (typeof value !== "string" || !ID.test(value))
+      throw new HcmError("INVALID_ARGUMENT", `${path}: нужен ID строкой, 0x… или десятичный.`);
+    return BigInt(value).toString();
+  };
+  const list2 = args.objectIds ?? [];
+  if (!Array.isArray(list2) || list2.length > 1e3)
+    throw new HcmError("INVALID_ARGUMENT", "objectIds: нужен список до 1000 ID.");
+  return {
+    code: AGENT_RUN,
+    params: {
+      id: id(args.id, "id"),
+      objectId: args.objectId === void 0 ? null : id(args.objectId, "objectId"),
+      objectIds: list2.map((item, index) => id(item, `objectIds[${index}]`)).join(";")
+    }
+  };
+}
+function agentRunResult(data2) {
+  const row = data2.result[0];
+  const time3 = (value) => String(value ?? "").slice(0, 19);
+  const started = row?.started === "1";
+  return {
+    started,
+    startedAt: time3(row?.from),
+    finishedAt: time3(row?.to),
+    hint: started ? "Код агента отработал до конца или до ошибки: ошибку сервер пишет только в лог. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt." : "Сервер агента не запустил; причину он пишет в лог agent."
+  };
+}
+function scriptResult(response, executionId) {
+  const decoded = decodeRpcValue(findXmlNode(response, "Result"));
+  if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода в неожиданном виде: это не объект."
+    );
+  const value = decoded;
+  if (typeof value.error !== "string" || !/^\d+$/.test(value.error))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода без числового кода ошибки."
+    );
+  if (value.error !== "0") {
+    const reason = (typeof value.error_text === "string" ? value.error_text : "").split(/\r?\n/).map((line) => line.trim()).filter(
+      (line) => line !== "" && !line.startsWith("Error evaluating collection") && !line.includes("wtv_remote_collection.xmd")
+    ).join("\n");
+    const unread = /syntax error/i.test(reason) && !/^\(/m.test(reason);
+    throw new HcmError(
+      "SCRIPT_FAILED",
+      "Сервер сообщил об ошибке в коде SP-XML Script.",
+      unread ? "Сообщение сервера — в details.scriptError. Код не разобран и не выполнялся: данные не менялись." : "Сообщение сервера — в details.scriptError. До ошибки код мог изменить данные: их нужно проверить перед повтором.",
+      reason === "" ? void 0 : { scriptError: reason },
+      unread ? "not_sent" : "indeterminate"
+    );
+  }
+  if (!Array.isArray(value.result))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "RESULT — не массив.",
+      "Нужно присвоить RESULT массив, даже когда возвращать нечего: RESULT = [];"
+    );
+  if (!Array.isArray(value.columns) || value.data === null || typeof value.data !== "object" || Array.isArray(value.data))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода не полностью: нет columns или data."
+    );
+  const total = value.total;
+  const serverTicks = value.ticks;
+  if (typeof total !== "string" || typeof serverTicks !== "string" || !/^\d+$/.test(total) || !/^\d+$/.test(serverTicks))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода с неверными счётчиками total или ticks."
+    );
+  const data2 = value.data;
+  return {
+    result: value.result,
+    ...value.columns.length ? { columns: value.columns } : {},
+    ...Object.keys(data2).length ? { data: data2 } : {},
+    executionId
+  };
+}
+
+// src/files.ts
+function fileContent(response, encoding) {
+  if (encoding !== void 0 && encoding !== "base64")
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      'encoding: допустимо только "base64".',
+      "Без encoding текст в UTF-8 приходит в text, остальное — в base64."
+    );
+  const data2 = response !== null && typeof response === "object" ? response.Data : void 0;
+  if (typeof data2 !== "string" || /[^A-Za-z0-9+/=\s]/.test(data2))
+    throw new HcmError("FILE_READ_RESPONSE", "Сервер вернул файл в неожиданном виде.");
+  const content = Buffer.from(data2.replace(/\s+/g, ""), "base64");
+  const binary = { base64: content.toString("base64"), bytes: content.length };
+  if (encoding === "base64") return binary;
+  try {
+    const text4 = new TextDecoder("utf-8", { fatal: true }).decode(content);
+    return /[\u0000-\u0008\u000b\u000e-\u001f]/.test(text4) ? binary : { text: text4, bytes: content.length };
+  } catch {
+    return binary;
+  }
+}
+var FILE_EXISTS_TARGET = "tools.file_url_exists_server";
+var FILE_EXISTS_URL_MAX_LENGTH = 256;
+function fileExistsUrl(value) {
+  const invalid2 = () => new HcmError(
+    "INVALID_ARGUMENT",
+    "url: нужен адрес x-local://… не длиннее 256 знаков.",
+    "Адрес вида x-local://папка/путь: без имени пользователя и пароля, порта, знаков ? и #, обратной косой черты и управляющих символов."
+  );
+  if (typeof value !== "string" || value.length > FILE_EXISTS_URL_MAX_LENGTH || !value.startsWith("x-local://") || /[\\?#\u0000-\u001f\u007f]/u.test(value))
+    throw invalid2();
+  const authority = value.slice("x-local://".length).split("/", 1)[0];
+  if (!authority || /[\s@:\\]/u.test(authority)) throw invalid2();
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 55296 && unit <= 56319) {
+      const next = value.charCodeAt(++index);
+      if (!(next >= 56320 && next <= 57343)) throw invalid2();
+    } else if (unit >= 56320 && unit <= 57343) throw invalid2();
+    else if (unit === 65534 || unit === 65535) throw invalid2();
+  }
+  return value;
+}
+function fileFolders(info) {
+  const data2 = /* @__PURE__ */ new Set();
+  const design = /* @__PURE__ */ new Set();
+  const entries2 = Array.isArray(info?.config_entries) ? info.config_entries : [];
+  for (const entry2 of entries2) {
+    const list2 = entry2?.name === "DATA-DB" ? data2 : entry2?.name === "DESIGN-DB" ? design : void 0;
+    if (list2 && typeof entry2.value === "string" && entry2.value) list2.add(entry2.value);
+  }
+  if (!data2.size && !design.size) return void 0;
+  return { data: [...data2], code: [...design].filter((name3) => !data2.has(name3)) };
+}
+function fileTarget(value, listing = false) {
+  const text4 = listing && typeof value === "string" ? value.replace(/\/$/, "") : value;
+  const [folder = "", ...path] = typeof text4 === "string" ? text4.slice(10).split("/") : [];
+  const plain = (part) => !/^[. ]*$|%(?:2e|2f|5c|[01][0-9a-f]|7f)/i.test(part);
+  if (typeof text4 !== "string" || !text4.startsWith("x-local://") || /[\\?#\p{Cc}\p{Cs}]/u.test(text4) || !/^[\w-]+$/.test(folder) || !(listing || path.length) || !path.every(plain))
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      listing ? "url: нужен адрес x-local://папка или x-local://папка/путь." : "url: нужен адрес x-local://папка/путь.",
+      `${listing ? "Без" : "Путь не пустой, без"} частей из одних точек и пробелов, без %2e, %2f, %5c, знаков \\ ? #. Например, x-local://share/report.txt.`
+    );
+  return { url: text4, folder };
+}
+function assertFileDeletable(folder) {
+  if (folder === "wt_data" || folder === "trash")
+    throw new HcmError(
+      "FILE_NOT_DELETABLE",
+      `В папке ${folder} сервер не удаляет файлы и папки по адресу.`,
+      "Это папка базы сервера. Документ объекта удаляет objects.delete; обычный файл клиент здесь не удаляет."
+    );
+}
+function fileRoute(operation2, folders, folder, canExecute) {
+  if (!folders) return "unlisted";
+  if (folders.data.includes(folder)) return "data";
+  if (!folders.code.includes(folder))
+    throw new HcmError(
+      "FOLDER_NOT_WRITABLE",
+      `Папка ${folder} не принимает файлы.`,
+      `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`
+    );
+  if (!canExecute)
+    throw new HcmError(
+      "EXECUTE_DISABLED",
+      `Папка ${folder} на этом сервере принимает ${operation2 === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
+      "Право execute включает владелец подключения в настройках подключения (permissions.execute)."
+    );
+  return "code";
+}
+function fileWriteContent(args) {
+  const { text: text4, base64: base642 } = args;
+  const bytes = typeof text4 === "string" && !new RegExp("\\p{Cs}", "u").test(text4) ? Buffer.from(text4) : typeof base642 === "string" ? Buffer.from(base642, "base64") : void 0;
+  if (text4 === void 0 === (base642 === void 0) || !bytes || text4 === void 0 && bytes.toString("base64") !== base642)
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "Нужно ровно одно из text (без непарных суррогатов) и base64 (без переводов строк)."
+    );
+  return {
+    ...typeof text4 === "string" ? { text: text4 } : {},
+    base64: bytes.toString("base64"),
+    bytes: bytes.length
+  };
+}
+function fileScript(code, params) {
+  try {
+    return prepareScript(code, params);
+  } catch (error2) {
+    if (!(error2 instanceof HcmError) || error2.code !== "SCRIPT_TOO_LARGE") throw error2;
+    throw new HcmError(
+      "FILE_TOO_LARGE",
+      "Файл не помещается в код для сервера.",
+      "В папку кода файл записывает код на сервере: текст — до 750 КБ (меньше, если в нём много переводов строк), двоичные данные — до 580 КБ."
+    );
+  }
+}
+function codeWrite(url, content) {
+  const text4 = content.text !== void 0;
+  return fileScript(
+    `PutUrlData(PARAMS.url, ${text4 ? "PARAMS.text" : "Base64Decode(PARAMS.base64)"});
+RESULT = [UrlFileSize(PARAMS.url)];`,
+    text4 ? { url, text: content.text } : { url, base64: content.base64 }
+  );
+}
+function codeDelete(url) {
+  return fileScript(
+    `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
+else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
+else { DeleteUrl(PARAMS.url); if (UrlExists(PARAMS.url)) RESULT = ['remains']; else RESULT = ['deleted']; }`,
+    { url }
+  );
+}
+function fileRemains() {
+  return new HcmError(
+    "READ_BACK_MISMATCH",
+    "Сервер ответил на удаление без ошибки, но файл или папка по адресу остались.",
+    "Адрес нужно проверить через files.exists перед повтором.",
+    void 0,
+    "indeterminate"
+  );
+}
+function codeDeleteRefusal(data2) {
+  if (data2.result[0] === "directory")
+    return new HcmError("FILE_IS_FOLDER", "Адрес — папка: в папке кода удаляется только файл.");
+  if (data2.result[0] === "absent")
+    return new HcmError("FILE_NOT_FOUND", "По адресу нет файла.", "Адрес проверяет files.exists.");
+  return void 0;
+}
+function codeList(url) {
+  return fileScript(
+    `var rows = [];
+var item = '';
+var folder = false;
+var dir = false;
+try { dir = IsDirectory(PARAMS.url); } catch (e) { dir = false; }
+if (dir) { for (item in ReadDirectory(PARAMS.url)) { folder = IsDirectory(item); rows.push({ u: item, f: folder, b: folder ? 0 : UrlFileSize(item) }); } }
+RESULT = dir ? rows : ['none'];`,
+    { url }
+  );
+}
+function fileList(data2, folder, search = "") {
+  if (data2.result[0] === "none")
+    throw new HcmError(
+      "FOLDER_NOT_FOUND",
+      "По адресу нет папки.",
+      "Список показывает только папку; файл читает files.read, адрес проверяет files.exists."
+    );
+  const rows2 = data2.result.map((row) => {
+    const name3 = typeof row?.u === "string" && row.u.startsWith(`${folder}/`) ? row.u.slice(folder.length + 1).replace(/\/$/, "") : "";
+    const bytes = Number(row?.b);
+    if (!name3 || /[/\\]/.test(name3) || row.f !== "1" && !Number.isFinite(bytes))
+      throw new HcmError("SCRIPT_RESPONSE", "Сервер вернул список папки в неожиданном виде.");
+    return row.f === "1" ? { name: name3, folder: true } : { name: name3, bytes };
+  });
+  const part = search.toLowerCase();
+  const items = rows2.filter((item) => item.name.toLowerCase().includes(part));
+  items.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  return { items, total: items.length };
+}
+function parseFileExists(response) {
+  try {
+    const { rpc: rpc2, result } = strictResponse(response);
+    exactKeys(result, ["@_VALUE-TYPE", "#text"]);
+    if (!isType(rpc2.valueType, "bool") || !isType(result["@_VALUE-TYPE"], "bool") || result["#text"] !== "0" && result["#text"] !== "1" || rpc2.lexicalValue !== result["#text"])
+      throw new Error();
+    return freezeRegistry({
+      exists: result["#text"] === "1"
+    });
+  } catch {
+    throw new HcmError(
+      "FILE_EXISTS_RESPONSE",
+      "Сервер ответил на проверку файла в неожиданном виде.",
+      "Ожидается значение Bool 0 или 1 от функции tools.file_url_exists_server. Её ответ как есть покажет rpc.call."
+    );
+  }
+}
+var ServerFiles = class {
+  constructor(server, permissions) {
+    this.server = server;
+    this.permissions = permissions;
+  }
+  async exists(args) {
+    return parseFileExists(
+      await this.server.read("native.rpc.call", {
+        target: FILE_EXISTS_TARGET,
+        args: [rpcArgument(fileExistsUrl(args.url))]
+      })
+    );
+  }
+  async read(args) {
+    return fileContent(
+      await this.server.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
+      args.encoding
+    );
+  }
+  async list(args, call) {
+    const folder = fileTarget(args.url, true).url;
+    const search = args.search === void 0 ? "" : requiredString(args.search, "search");
+    const data2 = await this.server.runCode(
+      codeList(folder),
+      call.outcome,
+      (answer) => answer.result[0] === "none"
+    );
+    return fileList(data2, folder, search);
+  }
+  async write(args, call) {
+    const target = fileTarget(args.url);
+    const content = fileWriteContent(args);
+    if (await this.route("write", target.folder, call) === "code") {
+      const data2 = await this.server.runCode(codeWrite(target.url, content), call.outcome);
+      return { bytes: Number(data2.result[0]), mutationOutcome: "confirmed" };
+    }
+    await this.server.call(
+      "native.lds.putUrl",
+      { url: target.url, data: { base64: content.base64 } },
+      call.outcome
+    );
+    return { bytes: content.bytes, mutationOutcome: "confirmed" };
+  }
+  async delete(args, call) {
+    const target = fileTarget(args.url);
+    assertFileDeletable(target.folder);
+    if (await this.route("delete", target.folder, call) === "code") {
+      const data2 = await this.server.runCode(
+        codeDelete(target.url),
+        call.outcome,
+        (answer) => !!codeDeleteRefusal(answer)
+      );
+      const refusal = codeDeleteRefusal(data2);
+      if (refusal) throw refusal;
+      if (data2.result[0] === "remains") throw fileRemains();
+      return { deleted: true, mutationOutcome: "confirmed" };
+    }
+    await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
+    if (target.url.length <= FILE_EXISTS_URL_MAX_LENGTH) {
+      if ((await this.exists({ url: target.url })).exists) throw fileRemains();
+    }
+    return { deleted: true, mutationOutcome: "confirmed" };
+  }
+  /** Сбой чтения сведений о приложении означает, что сервер не дал списков папок. */
+  async folders() {
+    return fileFolders(await this.server.applicationInfo().catch(() => void 0));
+  }
+  async route(operation2, folder, call) {
+    const route = fileRoute(operation2, await this.folders(), folder, this.permissions.execute);
+    if (operation2 === "write" && route !== "unlisted") call.causeRuledOut = true;
+    return route;
+  }
+};
+
+// src/operations/files.ts
+var fileOperations = [
+  operation({
+    id: "files.exists",
+    effect: "read",
+    description: "Есть ли файл или папка по адресу x-local://…. Ответ ничего не говорит о содержимом, размере и правах на чтение. Адрес — до 256 знаков.",
+    inputSchema: schema(
+      {
+        url: {
+          type: "string",
+          minLength: 1,
+          maxLength: FILE_EXISTS_URL_MAX_LENGTH,
+          pattern: "^x-local://"
+        }
+      },
+      ["url"]
+    ),
+    summary: "Есть ли файл или папка по адресу.",
+    run: (context, args) => context.files.exists(args)
+  }),
+  operation({
+    id: "files.read",
+    effect: "read",
+    description: 'Прочитать файл по адресу сервера: text, если содержимое — текст в UTF-8, иначе base64. encoding:"base64" отдаёт base64 и для текста. Документы объектов читает objects.get.',
+    inputSchema: schema({ url: string2, encoding: { type: "string", enum: ["base64"] } }, ["url"]),
+    summary: 'Прочитать файл: текст, если это текст в UTF-8, иначе base64; encoding:"base64" — всегда base64.',
+    usualCause: "по этому адресу ничего нет",
+    reply: { store: "always" },
+    run: (context, args) => context.files.read(args)
+  }),
+  operation({
+    id: "files.list",
+    effect: "execute",
+    description: "Один уровень папки x-local://папка или x-local://папка/путь: items — файлы с размером (bytes) и вложенные папки (folder:true), по имени. search оставляет имена с этой частью, регистр не важен. Список даёт код на сервере: нужно право execute.",
+    inputSchema: schema({ url: string2, search: string2 }, ["url"]),
+    summary: "Показать один уровень папки: файлы с размером и вложенные папки.",
+    run: (context, args, call) => context.files.list(args, call)
+  }),
+  operation({
+    id: "files.write",
+    effect: "write",
+    description: "Записать файл по адресу x-local://…: text — текст (пишется в UTF-8), base64 — двоичные данные. Файл заменяется целиком, вложенные папки сервер создаёт сам. В папку кода (wt, wtv, custom…) файл записывает код на сервере: нужно ещё право execute. Какие папки принимают запись, показывает server.info.",
+    inputSchema: schema({ url: string2, text: string2, base64: string2 }, ["url"]),
+    summary: "Записать файл: text или base64; способ записи операция выбирает по папке.",
+    usualCause: "сервер не сообщил, какие папки принимают запись; в папку кода файл записывает код на сервере",
+    run: (context, args, call) => context.files.write(args, call)
+  }),
+  operation({
+    id: "files.delete",
+    effect: "write",
+    description: "Удалить файл по адресу x-local://…. В папке данных так же удаляется пустая папка; в папке кода — только файл, и нужно ещё право execute.",
+    inputSchema: schema({ url: string2 }, ["url"]),
+    summary: "Удалить файл (в папке данных — и пустую папку).",
+    usualCause: "по адресу нет файла или в папке есть файлы; если сервер не сообщил, какие папки принимают запись, это может быть папка кода, где файл удаляет код на сервере",
+    run: (context, args, call) => context.files.delete(args, call)
+  })
+];
+
+// src/log-output.ts
+function summary(file) {
+  return {
+    name: file.name,
+    type: file.type,
+    sizeBytes: Number(file.sizeBytes),
+    ...file.dateHint === void 0 ? {} : { date: file.dateHint }
+  };
+}
+function entry(event) {
+  return {
+    sequence: event.sequence,
+    ...event.time === void 0 ? {} : { time: event.time },
+    ...event.context === void 0 ? {} : { context: event.context },
+    level: event.level,
+    text: [event.message, ...event.text.split("\n").slice(1)].join("\n"),
+    ...event.partialBeginning ? { partialBeginning: true } : {}
+  };
+}
+function logFiles(data2) {
+  return {
+    files: data2.files.map(summary),
+    total: data2.total,
+    ...data2.nextOffset === void 0 ? {} : { nextOffset: data2.nextOffset }
+  };
+}
+function logText(data2) {
+  return {
+    file: data2.file.name,
+    text: data2.text,
+    sizeBytes: Number(data2.sizeBytesAfter),
+    tailOnly: data2.truncated,
+    fingerprint: data2.fingerprint
+  };
+}
+function fitting(entries2, budgetBytes, fromEnd) {
+  let bytes = 0;
+  let count = 0;
+  for (let index = 0; index < entries2.length; index++) {
+    const item = entries2[fromEnd ? entries2.length - 1 - index : index];
+    bytes += Buffer.byteLength(JSON.stringify(item)) + 1;
+    if (bytes > budgetBytes && count > 0) break;
+    count++;
+  }
+  return count;
+}
+function logMatches(data2, budgetBytes) {
+  const events = data2.events.map(entry);
+  const kept = fitting(events, budgetBytes, false);
+  const offset = (data2.nextOffset ?? data2.matches) - events.length;
+  const nextOffset = kept < events.length ? offset + kept : data2.nextOffset;
+  return {
+    file: data2.file.name,
+    events: events.slice(0, kept),
+    totalEvents: data2.totalEvents,
+    matches: data2.matches,
+    fingerprint: data2.fingerprint,
+    tailOnly: data2.truncated,
+    ...nextOffset === void 0 ? {} : { nextOffset },
+    ...kept < events.length ? { cutBySize: true } : {}
+  };
+}
+function logNews(data2, first, budgetBytes) {
+  const all = data2.events.map(entry);
+  const recent = first ? all.slice(-10) : all;
+  const events = recent.slice(recent.length - fitting(recent, budgetBytes, true));
+  const omitted = first ? 0 : all.length - events.length;
+  return {
+    file: data2.file.name,
+    events,
+    ...omitted ? { omitted } : {},
+    cursor: data2.cursor,
+    changed: data2.changed,
+    gapPossible: data2.gapPossible,
+    windowTruncated: data2.windowTruncated,
+    ...data2.resetReason === void 0 ? {} : { resetReason: data2.resetReason }
+  };
+}
+
+// src/operations/logs.ts
+var logWindow = { file: string2, full: boolean, tailBytes: integer };
+var logOperations = [
+  operation({
+    id: "logs.list",
+    effect: "read",
+    description: "Логи сервера, сначала свежие. type — имя лога без даты (xhttp, agent…); nameContains, startDate и endDate отбирают по имени и дате сервера. По умолчанию 30 файлов.",
+    inputSchema: schema({
+      type: string2,
+      nameContains: string2,
+      startDate: string2,
+      endDate: string2,
+      offset: integer,
+      limit: integer
+    }),
+    run: async (context, args) => logFiles(await context.logs.list(args))
+  }),
+  operation({
+    id: "logs.read",
+    effect: "read",
+    description: "Текст лога: конец файла (tailBytes) или весь файл (full:true). Пока сервер пишет в файл, он может его не отдать: чтение повторяется один раз, затем ошибка LOG_READ_UNAVAILABLE.",
+    inputSchema: schema(logWindow, ["file"]),
+    reply: { store: "always" },
+    run: async (context, args) => {
+      const input2 = args.tailBytes === void 0 && args.full !== true ? { ...args, tailBytes: context.pageBytes } : args;
+      return logText(await context.logs.read(input2));
+    }
+  }),
+  operation({
+    id: "logs.search",
+    effect: "read",
+    description: "События лога по тексту, уровню или потоку в прочитанной части файла. Многострочное событие возвращается целиком. Уровень определяется по словам в тексте, время — местное время сервера. newestFirst:true отдаёт сначала последние события. cutBySize:true — событий на странице меньше limit, потому что больше не поместилось в ответ; дальше — nextOffset. expectedFingerprint из прошлого ответа защищает следующую страницу от изменившегося файла.",
+    inputSchema: schema(
+      {
+        ...logWindow,
+        text: string2,
+        level: {
+          type: "string",
+          enum: ["normal", "debug", "info", "warning", "error", "critical"]
+        },
+        context: string2,
+        offset: integer,
+        limit: integer,
+        newestFirst: boolean,
+        expectedFingerprint: string2
+      },
+      ["file"]
+    ),
+    run: async (context, args) => logMatches(await context.logs.search(args), context.pageBytes)
+  }),
+  operation({
+    id: "logs.follow",
+    effect: "read",
+    description: "Новые события лога с прошлого вызова по cursor. Последнее событие может повториться; gapPossible:true — часть событий могла быть пропущена. После ошибки чтения использовать прежний cursor; другой файл начинать без cursor.",
+    inputSchema: schema({ ...logWindow, cursor: string2 }, ["file"]),
+    run: async (context, args) => logNews(
+      await context.logs.follow(args),
+      args.cursor === void 0,
+      context.pageBytes
+    )
+  })
+];
+
+// src/operations/objects.ts
+var patchEffect = (args) => args.preview === true ? "read" : void 0;
+var address = { id: string2, type: string2, url: string2, fields };
+var objectOperations = [
+  operation({
+    id: "objects.get",
+    effect: "read",
+    description: "Прочитать документ объекта по id или url; несколько объектов — ids (до 100), ответ — items, у непрочитанного в элементе error. fields — поля верхнего уровня. Повторяющийся элемент приходит списком и при одном значении. unknownFields — запрошенные имена, которых у типа нет; пустое поле в ответ не попадает.",
+    inputSchema: schema({
+      ...address,
+      ids: { type: "array", items: string2, minItems: 1, maxItems: 100 }
+    }),
+    usualCause: "объекта с таким ID или адресом нет; ID строки каталога без своего типа объекта — не ID документа",
+    run: async (context, args) => {
+      if (args.ids === void 0) return context.objects.get(args);
+      const ids = args.ids;
+      if (args.id !== void 0 || args.url !== void 0)
+        throw new HcmError("INVALID_ARGUMENT", "ids: вместе с id или url не задаётся.");
+      if (!Array.isArray(ids) || ids.length < 1 || ids.length > 100 || ids.some((id) => typeof id !== "string"))
+        throw new HcmError("INVALID_ARGUMENT", "ids: список от 1 до 100 ID, каждый строкой.");
+      const items = [];
+      let failed = 0;
+      for (const id of ids) {
+        try {
+          items.push(await context.objects.get({ type: args.type, fields: args.fields, id }));
+        } catch (error2) {
+          const refusal = context.pipeline.failure("objects.get", error2).error;
+          if (/^PLATFORM_(?!SOAP-FAULT)/.test(refusal.code)) throw error2;
+          failed++;
+          items.push({ id, error: { code: refusal.code, message: refusal.message } });
+        }
+      }
+      return {
+        items,
+        total: items.length,
+        ...failed ? { failed, hint: "PLATFORM_SOAP-FAULT у элемента: обычно объекта с таким ID нет." } : {}
+      };
+    }
+  }),
+  operation({
+    id: "objects.create",
+    effect: "write",
+    description: "Создать объект типа type с полями data. ID выдаёт сервер; после записи объект перечитывается и сверяется с запросом. Обработчики, которые админка выполняет при создании, не запускаются.",
+    inputSchema: schema({ type: string2, data: object, dbName: string2, formUrl: string2 }, [
+      "type",
+      "data"
+    ]),
+    usualCause: "значение, которое тип объекта не принимает",
+    run: (context, args, call) => context.objects.create(args, call.outcome)
+  }),
+  operation({
+    id: "objects.patch",
+    effect: "write",
+    effectFor: patchEffect,
+    description: "Изменить поля объекта, сохранив остальное содержимое документа. patch — {путь: значение} или список {op:'set'|'remove', path, value}; remove — пути, которые удалить. preview:true ничего не записывает. Правка, которая ничего не меняет, не записывается: в ответе noop:true; resave:true записывает документ и без правок — сервер при сохранении заново заполняет поля, которые берёт из связанных объектов. expectedFingerprint отклоняет запись, если объект изменился после чтения; это сверка перед записью, а не блокировка.",
+    inputSchema: schema({
+      ...address,
+      patch: {},
+      remove: { type: "array", items: string2 },
+      expectedFingerprint: string2,
+      preview: boolean,
+      resave: boolean
+    }),
+    usualCause: "объекта с таким ID или адресом нет",
+    run: (context, args, call) => context.objects.patch(args, call.outcome)
+  }),
+  operation({
+    id: "objects.delete",
+    effect: "write",
+    description: "Удалить документ объекта безвозвратно; permanent:true обязателен. catalog — проверить, что объект был в этом каталоге и исчез из него.",
+    inputSchema: schema({ ...address, permanent: boolean, catalog: string2 }),
+    usualCause: "объекта с таким ID или адресом нет",
+    run: (context, args, call) => context.objects.delete(args, call.outcome)
+  })
+];
+
+// src/operations/query.ts
+var queryEffect = (args) => {
+  const deferredArguments = Object.keys(args).length === 1 && typeof args.$ref === "string";
+  return deferredArguments || args.query !== void 0 ? "execute" : "read";
+};
+async function typedFields(schemaReader, catalog, where) {
+  const none = { dates: /* @__PURE__ */ new Set(), integers: /* @__PURE__ */ new Set() };
+  if (typeof catalog !== "string" || !where || typeof where !== "object") return none;
+  const values = Object.values(where).flatMap(
+    (condition) => condition && typeof condition === "object" ? Object.values(condition).flat() : [condition]
+  );
+  if (!values.some((value) => looksLikeDate(value) || looksLikeDecimalId(value))) return none;
+  const shape = await schemaReader.catalogShape({ catalog }).catch(() => void 0);
+  return { dates: shape?.dates ?? none.dates, integers: shape?.integers ?? none.integers };
+}
+var queryOperations = [
+  operation({
+    id: "runtime.query",
+    effect: "unknown",
+    effectFor: queryEffect,
+    description: "Поиск в каталоге: {catalog, where, fields, order}, условия соединяются через «и»; order — поле или список полей каталога, по убыванию — «поле desc». Или запрос XQuery целиком: {query}; он требует права execute и заканчивается на return $elem. Ответ: items, total; nextStartPosition есть, пока строки не кончились. Запрос, который возвращает отдельные значения, выполняет native.lds.xQuery.",
+    inputSchema: schema({
+      query: string2,
+      catalog: string2,
+      where: object,
+      order: { anyOf: [string2, { type: "array", items: string2 }] },
+      fields,
+      limit: { type: "integer", minimum: 1, maximum: 1e3 },
+      startPosition: { type: "integer", minimum: 0, maximum: 1e6 }
+    }),
+    usualCause: "нет такого каталога или поля, ошибка в запросе XQuery",
+    run: async (context, args, call) => {
+      if (args.query !== void 0 && args.catalog !== void 0)
+        throw new HcmError("QUERY_ARGUMENT", "Нужно указать query или catalog, но не оба.");
+      if (args.query !== void 0 && args.order !== void 0)
+        throw new HcmError(
+          "QUERY_ARGUMENT",
+          "order работает с catalog.",
+          "В тексте XQuery сортировку пишут сами: order by $e/поле."
+        );
+      if (typeof args.catalog === "string" && /^[A-Za-z_]\w*\.[\w.]+$/.test(args.catalog))
+        throw new HcmError(
+          "UNKNOWN_CATALOG",
+          `${args.catalog} — общий список сервера, а не каталог.`,
+          `Его элементы читает запрос XQuery: for $e in ${args.catalog} return $e.`
+        );
+      const typed = args.query === void 0 ? await typedFields(context.schema, args.catalog, args.where) : void 0;
+      const query2 = typed ? catalogQuery(args.catalog, args.where, typed.dates, args.order, typed.integers) : requiredString(args.query, "query");
+      if (args.query === void 0 && args.order !== void 0) {
+        const shape2 = await context.schema.catalogShape({ catalog: requiredString(args.catalog, "catalog") }).catch(() => void 0);
+        const repeated = orderFields(args.order).map((item) => item.field).filter((field) => shape2?.repeated.has(field));
+        if (repeated.length)
+          throw new HcmError(
+            "INVALID_ARGUMENT",
+            `order: поле хранит несколько значений, сортировать по нему нельзя: ${repeated.join(", ")}.`,
+            "Нужно выбрать поле с одним значением: у такого в schema.get нет multiple:true.",
+            { fields: repeated }
+          );
+      }
+      const limit = boundedInteger(args.limit, 20, 1e3, "limit");
+      if (limit === 0)
+        throw new HcmError("INVALID_ARGUMENT", "limit: нужно целое число от 1 до 1000.");
+      const startPos = boundedInteger(args.startPosition, 0, 1e6, "startPosition");
+      const sql = args.query !== void 0 && /^\s*sql\s*:/i.test(query2);
+      if (args.query !== void 0 && !sql) call.effect = "read";
+      let response;
+      try {
+        const request = {
+          query: query2,
+          startPos,
+          maxCount: limit,
+          expectToReadAll: false,
+          keepCursor: false
+        };
+        response = await (sql ? context.server.call("native.lds.xQuery", request, call.outcome) : context.server.read("native.lds.xQuery", request));
+      } catch (error2) {
+        const refused = error2 instanceof WsHcmApiError && error2.kind === "soap-fault";
+        let reason;
+        if (refused) context.logs.serverWroteLog();
+        if (refused)
+          for (const [catalog, fields3] of args.query === void 0 ? [
+            [
+              requiredString(args.catalog, "catalog"),
+              [
+                ...Object.keys(inputObject(args.where ?? {}, "where")),
+                ...orderFields(args.order).map((item) => item.field)
+              ]
+            ]
+          ] : xqueryNames(query2)) {
+            reason = await context.schema.explainQuery(catalog, fields3).catch(() => void 0);
+            if (reason) break;
+          }
+        throw reason ?? error2;
+      }
+      const read = queryPage(response, startPos, limit, args.fields, args.query !== void 0);
+      const page = { ...read, items: read.items.map(withoutFalseOffset) };
+      if (!page.items.length && args.query === void 0) {
+        const missing = await context.schema.explainQuery(requiredString(args.catalog, "catalog"), []).catch(() => void 0);
+        if (missing) throw missing;
+      }
+      const requested = Array.isArray(args.fields) ? args.fields : [];
+      const absent = page.items.length ? requested.filter((field) => page.items.every((item) => !Object.hasOwn(item, field))) : args.query === void 0 ? requested : [];
+      const lacking = page.items.some(
+        (item) => requested.some((field) => !Object.hasOwn(item, field))
+      );
+      if (!absent.length && !lacking && !page.items.some(hasStructure)) return page;
+      const shape = await context.schema.catalogShape(
+        args.query === void 0 ? { catalog: requiredString(args.catalog, "catalog") } : { type: rowTag(response) ?? "" }
+      ).catch(() => void 0);
+      if (!shape) return page;
+      const unknownFields = shape.fields.size ? absent.filter((field) => !shape.fields.has(field)) : [];
+      const asked = requested.filter(
+        (field) => shape.fields.has(field) && ![...shape.repeated].some((path) => path.startsWith(`${field}.`))
+      );
+      return {
+        ...page,
+        items: page.items.map((item) => {
+          const row = withRepeated(item, shape.repeated);
+          for (const field of asked)
+            if (!Object.hasOwn(row, field)) row[field] = shape.repeated.has(field) ? [] : "";
+          return row;
+        }),
+        ...unknownFields.length ? {
+          unknownFields,
+          hint: [
+            page.hint,
+            "Полей из unknownFields нет в строке каталога. Поле документа читает objects.get."
+          ].filter(Boolean).join(" ")
+        } : {}
+      };
+    }
+  })
+];
+
+// src/operations/results.ts
+var resultOperations = [
+  operation({
+    id: "results.export",
+    effect: "read",
+    description: "Сохранить большой результат целиком в файл на этом компьютере: json — как есть, jsonl — по строке на элемент списка ответа, text — текст лога или файла. Папка должна существовать.",
+    inputSchema: schema({ resultId: string2, path: string2, format: string2, overwrite: boolean }, [
+      "resultId",
+      "path"
+    ]),
+    run: (context, args) => context.results.export(args)
+  }),
+  operation({
+    id: "results.read",
+    effect: "read",
+    description: "Дочитать сохранённый результат по resultId: список — по элементам, текст лога или файла — по символам. format:json читает любой результат как текст JSON по частям.",
+    inputSchema: schema(
+      {
+        resultId: string2,
+        offset: integer,
+        limit: integer,
+        format: { type: "string", enum: ["auto", "json", "text"] }
+      },
+      ["resultId"]
+    ),
+    reply: { store: "never" },
+    run: (context, args) => context.results.read(
+      requiredString(args.resultId, "resultId"),
+      args.offset,
+      args.limit,
+      args.format
+    )
+  })
+];
+
+// src/operations/rpc.ts
+var rpcOperations = [
+  operation({
+    id: "rpc.call",
+    effect: "execute",
+    description: "Вызвать функцию библиотеки сервера: {library, method, arguments:[…]}. Строки, целые, логические значения и null передаются как есть; дата, объект, XML и большое целое — как {valueType, lexicalValue}. async:true запускает фоновой задачей.",
+    inputSchema: schema(
+      { library: string2, method: string2, arguments: { type: "array" }, async: boolean },
+      ["library", "method"]
+    ),
+    summary: "Вызвать функцию: {library, method, arguments:[…]}; async:true запускает фоновой задачей.",
+    usualCause: "нет такой функции, неверные аргументы или ошибка внутри функции",
+    run: async (context, args, call) => {
+      const target = `${identifier(args.library, "library")}.${identifier(args.method, "method")}`;
+      const supplied = args.arguments ?? [];
+      if (!Array.isArray(supplied))
+        throw new HcmError("INVALID_ARGUMENT", "arguments: нужен массив.");
+      const encoded = supplied.map(
+        (value) => value !== null && typeof value === "object" ? inputObject(value, "аргумент функции") : rpcArgument(value)
+      );
+      const operationId = args.async === true ? "web.spxml.callMethodAsync" : "native.rpc.call";
+      const nativeArgs = { target, args: encoded };
+      try {
+        prepare(nativeArgs, context.pipeline.describe(operationId).inputSchema);
+      } catch (error2) {
+        const index = error2 instanceof TypeError && /^args\.args\[(\d+)\]/.exec(error2.message);
+        if (!index) throw error2;
+        throw new HcmError(
+          "INVALID_RPC_ARGUMENT",
+          `arguments[${index[1]}]: объект должен быть вида {valueType, lexicalValue}.`,
+          "Строки, целые числа, true, false и null передаются как есть. Остальное — явно: {valueType:'date', lexicalValue:'2026-10-01T00:00:00'}, {valueType:'integer', lexicalValue:'6148914691236517121'}, {valueType:'real', lexicalValue:'1.5'}."
+        );
+      }
+      for (const argument of encoded)
+        if (typeof argument.lexicalValue === "string") escapeXml(argument.lexicalValue);
+      let response;
+      try {
+        response = await context.server.call(operationId, nativeArgs, call.outcome);
+      } catch (error2) {
+        if (error2 instanceof WsHcmApiError && error2.status === 500) {
+          context.logs.serverWroteLog();
+          const reason = await context.rpcCatalog.refusal(target).catch(() => void 0);
+          if (reason) throw reason;
+        }
+        throw error2;
+      }
+      return args.async === true ? withoutXmlFormatting(response) : rpcValue(response);
+    }
+  }),
+  operation({
+    id: "rpc.list",
+    effect: "read",
+    description: "Найти функции библиотек сервера: query, library, method. Без all — только те, что можно вызвать с клиента (rpc.call); all:true добавляет функции, которые вызываются только из кода на сервере (serverOnly:true). builtIn:true берёт встроенную таблицу сборки 2025.1.1171 без обращения к серверу. Список не говорит о типах аргументов и о том, меняет ли функция данные.",
+    inputSchema: schema({
+      query: { type: "string", maxLength: 512 },
+      library: { type: "string", maxLength: 128, pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
+      method: { type: "string", maxLength: 128, pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
+      builtIn: boolean,
+      all: boolean,
+      cursor: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+      limit: { type: "integer", minimum: 1, maximum: 100 }
+    }),
+    summary: "Найти функции, разрешённые для вызова с клиента: query, library, method; all:true — вместе с функциями только для кода на сервере.",
+    run: (context, args) => context.rpcCatalog.list(args)
+  }),
+  operation({
+    id: "rpc.describe",
+    effect: "read",
+    description: "Параметры функции по targetId «библиотека.функция»; source:true добавляет до 8 КБ её кода. serverOnly:true в ответе — функция вызывается только из кода на сервере. Сама функция не вызывается.",
+    inputSchema: schema(
+      {
+        targetId: {
+          type: "string",
+          maxLength: 257,
+          pattern: "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        builtIn: boolean,
+        source: boolean
+      },
+      ["targetId"]
+    ),
+    summary: "Параметры функции по targetId «библиотека.функция»; source:true добавляет код. Знает и функции, которые вызываются только из кода на сервере.",
+    run: (context, args) => context.rpcCatalog.describe(requiredString(args.targetId, "targetId"), args)
+  })
+];
+
+// src/operations/schema.ts
+var schemaPage = { search: string2, limit: { type: "integer", minimum: 1 }, cursor: integer };
+var schemaOperations = [
+  operation({
+    id: "schema.get",
+    effect: "read",
+    description: "Поля типа объекта: свои, унаследованные, настраиваемые и поля каталога, с заголовками на языке сервера. deep:true — вложенные поля любой глубины сразу, а не один уровень. Ответ постраничный.",
+    inputSchema: schema({
+      ...schemaPage,
+      type: string2,
+      url: string2,
+      path: string2,
+      deep: boolean,
+      origin: {
+        type: "array",
+        items: { type: "string", enum: ["own", "inherited", "custom", "catalog"] }
+      },
+      kind: string2,
+      include: { type: "array", items: { type: "string", enum: ["methods"] } },
+      language: string2
+    }),
+    usualCause: "формы по этому адресу нет",
+    run: (context, args) => context.schema.get(args)
+  }),
+  operation({
+    id: "schema.types",
+    effect: "read",
+    description: "Типы объектов сервера: тип, каталог, заголовок, число настраиваемых полей. Каталога у типа может не быть. catalogs — сколько на сервере каталогов всего, считая каталоги без своего типа объекта.",
+    inputSchema: schema(schemaPage),
+    run: (context, args) => context.schema.types(args)
+  })
+];
+
+// src/operations/scripts.ts
+var scriptOperations = [
+  operation({
+    id: "execute.script",
+    effect: "execute",
+    description: "Выполнить код SP-XML Script на сервере. Код присваивает массив переменной RESULT; числа, даты и логические значения приходят строками. params — объект JSON, в коде это готовая переменная PARAMS. На сервер ничего не устанавливается. Код может менять данные, отката нет.",
+    inputSchema: schema(
+      {
+        code: { type: "string", minLength: 1, maxLength: 1048576 },
+        params: { type: "object" }
+      },
+      ["code"]
+    ),
+    run: (context, args, call) => context.server.runCode(prepareScript(args.code, args.params), call.outcome)
+  }),
+  operation({
+    id: "agents.run",
+    effect: "execute",
+    description: "Запустить агента сервера и дождаться конца его кода. Ответ: started, startedAt и finishedAt — местное время сервера. Ошибку в коде агента ответ не показывает: она в логе xhttp между этими отметками. Дата последнего запуска сохраняется в агенте, как при запуске из админки.",
+    inputSchema: schema(
+      {
+        id: { type: "string", description: "ID агента (server_agent)." },
+        objectId: { type: "string", description: "ID объекта: в коде агента это OBJECT_ID." },
+        objectIds: {
+          type: "array",
+          items: string2,
+          maxItems: 1e3,
+          description: "ID нескольких объектов: в коде агента это OBJECTS_ID_STR, через «;»."
+        }
+      },
+      ["id"]
+    ),
+    summary: "Запустить агента по ID и дождаться конца: {id}; objectId и objectIds — объекты, над которыми он работает.",
+    details: "Вызов ждёт, пока код агента не кончится, и ограничен временем ожидания подключения (timeoutMs): долгого агента нужно запускать без ожидания — rpc.call {library:'tools', method:'start_agent', arguments:[id]} — и следить за логом agent. Параметры агента берутся из его документа. Агенты на C# и агенты выгрузки и импорта не проверялись.",
+    run: async (context, args, call) => {
+      const agent = agentRun(args);
+      const data2 = await context.server.runCode(
+        prepareScript(agent.code, agent.params),
+        call.outcome
+      );
+      context.logs.serverWroteLog();
+      return agentRunResult(data2);
+    }
+  })
+];
+
+// src/operations.ts
+var composite = [
+  ...fileOperations,
+  ...connectionOperations,
+  ...queryOperations,
+  ...objectOperations,
+  ...schemaOperations,
+  ...logOperations,
+  ...resultOperations,
+  ...rpcOperations,
+  ...scriptOperations,
+  ...batchOperations
+];
+var specs = [...composite, ...nativeOperations].map(
+  (spec) => Object.freeze(spec)
+);
+var operations = freezeRegistry(specs.map(definitionOf));
+var byId2 = new Map(operations.map((operation2) => [operation2.id, operation2]));
+if (byId2.size !== operations.length) throw new Error("ID операции runtime повторяется");
+var specById = new Map(specs.map((spec) => [spec.id, spec]));
+function operationSpec(id) {
+  return specById.get(id);
+}
+function operationDefinition(id) {
+  return byId2.get(id);
+}
+function operationSearchRank(operation2, query2) {
+  const id = operation2.id.toLowerCase();
+  if (id === query2) return 5;
+  if (id.split(".").includes(query2)) return 4;
+  if (id.includes(query2)) return 3;
+  const text4 = `${operation2.title} ${operation2.description}`.toLowerCase();
+  if (!text4.includes(query2)) return 0;
+  return text4.split(/[^\p{L}\p{N}_]+/u).includes(query2) ? 2 : 1;
+}
+
+// src/operation-map.ts
+var PROTOCOL = "protocol";
+var TOPICS = [
+  {
+    id: "functions",
+    title: "Функции библиотек сервера: найти, посмотреть параметры и код, вызвать",
+    operations: ["rpc.list", "rpc.describe", "rpc.call"]
+  },
+  {
+    id: "tasks",
+    title: "Фоновые задачи: запустить, узнать состояние, остановить",
+    operations: [
+      "web.spxml.callMethodAsync",
+      "web.spxml.getAsyncMethodStatus",
+      "web.spxml.getBackgroundTasksByName",
+      "web.spxml.killAsyncMethod"
+    ]
+  },
+  {
+    id: "agents",
+    title: "Агенты сервера: запустить и дождаться конца",
+    operations: ["agents.run"]
+  },
+  {
+    id: "files",
+    title: "Файлы сервера по адресу x-local://…: проверить, прочитать, показать папку, записать, удалить, загрузить",
+    operations: [
+      "files.exists",
+      "files.read",
+      "files.list",
+      "files.write",
+      "files.delete",
+      "web.pages.uploadFile",
+      "web.pages.uploadChunk",
+      "web.pages.clearUploadChunks"
+    ]
+  },
+  {
+    id: "documents",
+    title: "Документ объекта как XML: чтение, сохранение, удаление",
+    operations: [
+      "native.lds.loadDoc",
+      "native.lds.putDoc",
+      "native.lds.deleteDoc",
+      "native.lds.getNewObjectId",
+      "native.physicalDocuments.createFromXml"
+    ]
+  },
+  {
+    id: "changes",
+    title: "Учёт изменений самим сервером: на 2025.1–2025.2 отвечает пусто, см. описания операций",
+    operations: ["native.lds.getModObjects", "native.lds.getCatalogsStat"]
+  },
+  {
+    id: "server",
+    title: "Сведения о сервере и проверка служб",
+    operations: [
+      "server.info",
+      "native.spxml2.getAppInfo",
+      "anonymous.diagnostics.portal",
+      "anonymous.diagnostics.xhttpInfo",
+      "web.websocket.heartbeat"
+    ]
+  },
+  {
+    id: "forms",
+    title: "Формы, тексты интерфейса и картинки",
+    operations: [
+      "native.spxml2.getForm",
+      "web.pages.getScreenForm",
+      "web.pages.getUiText",
+      "native.resources.getImage",
+      "native.resources.getCompoundResource"
+    ]
+  },
+  {
+    id: "basic",
+    title: "Основные операции. У каждой есть своя команда и свой инструмент; по ID они нужны в runtime.batch — несколько операций одним вызовом",
+    operations: [],
+    prefixes: ["runtime.", "objects.", "schema.", "logs.", "results.", "execute."]
+  },
+  {
+    id: PROTOCOL,
+    title: "Прямые вызовы протокола: те же действия через веб-профиль, сессии, сырые запросы. Обычно не нужны",
+    operations: []
+  }
+];
+var topicOfOperation = /* @__PURE__ */ new Map();
+for (const operation2 of operations) {
+  const topic = TOPICS.find((item) => item.operations.includes(operation2.id)) ?? TOPICS.find((item) => item.prefixes?.some((prefix) => operation2.id.startsWith(prefix))) ?? TOPICS.find((item) => item.id === PROTOCOL);
+  topicOfOperation.set(operation2.id, topic);
+  const listed = topic.operations.includes(operation2.id);
+  if (listed !== Boolean(operationSpec(operation2.id)?.summary))
+    throw new Error(
+      `${listed ? "Операция темы без summary" : "Операция с summary не названа в теме"}: ${operation2.id}`
+    );
+}
+for (const topic of TOPICS)
+  for (const id of topic.operations)
+    if (topicOfOperation.get(id) !== topic) throw new Error(`Неизвестная операция в теме: ${id}`);
+function operationMap() {
+  return {
+    topics: TOPICS.map((topic) => ({
+      topic: topic.id,
+      title: topic.title,
+      ...topic.operations.length ? { operations: [...topic.operations] } : { count: operations.filter((item) => topicOfOperation.get(item.id) === topic).length }
+    })),
+    total: operations.length,
+    effects: Object.fromEntries(
+      ["read", "write", "execute", "unknown"].map((effect) => [effect, operations.filter((item) => item.effect === effect).length]).filter(([, count]) => count)
+    ),
+    hint: 'Операции темы с описаниями: список с topic; операции одного эффекта: query "read", "write", "execute" или "unknown". Эффект — право, которого операция требует: write может менять данные, но не обязана; unknown — зависит от аргументов (запрос, пакет, сырой вызов). Аргументы одной операции: describe по её id.'
+  };
+}
+function operationTopic(id) {
+  return topicOfOperation.get(id)?.id ?? PROTOCOL;
+}
+function operationOrder(id) {
+  const position = (topicOfOperation.get(id)?.operations ?? []).indexOf(id);
+  return position < 0 ? Number.MAX_SAFE_INTEGER : position;
+}
+function operationSummary(id) {
+  return operationSpec(id)?.summary;
+}
+function operationNotes(id) {
+  return operationSpec(id)?.details;
+}
+function requireTopic(id) {
+  if (TOPICS.some((topic) => topic.id === id)) return id;
+  throw new HcmError(
+    "UNKNOWN_TOPIC",
+    "Такой темы нет.",
+    `Темы: ${TOPICS.map((topic) => topic.id).join(", ")}.`
+  );
+}
+function overviewMatches(id, query2) {
+  const topic = topicOfOperation.get(id);
+  return `${topic?.title} ${operationSummary(id) ?? ""}`.toLowerCase().includes(query2);
+}
+
+// src/catalog.ts
+function listHcmOperations(filter = {}) {
+  const asked = filter.query?.toLowerCase().trim();
+  const effect = filter.effect ?? ["read", "write", "execute", "unknown"].find((name3) => name3 === asked);
+  const query2 = effect && effect === asked ? void 0 : asked;
+  const topic = filter.topic === void 0 ? void 0 : requireTopic(filter.topic);
+  const selected = operations.filter(
+    (operation2) => (!topic || operationTopic(operation2.id) === topic) && (!filter.group || operation2.group === filter.group) && (!effect || operation2.effect === effect) && (!filter.status || operation2.status === filter.status) && (!query2 || operationSearchRank(operation2, query2) > 0 || overviewMatches(operation2.id, query2))
+  );
+  if (topic && !query2)
+    selected.sort((left, right) => operationOrder(left.id) - operationOrder(right.id));
+  if (query2)
+    selected.sort(
+      (left, right) => operationSearchRank(right, query2) - operationSearchRank(left, query2)
+    );
+  const start = boundedInteger(filter.cursor, 0, Number.MAX_SAFE_INTEGER, "cursor");
+  const limit = boundedInteger(filter.limit, 30, 1e3, "limit");
+  if (limit === 0)
+    throw new HcmError("INVALID_ARGUMENT", "limit: нужно целое число от 1 до 1000.", void 0, {
+      path: "limit"
+    });
+  return {
+    operations: selected.slice(start, start + limit),
+    total: selected.length,
+    ...start + limit < selected.length ? { nextCursor: start + limit } : {}
+  };
+}
+function describeHcmOperation(id) {
+  if (typeof id !== "string" || id.length > 128 || !/^[A-Za-z][A-Za-z0-9_.]*$/.test(id))
+    throw new HcmError(
+      "INVALID_OPERATION_ID",
+      "ID операции записан неверно: допустимы латинские буквы, цифры, точка и _, первой идёт буква, не больше 128 знаков."
+    );
+  const operation2 = operationDefinition(id);
+  if (!operation2) {
+    const asked = id.split(".").at(-1).toLowerCase();
+    const near = operations.map((item) => item.id).filter((known2) => {
+      const last = known2.split(".").at(-1).toLowerCase();
+      return last.includes(asked) || asked.includes(last);
+    }).slice(0, 5);
+    throw new HcmError(
+      "UNKNOWN_OPERATION",
+      `Операции ${id} нет.`,
+      `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Список операций показывает api.list.`,
+      { operationId: id }
+    );
+  }
+  return operation2;
+}
 
 // src/results.ts
 import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
@@ -22016,7 +23076,7 @@ function numbers(bytes) {
 async function writeAll(file, bytes) {
   for (let offset = 0; offset < bytes.length; ) {
     const written = (await file.write(bytes, offset, bytes.length - offset)).bytesWritten;
-    if (!written) throw new Error("Result write did not progress");
+    if (!written) throw new Error("Запись результата не продвигается");
     offset += written;
   }
 }
@@ -22424,7 +23484,7 @@ ${config2.username ?? "anonymous"}`).digest("hex").slice(0, 24);
       ...end < Math.min(limit, source.length) ? { cutBySize: true } : {}
     };
   }
-  /** Version-one artifacts retain their bounded reader; all new references use indexed v2. */
+  /** Артефакты версии 1 читает прежний ограниченный читатель; новые ссылки — индексированная v2. */
   async legacy(path, bytes, offsetValue, limitValue, format) {
     if (bytes > this.config.maxResponseBytes * 2)
       throw new HcmError(
@@ -22666,9 +23726,9 @@ var LogReader = class {
   busyMs;
   busyUntil = 0;
   /**
-   * The server keeps a log file to itself for about five seconds after writing a line to it
-   * (measured on 2025.1.1333 and 2025.2.1535) and refuses to read it meanwhile. The owner reports
-   * a request the server has just refused, since the refusal is what gets written.
+   * Сервер держит файл лога за собой около пяти секунд после записи в него строки
+   * (замер на 2025.1.1333 и 2025.2.1535) и всё это время отказывает в чтении. Владелец
+   * отмечает запрос, который сервер только что отклонил, потому что в лог пишется именно отказ.
    */
   serverWroteLog() {
     this.busyUntil = Date.now() + this.busyMs;
@@ -22681,7 +23741,7 @@ var LogReader = class {
     const params = "<func_params><server_log_report><type_id>all</type_id><show_alert>false</show_alert></server_log_report></func_params>";
     const response = await this.gateway.call("native.rpc.call", {
       target: "tools_report.server_log_report",
-      args: [{ valueType: "string", lexicalValue: encodeURIComponent(params) }]
+      args: [rpcArgument(encodeURIComponent(params))]
     });
     return parseLogReport(rpcString(response));
   }
@@ -22742,10 +23802,7 @@ var LogReader = class {
       try {
         const response2 = await this.gateway.call("native.rpc.call", {
           target: "tools.load_url_data_server",
-          args: [
-            { valueType: "string", lexicalValue: file2.url },
-            { valueType: "integer", lexicalValue: String(effectiveTailBytes2) }
-          ]
+          args: [rpcArgument(file2.url), rpcArgument(effectiveTailBytes2)]
         });
         return { file: file2, sizeBefore: sizeBefore2, effectiveTailBytes: effectiveTailBytes2, response: response2 };
       } catch (error2) {
@@ -23553,7 +24610,7 @@ var RpcCatalog = class {
       ...server.skipped.length ? { skipped: server.skipped } : {}
     } : { targets, source: "built-in 2025.1.1171" };
   }
-  /** Why the server refused a call, when its own list of functions explains it. */
+  /** Почему сервер отказал в вызове, если это объясняет его собственный список функций. */
   async refusal(targetId) {
     const { targets: available, source } = await this.catalog(false, targetId.split(".")[0]);
     if (source !== "server") return void 0;
@@ -23644,316 +24701,6 @@ var RpcCatalog = class {
     });
   }
 };
-
-// src/server-info.ts
-var fields2 = ["sys_db_capability", "catalog_limits", "version_server", "os_type"];
-var maxCatalogXmlBytes = 256 * 1024;
-var maxCatalogRows = 4096;
-function object3(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error();
-  return value;
-}
-function blank(value) {
-  return value === void 0 || typeof value === "string" && value.trim() === "";
-}
-function exactKeys(node, allowed) {
-  if (Object.keys(node).some((key) => !allowed.includes(key))) throw new Error();
-}
-function wrapper2(value, child) {
-  const node = object3(value);
-  if (!blank(node["#text"]) || Object.keys(node).some((key) => {
-    if (key === child || key === "#text") return false;
-    return !/^@_xmlns(?::[A-Za-z_][\w.-]*)?$/.test(key) || typeof node[key] !== "string" || node[key].length > 1024;
-  }))
-    throw new Error();
-  return node[child];
-}
-function typedText(value, type) {
-  const node = object3(value);
-  exactKeys(node, ["@_VALUE-TYPE", "#text"]);
-  if (typeof node["@_VALUE-TYPE"] !== "string" || node["@_VALUE-TYPE"].toLowerCase() !== type)
-    throw new Error();
-  const text4 = node["#text"] ?? "";
-  if (typeof text4 !== "string") throw new Error();
-  return text4;
-}
-function signedInteger(value) {
-  if (!/^(?:0x[0-9a-fA-F]{1,16}|[+-]?\d{1,20})$/.test(value)) throw new Error();
-  const integer4 = BigInt(value);
-  if (integer4 < -0x8000000000000000n || integer4 > 0x7fffffffffffffffn) throw new Error();
-  return value;
-}
-function database(mask) {
-  if ((mask & 1n) === 0n) return "xml";
-  if ((mask & 0x10000n) !== 0n) return "mssql";
-  if ((mask & 0x20000n) !== 0n) return "oracle";
-  if ((mask & 0x8000n) !== 0n) return "azure";
-  return (mask & 0x200000000n) !== 0n ? "postgresql" : "other";
-}
-function catalogLimits(source) {
-  if (Buffer.byteLength(source) > maxCatalogXmlBytes) throw new Error();
-  const document = parseXml2(source);
-  exactKeys(document, ["catalogs"]);
-  const root = document.catalogs;
-  if (typeof root === "string" && root.trim() === "") return [];
-  const container = object3(root);
-  exactKeys(container, ["catalog", "#text"]);
-  if (!blank(container["#text"])) throw new Error();
-  const children3 = container.catalog;
-  const rows2 = children3 === void 0 ? [] : Array.isArray(children3) ? children3 : [children3];
-  if (rows2.length > maxCatalogRows) throw new Error();
-  const names2 = /* @__PURE__ */ new Set();
-  return rows2.map((value) => {
-    const row = object3(value);
-    exactKeys(row, ["name", "max_records_num", "#text"]);
-    if (!blank(row["#text"]) || typeof row.name !== "string" || typeof row.max_records_num !== "string")
-      throw new Error();
-    const name3 = row.name;
-    if (name3.length === 0 || name3.length > 512 || names2.has(name3)) throw new Error();
-    names2.add(name3);
-    return { objectTypeName: name3, maxRecordsNum: signedInteger(row.max_records_num) };
-  });
-}
-function parseServerInfo(response, profile = "native") {
-  try {
-    if (profile !== "native" && profile !== "web") throw new Error();
-    const rpc2 = object3(response);
-    exactKeys(rpc2, ["xml", "valueType", "lexicalValue"]);
-    if (rpc2.valueType !== void 0 && (typeof rpc2.valueType !== "string" || rpc2.valueType.toLowerCase() !== "object") || !blank(rpc2.lexicalValue))
-      throw new Error();
-    const result = object3(wrapper2(wrapper2(rpc2.xml, "ResultData"), "Result"));
-    exactKeys(result, ["@_VALUE-TYPE", "#text", ...fields2]);
-    if (typeof result["@_VALUE-TYPE"] !== "string" || result["@_VALUE-TYPE"].toLowerCase() !== "object" || !blank(result["#text"]))
-      throw new Error();
-    const capabilityMask = signedInteger(typedText(result.sys_db_capability, "integer"));
-    const versionServer = typedText(result.version_server, "string");
-    const osType = typedText(result.os_type, "string");
-    if (versionServer.length === 0 || versionServer.length > 256 || !["windows", "linux"].includes(osType))
-      throw new Error();
-    return freezeRegistry({
-      profile,
-      versionServer,
-      osType,
-      capabilityMask,
-      database: database(BigInt(capabilityMask)),
-      catalogLimits: catalogLimits(typedText(result.catalog_limits, "string"))
-    });
-  } catch {
-    throw new HcmError(
-      "SERVER_INFO_RESPONSE",
-      "Сервер вернул сведения о себе в неожиданном виде.",
-      "Ожидаются четыре поля функции ms_tools.get_admin_init_server_data: sys_db_capability, catalog_limits, version_server, os_type. Её ответ как есть покажет rpc.call."
-    );
-  }
-}
-
-// src/platform-errors.ts
-var USUAL_CAUSES = {
-  "runtime.query": "нет такого каталога или поля, ошибка в запросе XQuery",
-  "objects.get": "объекта с таким ID или адресом нет; ID строки каталога без своего типа объекта — не ID документа",
-  "objects.patch": "объекта с таким ID или адресом нет",
-  "objects.delete": "объекта с таким ID или адресом нет",
-  "objects.create": "значение, которое тип объекта не принимает",
-  "schema.get": "формы по этому адресу нет",
-  "rpc.call": "нет такой функции, неверные аргументы или ошибка внутри функции",
-  "files.read": "по этому адресу ничего нет",
-  "files.write": "сервер не сообщил, какие папки принимают запись; в папку кода файл записывает код на сервере",
-  "files.delete": "по адресу нет файла или в папке есть файлы; если сервер не сообщил, какие папки принимают запись, это может быть папка кода, где файл удаляет код на сервере",
-  "native.lds.loadDoc": "по этому адресу ничего нет"
-};
-function refusalHint(operation) {
-  const cause = USUAL_CAUSES[operation];
-  return `${cause ? `Обычная причина: ${cause}. ` : ""}Причину сервер в ответе не сообщает. Строка о ней может быть в логе xhttp за сегодня (последние строки показывает logs.follow); отклонённый запрос часто строки не оставляет.`;
-}
-var ADDRESS_HINT = "Проверить адрес и порт подключения: WTCTL_URL или baseUrl в файле подключений.";
-function network(reason, address2, host) {
-  switch (reason) {
-    case "refused":
-      return {
-        message: `Сервер ${address2} не отвечает: соединение отклонено.`,
-        hint: `Проверить, что сервер запущен. ${ADDRESS_HINT}`
-      };
-    case "unknown_host":
-      return { message: `Адрес сервера не найден: ${host}.`, hint: ADDRESS_HINT };
-    case "unreachable":
-      return { message: `Сервер ${address2} недоступен по сети.`, hint: ADDRESS_HINT };
-    case "certificate":
-      return {
-        message: `Сертификат сервера ${address2} не прошёл проверку.`,
-        hint: "Если сертификат выпущен внутренним центром сертификации, нужно указать его корневой сертификат в переменной NODE_EXTRA_CA_CERTS."
-      };
-    case "tls":
-      return {
-        message: `Не удалось установить защищённое соединение с ${address2}.`,
-        hint: "Проверить схему в адресе подключения: https для защищённого порта, http для обычного."
-      };
-    case "not_http":
-      return { message: `По адресу ${address2} отвечает не сервер HTTP.`, hint: ADDRESS_HINT };
-    case "redirect":
-      return {
-        message: `Сервер ${address2} перенаправляет запросы на другой адрес.`,
-        hint: "Нужно указать в подключении конечный адрес сервера, например с https вместо http."
-      };
-    case "timeout":
-      return {
-        message: `Сервер ${address2} не ответил за отведённое время.`,
-        hint: "Проверить, что сервер работает. Для долгих операций увеличить timeoutMs подключения."
-      };
-    case "reset":
-      return {
-        message: `Соединение с ${address2} оборвалось.`,
-        hint: "Проверить, что сервер работает, и повторить."
-      };
-    case "aborted":
-      return { message: `Запрос к ${address2} прерван.` };
-    default:
-      return {
-        message: `Запрос к ${address2} не выполнен: нет связи с сервером.`,
-        hint: `Проверить, что сервер запущен. ${ADDRESS_HINT}`
-      };
-  }
-}
-function platformFailure(error2, baseUrl, operation) {
-  let address2 = baseUrl.replace(/\/+$/, "");
-  let host = address2;
-  try {
-    const url = new URL(baseUrl);
-    address2 = `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
-    host = url.hostname;
-  } catch {
-  }
-  const status = error2.status;
-  if (status === void 0) {
-    const reason = error2.details?.network;
-    if (error2.kind === "http")
-      return network(
-        typeof reason === "string" ? reason : "reset",
-        address2,
-        host
-      );
-    if (error2.kind === "auth")
-      return {
-        message: "Не заданы имя пользователя и пароль подключения.",
-        hint: "Нужно задать WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init."
-      };
-    if (error2.requestSent === false) return { message: error2.message };
-    if (error2.kind === "cleanup") return { message: "Не удалось закрыть сессию на сервере." };
-    return {
-      message: "Ответ сервера не соответствует ожидаемому виду.",
-      hint: "Если так отвечает любая операция, по адресу подключения может работать не сервер WebSoft HCM или его версия не поддерживается: выполнить runtime.check."
-    };
-  }
-  if (status === 401)
-    return {
-      message: "Сервер отказал во входе (HTTP 401).",
-      hint: "Проверить имя пользователя и пароль подключения."
-    };
-  if (status === 403)
-    return {
-      message: "Сервер запретил запрос (HTTP 403).",
-      hint: "У пользователя подключения нет прав на это действие."
-    };
-  if (status === 500)
-    return { message: "Сервер отклонил запрос (HTTP 500).", hint: refusalHint(operation) };
-  if (status === 404)
-    return {
-      message: "Сервер ответил HTTP 404: по этому адресу ничего нет.",
-      hint: "Если так отвечает любая операция, проверить адрес подключения: по нему может работать не сервер WebSoft HCM."
-    };
-  if (status === 502 || status === 503 || status === 504)
-    return {
-      message: `Сервер недоступен (HTTP ${status}).`,
-      hint: "Так отвечает промежуточный сервер, когда сам сервер WebSoft HCM остановлен или перегружен."
-    };
-  if (error2.requestSent === false) return { message: error2.message };
-  if (status >= 200 && status < 300)
-    return { message: `Сервер ответил HTTP ${status}, но разобрать ответ не удалось.` };
-  return { message: `Сервер ответил ошибкой HTTP ${status}.` };
-}
-
-// src/self-check.ts
-async function checkServer(config2, invoke) {
-  const report = {
-    permissions: config2.permissions,
-    checks: [],
-    summary: { ok: 0, failed: 0, skipped: 0 }
-  };
-  let info = {};
-  const rows2 = (value) => Array.isArray(value) ? value.filter((v) => v && typeof v === "object") : [];
-  const text4 = (value, max = 128) => {
-    const result = requiredString(value, "check response");
-    if (result.length > max) throw new Error();
-    return result;
-  };
-  const probe = async (name3, id, args = {}, accept = (_) => {
-  }) => {
-    const skipped = name3 !== "login" && report.checks[0]?.result === "failed" ? "сессия не открыта" : name3 === "execute" && !config2.permissions.execute ? "выполнение кода не разрешено подключением" : void 0;
-    if (skipped) {
-      report.checks.push({ name: name3, result: "skipped", reason: skipped });
-      return;
-    }
-    let late2 = false;
-    let timer;
-    try {
-      const timeout2 = new Promise((_, reject) => {
-        timer = setTimeout(() => {
-          late2 = true;
-          reject(new Error());
-        }, config2.timeoutMs);
-      });
-      const pending = invoke(id, args);
-      pending.catch(() => {
-      });
-      accept(await Promise.race([pending, timeout2]));
-      report.checks.push({ name: name3, result: "ok" });
-    } catch (error2) {
-      const status = error2 instanceof WsHcmApiError ? error2.status : void 0;
-      const explained = error2 instanceof WsHcmApiError && (name3 === "login" || status === void 0) ? platformFailure(error2, config2.baseUrl, id) : void 0;
-      const reason = late2 ? "превышено время проверки" : status === 500 && name3 === "portal" ? "HTTP 500: проверить порт в объекте «хост» и адрес подключения" : explained ? [explained.message, explained.hint].filter(Boolean).join(" ") : status !== void 0 ? `HTTP ${status}` : error2 instanceof HcmError ? `проверка не пройдена: ${error2.code}` : "проверка не пройдена";
-      report.checks.push({ name: name3, result: "failed", reason });
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-  await probe("login", "native.session.open", {}, (v) => {
-    if (inputObject(v).opened !== true) throw new Error();
-  });
-  await probe("version", "runtime.status", {}, (v) => {
-    report.version = text4(inputObject(v).version);
-  });
-  await probe("appInfo", "native.spxml2.getAppInfo", { fastStart: true }, (v) => {
-    info = inputObject(v);
-    if (typeof info.ui_lang_id === "string") report.language = text4(info.ui_lang_id, 16);
-    const database2 = rows2(info.databases).find((db) => db.id === text4(info.default_db_name));
-    if (!rows2(database2?.catalogs).length) throw new Error();
-  });
-  await probe("query", "runtime.query", { catalog: "collaborators", limit: 1, fields: ["id"] });
-  await probe("document", "objects.get", {
-    url: rows2(info.shared_docs).find((doc) => doc.id === "custom_templates")?.url
-  });
-  await probe("schema", "schema.get", { type: "collaborator", cursor: 0 }, (v) => {
-    const fields3 = rows2(inputObject(v).fields);
-    if (!fields3.length || !fields3.some((f) => String(f.origin).startsWith("inherited:")))
-      throw new Error();
-  });
-  await probe("titles", "objects.get", { url: languageFileUrl(info.ui_lang_id) });
-  await probe("libraries", "rpc.list", { library: "tools", limit: 1 }, (v) => {
-    if (inputObject(v).source !== "server") throw new Error();
-  });
-  await probe("logs", "logs.list", { limit: 1 });
-  await probe("portal", "anonymous.diagnostics.portal", {}, (v) => {
-    const status = Number(inputObject(v).status);
-    if (!Number.isInteger(status) || status < 100 || status > 599) throw new Error();
-    if (status >= 500) throw new WsHcmApiError("http", "Portal error", { status });
-  });
-  await probe("execute", "execute.script", { code: "RESULT = [1 + 1];" }, (v) => {
-    const result = inputObject(v).result;
-    if (!Array.isArray(result) || result.length !== 1 || String(result[0]) !== "2")
-      throw new Error();
-  });
-  for (const { result } of report.checks) report.summary[result]++;
-  return report;
-}
 
 // src/objects.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
@@ -24122,7 +24869,7 @@ var ServerObjects = class {
     this.schema = schema2;
     this.journalDirectory = journalDirectory;
   }
-  /** One object by id or url, as objects.get answers. */
+  /** Один объект по id или url, как отвечает objects.get. */
   async get(args) {
     const loaded = await this.load(args);
     const snapshot = loaded.document.snapshot();
@@ -24213,8 +24960,8 @@ var ServerObjects = class {
     return matches2.length === 1 ? identifier(inputObject(matches2[0]).id, "catalog") : void 0;
   }
   /**
-   * Values of the named fields in the catalog row of an object. `known` holds the names that are
-   * fields of the catalog, whether the row has a value for them or not.
+   * Значения названных полей в строке каталога объекта. В `known` — имена, которые являются
+   * полями каталога, есть у строки значение для них или нет.
    */
   async catalogRow(type, url, id, names2) {
     const none = { values: {}, known: /* @__PURE__ */ new Set() };
@@ -24254,9 +25001,9 @@ var ServerObjects = class {
     return data2 !== null && typeof data2 === "object" && Object.values(data2).some((value) => Array.isArray(value) ? value.length > 0 : value !== "");
   }
   /**
-   * What the server would not keep is refused before the write: a field the type does not have is
-   * dropped from the saved document, as is a value for a field the server computes, and a date the
-   * server cannot read is stored as another value.
+   * Чего сервер не сохранит, отклоняется до записи: поле, которого нет у типа, выпадает из
+   * сохранённого документа, как и значение поля, которое сервер вычисляет сам, а дата, которую
+   * сервер не может прочитать, сохраняется другим значением.
    */
   async requireFields(type, formUrl, data2, names2) {
     const shape = await this.schema.documentShape(type, formUrl).catch(() => void 0);
@@ -24386,7 +25133,7 @@ var ServerObjects = class {
       changes.before.type,
       changes.before.formUrl,
       changes.after.data,
-      changes.changes.filter((change) => inputObject(change).op === "set").map((change) => patchSegments(String(inputObject(change).path))[0][1])
+      changes.changes.filter((change) => change.op === "set").map((change) => patchSegments(change.path)[0][1])
     );
     const noop = changes.before.fingerprint === changes.after.fingerprint;
     if (args.preview === true || noop && args.resave !== true)
@@ -24408,9 +25155,7 @@ var ServerObjects = class {
     const form = await this.schema.documentForm(
       changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`
     );
-    const branches = changes.changes.map(
-      (change) => patchSegments(String(inputObject(change).path))[0][1]
-    );
+    const branches = changes.changes.map((change) => patchSegments(change.path)[0][1]);
     const mutationId = randomUUID3();
     await this.journal({
       mutationId,
@@ -24501,45 +25246,6 @@ var ServerObjects = class {
   }
 };
 
-// src/write-outcome.ts
-function refusedAtDoor(error2) {
-  return error2 instanceof WsHcmApiError && error2.status === 401 || loginFailed(error2);
-}
-var WriteOutcome = class {
-  marks = 0;
-  ids = {};
-  /** Before a request that may change the server; returns the withdrawal of this one mark. */
-  sending() {
-    this.marks++;
-    let withdrawn = false;
-    return () => {
-      if (!withdrawn) this.marks--;
-      withdrawn = true;
-    };
-  }
-  note(ids) {
-    for (const [key, value] of Object.entries(ids))
-      if (value !== void 0) this.ids[key] = value;
-  }
-  /** The first line that fits: no error, a read, a refusal at the door, a mark not withdrawn, otherwise not sent. */
-  verdict(effect, error2) {
-    const { mutationId, objectId, executionId } = this.ids;
-    const exactIds = {
-      ...mutationId !== void 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId) ? { mutationId } : {},
-      ...objectId !== void 0 && /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(objectId) && BigInt(objectId) <= 0xffffffffffffffffn ? { objectId } : {},
-      ...executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(executionId) ? { executionId } : {}
-    };
-    const sent = effect !== "read" && this.marks > 0;
-    const verdict = { sent, ids: { ...this.ids }, exactIds };
-    if (error2 === void 0) return verdict;
-    const turnedAway = error2 instanceof HcmError && (error2.code === "RPC_SERVER_ONLY" || error2.code === "UNKNOWN_RPC_TARGET");
-    const mutationOutcome = effect === "read" ? error2 instanceof HcmError ? error2.mutationOutcome : void 0 : sent && !turnedAway ? "indeterminate" : "not_sent";
-    if (mutationOutcome === void 0) return verdict;
-    const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error2);
-    return { ...verdict, mutationOutcome, ...refusedAfterSend && { refusedAfterSend } };
-  }
-};
-
 // src/hcm-server.ts
 function refuseUnowned(id, args, refused) {
   const effect = nativeEffect(id, args);
@@ -24551,7 +25257,7 @@ var HcmServer = class {
     this.port = port;
   }
   appInfo;
-  /** A request of an operation the registry calls a read. Anything else must say what it is. */
+  /** Запрос операции, которую реестр считает чтением. Всё остальное обязано сказать, что это. */
   async call(id, args, outcome) {
     if (!outcome) {
       refuseUnowned(id, args, (effect) => effect !== "read");
@@ -24566,12 +25272,12 @@ var HcmServer = class {
       throw error2;
     }
   }
-  /** A request that only reads here though its operation can do more (xQuery, rpc.call); a registry write is refused. */
+  /** Только чтение, хотя операция умеет больше (xQuery, rpc.call); запись реестра отклоняется. */
   async read(id, args) {
     refuseUnowned(id, args, (effect) => effect === "write");
     return this.port.call(id, args);
   }
-  /** Application info, kept for 30 seconds; a refused request is not kept. */
+  /** Сведения о приложении, хранятся 30 секунд; отклонённый запрос не хранится. */
   async applicationInfo() {
     if (!this.appInfo || this.appInfo.expires < Date.now()) {
       const value = this.call("native.spxml2.getAppInfo", { fastStart: true });
@@ -24583,8 +25289,8 @@ var HcmServer = class {
     return inputObject(await this.appInfo.value, "сведения о приложении");
   }
   /**
-   * Code prepared by prepareScript, run on the server; the answer is checked for a caught error.
-   * `idle` tells from the answer that the code did nothing: the mark is withdrawn.
+   * Код, подготовленный prepareScript, выполняется на сервере; ответ проверяется на
+   * перехваченную ошибку. `idle` по ответу узнаёт, что код ничего не сделал: отметка снимается.
    */
   async runCode(script, outcome, idle) {
     prepare(script.request, describeHcmOperation("web.rpc.call").inputSchema);
@@ -24620,52 +25326,25 @@ function beginning(data2) {
   if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return cut(data2);
   return Object.fromEntries(Object.entries(data2).map(([key, value]) => [key, cut(value)]));
 }
-function stepSummary(step) {
-  const { as, ok, data: data2, error: error2 } = step;
-  return {
-    ...as === void 0 ? {} : { as },
-    ok,
-    ...error2?.code ? { code: error2.code } : {},
-    ...typeof data2?.total === "number" ? { total: data2.total } : {},
-    ...Array.isArray(data2?.items) ? { rows: data2.items.length } : {},
-    ...data2?.incomplete ? { incomplete: true } : {}
-  };
-}
 var ReplyPacker = class {
   constructor(config2, results) {
     this.config = config2;
     this.results = results;
   }
-  /** Room for the payload of one reply; the rest of the output limit is left to its other fields. */
+  /** Место под payload одного ответа; остаток лимита вывода оставлен другим его полям. */
   get pageBytes() {
     return Math.floor(this.config.outputLimitBytes * 0.6);
   }
-  /** What the operation returned; an answer over the limit is stored whole and replaced by its beginning. */
+  /** Что вернула операция; ответ сверх лимита сохраняется целиком и заменяется своим началом. */
   async success(id, start, value, bound) {
+    const rules = operationSpec(id)?.reply;
     const data2 = jsonSafe(value);
     const serialised = JSON.stringify(data2);
-    const failedBatch = id === "runtime.batch" && data2 !== null && typeof data2 === "object" && "ok" in data2 && data2.ok === false;
-    const failedCheck = id === "runtime.check" && data2.summary.failed > 0;
-    const batch = data2;
-    const failedSteps = failedBatch ? batch.results.flatMap(
-      (result, index) => result.ok ? [] : [{ index, id: result.meta.operationId, code: result.error?.code ?? "UNKNOWN" }]
-    ) : [];
-    const outcome = failedBatch || failedCheck ? {
-      ok: false,
-      error: {
-        code: failedCheck ? "CHECK_FAILED" : "BATCH_FAILED",
-        message: failedCheck ? `Проверка подключения не пройдена: ${data2.checks.filter((check2) => check2.result === "failed").map((check2) => check2.name).join(", ")}.` : `Отказало шагов пакета: ${failedSteps.length} из ${batch.requested}${batch.requested > batch.completed ? `; после отказа не запускались: ${batch.requested - batch.completed}` : ""}. До повтора нужно посмотреть исход каждого шага.`,
-        hint: failedCheck ? data2.checks.find((check2) => check2.result === "failed")?.reason ?? "Причины — в data.checks." : "Номера и коды отказавших шагов — в error.details.failed, ответы шагов — в data.results.",
-        retryable: false,
-        ...failedBatch ? {
-          details: {
-            failed: failedSteps.slice(0, 20),
-            ...failedSteps.length > 20 ? { failedTotal: failedSteps.length } : {}
-          }
-        } : {}
-      }
-    } : { ok: true };
-    if (bound && Buffer.byteLength(serialised ?? "null") > this.config.outputLimitBytes && id !== "results.read" && id !== "runtime.check") {
+    const outcome = (stored) => {
+      const error2 = rules?.failed?.(data2, stored);
+      return error2 ? { ok: false, error: error2 } : { ok: true };
+    };
+    if (bound && Buffer.byteLength(serialised ?? "null") > this.config.outputLimitBytes && rules?.store !== "never") {
       const stored = await this.results.put(data2);
       let preview = beginning(data2);
       if (Buffer.byteLength(JSON.stringify(preview)) > this.config.outputLimitBytes / 2)
@@ -24674,18 +25353,12 @@ var ReplyPacker = class {
           ...data2 !== null && typeof data2 === "object" && !Array.isArray(data2) ? Object.fromEntries(
             Object.entries(data2).slice(0, 40).map(([key, value2]) => [
               key,
-              Array.isArray(value2) ? id === "runtime.batch" && key === "results" ? value2.map(stepSummary) : `[список: ${value2.length}]` : value2 !== null && typeof value2 === "object" ? "{структура}" : typeof value2 === "string" && value2.length > 120 ? `${value2.slice(0, 120)}…` : value2
+              Array.isArray(value2) ? rules?.preview && Object.hasOwn(rules.preview, key) ? value2.map(rules.preview[key]) : `[список: ${value2.length}]` : value2 !== null && typeof value2 === "object" ? "{структура}" : typeof value2 === "string" && value2.length > 120 ? `${value2.slice(0, 120)}…` : value2
             ])
           ) : {}
         };
       return {
-        ...outcome,
-        ...failedBatch && "error" in outcome ? {
-          error: {
-            ...outcome.error,
-            hint: "Номера и коды отказавших шагов — в error.details.failed; ответы шагов сохранены, их читает results.read."
-          }
-        } : {},
+        ...outcome(true),
         data: {
           preview,
           resultId: stored.resultId,
@@ -24701,9 +25374,9 @@ var ReplyPacker = class {
         }
       };
     }
-    const kept = bound && (id === "logs.read" || id === "files.read") ? await this.results.put(data2).catch(() => void 0) : void 0;
+    const kept = bound && rules?.store === "always" ? await this.results.put(data2).catch(() => void 0) : void 0;
     return {
-      ...outcome,
+      ...outcome(false),
       data: data2,
       meta: {
         operationId: id,
@@ -24713,13 +25386,13 @@ var ReplyPacker = class {
       }
     };
   }
-  /** What the operation threw: worded by the class of the error, without secrets, within the limit. */
+  /** Что операция выбросила: формулировка по классу ошибки, без секретов, в пределах лимита. */
   failure(id, start, error2, verdict, extra = {}) {
-    const failure2 = this.pack(id, start, error2, verdict, extra.refusal);
+    const failure2 = this.pack(id, start, error2, verdict, extra.causeRuledOut);
     if (!extra.batchRecovery) return failure2;
     return { ...failure2, data: this.batchRecoveryData(extra.batchRecovery) };
   }
-  /** Local storage failure cannot erase already executed steps or label a sent batch not_sent. */
+  /** Сбой локального хранилища не стирает выполненные шаги и не помечает ушедший пакет not_sent. */
   batchRecoveryData(recovery) {
     const data2 = {
       partial: true,
@@ -24745,7 +25418,7 @@ var ReplyPacker = class {
     }
     return data2;
   }
-  pack(id, start, error2, verdict, refusal) {
+  pack(id, start, error2, verdict, causeRuledOut) {
     const redact = (message, limit = 500) => {
       let safe = message;
       for (const secret of [
@@ -24763,7 +25436,11 @@ var ReplyPacker = class {
       retryable: false
     } : error2 instanceof WsHcmApiError ? {
       code: `PLATFORM_${error2.kind.toUpperCase()}`,
-      ...platformFailure(error2, this.config.baseUrl, refusal ?? id),
+      ...platformFailure(
+        error2,
+        this.config.baseUrl,
+        causeRuledOut ? void 0 : operationSpec(id)?.usualCause
+      ),
       retryable: false,
       ...error2.status === void 0 ? {} : { details: { status: error2.status } }
     } : error2 instanceof TypeError ? {
@@ -24823,8 +25500,8 @@ var ReplyPacker = class {
       ok: false,
       error: {
         ...normal,
-        // A platform failure is worded here from fixed text and the configured address; a password
-        // that happens to be part of a word must not cut holes in it.
+        // Отказ платформы формулируется здесь из фиксированного текста и настроенного адреса;
+        // пароль, случайно ставший частью слова, не должен вырезать в нём дыры.
         ...error2 instanceof WsHcmApiError ? {} : {
           message: redact(normal.message),
           ...normal.hint === void 0 ? {} : { hint: redact(normal.hint) }
@@ -24879,38 +25556,6 @@ var ReplyPacker = class {
 };
 
 // src/runtime.ts
-function withoutXmlFormatting(value) {
-  if (Array.isArray(value)) return value.map(withoutXmlFormatting);
-  if (!value || typeof value !== "object" || value instanceof Uint8Array) return value;
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      ([key, child]) => key !== "@_xmlns" && !(key === "#text" && typeof child === "string" && child.trim() === "")
-    ).map(([key, child]) => [
-      key,
-      // A line break and the indentation of the closing tag are formatting of an empty element.
-      typeof child === "string" && /^\s*\n[ \t]+$/.test(child) ? "" : withoutXmlFormatting(child)
-    ])
-  );
-}
-function plainAnswer(id, answer) {
-  if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return answer;
-  const data2 = answer;
-  if (id === "web.pages.uploadFile" && typeof data2.Url === "string" && data2.Url) {
-    const url = `x-local://share/uploaded_files/${data2.Url}`;
-    const { Url: _, ...rest } = data2;
-    return { ...rest, url, folderUrl: url.slice(0, url.lastIndexOf("/")) };
-  }
-  if (id === "web.spxml.getAsyncMethodStatus" && data2.ResultData !== void 0)
-    try {
-      const decoded = rpcValue(data2);
-      if (decoded !== data2) {
-        const { ResultData: _typed, ...state } = data2;
-        return { ...state, ...decoded };
-      }
-    } catch {
-    }
-  return answer;
-}
 var HcmRuntime = class {
   constructor(config2, port) {
     this.config = config2;
@@ -24930,6 +25575,28 @@ var HcmRuntime = class {
       async (url) => (await this.objects.load({ url })).document.snapshot().data
     );
     this.objects = new ServerObjects(this.server, this.schemaReader, this.results.directory);
+    this.context = {
+      config: config2,
+      server: this.server,
+      objects: this.objects,
+      files: this.files,
+      schema: this.schemaReader,
+      logs: this.logs,
+      results: this.results,
+      rpcCatalog: this.rpcCatalog,
+      pageBytes: this.replies.pageBytes,
+      operationCount: operations.length,
+      pipeline: {
+        describe: (id) => this.describe(id),
+        failure: (id, error2) => this.failure(id, performance.now(), error2),
+        step: (id, args, call) => this.perform(id, args, performance.now(), false, call),
+        // async: и отказ до первого запроса приходит отклонённым промисом, а не исключением.
+        invoke: async (id, args) => this.operation(id).run(this.context, args, {
+          outcome: new WriteOutcome(),
+          effect: "read"
+        })
+      }
+    };
   }
   gateway;
   results;
@@ -24940,6 +25607,7 @@ var HcmRuntime = class {
   files;
   objects;
   rpcCatalog;
+  context;
   queue = Promise.resolve();
   closed = false;
   closePromise;
@@ -24949,9 +25617,17 @@ var HcmRuntime = class {
   describe(id) {
     return describeHcmOperation(id);
   }
-  /** Resolve conditional side effects for the actual arguments; frontends must use this before routing. */
+  /**
+   * Условные побочные эффекты по фактическим аргументам; MCP, CLI и SDK обязаны вызвать это
+   * до маршрутизации.
+   */
   getOperationEffect(id, args = {}) {
-    return this.effect(this.describe(id), args);
+    return this.effect(this.operation(id), args);
+  }
+  /** Определение операции; отказ для неверного или неизвестного ID формулирует describe. */
+  operation(id) {
+    this.describe(id);
+    return operationSpec(id);
   }
   call(id, args = {}) {
     const start = performance.now();
@@ -24980,30 +25656,11 @@ var HcmRuntime = class {
     this.queue = run.catch(() => void 0);
     return run;
   }
-  effect(operation, args) {
-    if (operation.id === "runtime.query") {
-      const deferredArguments = Object.keys(args).length === 1 && typeof args.$ref === "string";
-      return deferredArguments || args.query !== void 0 ? "execute" : "read";
-    }
-    if (operation.id === "objects.patch" && args.preview === true) return "read";
-    if (operation.id === "runtime.batch") {
-      const steps = args.steps;
-      if (!Array.isArray(steps)) return "unknown";
-      const effects = steps.map((raw) => {
-        const step = inputObject(raw, "step");
-        const id = requiredString(step.id, "step.id");
-        if (id === "runtime.batch")
-          throw new HcmError("NESTED_BATCH", "Пакет внутри пакета не поддерживается.");
-        return this.effect(
-          this.describe(id),
-          step.args === void 0 ? {} : inputObject(step.args)
-        );
-      });
-      if (effects.includes("unknown") || effects.includes("write") && effects.includes("execute"))
-        return "unknown";
-      return effects.includes("execute") ? "execute" : effects.includes("write") ? "write" : "read";
-    }
-    return operation.profile === void 0 ? operation.effect : getEffectiveNativeEffect(operation, args);
+  effect(operation2, args) {
+    return operation2.effectFor?.(args, (id) => {
+      const other = this.operation(id);
+      return (otherArgs) => this.effect(other, otherArgs);
+    }) ?? operation2.effect;
   }
   authorize(effect) {
     if ((effect === "write" || effect === "unknown") && !this.config.permissions.write)
@@ -25025,13 +25682,12 @@ var HcmRuntime = class {
   }
   async perform(id, args, start, boundOutput = true, state = { outcome: new WriteOutcome(), effect: "read" }) {
     try {
-      const operation = this.describe(id);
-      state.effect = operation.effect;
-      validate2(args, operation.inputSchema);
-      state.effect = this.effect(operation, args);
+      const operation2 = this.operation(id);
+      state.effect = operation2.effect;
+      validate2(args, operation2.inputSchema);
+      state.effect = this.effect(operation2, args);
       this.authorize(state.effect);
-      if (operation.profile !== void 0) prepare(args, operation.inputSchema);
-      const value = await this.dispatch(id, args, state);
+      const value = await operation2.run(this.context, args, state);
       return await this.replies.success(id, start, value, boundOutput);
     } catch (error2) {
       return this.failure(id, start, error2, state);
@@ -25047,410 +25703,6 @@ var HcmRuntime = class {
       state.outcome.verdict(state.effect, error2),
       state
     );
-  }
-  async serverInfo(profile) {
-    return parseServerInfo(
-      await this.server.read(`${profile}.rpc.call`, {
-        target: "ms_tools.get_admin_init_server_data",
-        args: []
-      }),
-      profile
-    );
-  }
-  /**
-   * Date and integer fields of the catalog, read only when a condition holds a value written as a
-   * date or as a decimal ID: such a value must reach a date field as date('…') and an integer field
-   * as a number, and the form is the only place that tells them from strings.
-   */
-  async typedFields(catalog, where) {
-    const none = { dates: /* @__PURE__ */ new Set(), integers: /* @__PURE__ */ new Set() };
-    if (typeof catalog !== "string" || !where || typeof where !== "object") return none;
-    const values = Object.values(where).flatMap(
-      (condition) => condition && typeof condition === "object" ? Object.values(condition).flat() : [condition]
-    );
-    if (!values.some((value) => looksLikeDate(value) || looksLikeDecimalId(value))) return none;
-    const shape = await this.schemaReader.catalogShape({ catalog }).catch(() => void 0);
-    return { dates: shape?.dates ?? none.dates, integers: shape?.integers ?? none.integers };
-  }
-  async dispatch(id, args, state) {
-    switch (id) {
-      case "runtime.check":
-        return checkServer(
-          this.config,
-          (operation, input2) => this.dispatch(operation, input2, { outcome: new WriteOutcome(), effect: "read" })
-        );
-      case "files.exists":
-        return this.files.exists(args);
-      case "files.read":
-        return this.files.read(args);
-      case "files.list":
-        return this.files.list(args, state);
-      case "files.write":
-        return this.files.write(args, state);
-      case "files.delete":
-        return this.files.delete(args, state);
-      case "server.info": {
-        const info = await this.serverInfo(args.profile === "web" ? "web" : "native");
-        const folders = info.profile === "native" ? await this.files.folders() : void 0;
-        return folders ? { ...info, dataFolders: folders.data, codeFolders: folders.code } : info;
-      }
-      case "runtime.status": {
-        const version2 = await this.server.read("native.rpc.call", {
-          target: "tools.get_version",
-          args: [{ valueType: "string", lexicalValue: "wtv" }]
-        });
-        const info = await this.server.applicationInfo().catch(() => void 0);
-        const userId = typeof info?.auth_object_url === "string" ? parsePhysicalDocumentId(info.auth_object_url) : void 0;
-        const database2 = (await this.serverInfo("native").catch(() => void 0))?.database;
-        return {
-          connection: this.config.name,
-          baseUrl: this.config.baseUrl,
-          version: scalar(findXmlNode(version2, "Result"), "версии"),
-          ...database2 ? { database: database2 } : {},
-          ...userId ? { userId } : {},
-          operationCount: operations.length,
-          permissions: this.config.permissions
-        };
-      }
-      case "runtime.query": {
-        if (args.query !== void 0 && args.catalog !== void 0)
-          throw new HcmError("QUERY_ARGUMENT", "Нужно указать query или catalog, но не оба.");
-        if (args.query !== void 0 && args.order !== void 0)
-          throw new HcmError(
-            "QUERY_ARGUMENT",
-            "order работает с catalog.",
-            "В тексте XQuery сортировку пишут сами: order by $e/поле."
-          );
-        if (typeof args.catalog === "string" && /^[A-Za-z_]\w*\.[\w.]+$/.test(args.catalog))
-          throw new HcmError(
-            "UNKNOWN_CATALOG",
-            `${args.catalog} — общий список сервера, а не каталог.`,
-            `Его элементы читает запрос XQuery: for $e in ${args.catalog} return $e.`
-          );
-        const typed = args.query === void 0 ? await this.typedFields(args.catalog, args.where) : void 0;
-        const query2 = typed ? catalogQuery(args.catalog, args.where, typed.dates, args.order, typed.integers) : requiredString(args.query, "query");
-        if (args.query === void 0 && args.order !== void 0) {
-          const shape2 = await this.schemaReader.catalogShape({ catalog: requiredString(args.catalog, "catalog") }).catch(() => void 0);
-          const repeated = orderFields(args.order).map((item) => item.field).filter((field) => shape2?.repeated.has(field));
-          if (repeated.length)
-            throw new HcmError(
-              "INVALID_ARGUMENT",
-              `order: поле хранит несколько значений, сортировать по нему нельзя: ${repeated.join(", ")}.`,
-              "Нужно выбрать поле с одним значением: у такого в schema.get нет multiple:true.",
-              { fields: repeated }
-            );
-        }
-        const limit = boundedInteger(args.limit, 20, 1e3, "limit");
-        if (limit === 0)
-          throw new HcmError("INVALID_ARGUMENT", "limit: нужно целое число от 1 до 1000.");
-        const startPos = boundedInteger(args.startPosition, 0, 1e6, "startPosition");
-        const sql = args.query !== void 0 && /^\s*sql\s*:/i.test(query2);
-        if (args.query !== void 0 && !sql) state.effect = "read";
-        let response;
-        try {
-          const request = {
-            query: query2,
-            startPos,
-            maxCount: limit,
-            expectToReadAll: false,
-            keepCursor: false
-          };
-          response = await (sql ? this.server.call("native.lds.xQuery", request, state.outcome) : this.server.read("native.lds.xQuery", request));
-        } catch (error2) {
-          const refused = error2 instanceof WsHcmApiError && error2.kind === "soap-fault";
-          let reason;
-          if (refused) this.logs.serverWroteLog();
-          if (refused)
-            for (const [catalog, fields3] of args.query === void 0 ? [
-              [
-                requiredString(args.catalog, "catalog"),
-                [
-                  ...Object.keys(inputObject(args.where ?? {}, "where")),
-                  ...orderFields(args.order).map((item) => item.field)
-                ]
-              ]
-            ] : xqueryNames(query2)) {
-              reason = await this.schemaReader.explainQuery(catalog, fields3).catch(() => void 0);
-              if (reason) break;
-            }
-          throw reason ?? error2;
-        }
-        const read = queryPage(response, startPos, limit, args.fields, args.query !== void 0);
-        const page = { ...read, items: read.items.map(withoutFalseOffset) };
-        if (!page.items.length && args.query === void 0) {
-          const missing = await this.schemaReader.explainQuery(requiredString(args.catalog, "catalog"), []).catch(() => void 0);
-          if (missing) throw missing;
-        }
-        const requested = Array.isArray(args.fields) ? args.fields : [];
-        const absent = page.items.length ? requested.filter((field) => page.items.every((item) => !Object.hasOwn(item, field))) : args.query === void 0 ? requested : [];
-        const lacking = page.items.some(
-          (item) => requested.some((field) => !Object.hasOwn(item, field))
-        );
-        if (!absent.length && !lacking && !page.items.some(hasStructure)) return page;
-        const shape = await this.schemaReader.catalogShape(
-          args.query === void 0 ? { catalog: requiredString(args.catalog, "catalog") } : { type: rowTag(response) ?? "" }
-        ).catch(() => void 0);
-        if (!shape) return page;
-        const unknownFields = shape.fields.size ? absent.filter((field) => !shape.fields.has(field)) : [];
-        const asked = requested.filter(
-          (field) => shape.fields.has(field) && ![...shape.repeated].some((path) => path.startsWith(`${field}.`))
-        );
-        return {
-          ...page,
-          items: page.items.map((item) => {
-            const row = withRepeated(item, shape.repeated);
-            for (const field of asked)
-              if (!Object.hasOwn(row, field)) row[field] = shape.repeated.has(field) ? [] : "";
-            return row;
-          }),
-          ...unknownFields.length ? {
-            unknownFields,
-            hint: [
-              page.hint,
-              "Полей из unknownFields нет в строке каталога. Поле документа читает objects.get."
-            ].filter(Boolean).join(" ")
-          } : {}
-        };
-      }
-      case "objects.get": {
-        if (args.ids === void 0) return this.objects.get(args);
-        const ids = args.ids;
-        if (args.id !== void 0 || args.url !== void 0)
-          throw new HcmError("INVALID_ARGUMENT", "ids: вместе с id или url не задаётся.");
-        if (!Array.isArray(ids) || ids.length < 1 || ids.length > 100 || ids.some((id2) => typeof id2 !== "string"))
-          throw new HcmError("INVALID_ARGUMENT", "ids: список от 1 до 100 ID, каждый строкой.");
-        const items = [];
-        let failed = 0;
-        for (const id2 of ids) {
-          try {
-            items.push(await this.objects.get({ type: args.type, fields: args.fields, id: id2 }));
-          } catch (error2) {
-            const refusal = this.failure("objects.get", performance.now(), error2).error;
-            if (/^PLATFORM_(?!SOAP-FAULT)/.test(refusal.code)) throw error2;
-            failed++;
-            items.push({ id: id2, error: { code: refusal.code, message: refusal.message } });
-          }
-        }
-        return {
-          items,
-          total: items.length,
-          ...failed ? { failed, hint: "PLATFORM_SOAP-FAULT у элемента: обычно объекта с таким ID нет." } : {}
-        };
-      }
-      case "objects.create":
-        return this.objects.create(args, state.outcome);
-      case "objects.patch":
-        return this.objects.patch(args, state.outcome);
-      case "objects.delete":
-        return this.objects.delete(args, state.outcome);
-      case "schema.get":
-        return this.schemaReader.get(args);
-      case "schema.types":
-        return this.schemaReader.types(args);
-      case "logs.list":
-        return logFiles(await this.logs.list(args));
-      case "logs.read": {
-        const input2 = args.tailBytes === void 0 && args.full !== true ? { ...args, tailBytes: this.replies.pageBytes } : args;
-        return logText(await this.logs.read(input2));
-      }
-      case "logs.search":
-        return logMatches(
-          await this.logs.search(args),
-          this.replies.pageBytes
-        );
-      case "logs.follow":
-        return logNews(
-          await this.logs.follow(args),
-          args.cursor === void 0,
-          this.replies.pageBytes
-        );
-      case "results.read":
-        return this.results.read(
-          requiredString(args.resultId, "resultId"),
-          args.offset,
-          args.limit,
-          args.format
-        );
-      case "results.export":
-        return this.results.export(args);
-      case "rpc.list":
-        return this.rpcCatalog.list(args);
-      case "rpc.describe":
-        return this.rpcCatalog.describe(requiredString(args.targetId, "targetId"), args);
-      case "rpc.call": {
-        const target = `${identifier(args.library, "library")}.${identifier(args.method, "method")}`;
-        const supplied = args.arguments ?? [];
-        if (!Array.isArray(supplied))
-          throw new HcmError("INVALID_ARGUMENT", "arguments: нужен массив.");
-        const encoded = supplied.map((value) => {
-          if (value !== null && typeof value === "object")
-            return inputObject(value, "аргумент функции");
-          if (value === null) return { valueType: "null", lexicalValue: "" };
-          if (typeof value === "string") return { valueType: "string", lexicalValue: value };
-          if (typeof value === "boolean")
-            return { valueType: "bool", lexicalValue: value ? "1" : "0" };
-          if (typeof value === "number" && Number.isSafeInteger(value))
-            return { valueType: "integer", lexicalValue: String(value) };
-          throw new HcmError(
-            "INVALID_RPC_ARGUMENT",
-            "Такой аргумент функции задаётся явно: {valueType, lexicalValue}. Так передают дробные и большие числа, даты, объекты и XML."
-          );
-        });
-        const operationId = args.async === true ? "web.spxml.callMethodAsync" : "native.rpc.call";
-        const nativeArgs = { target, args: encoded };
-        try {
-          prepare(nativeArgs, this.describe(operationId).inputSchema);
-        } catch (error2) {
-          const index = error2 instanceof TypeError && /^args\.args\[(\d+)\]/.exec(error2.message);
-          if (!index) throw error2;
-          throw new HcmError(
-            "INVALID_RPC_ARGUMENT",
-            `arguments[${index[1]}]: объект должен быть вида {valueType, lexicalValue}.`,
-            "Строки, целые числа, true, false и null передаются как есть. Остальное — явно: {valueType:'date', lexicalValue:'2026-10-01T00:00:00'}, {valueType:'integer', lexicalValue:'6148914691236517121'}, {valueType:'real', lexicalValue:'1.5'}."
-          );
-        }
-        for (const argument of encoded)
-          if (typeof argument.lexicalValue === "string") escapeXml(argument.lexicalValue);
-        let response;
-        try {
-          response = await this.server.call(operationId, nativeArgs, state.outcome);
-        } catch (error2) {
-          if (error2 instanceof WsHcmApiError && error2.status === 500) {
-            this.logs.serverWroteLog();
-            const reason = await this.rpcCatalog.refusal(target).catch(() => void 0);
-            if (reason) throw reason;
-          }
-          throw error2;
-        }
-        return args.async === true ? withoutXmlFormatting(response) : rpcValue(response);
-      }
-      case "execute.script":
-      case "agents.run": {
-        const agent = id === "agents.run" ? agentRun(args) : void 0;
-        const { request, executionId } = agent ? prepareScript(agent.code, agent.params) : prepareScript(args.code, args.params);
-        const data2 = await this.server.runCode({ request, executionId }, state.outcome);
-        if (!agent) return data2;
-        this.logs.serverWroteLog();
-        return agentRunResult(data2);
-      }
-      case "runtime.batch":
-        return this.batch(args, state);
-      default:
-        return plainAnswer(
-          id,
-          withoutXmlFormatting(
-            await this.server.call(id, args, state.effect === "read" ? void 0 : state.outcome)
-          )
-        );
-    }
-  }
-  async batch(args, state) {
-    if (!Array.isArray(args.steps) || args.steps.length === 0 || args.steps.length > 100)
-      throw new HcmError("INVALID_BATCH", "steps: в пакете должно быть от 1 до 100 шагов.");
-    const labels = /* @__PURE__ */ new Set();
-    for (const [index, raw] of args.steps.entries()) {
-      const at = `steps[${index}]`;
-      const step = inputObject(raw, at);
-      const stepId = requiredString(step.id, `${at}.id`);
-      if (stepId === "runtime.batch")
-        throw new HcmError("NESTED_BATCH", "Пакет внутри пакета не поддерживается.");
-      this.describe(stepId);
-      if (step.args !== void 0) inputObject(step.args, `${at}.args`);
-      if (step.as !== void 0) {
-        const label = identifier(step.as, `${at}.as`);
-        if (labels.has(label))
-          throw new HcmError(
-            "DUPLICATE_STEP",
-            `${at}.as: имя ${label} уже дано другому шагу; имена шагов пакета не повторяются.`,
-            void 0,
-            { path: `${at}.as` },
-            "not_sent"
-          );
-        labels.add(label);
-      }
-    }
-    const named = /* @__PURE__ */ new Map();
-    const results = [];
-    const recovery = {
-      completed: 0,
-      requested: args.steps.length,
-      sentMutationSteps: 0,
-      receipts: []
-    };
-    state.batchRecovery = recovery;
-    const resolveRefs = (value, depth = 0) => {
-      if (depth > 32)
-        throw new HcmError("REFERENCE_DEPTH", "Аргументы шага вложены глубже 32 уровней.");
-      if (Array.isArray(value)) return value.map((item) => resolveRefs(item, depth + 1));
-      if (value === null || typeof value !== "object") return value;
-      const record5 = inputObject(value);
-      if (Object.keys(record5).length === 1 && typeof record5.$ref === "string") {
-        const [stepName, ...path] = record5.$ref.split(".");
-        let result = named.get(stepName);
-        for (const key of path) {
-          if (["__proto__", "constructor", "prototype"].includes(key) || result === null || typeof result !== "object" || !Object.hasOwn(result, key))
-            throw new HcmError(
-              "INVALID_REFERENCE",
-              "Ссылка $ref не находит значение: такого шага раньше не было, или в его результате нет такого поля."
-            );
-          result = result[key];
-        }
-        if (result === void 0)
-          throw new HcmError(
-            "INVALID_REFERENCE",
-            "Ссылка $ref называет шаг, которого раньше в пакете не было."
-          );
-        return result;
-      }
-      return Object.fromEntries(
-        Object.entries(record5).map(([key, item]) => [key, resolveRefs(item, depth + 1)])
-      );
-    };
-    for (const raw of args.steps) {
-      const step = inputObject(raw, "step");
-      const stepId = requiredString(step.id, "step.id");
-      let result;
-      const childState = { outcome: new WriteOutcome(), effect: "read" };
-      try {
-        const resolved = step.args === void 0 ? {} : inputObject(resolveRefs(step.args), "step.args");
-        result = await this.perform(stepId, resolved, performance.now(), false, childState);
-      } catch (error2) {
-        result = this.failure(stepId, performance.now(), error2);
-      }
-      const written = childState.outcome.verdict(childState.effect);
-      if (written.sent) {
-        state.outcome.sending();
-        recovery.sentMutationSteps++;
-      }
-      results.push(
-        typeof step.as === "string" ? { as: step.as, ...result } : result
-      );
-      recovery.completed = results.length;
-      const returned = result.data !== null && typeof result.data === "object" ? result.data : void 0;
-      recovery.receipts.push({
-        index: results.length - 1,
-        operationId: stepId,
-        ok: result.ok,
-        ...result.error === void 0 ? {} : {
-          errorCode: result.error.code,
-          ...result.error.mutationOutcome === void 0 ? {} : { mutationOutcome: result.error.mutationOutcome }
-        },
-        ...returned?.mutationOutcome === "confirmed" ? { mutationOutcome: "confirmed" } : {},
-        ...written.ids.mutationId === void 0 ? {} : { mutationId: written.ids.mutationId },
-        ...written.ids.objectId === void 0 ? {} : { objectId: written.ids.objectId },
-        ...written.ids.executionId === void 0 ? {} : { executionId: written.ids.executionId },
-        ...written.ids.url === void 0 ? {} : { url: written.ids.url }
-      });
-      if (step.as !== void 0) named.set(identifier(step.as, "step.as"), result);
-      if (!result.ok && args.stopOnError !== false) break;
-    }
-    return {
-      results,
-      completed: results.length,
-      requested: args.steps.length,
-      atomic: false,
-      ok: results.every((result) => result.ok)
-    };
   }
   close() {
     if (this.closePromise) return this.closePromise;
@@ -25633,19 +25885,19 @@ function floatSafeRemainder(val, step) {
   const stepInt = Number.parseInt(step.toFixed(decCount).replace(".", ""));
   return valInt % stepInt / 10 ** decCount;
 }
-function defineLazy(object6, key, getter) {
+function defineLazy(object5, key, getter) {
   const set = false;
-  Object.defineProperty(object6, key, {
+  Object.defineProperty(object5, key, {
     get() {
       if (!set) {
         const value = getter();
-        object6[key] = value;
+        object5[key] = value;
         return value;
       }
       throw new Error("cached value already set");
     },
     set(v) {
-      Object.defineProperty(object6, key, {
+      Object.defineProperty(object5, key, {
         value: v
         // configurable: true,
       });
@@ -28881,7 +29133,7 @@ var ZodObject = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
   inst.partial = (...args) => util_exports.partial(ZodOptional, inst, args[0]);
   inst.required = (...args) => util_exports.required(ZodNonOptional, inst, args[0]);
 });
-function object4(shape, params) {
+function object3(shape, params) {
   const def = {
     type: "object",
     get shape() {
@@ -29215,10 +29467,10 @@ var TaskCreationParamsSchema = looseObject({
    */
   pollInterval: number3().optional()
 });
-var TaskMetadataSchema = object4({
+var TaskMetadataSchema = object3({
   ttl: number3().optional()
 });
-var RelatedTaskMetadataSchema = object4({
+var RelatedTaskMetadataSchema = object3({
   taskId: string4()
 });
 var RequestMetaSchema = looseObject({
@@ -29231,7 +29483,7 @@ var RequestMetaSchema = looseObject({
    */
   [RELATED_TASK_META_KEY]: RelatedTaskMetadataSchema.optional()
 });
-var BaseRequestParamsSchema = object4({
+var BaseRequestParamsSchema = object3({
   /**
    * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
    */
@@ -29249,18 +29501,18 @@ var TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
   task: TaskMetadataSchema.optional()
 });
 var isTaskAugmentedRequestParams = (value) => TaskAugmentedRequestParamsSchema.safeParse(value).success;
-var RequestSchema = object4({
+var RequestSchema = object3({
   method: string4(),
   params: BaseRequestParamsSchema.loose().optional()
 });
-var NotificationsParamsSchema = object4({
+var NotificationsParamsSchema = object3({
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
   _meta: RequestMetaSchema.optional()
 });
-var NotificationSchema = object4({
+var NotificationSchema = object3({
   method: string4(),
   params: NotificationsParamsSchema.loose().optional()
 });
@@ -29272,18 +29524,18 @@ var ResultSchema = looseObject({
   _meta: RequestMetaSchema.optional()
 });
 var RequestIdSchema = union([string4(), number3().int()]);
-var JSONRPCRequestSchema = object4({
+var JSONRPCRequestSchema = object3({
   jsonrpc: literal2(JSONRPC_VERSION),
   id: RequestIdSchema,
   ...RequestSchema.shape
 }).strict();
 var isJSONRPCRequest = (value) => JSONRPCRequestSchema.safeParse(value).success;
-var JSONRPCNotificationSchema = object4({
+var JSONRPCNotificationSchema = object3({
   jsonrpc: literal2(JSONRPC_VERSION),
   ...NotificationSchema.shape
 }).strict();
 var isJSONRPCNotification = (value) => JSONRPCNotificationSchema.safeParse(value).success;
-var JSONRPCResultResponseSchema = object4({
+var JSONRPCResultResponseSchema = object3({
   jsonrpc: literal2(JSONRPC_VERSION),
   id: RequestIdSchema,
   result: ResultSchema
@@ -29300,10 +29552,10 @@ var ErrorCode;
   ErrorCode2[ErrorCode2["InternalError"] = -32603] = "InternalError";
   ErrorCode2[ErrorCode2["UrlElicitationRequired"] = -32042] = "UrlElicitationRequired";
 })(ErrorCode || (ErrorCode = {}));
-var JSONRPCErrorResponseSchema = object4({
+var JSONRPCErrorResponseSchema = object3({
   jsonrpc: literal2(JSONRPC_VERSION),
   id: RequestIdSchema.optional(),
-  error: object4({
+  error: object3({
     /**
      * The error type that occurred.
      */
@@ -29343,7 +29595,7 @@ var CancelledNotificationSchema = NotificationSchema.extend({
   method: literal2("notifications/cancelled"),
   params: CancelledNotificationParamsSchema
 });
-var IconSchema = object4({
+var IconSchema = object3({
   /**
    * URL or data URI for the icon.
    */
@@ -29368,7 +29620,7 @@ var IconSchema = object4({
    */
   theme: _enum(["light", "dark"]).optional()
 });
-var IconsSchema = object4({
+var IconsSchema = object3({
   /**
    * Optional set of sized icons that the client can display in a user interface.
    *
@@ -29382,7 +29634,7 @@ var IconsSchema = object4({
    */
   icons: array(IconSchema).optional()
 });
-var BaseMetadataSchema = object4({
+var BaseMetadataSchema = object3({
   /** Intended for programmatic or logical use, but used as a display name in past specs or fallback */
   name: string4(),
   /**
@@ -29412,7 +29664,7 @@ var ImplementationSchema = BaseMetadataSchema.extend({
    */
   description: string4().optional()
 });
-var FormElicitationCapabilitySchema = intersection(object4({
+var FormElicitationCapabilitySchema = intersection(object3({
   applyDefaults: boolean3().optional()
 }), record3(string4(), unknown()));
 var ElicitationCapabilitySchema = preprocess((value) => {
@@ -29422,7 +29674,7 @@ var ElicitationCapabilitySchema = preprocess((value) => {
     }
   }
   return value;
-}, intersection(object4({
+}, intersection(object3({
   form: FormElicitationCapabilitySchema.optional(),
   url: AssertObjectSchema.optional()
 }), record3(string4(), unknown()).optional()));
@@ -29474,7 +29726,7 @@ var ServerTasksCapabilitySchema = looseObject({
     }).optional()
   }).optional()
 });
-var ClientCapabilitiesSchema = object4({
+var ClientCapabilitiesSchema = object3({
   /**
    * Experimental, non-standard capabilities that the client supports.
    */
@@ -29482,7 +29734,7 @@ var ClientCapabilitiesSchema = object4({
   /**
    * Present if the client supports sampling from an LLM.
    */
-  sampling: object4({
+  sampling: object3({
     /**
      * Present if the client supports context inclusion via includeContext parameter.
      * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
@@ -29500,7 +29752,7 @@ var ClientCapabilitiesSchema = object4({
   /**
    * Present if the client supports listing roots.
    */
-  roots: object4({
+  roots: object3({
     /**
      * Whether the client supports issuing notifications for changes to the roots list.
      */
@@ -29527,7 +29779,7 @@ var InitializeRequestSchema = RequestSchema.extend({
   method: literal2("initialize"),
   params: InitializeRequestParamsSchema
 });
-var ServerCapabilitiesSchema = object4({
+var ServerCapabilitiesSchema = object3({
   /**
    * Experimental, non-standard capabilities that the server supports.
    */
@@ -29543,7 +29795,7 @@ var ServerCapabilitiesSchema = object4({
   /**
    * Present if the server offers any prompt templates.
    */
-  prompts: object4({
+  prompts: object3({
     /**
      * Whether this server supports issuing notifications for changes to the prompt list.
      */
@@ -29552,7 +29804,7 @@ var ServerCapabilitiesSchema = object4({
   /**
    * Present if the server offers any resources to read.
    */
-  resources: object4({
+  resources: object3({
     /**
      * Whether this server supports clients subscribing to resource updates.
      */
@@ -29565,7 +29817,7 @@ var ServerCapabilitiesSchema = object4({
   /**
    * Present if the server offers any tools to call.
    */
-  tools: object4({
+  tools: object3({
     /**
      * Whether this server supports issuing notifications for changes to the tool list.
      */
@@ -29602,7 +29854,7 @@ var PingRequestSchema = RequestSchema.extend({
   method: literal2("ping"),
   params: BaseRequestParamsSchema.optional()
 });
-var ProgressSchema = object4({
+var ProgressSchema = object3({
   /**
    * The progress thus far. This should increase every time progress is made, even if the total is unknown.
    */
@@ -29616,7 +29868,7 @@ var ProgressSchema = object4({
    */
   message: optional(string4())
 });
-var ProgressNotificationParamsSchema = object4({
+var ProgressNotificationParamsSchema = object3({
   ...NotificationsParamsSchema.shape,
   ...ProgressSchema.shape,
   /**
@@ -29646,7 +29898,7 @@ var PaginatedResultSchema = ResultSchema.extend({
   nextCursor: CursorSchema.optional()
 });
 var TaskStatusSchema = _enum(["working", "input_required", "completed", "failed", "cancelled"]);
-var TaskSchema = object4({
+var TaskSchema = object3({
   taskId: string4(),
   status: TaskStatusSchema,
   /**
@@ -29703,7 +29955,7 @@ var CancelTaskRequestSchema = RequestSchema.extend({
   })
 });
 var CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
-var ResourceContentsSchema = object4({
+var ResourceContentsSchema = object3({
   /**
    * The URI of this resource.
    */
@@ -29739,7 +29991,7 @@ var BlobResourceContentsSchema = ResourceContentsSchema.extend({
   blob: Base64Schema
 });
 var RoleSchema = _enum(["user", "assistant"]);
-var AnnotationsSchema = object4({
+var AnnotationsSchema = object3({
   /**
    * Intended audience(s) for the resource.
    */
@@ -29753,7 +30005,7 @@ var AnnotationsSchema = object4({
    */
   lastModified: iso_exports.datetime({ offset: true }).optional()
 });
-var ResourceSchema = object4({
+var ResourceSchema = object3({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
@@ -29786,7 +30038,7 @@ var ResourceSchema = object4({
    */
   _meta: optional(looseObject({}))
 });
-var ResourceTemplateSchema = object4({
+var ResourceTemplateSchema = object3({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
@@ -29865,7 +30117,7 @@ var ResourceUpdatedNotificationSchema = NotificationSchema.extend({
   method: literal2("notifications/resources/updated"),
   params: ResourceUpdatedNotificationParamsSchema
 });
-var PromptArgumentSchema = object4({
+var PromptArgumentSchema = object3({
   /**
    * The name of the argument.
    */
@@ -29879,7 +30131,7 @@ var PromptArgumentSchema = object4({
    */
   required: optional(boolean3())
 });
-var PromptSchema = object4({
+var PromptSchema = object3({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
@@ -29916,7 +30168,7 @@ var GetPromptRequestSchema = RequestSchema.extend({
   method: literal2("prompts/get"),
   params: GetPromptRequestParamsSchema
 });
-var TextContentSchema = object4({
+var TextContentSchema = object3({
   type: literal2("text"),
   /**
    * The text content of the message.
@@ -29932,7 +30184,7 @@ var TextContentSchema = object4({
    */
   _meta: record3(string4(), unknown()).optional()
 });
-var ImageContentSchema = object4({
+var ImageContentSchema = object3({
   type: literal2("image"),
   /**
    * The base64-encoded image data.
@@ -29952,7 +30204,7 @@ var ImageContentSchema = object4({
    */
   _meta: record3(string4(), unknown()).optional()
 });
-var AudioContentSchema = object4({
+var AudioContentSchema = object3({
   type: literal2("audio"),
   /**
    * The base64-encoded audio data.
@@ -29972,7 +30224,7 @@ var AudioContentSchema = object4({
    */
   _meta: record3(string4(), unknown()).optional()
 });
-var ToolUseContentSchema = object4({
+var ToolUseContentSchema = object3({
   type: literal2("tool_use"),
   /**
    * The name of the tool to invoke.
@@ -29995,7 +30247,7 @@ var ToolUseContentSchema = object4({
    */
   _meta: record3(string4(), unknown()).optional()
 });
-var EmbeddedResourceSchema = object4({
+var EmbeddedResourceSchema = object3({
   type: literal2("resource"),
   resource: union([TextResourceContentsSchema, BlobResourceContentsSchema]),
   /**
@@ -30018,7 +30270,7 @@ var ContentBlockSchema = union([
   ResourceLinkSchema,
   EmbeddedResourceSchema
 ]);
-var PromptMessageSchema = object4({
+var PromptMessageSchema = object3({
   role: RoleSchema,
   content: ContentBlockSchema
 });
@@ -30033,7 +30285,7 @@ var PromptListChangedNotificationSchema = NotificationSchema.extend({
   method: literal2("notifications/prompts/list_changed"),
   params: NotificationsParamsSchema.optional()
 });
-var ToolAnnotationsSchema = object4({
+var ToolAnnotationsSchema = object3({
   /**
    * A human-readable title for the tool.
    */
@@ -30072,7 +30324,7 @@ var ToolAnnotationsSchema = object4({
    */
   openWorldHint: boolean3().optional()
 });
-var ToolExecutionSchema = object4({
+var ToolExecutionSchema = object3({
   /**
    * Indicates the tool's preference for task-augmented execution.
    * - "required": Clients MUST invoke the tool as a task
@@ -30083,7 +30335,7 @@ var ToolExecutionSchema = object4({
    */
   taskSupport: _enum(["required", "optional", "forbidden"]).optional()
 });
-var ToolSchema = object4({
+var ToolSchema = object3({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
@@ -30094,7 +30346,7 @@ var ToolSchema = object4({
    * A JSON Schema 2020-12 object defining the expected parameters for the tool.
    * Must have type: 'object' at the root level per MCP spec.
    */
-  inputSchema: object4({
+  inputSchema: object3({
     type: literal2("object"),
     properties: record3(string4(), AssertObjectSchema).optional(),
     required: array(string4()).optional()
@@ -30104,7 +30356,7 @@ var ToolSchema = object4({
    * returned in the structuredContent field of a CallToolResult.
    * Must have type: 'object' at the root level per MCP spec.
    */
-  outputSchema: object4({
+  outputSchema: object3({
     type: literal2("object"),
     properties: record3(string4(), AssertObjectSchema).optional(),
     required: array(string4()).optional()
@@ -30180,7 +30432,7 @@ var ToolListChangedNotificationSchema = NotificationSchema.extend({
   method: literal2("notifications/tools/list_changed"),
   params: NotificationsParamsSchema.optional()
 });
-var ListChangedOptionsBaseSchema = object4({
+var ListChangedOptionsBaseSchema = object3({
   /**
    * If true, the list will be refreshed automatically when a list changed notification is received.
    * The callback will be called with the updated list.
@@ -30229,13 +30481,13 @@ var LoggingMessageNotificationSchema = NotificationSchema.extend({
   method: literal2("notifications/message"),
   params: LoggingMessageNotificationParamsSchema
 });
-var ModelHintSchema = object4({
+var ModelHintSchema = object3({
   /**
    * A hint for a model name.
    */
   name: string4().optional()
 });
-var ModelPreferencesSchema = object4({
+var ModelPreferencesSchema = object3({
   /**
    * Optional hints to use for model selection.
    */
@@ -30253,7 +30505,7 @@ var ModelPreferencesSchema = object4({
    */
   intelligencePriority: number3().min(0).max(1).optional()
 });
-var ToolChoiceSchema = object4({
+var ToolChoiceSchema = object3({
   /**
    * Controls when tools are used:
    * - "auto": Model decides whether to use tools (default)
@@ -30262,11 +30514,11 @@ var ToolChoiceSchema = object4({
    */
   mode: _enum(["auto", "required", "none"]).optional()
 });
-var ToolResultContentSchema = object4({
+var ToolResultContentSchema = object3({
   type: literal2("tool_result"),
   toolUseId: string4().describe("The unique identifier for the corresponding tool call."),
   content: array(ContentBlockSchema).default([]),
-  structuredContent: object4({}).loose().optional(),
+  structuredContent: object3({}).loose().optional(),
   isError: boolean3().optional(),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -30282,7 +30534,7 @@ var SamplingMessageContentBlockSchema = discriminatedUnion("type", [
   ToolUseContentSchema,
   ToolResultContentSchema
 ]);
-var SamplingMessageSchema = object4({
+var SamplingMessageSchema = object3({
   role: RoleSchema,
   content: union([SamplingMessageContentBlockSchema, array(SamplingMessageContentBlockSchema)]),
   /**
@@ -30382,13 +30634,13 @@ var CreateMessageResultWithToolsSchema = ResultSchema.extend({
    */
   content: union([SamplingMessageContentBlockSchema, array(SamplingMessageContentBlockSchema)])
 });
-var BooleanSchemaSchema = object4({
+var BooleanSchemaSchema = object3({
   type: literal2("boolean"),
   title: string4().optional(),
   description: string4().optional(),
   default: boolean3().optional()
 });
-var StringSchemaSchema = object4({
+var StringSchemaSchema = object3({
   type: literal2("string"),
   title: string4().optional(),
   description: string4().optional(),
@@ -30397,7 +30649,7 @@ var StringSchemaSchema = object4({
   format: _enum(["email", "uri", "date", "date-time"]).optional(),
   default: string4().optional()
 });
-var NumberSchemaSchema = object4({
+var NumberSchemaSchema = object3({
   type: _enum(["number", "integer"]),
   title: string4().optional(),
   description: string4().optional(),
@@ -30405,24 +30657,24 @@ var NumberSchemaSchema = object4({
   maximum: number3().optional(),
   default: number3().optional()
 });
-var UntitledSingleSelectEnumSchemaSchema = object4({
+var UntitledSingleSelectEnumSchemaSchema = object3({
   type: literal2("string"),
   title: string4().optional(),
   description: string4().optional(),
   enum: array(string4()),
   default: string4().optional()
 });
-var TitledSingleSelectEnumSchemaSchema = object4({
+var TitledSingleSelectEnumSchemaSchema = object3({
   type: literal2("string"),
   title: string4().optional(),
   description: string4().optional(),
-  oneOf: array(object4({
+  oneOf: array(object3({
     const: string4(),
     title: string4()
   })),
   default: string4().optional()
 });
-var LegacyTitledEnumSchemaSchema = object4({
+var LegacyTitledEnumSchemaSchema = object3({
   type: literal2("string"),
   title: string4().optional(),
   description: string4().optional(),
@@ -30431,26 +30683,26 @@ var LegacyTitledEnumSchemaSchema = object4({
   default: string4().optional()
 });
 var SingleSelectEnumSchemaSchema = union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
-var UntitledMultiSelectEnumSchemaSchema = object4({
+var UntitledMultiSelectEnumSchemaSchema = object3({
   type: literal2("array"),
   title: string4().optional(),
   description: string4().optional(),
   minItems: number3().optional(),
   maxItems: number3().optional(),
-  items: object4({
+  items: object3({
     type: literal2("string"),
     enum: array(string4())
   }),
   default: array(string4()).optional()
 });
-var TitledMultiSelectEnumSchemaSchema = object4({
+var TitledMultiSelectEnumSchemaSchema = object3({
   type: literal2("array"),
   title: string4().optional(),
   description: string4().optional(),
   minItems: number3().optional(),
   maxItems: number3().optional(),
-  items: object4({
-    anyOf: array(object4({
+  items: object3({
+    anyOf: array(object3({
       const: string4(),
       title: string4()
     }))
@@ -30475,7 +30727,7 @@ var ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.extend({
    * A restricted subset of JSON Schema.
    * Only top-level properties are allowed, without nesting.
    */
-  requestedSchema: object4({
+  requestedSchema: object3({
     type: literal2("object"),
     properties: record3(string4(), PrimitiveSchemaDefinitionSchema),
     required: array(string4()).optional()
@@ -30531,14 +30783,14 @@ var ElicitResultSchema = ResultSchema.extend({
    */
   content: preprocess((val) => val === null ? void 0 : val, record3(string4(), union([string4(), number3(), boolean3(), array(string4())])).optional())
 });
-var ResourceTemplateReferenceSchema = object4({
+var ResourceTemplateReferenceSchema = object3({
   type: literal2("ref/resource"),
   /**
    * The URI or URI template of the resource.
    */
   uri: string4()
 });
-var PromptReferenceSchema = object4({
+var PromptReferenceSchema = object3({
   type: literal2("ref/prompt"),
   /**
    * The name of the prompt or prompt template
@@ -30550,7 +30802,7 @@ var CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
   /**
    * The argument's information
    */
-  argument: object4({
+  argument: object3({
     /**
      * The name of the argument
      */
@@ -30560,7 +30812,7 @@ var CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     value: string4()
   }),
-  context: object4({
+  context: object3({
     /**
      * Previously-resolved variables in a URI template or prompt.
      */
@@ -30587,7 +30839,7 @@ var CompleteResultSchema = ResultSchema.extend({
     hasMore: optional(boolean3())
   })
 });
-var RootSchema = object4({
+var RootSchema = object3({
   /**
    * The URI identifying the root. This *must* start with file:// for now.
    */
@@ -30964,10 +31216,10 @@ var util;
       return obj[e];
     });
   };
-  util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object6) => {
+  util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object5) => {
     const keys = [];
-    for (const key in object6) {
-      if (Object.prototype.hasOwnProperty.call(object6, key)) {
+    for (const key in object5) {
+      if (Object.prototype.hasOwnProperty.call(object5, key)) {
         keys.push(key);
       }
     }
@@ -36608,12 +36860,12 @@ function concise(value, maximum) {
 function compactOperationPage(page, cursor = 0) {
   const operations2 = [];
   let used = 512;
-  for (const operation of page.operations) {
+  for (const operation2 of page.operations) {
     const card = {
-      id: operation.id,
-      topic: operationTopic(operation.id),
-      effect: operation.effect,
-      description: operationSummary(operation.id) ?? concise(operation.description, 200)
+      id: operation2.id,
+      topic: operationTopic(operation2.id),
+      effect: operation2.effect,
+      description: operationSummary(operation2.id) ?? concise(operation2.description, 200)
     };
     const bytes = Buffer.byteLength(JSON.stringify(card, null, 2), "utf8") + 64;
     if (operations2.length > 0 && used + bytes > 16e3) break;
@@ -36655,17 +36907,17 @@ function plainSchema(schema2) {
   }
   return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, plainSchema(child)]));
 }
-function operationHelp(operation) {
-  const summary2 = operationSummary(operation.id);
-  const text4 = operation.description.replace(/\s+/g, " ").trim();
-  const details = operationNotes(operation.id) ?? (summary2 && text4 !== summary2 && /[а-яё]/i.test(text4) ? text4 : void 0);
+function operationHelp(operation2) {
+  const summary2 = operationSummary(operation2.id);
+  const text4 = operation2.description.replace(/\s+/g, " ").trim();
+  const details = operationNotes(operation2.id) ?? (summary2 && text4 !== summary2 ? text4 : void 0);
   return {
-    id: operation.id,
-    topic: operationTopic(operation.id),
-    effect: operation.effect,
+    id: operation2.id,
+    topic: operationTopic(operation2.id),
+    effect: operation2.effect,
     description: summary2 ?? text4,
     ...details ? { details } : {},
-    inputSchema: plainSchema(operation.inputSchema)
+    inputSchema: plainSchema(operation2.inputSchema)
   };
 }
 function discoverOperations(list2, filter) {
@@ -36802,7 +37054,7 @@ ${onThisComputer(local2)}` } : page;
 }
 
 // src/version.ts
-var VERSION = "0.3.1";
+var VERSION = "0.4.0";
 
 // src/mcp/server.ts
 function text3(description, required2 = false, maximum = 2048) {
@@ -36880,7 +37132,7 @@ var HcmMcpTools = class {
             title,
             readOnlyHint: effect === "read",
             destructiveHint: effect !== "read" && additive !== true,
-            // Some native reads consume state, notably terminal async results.
+            // Часть чтений native расходует состояние, например итоговые результаты фоновых задач.
             idempotentHint: effect === "read" && name3 !== "hcm_api_read",
             openWorldHint: true
           }
@@ -37037,7 +37289,7 @@ var HcmMcpTools = class {
         ...target,
         patch: {
           required: false,
-          // The list of {op, path, value} is the runtime form; the tool advertises the plain one.
+          // Список {op, path, value} — вид для runtime; инструмент объявляет простой объект.
           validator: external_exports.union([external_exports.record(external_exports.unknown()), patchItems]).optional(),
           schema: { type: "object", description: "Что записать: {путь: значение}." }
         },
@@ -37865,7 +38117,7 @@ var OPTIONS = {
   "--json": "help и guide: ответ JSON вместо текста.",
   "--password-stdin": "Прочитать пароль подключения из stdin."
 };
-var NOTES2 = [
+var NOTES = [
   "Аргументы и примеры команды: wtctl help КОМАНДА.",
   "Ответ команды — JSON {ok, data, meta} или {ok:false, error:{code, message, hint}}; help и guide печатают текст.",
   "Код выхода: 0 — успех, 1 — ошибка операции, 2 — ошибка аргументов.",
@@ -37885,7 +38137,7 @@ function cliHelp(command) {
         Object.entries(COMMANDS).map(([name3, help2]) => [name3, help2.summary])
       ),
       options: OPTIONS,
-      notes: NOTES2
+      notes: NOTES
     };
   const help = known(command);
   return help === void 0 ? { command, error: "Неизвестная команда.", commands: Object.keys(COMMANDS) } : { command, usage: help.usage, ...help.notes === void 0 ? {} : { notes: help.notes } };
@@ -37900,7 +38152,7 @@ function cliHelpText(command) {
     ...rows(Object.entries(COMMANDS).map(([name3, help2]) => [name3, help2.summary]))
   ];
   const help = command === void 0 ? void 0 : known(command);
-  const lines = command === void 0 ? [USAGE, "", ...commands, "", "Параметры:", ...rows(Object.entries(OPTIONS)), "", ...NOTES2] : help === void 0 ? [`Неизвестная команда: ${command}.`, "", ...commands] : [
+  const lines = command === void 0 ? [USAGE, "", ...commands, "", "Параметры:", ...rows(Object.entries(OPTIONS)), "", ...NOTES] : help === void 0 ? [`Неизвестная команда: ${command}.`, "", ...commands] : [
     `wtctl ${command} — ${help.summary}`,
     "",
     ...help.usage.map((line) => `  ${line}`),
@@ -38426,7 +38678,7 @@ async function commandInvocation(args, io) {
         return {
           operationId: "rpc.describe",
           args: {
-            targetId: requirePositional(args, 2, "target LIBRARY.METHOD"),
+            targetId: requirePositional(args, 2, "аргумент БИБЛИОТЕКА.ФУНКЦИЯ"),
             ...args.options["built-in"] ? { builtIn: true } : {},
             ...args.options.source ? { source: true } : {}
           }
@@ -38677,7 +38929,7 @@ async function emit(result, args, io, runtime) {
     let bytes;
     try {
       if (result.meta.truncated && result.meta.resultId) {
-        if (!runtime?.results) throw new Error("Result store unavailable");
+        if (!runtime?.results) throw new Error("Хранилище результатов недоступно");
         const input2 = { resultId: result.meta.resultId, path: output, overwrite: true };
         bytes = (await runtime.results.export(input2, result)).bytes;
       } else await io.writeFile(output, serializeResult(result, true));
