@@ -6,14 +6,3 @@ export declare function soapEnvelope(method: string, fields: readonly SoapField[
 export declare function soapContentType(profile: SoapProfile): string;
 export declare function parseSoapBody(method: string, source: string, status: number): XmlObject;
 export declare function xmlText(value: unknown, name: string): string | undefined;
-export interface XHttpEntity {
-    readonly records: Readonly<Record<string, string>>;
-    readonly body: Uint8Array;
-}
-export type XHttpRecord = readonly [
-    name: string,
-    value: string | number | boolean | undefined,
-    spaceAfterColon?: boolean
-];
-export declare function buildXHttpEntity(action: string, records: readonly XHttpRecord[], body?: Uint8Array | string): Uint8Array;
-export declare function parseXHttpEntity(bytes: Uint8Array): XHttpEntity;

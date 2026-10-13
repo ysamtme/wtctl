@@ -1,6 +1,6 @@
 {
   "name": "wtctl",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Unofficial client for WebSoft HCM (WebTutor): administration through the server's own APIs as an MCP server, a CLI and an SDK",
   "license": "MIT",
   "author": "ysamtme",
@@ -67,7 +67,7 @@
     "test": "tsx --test --import ./test/isolate.mjs test/*.test.ts",
     "docs:check": "tsx scripts/check-docs.mjs",
     "package:check": "npm run build && node scripts/check-package.mjs",
-    "verify": "npm run format:check && npm run check && node scripts/generate-guide.mjs --check && npm test && npm run docs:check && node scripts/check-package.mjs",
+    "verify": "npm run format:check && npm run check && node scripts/generate-guide.mjs --check && node scripts/generate-native-registry.mjs --check && npm test && npm run docs:check && node scripts/check-package.mjs",
     "start": "node dist/cli/bin.js",
     "mcp": "node dist/cli/bin.js mcp"
   },

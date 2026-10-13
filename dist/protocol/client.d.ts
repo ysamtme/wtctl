@@ -1,4 +1,4 @@
-import { DiagnosticsApi, ExperimentalApi, LegacyXHttpApi, NativeExperimentalApi, NativeSpXml2Api, ResourceApi, RpcApi, WebPageApi, WebExperimentalApi, WebSpXml2Api, WebSpXmlApi, type NativeLdsApi, type WebLdsApi } from "./api.js";
+import { DiagnosticsApi, ExperimentalApi, NativeExperimentalApi, NativeSpXml2Api, ResourceApi, RpcApi, WebPageApi, WebExperimentalApi, WebSpXml2Api, WebSpXmlApi, type NativeLdsApi, type WebLdsApi } from "./api.js";
 import { NativePhysicalDocumentsApi } from "./physical-documents.js";
 import { HttpTransport } from "./transport.js";
 import type { DecimalId, RequestOptions, WsHcmClientOptions, WsHcmResponse, WebSocketFactory, WebSocketHeartbeatInput, WebSocketHeartbeatData } from "./types.js";
@@ -76,28 +76,6 @@ export declare class WebSession {
     close(): Promise<void>;
 }
 /**
- * Legacy `/xhttp` context with a fresh caller-owned decimal LDS identity.
- * InstallationID tracks the client installation; the separate cookie authenticates HTTP.
- */
-export declare class LegacySession {
-    #private;
-    private readonly transport;
-    readonly xhttp: LegacyXHttpApi;
-    readonly experimental: ExperimentalApi;
-    readonly installationId: string;
-    /** Caller-owned decimal legacy context ID, or `undefined` after close. */
-    get sessionId(): DecimalId | undefined;
-    private constructor();
-    static open(defaults: ClientDefaults, installationId: string): Promise<LegacySession>;
-    /** Drops local access/identity without claiming a server-side Quit acknowledgement. */
-    disposeLocal(): void;
-    /**
-     * Closes only the successfully bootstrapped caller-owned LDS context and clears local identity state.
-     * Failure is reported as `WsHcmApiError` with `kind: "cleanup"`.
-     */
-    close(): Promise<void>;
-}
-/**
  * Entry point for WebSoft HCM administrative APIs.
  *
  * Defaults: `http://localhost:8088/`, 30-second per-request timeout, built-in `fetch`. Each opened session receives
@@ -116,17 +94,9 @@ export declare class WsHcmClient {
     openNativeSession(): Promise<NativeSession>;
     /** Opens a web Administrator session. The caller owns it and must call `close()`. */
     openWebSession(): Promise<WebSession>;
-    /** Opens an isolated legacy `/xhttp` session using a real caller-supplied 16-hex InstallationID. */
-    openLegacySession(options: {
-        installationId: string;
-    }): Promise<LegacySession>;
     /** Runs an action in a native session and closes it in `finally`, preserving operation error precedence. */
     withNativeSession<T>(action: (session: NativeSession) => Promise<T>): Promise<T>;
     /** Runs an action in a web session and closes it in `finally`, preserving operation error precedence. */
     withWebSession<T>(action: (session: WebSession) => Promise<T>): Promise<T>;
-    /** Runs an action in a legacy session and closes it in `finally`, preserving operation error precedence. */
-    withLegacySession<T>(action: (session: LegacySession) => Promise<T>, options: {
-        installationId: string;
-    }): Promise<T>;
 }
 export {};

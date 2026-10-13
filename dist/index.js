@@ -8,7 +8,7 @@ import {
   loginFailed,
   prepare,
   validate
-} from "./chunks/chunk-HYBFMPQU.js";
+} from "./chunks/chunk-3CSO6E2L.js";
 import {
   WebSocketHeartbeatError,
   WsHcmApiError,
@@ -25,7 +25,7 @@ import {
   parseXml,
   resolvePhysicalDocumentLocation,
   validatePlatformXmlSource
-} from "./chunks/chunk-L5K4UXEU.js";
+} from "./chunks/chunk-GFRYG5E3.js";
 
 // src/errors.ts
 var HcmError = class extends Error {
@@ -79,6 +79,161 @@ function boundedInteger(value, fallback, max, path) {
   return value;
 }
 
+// src/scripts.ts
+import { randomUUID } from "node:crypto";
+var TARGET = "ms_tools.evaluate_remote_collection_obj";
+var FORM = "x-local://wtv/wtv_remote_collection.xmd";
+function prepareScript(value, params) {
+  const code = (params === void 0 ? "" : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(JSON.stringify(inputObject(params, "params"))).toString("base64")}"), "utf-8")); `) + requiredString(value, "code");
+  if (Buffer.byteLength(code) > 1024 * 1024)
+    throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");
+  const marker = `hcm_inline_${randomUUID().replaceAll("-", "")}`;
+  const xml = `<remote_collection SPXML-FORM="${FORM}" SPXML-FORM-ELEM="remote_collection"><code>${marker}</code><name>${marker}</name><use_cache>0</use_cache><script>${escapeXml(code)}</script></remote_collection>`;
+  return { request: { target: TARGET, args: [{ lexicalValue: { xml } }] }, executionId: marker };
+}
+var ID = /^(?:0x[0-9a-f]{1,16}|\d{1,20})$/i;
+var AGENT_RUN = `var doc = OpenDoc(UrlFromDocID(Int(PARAMS.id)));
+if (doc.TopElem.Name != 'server_agent') throw 'Объект с этим ID — не агент сервера (server_agent).';
+var from = StrXmlDate(Date());
+var started = doc.TopElem.run_agent(PARAMS.objectId, PARAMS.objectIds, Date(), true);
+if (started) doc.Save();
+RESULT = [{ started: started, from: from, to: StrXmlDate(Date()) }];`;
+function agentRun(args) {
+  const id = (value, path) => {
+    if (typeof value !== "string" || !ID.test(value))
+      throw new HcmError("INVALID_ARGUMENT", `${path}: нужен ID строкой, 0x… или десятичный.`);
+    return BigInt(value).toString();
+  };
+  const list2 = args.objectIds ?? [];
+  if (!Array.isArray(list2) || list2.length > 1e3)
+    throw new HcmError("INVALID_ARGUMENT", "objectIds: нужен список до 1000 ID.");
+  return {
+    code: AGENT_RUN,
+    params: {
+      id: id(args.id, "id"),
+      objectId: args.objectId === void 0 ? null : id(args.objectId, "objectId"),
+      objectIds: list2.map((item, index) => id(item, `objectIds[${index}]`)).join(";")
+    }
+  };
+}
+function agentRunResult(data2) {
+  const row = data2.result[0];
+  const time = (value) => String(value ?? "").slice(0, 19);
+  const started = row?.started === "1";
+  return {
+    started,
+    startedAt: time(row?.from),
+    finishedAt: time(row?.to),
+    hint: started ? "Код агента отработал до конца или до ошибки: ошибку сервер пишет только в лог. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt." : "Сервер агента не запустил; причину он пишет в лог agent."
+  };
+}
+function decodeRpcValue(value, depth = 0) {
+  if (depth > 64) throw new HcmError("SCRIPT_RESPONSE", "Результат вложен глубже 64 уровней.");
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new HcmError("SCRIPT_RESPONSE", "В результате нет элемента с VALUE-TYPE.");
+  const node = value;
+  const typeValue = node["@_VALUE-TYPE"];
+  if (typeof typeValue !== "string" || typeValue === "")
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "В результате есть элемент XML без типа.",
+      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call."
+    );
+  const type = typeValue.toLowerCase();
+  const children3 = Object.keys(node).filter((key) => !key.startsWith("@_") && key !== "#text");
+  const text3 = node["#text"] ?? "";
+  if (typeof text3 !== "string")
+    throw new HcmError("SCRIPT_RESPONSE", "Значение в результате — не текст.");
+  if (["array", "object", "null", "undefined"].includes(type) && text3.trim() !== "")
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "В массиве, объекте или null результата есть посторонний текст."
+    );
+  if (type === "array") {
+    if (children3.some((key) => key !== "e"))
+      throw new HcmError("SCRIPT_RESPONSE", "В массиве результата есть посторонние элементы.");
+    const items = node.e === void 0 ? [] : Array.isArray(node.e) ? node.e : [node.e];
+    return items.map((item) => decodeRpcValue(item, depth + 1));
+  }
+  if (type === "object") {
+    return Object.fromEntries(children3.map((key) => [key, decodeRpcValue(node[key], depth + 1)]));
+  }
+  if (type === "null" || type === "undefined") {
+    if (children3.length !== 0)
+      throw new HcmError("SCRIPT_RESPONSE", "В значении null результата есть вложенные элементы.");
+    return null;
+  }
+  if (!["string", "integer", "real", "bool", "date"].includes(type))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "В результате есть значение неподдерживаемого типа (VALUE-TYPE).",
+      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call."
+    );
+  if (children3.length !== 0)
+    throw new HcmError("SCRIPT_RESPONSE", "В простом значении результата есть вложенные элементы.");
+  return text3;
+}
+function rpcValue(response) {
+  try {
+    return { value: decodeRpcValue(findXmlNode(response, "Result")) };
+  } catch (error) {
+    if (error instanceof HcmError && error.code === "SCRIPT_RESPONSE") return response;
+    throw error;
+  }
+}
+function scriptResult(response, executionId) {
+  const decoded = decodeRpcValue(findXmlNode(response, "Result"));
+  if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода в неожиданном виде: это не объект."
+    );
+  const value = decoded;
+  if (typeof value.error !== "string" || !/^\d+$/.test(value.error))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода без числового кода ошибки."
+    );
+  if (value.error !== "0") {
+    const reason = (typeof value.error_text === "string" ? value.error_text : "").split(/\r?\n/).map((line) => line.trim()).filter(
+      (line) => line !== "" && !line.startsWith("Error evaluating collection") && !line.includes("wtv_remote_collection.xmd")
+    ).join("\n");
+    const unread = /syntax error/i.test(reason) && !/^\(/m.test(reason);
+    throw new HcmError(
+      "SCRIPT_FAILED",
+      "Сервер сообщил об ошибке в коде SP-XML Script.",
+      unread ? "Сообщение сервера — в details.scriptError. Код не разобран и не выполнялся: данные не менялись." : "Сообщение сервера — в details.scriptError. До ошибки код мог изменить данные: их нужно проверить перед повтором.",
+      reason === "" ? void 0 : { scriptError: reason },
+      unread ? "not_sent" : "indeterminate"
+    );
+  }
+  if (!Array.isArray(value.result))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "RESULT — не массив.",
+      "Нужно присвоить RESULT массив, даже когда возвращать нечего: RESULT = [];"
+    );
+  if (!Array.isArray(value.columns) || value.data === null || typeof value.data !== "object" || Array.isArray(value.data))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода не полностью: нет columns или data."
+    );
+  const total = value.total;
+  const serverTicks = value.ticks;
+  if (typeof total !== "string" || typeof serverTicks !== "string" || !/^\d+$/.test(total) || !/^\d+$/.test(serverTicks))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода с неверными счётчиками total или ticks."
+    );
+  const data2 = value.data;
+  return {
+    result: value.result,
+    ...value.columns.length ? { columns: value.columns } : {},
+    ...Object.keys(data2).length ? { data: data2 } : {},
+    executionId
+  };
+}
+
 // src/files.ts
 function fileContent(response, encoding) {
   if (encoding !== void 0 && encoding !== "base64")
@@ -89,11 +244,7 @@ function fileContent(response, encoding) {
     );
   const data2 = response !== null && typeof response === "object" ? response.Data : void 0;
   if (typeof data2 !== "string" || /[^A-Za-z0-9+/=\s]/.test(data2))
-    throw new HcmError(
-      "FILE_READ_RESPONSE",
-      "Сервер вернул файл в неожиданном виде.",
-      "Прочитать его можно операцией native.lds.loadUrl."
-    );
+    throw new HcmError("FILE_READ_RESPONSE", "Сервер вернул файл в неожиданном виде.");
   const content = Buffer.from(data2.replace(/\s+/g, ""), "base64");
   const binary = { base64: content.toString("base64"), bytes: content.length };
   if (encoding === "base64") return binary;
@@ -125,6 +276,126 @@ function fileExistsUrl(value) {
     else if (unit === 65534 || unit === 65535) throw invalid2();
   }
   return value;
+}
+function fileFolders(info) {
+  const data2 = /* @__PURE__ */ new Set();
+  const design = /* @__PURE__ */ new Set();
+  const entries = Array.isArray(info?.config_entries) ? info.config_entries : [];
+  for (const entry2 of entries) {
+    const list2 = entry2?.name === "DATA-DB" ? data2 : entry2?.name === "DESIGN-DB" ? design : void 0;
+    if (list2 && typeof entry2.value === "string" && entry2.value) list2.add(entry2.value);
+  }
+  if (!data2.size && !design.size) return void 0;
+  return { data: [...data2], code: [...design].filter((name3) => !data2.has(name3)) };
+}
+function fileTarget(value, listing = false) {
+  const text3 = listing && typeof value === "string" ? value.replace(/\/$/, "") : value;
+  const [folder = "", ...path] = typeof text3 === "string" ? text3.slice(10).split("/") : [];
+  const plain = (part) => !/^[. ]*$|%(?:2e|2f|5c|[01][0-9a-f]|7f)/i.test(part);
+  if (typeof text3 !== "string" || !text3.startsWith("x-local://") || /[\\?#\p{Cc}\p{Cs}]/u.test(text3) || !/^[\w-]+$/.test(folder) || !(listing || path.length) || !path.every(plain))
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      listing ? "url: нужен адрес x-local://папка или x-local://папка/путь." : "url: нужен адрес x-local://папка/путь.",
+      `${listing ? "Без" : "Путь не пустой, без"} частей из одних точек и пробелов, без %2e, %2f, %5c, знаков \\ ? #. Например, x-local://share/report.txt.`
+    );
+  return { url: text3, folder };
+}
+function fileRoute(operation, folders, folder, canExecute) {
+  if (!folders) return "unlisted";
+  if (folders.data.includes(folder)) return "data";
+  if (!folders.code.includes(folder))
+    throw new HcmError(
+      "FOLDER_NOT_WRITABLE",
+      `Папка ${folder} не принимает файлы.`,
+      `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`
+    );
+  if (!canExecute)
+    throw new HcmError(
+      "EXECUTE_DISABLED",
+      `Папка ${folder} на этом сервере принимает ${operation === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
+      "Право execute включает владелец подключения в настройках подключения (permissions.execute)."
+    );
+  return "code";
+}
+function fileWriteContent(args) {
+  const { text: text3, base64 } = args;
+  const bytes = typeof text3 === "string" && !new RegExp("\\p{Cs}", "u").test(text3) ? Buffer.from(text3) : typeof base64 === "string" ? Buffer.from(base64, "base64") : void 0;
+  if (text3 === void 0 === (base64 === void 0) || !bytes || text3 === void 0 && bytes.toString("base64") !== base64)
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "Нужно ровно одно из text (без непарных суррогатов) и base64 (без переводов строк)."
+    );
+  return {
+    ...typeof text3 === "string" ? { text: text3 } : {},
+    base64: bytes.toString("base64"),
+    bytes: bytes.length
+  };
+}
+function fileScript(code, params) {
+  try {
+    return prepareScript(code, params);
+  } catch (error) {
+    if (!(error instanceof HcmError) || error.code !== "SCRIPT_TOO_LARGE") throw error;
+    throw new HcmError(
+      "FILE_TOO_LARGE",
+      "Файл не помещается в код для сервера.",
+      "В папку кода файл записывает код на сервере: текст — до 750 КБ (меньше, если в нём много переводов строк), двоичные данные — до 580 КБ."
+    );
+  }
+}
+function codeWrite(url, content) {
+  const text3 = content.text !== void 0;
+  return fileScript(
+    `PutUrlData(PARAMS.url, ${text3 ? "PARAMS.text" : "Base64Decode(PARAMS.base64)"});
+RESULT = [UrlFileSize(PARAMS.url)];`,
+    text3 ? { url, text: content.text } : { url, base64: content.base64 }
+  );
+}
+function codeDelete(url) {
+  return fileScript(
+    `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
+else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
+else { DeleteUrl(PARAMS.url); RESULT = ['deleted']; }`,
+    { url }
+  );
+}
+function codeDeleteRefusal(data2) {
+  if (data2.result[0] === "directory")
+    return new HcmError("FILE_IS_FOLDER", "Адрес — папка: в папке кода удаляется только файл.");
+  if (data2.result[0] === "absent")
+    return new HcmError("FILE_NOT_FOUND", "По адресу нет файла.", "Адрес проверяет files.exists.");
+  return void 0;
+}
+function codeList(url) {
+  return fileScript(
+    `var rows = [];
+var item = '';
+var folder = false;
+var dir = false;
+try { dir = IsDirectory(PARAMS.url); } catch (e) { dir = false; }
+if (dir) { for (item in ReadDirectory(PARAMS.url)) { folder = IsDirectory(item); rows.push({ u: item, f: folder, b: folder ? 0 : UrlFileSize(item) }); } }
+RESULT = dir ? rows : ['none'];`,
+    { url }
+  );
+}
+function fileList(data2, folder, search = "") {
+  if (data2.result[0] === "none")
+    throw new HcmError(
+      "FOLDER_NOT_FOUND",
+      "По адресу нет папки.",
+      "Список показывает только папку; файл читает files.read, адрес проверяет files.exists."
+    );
+  const rows = data2.result.map((row) => {
+    const name3 = typeof row?.u === "string" && row.u.startsWith(`${folder}/`) ? row.u.slice(folder.length + 1).replace(/\/$/, "") : "";
+    const bytes = Number(row?.b);
+    if (!name3 || /[/\\]/.test(name3) || row.f !== "1" && !Number.isFinite(bytes))
+      throw new HcmError("SCRIPT_RESPONSE", "Сервер вернул список папки в неожиданном виде.");
+    return row.f === "1" ? { name: name3, folder: true } : { name: name3, bytes };
+  });
+  const part = search.toLowerCase();
+  const items = rows.filter((item) => item.name.toLowerCase().includes(part));
+  items.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  return { items, total: items.length };
 }
 function object(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error();
@@ -206,9 +477,27 @@ var composite = [
     schema({ url: string, encoding: { type: "string", enum: ["base64"] } }, ["url"])
   ),
   definition(
+    "files.list",
+    "execute",
+    "Один уровень папки x-local://папка или x-local://папка/путь: items — файлы с размером (bytes) и вложенные папки (folder:true), по имени. search оставляет имена с этой частью, регистр не важен. Список даёт код на сервере: нужно право execute.",
+    schema({ url: string, search: string }, ["url"])
+  ),
+  definition(
+    "files.write",
+    "write",
+    "Записать файл по адресу x-local://…: text — текст (пишется в UTF-8), base64 — двоичные данные. Файл заменяется целиком, вложенные папки сервер создаёт сам. В папку кода (wt, wtv, custom…) файл записывает код на сервере: нужно ещё право execute. Какие папки принимают запись, показывает server.info.",
+    schema({ url: string, text: string, base64: string }, ["url"])
+  ),
+  definition(
+    "files.delete",
+    "write",
+    "Удалить файл по адресу x-local://…. В папке данных так же удаляется пустая папка; в папке кода — только файл, и нужно ещё право execute.",
+    schema({ url: string }, ["url"])
+  ),
+  definition(
     "server.info",
     "read",
-    "Сведения, которые сервер отдаёт админке при запуске: версия, операционная система, маска возможностей, ограничения на число записей по типам объектов. Маска — не права пользователя, ограничения — не список каталогов. profile: native (по умолчанию) или web.",
+    "Сведения, которые сервер отдаёт админке при запуске: версия, операционная система, маска возможностей, ограничения на число записей по типам объектов; в профиле native ещё папки: dataFolders принимают запись через LDS, codeFolders — только кодом на сервере. Маска — не права пользователя, ограничения — не список каталогов. profile: native (по умолчанию) или web.",
     schema({ profile: { type: "string", enum: ["native", "web"] } })
   ),
   definition(
@@ -512,15 +801,13 @@ var TOPICS = [
   },
   {
     id: "files",
-    title: "Файлы сервера по адресу x-local://…: проверить, прочитать, записать, удалить, загрузить",
+    title: "Файлы сервера по адресу x-local://…: проверить, прочитать, показать папку, записать, удалить, загрузить",
     operations: {
       "files.exists": "Есть ли файл или папка по адресу.",
       "files.read": 'Прочитать файл: текст, если это текст в UTF-8, иначе base64; encoding:"base64" — всегда base64.',
-      "native.lds.loadUrl": "Прочитать файл как есть (base64), с блокировкой или сжатием.",
-      "native.lds.putUrl": "Записать файл по адресу.",
-      "native.lds.deleteUrl": "Удалить файл по адресу.",
-      "native.lds.unlockUrl": "Снять свою блокировку с адреса.",
-      "web.pages.copyUrl": "Скопировать файл с одного адреса на другой.",
+      "files.list": "Показать один уровень папки: файлы с размером и вложенные папки.",
+      "files.write": "Записать файл: text или base64; способ записи операция выбирает по папке.",
+      "files.delete": "Удалить файл (в папке данных — и пустую папку).",
       "web.pages.uploadFile": "Загрузить файл до 8 МБ в папку загрузок сервера; ответ содержит его адрес.",
       "web.pages.uploadChunk": "Загрузить одну часть большого файла.",
       "web.pages.clearUploadChunks": "Удалить загруженные части файла."
@@ -580,7 +867,7 @@ var TOPICS = [
   },
   {
     id: PROTOCOL,
-    title: "Прямые вызовы протокола: те же действия через веб-профиль и старый протокол, сессии, сырые запросы. Обычно не нужны",
+    title: "Прямые вызовы протокола: те же действия через веб-профиль, сессии, сырые запросы. Обычно не нужны",
     operations: {}
   }
 ];
@@ -2189,13 +2476,19 @@ var SchemaReader = class {
 };
 
 // src/results.ts
-import { createHash as createHash2, randomUUID } from "node:crypto";
+import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
 import { mkdir, readFile, rename, stat, open, unlink } from "node:fs/promises";
 import { constants, copyFile, link, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 async function writeResultFile(path, chunks, overwrite = false) {
   const target = resolve(path);
-  const temporary = `${target}.${randomUUID()}.tmp`;
+  if ((await stat(target).catch(() => void 0))?.isDirectory())
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "path: по этому пути папка, а нужен путь к файлу.",
+      "К пути нужно добавить имя файла, например result.json."
+    );
+  const temporary = `${target}.${randomUUID2()}.tmp`;
   try {
     await writeFile(temporary, chunks, { encoding: "utf8", mode: 384, flag: "wx" });
     const bytes = (await stat(temporary)).size;
@@ -2428,7 +2721,7 @@ ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
     }
   }
   async put(data2) {
-    const id = randomUUID();
+    const id = randomUUID2();
     const created = [];
     const files = [];
     const create = async (path) => {
@@ -4059,161 +4352,6 @@ var RpcCatalog = class {
   }
 };
 
-// src/scripts.ts
-import { randomUUID as randomUUID2 } from "node:crypto";
-var TARGET = "ms_tools.evaluate_remote_collection_obj";
-var FORM = "x-local://wtv/wtv_remote_collection.xmd";
-function prepareScript(value, params) {
-  const code = (params === void 0 ? "" : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(JSON.stringify(inputObject(params, "params"))).toString("base64")}"), "utf-8")); `) + requiredString(value, "code");
-  if (Buffer.byteLength(code) > 1024 * 1024)
-    throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");
-  const marker = `hcm_inline_${randomUUID2().replaceAll("-", "")}`;
-  const xml = `<remote_collection SPXML-FORM="${FORM}" SPXML-FORM-ELEM="remote_collection"><code>${marker}</code><name>${marker}</name><use_cache>0</use_cache><script>${escapeXml(code)}</script></remote_collection>`;
-  return { request: { target: TARGET, args: [{ lexicalValue: { xml } }] }, executionId: marker };
-}
-var ID = /^(?:0x[0-9a-f]{1,16}|\d{1,20})$/i;
-var AGENT_RUN = `var doc = OpenDoc(UrlFromDocID(Int(PARAMS.id)));
-if (doc.TopElem.Name != 'server_agent') throw 'Объект с этим ID — не агент сервера (server_agent).';
-var from = StrXmlDate(Date());
-var started = doc.TopElem.run_agent(PARAMS.objectId, PARAMS.objectIds, Date(), true);
-if (started) doc.Save();
-RESULT = [{ started: started, from: from, to: StrXmlDate(Date()) }];`;
-function agentRun(args) {
-  const id = (value, path) => {
-    if (typeof value !== "string" || !ID.test(value))
-      throw new HcmError("INVALID_ARGUMENT", `${path}: нужен ID строкой, 0x… или десятичный.`);
-    return BigInt(value).toString();
-  };
-  const list2 = args.objectIds ?? [];
-  if (!Array.isArray(list2) || list2.length > 1e3)
-    throw new HcmError("INVALID_ARGUMENT", "objectIds: нужен список до 1000 ID.");
-  return {
-    code: AGENT_RUN,
-    params: {
-      id: id(args.id, "id"),
-      objectId: args.objectId === void 0 ? null : id(args.objectId, "objectId"),
-      objectIds: list2.map((item, index) => id(item, `objectIds[${index}]`)).join(";")
-    }
-  };
-}
-function agentRunResult(data2) {
-  const row = data2.result[0];
-  const time = (value) => String(value ?? "").slice(0, 19);
-  const started = row?.started === "1";
-  return {
-    started,
-    startedAt: time(row?.from),
-    finishedAt: time(row?.to),
-    hint: started ? "Код агента отработал до конца или до ошибки: ошибку сервер пишет только в лог. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt." : "Сервер агента не запустил; причину он пишет в лог agent."
-  };
-}
-function decodeRpcValue(value, depth = 0) {
-  if (depth > 64) throw new HcmError("SCRIPT_RESPONSE", "Результат вложен глубже 64 уровней.");
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new HcmError("SCRIPT_RESPONSE", "В результате нет элемента с VALUE-TYPE.");
-  const node = value;
-  const typeValue = node["@_VALUE-TYPE"];
-  if (typeof typeValue !== "string" || typeValue === "")
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "В результате есть элемент XML без типа.",
-      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call."
-    );
-  const type = typeValue.toLowerCase();
-  const children3 = Object.keys(node).filter((key) => !key.startsWith("@_") && key !== "#text");
-  const text3 = node["#text"] ?? "";
-  if (typeof text3 !== "string")
-    throw new HcmError("SCRIPT_RESPONSE", "Значение в результате — не текст.");
-  if (["array", "object", "null", "undefined"].includes(type) && text3.trim() !== "")
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "В массиве, объекте или null результата есть посторонний текст."
-    );
-  if (type === "array") {
-    if (children3.some((key) => key !== "e"))
-      throw new HcmError("SCRIPT_RESPONSE", "В массиве результата есть посторонние элементы.");
-    const items = node.e === void 0 ? [] : Array.isArray(node.e) ? node.e : [node.e];
-    return items.map((item) => decodeRpcValue(item, depth + 1));
-  }
-  if (type === "object") {
-    return Object.fromEntries(children3.map((key) => [key, decodeRpcValue(node[key], depth + 1)]));
-  }
-  if (type === "null" || type === "undefined") {
-    if (children3.length !== 0)
-      throw new HcmError("SCRIPT_RESPONSE", "В значении null результата есть вложенные элементы.");
-    return null;
-  }
-  if (!["string", "integer", "real", "bool", "date"].includes(type))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "В результате есть значение неподдерживаемого типа (VALUE-TYPE).",
-      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call."
-    );
-  if (children3.length !== 0)
-    throw new HcmError("SCRIPT_RESPONSE", "В простом значении результата есть вложенные элементы.");
-  return text3;
-}
-function rpcValue(response) {
-  try {
-    return { value: decodeRpcValue(findXmlNode(response, "Result")) };
-  } catch (error) {
-    if (error instanceof HcmError && error.code === "SCRIPT_RESPONSE") return response;
-    throw error;
-  }
-}
-function scriptResult(response, executionId) {
-  const decoded = decodeRpcValue(findXmlNode(response, "Result"));
-  if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода в неожиданном виде: это не объект."
-    );
-  const value = decoded;
-  if (typeof value.error !== "string" || !/^\d+$/.test(value.error))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода без числового кода ошибки."
-    );
-  if (value.error !== "0") {
-    const reason = (typeof value.error_text === "string" ? value.error_text : "").split(/\r?\n/).map((line) => line.trim()).filter(
-      (line) => line !== "" && !line.startsWith("Error evaluating collection") && !line.includes("wtv_remote_collection.xmd")
-    ).join("\n");
-    const unread = /syntax error/i.test(reason);
-    throw new HcmError(
-      "SCRIPT_FAILED",
-      "Сервер сообщил об ошибке в коде SP-XML Script.",
-      unread ? "Сообщение сервера — в details.scriptError. Код не разобран и не выполнялся: данные не менялись." : "Сообщение сервера — в details.scriptError. До ошибки код мог изменить данные: их нужно проверить перед повтором.",
-      reason === "" ? void 0 : { scriptError: reason },
-      unread ? "not_sent" : "indeterminate"
-    );
-  }
-  if (!Array.isArray(value.result))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "RESULT — не массив.",
-      "Нужно присвоить RESULT массив, даже когда возвращать нечего: RESULT = [];"
-    );
-  if (!Array.isArray(value.columns) || value.data === null || typeof value.data !== "object" || Array.isArray(value.data))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода не полностью: нет columns или data."
-    );
-  const total = value.total;
-  const serverTicks = value.ticks;
-  if (typeof total !== "string" || typeof serverTicks !== "string" || !/^\d+$/.test(total) || !/^\d+$/.test(serverTicks))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода с неверными счётчиками total или ticks."
-    );
-  const data2 = value.data;
-  return {
-    result: value.result,
-    ...value.columns.length ? { columns: value.columns } : {},
-    ...Object.keys(data2).length ? { data: data2 } : {},
-    executionId
-  };
-}
-
 // src/server-info.ts
 var fields2 = ["sys_db_capability", "catalog_limits", "version_server", "os_type"];
 var maxCatalogXmlBytes = 256 * 1024;
@@ -4325,8 +4463,9 @@ var USUAL_CAUSES = {
   "objects.create": "значение, которое тип объекта не принимает",
   "schema.get": "формы по этому адресу нет",
   "rpc.call": "нет такой функции, неверные аргументы или ошибка внутри функции",
-  "native.lds.loadUrl": "по этому адресу ничего нет",
   "files.read": "по этому адресу ничего нет",
+  "files.write": "сервер не сообщил, какие папки принимают запись; в папку кода файл записывает код на сервере",
+  "files.delete": "по адресу нет файла или в папке есть файлы; если сервер не сообщил, какие папки принимают запись, это может быть папка кода, где файл удаляет код на сервере",
   "native.lds.loadDoc": "по этому адресу ничего нет",
   "native.lds.createDoc": "для этого типа объекта сервер заготовку не даёт",
   "native.lds.getModDeletedObjects": "на проверенных серверах эта операция не работает"
@@ -4584,8 +4723,6 @@ function plainAnswer(id, answer) {
     const { Url: _, ...rest } = data2;
     return { ...rest, url, folderUrl: url.slice(0, url.lastIndexOf("/")) };
   }
-  if (id === "native.lds.loadUrl" && typeof data2.Data === "string")
-    return { ...data2, Data: data2.Data.replace(/\s+/g, "") };
   if (id === "web.spxml.getAsyncMethodStatus" && data2.ResultData !== void 0)
     try {
       const decoded = rpcValue(data2);
@@ -4629,10 +4766,7 @@ var HcmRuntime = class {
   constructor(config) {
     this.config = config;
     this.results = new ResultStore(config);
-    this.gateway = new NativeGateway({
-      ...config,
-      installationIdFile: config.installationIdFile ?? join2(this.results.directory, "..", "legacy-client.id")
-    });
+    this.gateway = new NativeGateway(config);
     this.logs = new LogReader(this.gateway, config);
     this.rpcCatalog = new RpcCatalog(
       () => this.applicationInfo(),
@@ -4864,7 +4998,7 @@ var HcmRuntime = class {
       retryable: false
     } : error instanceof WsHcmApiError ? {
       code: `PLATFORM_${error.kind.toUpperCase()}`,
-      ...platformFailure(error, this.config.baseUrl, id),
+      ...platformFailure(error, this.config.baseUrl, state?.refusal ?? id),
       retryable: false,
       ...error.status === void 0 ? {} : { details: { status: error.status } }
     } : error instanceof TypeError ? {
@@ -5213,8 +5347,53 @@ var HcmRuntime = class {
           await this.gateway.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
           args.encoding
         );
-      case "server.info":
-        return this.serverInfo(args.profile === "web" ? "web" : "native");
+      case "files.list": {
+        const folder = fileTarget(args.url, true).url;
+        const search = args.search === void 0 ? "" : requiredString(args.search, "search");
+        const { request, executionId } = codeList(folder);
+        const data2 = await this.runCode(request, executionId, state);
+        if (data2.result[0] === "none") state.sent = false;
+        return fileList(data2, folder, search);
+      }
+      case "files.write":
+      case "files.delete": {
+        const writing = id === "files.write";
+        const target = fileTarget(args.url);
+        const content = writing ? fileWriteContent(args) : void 0;
+        const route = fileRoute(
+          writing ? "write" : "delete",
+          fileFolders(await this.applicationInfo().catch(() => void 0)),
+          target.folder,
+          this.config.permissions.execute
+        );
+        if (writing && route !== "unlisted") state.refusal = "files.write:listed";
+        if (route === "code") {
+          const { request, executionId } = content ? codeWrite(target.url, content) : codeDelete(target.url);
+          const data2 = await this.runCode(request, executionId, state);
+          if (content) return { bytes: Number(data2.result[0]), mutationOutcome: "confirmed" };
+          const refusal = codeDeleteRefusal(data2);
+          if (refusal) {
+            state.sent = false;
+            throw refusal;
+          }
+          return { deleted: true, mutationOutcome: "confirmed" };
+        }
+        state.sent = true;
+        if (content) {
+          await this.gateway.call("native.lds.putUrl", {
+            url: target.url,
+            data: { base64: content.base64 }
+          });
+          return { bytes: content.bytes, mutationOutcome: "confirmed" };
+        }
+        await this.gateway.call("native.lds.deleteUrl", { url: target.url });
+        return { deleted: true, mutationOutcome: "confirmed" };
+      }
+      case "server.info": {
+        const info = await this.serverInfo(args.profile === "web" ? "web" : "native");
+        const folders = info.profile === "native" ? fileFolders(await this.applicationInfo().catch(() => void 0)) : void 0;
+        return folders ? { ...info, dataFolders: folders.data, codeFolders: folders.code } : info;
+      }
       case "runtime.status": {
         const version = await this.gateway.call("native.rpc.call", {
           target: "tools.get_version",
@@ -5655,10 +5834,7 @@ var HcmRuntime = class {
       case "agents.run": {
         const agent = id === "agents.run" ? agentRun(args) : void 0;
         const { request, executionId } = agent ? prepareScript(agent.code, agent.params) : prepareScript(args.code, args.params);
-        prepare(request, this.describe("web.rpc.call").inputSchema);
-        state.executionId = executionId;
-        state.sent = true;
-        const data2 = scriptResult(await this.gateway.call("web.rpc.call", request), executionId);
+        const data2 = await this.runCode(request, executionId, state);
         if (!agent) return data2;
         this.logs.serverWroteLog();
         return agentRunResult(data2);
@@ -5673,6 +5849,18 @@ var HcmRuntime = class {
           if (error instanceof WsHcmApiError && error.requestSent === false) state.sent = false;
           throw error;
         }
+    }
+  }
+  /** Code prepared by prepareScript, run on the server; the answer is checked for a caught error. */
+  async runCode(request, executionId, state) {
+    prepare(request, this.describe("web.rpc.call").inputSchema);
+    state.executionId = executionId;
+    state.sent = true;
+    try {
+      return scriptResult(await this.gateway.call("web.rpc.call", request), executionId);
+    } catch (error) {
+      if (error instanceof HcmError && error.mutationOutcome === "not_sent") state.sent = false;
+      throw error;
     }
   }
   async batch(args, state) {
@@ -5960,23 +6148,11 @@ function loadConfig(options = {}) {
       globalOverrides ? "Переменные WTCTL_USERNAME и WTCTL_PASSWORD." : "Поля username и password подключения либо переменные, названные в usernameEnv и passwordEnv."
     );
   const permissions = profile.permissions === void 0 ? {} : inputObject(profile.permissions, "permissions");
-  const installationId = string2(
-    process.env.WTCTL_INSTALLATION_ID ?? profile.installationId,
-    "installationId"
-  );
-  if (installationId !== void 0 && !/^[0-9a-fA-F]{16}$/.test(installationId))
-    throw new HcmError("INVALID_CONFIG", "installationId: нужно 16 шестнадцатеричных цифр.");
-  const installationIdFile = string2(
-    process.env.WTCTL_INSTALLATION_ID_FILE ?? profile.installationIdFile,
-    "installationIdFile"
-  );
   return {
     name: name3,
     baseUrl: url.href,
     ...username === void 0 ? {} : { username },
     ...password === void 0 ? {} : { password },
-    ...installationId === void 0 ? {} : { installationId },
-    ...installationIdFile === void 0 ? {} : { installationIdFile: resolve2(installationIdFile) },
     timeoutMs: number(
       process.env.WTCTL_TIMEOUT_MS ?? profile.timeoutMs,
       3e4,
@@ -6127,6 +6303,15 @@ var HcmClient = class _HcmClient {
   }
   readFile(input2) {
     return this.call("files.read", { ...input2 });
+  }
+  listFiles(input2) {
+    return this.call("files.list", { ...input2 });
+  }
+  writeFile(input2) {
+    return this.call("files.write", { ...input2 });
+  }
+  deleteFile(input2) {
+    return this.call("files.delete", { ...input2 });
   }
   query(input2) {
     return this.call("runtime.query", { ...input2 });

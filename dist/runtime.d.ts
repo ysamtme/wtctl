@@ -53,6 +53,8 @@ export declare class HcmRuntime {
      */
     private requireFields;
     private dispatch;
+    /** Code prepared by prepareScript, run on the server; the answer is checked for a caught error. */
+    private runCode;
     private batch;
     close(): Promise<void>;
 }

@@ -1,4 +1,4 @@
-import { type SoapField, type SoapProfile, type XHttpEntity } from "./protocol.js";
+import { type SoapField, type SoapProfile } from "./protocol.js";
 import { HttpTransport } from "./transport.js";
 import { WsHcmBinaryResponse, type DecimalId, type RequestOptions, type TrackingId, type WsHcmResponse } from "./types.js";
 import { type RawXml, type XmlObject } from "./xml.js";
@@ -46,7 +46,7 @@ export interface OpenSessionResult {
     sessionId: DecimalId;
     response: SoapResult;
 }
-export declare function openLdsSession(transport: HttpTransport, profile: SoapProfile, installationId?: string, basic?: boolean): Promise<OpenSessionResult>;
+export declare function openLdsSession(transport: HttpTransport, profile: SoapProfile, basic?: boolean): Promise<OpenSessionResult>;
 declare class LdsCaller {
     private readonly transport;
     private readonly profile;
@@ -143,11 +143,6 @@ export declare class NativeLdsApi {
         strictDelete?: boolean;
     }, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Releases a URL lock owned by the current LDS context.
-     * @mutating
-     */
-    unlockUrl(url: string, options?: RequestOptions): Promise<SoapResult>;
-    /**
      * Initializes an unsaved document through the runtime object model.
      * The wire contract is supported, but success requires a registered object type; classic XMD catalogs may not qualify.
      * @mutating
@@ -236,15 +231,6 @@ export declare class NativeLdsApi {
      * @mutating
      */
     runMethod(request: RunMethodRequest, options?: RequestOptions): Promise<SoapResult>;
-    /**
-     * Executes server-side code. Treat every invocation as mutating.
-     * On server 2025.1.1171 this SOAP method responds Unknown method:
-     * Eval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.
-     * @mutating
-     */
-    eval(request: {
-        code: string;
-    }, options?: RequestOptions): Promise<SoapResult>;
     /** Keeps the current native LDS session active. */
     idle(options?: RequestOptions): Promise<SoapResult>;
 }
@@ -273,11 +259,6 @@ export declare class WebLdsApi {
      */
     runMethod(request: RunMethodRequest, options?: RequestOptions): Promise<SoapResult>;
     /**
-     * Deletes a URL through the shipped web LDS subset.
-     * @mutating
-     */
-    deleteUrl(url: string, options?: RequestOptions): Promise<SoapResult>;
-    /**
      * Deletes a document; web wire sends `StrictDelete=1` only when enabled.
      * @mutating
      */
@@ -285,13 +266,6 @@ export declare class WebLdsApi {
         url: string;
         strictDelete?: boolean;
     }, options?: RequestOptions): Promise<SoapResult>;
-    /**
-     * Executes server-side code in the web LDS context.
-     * On server 2025.1.1171 this SOAP method responds Unknown method:
-     * Eval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.
-     * @mutating
-     */
-    eval(code: string, options?: RequestOptions): Promise<SoapResult>;
 }
 /** One RPC argument. Structured XmElem child XML uses no VALUE-TYPE attribute. */
 export interface RpcArgument {
@@ -513,104 +487,6 @@ export declare class WebSpXml2Api extends SpXml2Base {
     /** Calls the shipped server `std_encrypt` service; this is not a general client-side encryption primitive. */
     stdEncrypt(text: string, options?: RequestOptions): Promise<WsHcmResponse<unknown>>;
 }
-/** Buffered legacy `/xhttp` result records and exact raw response bytes. */
-export interface XHttpResult extends XHttpEntity {
-    readonly result: string;
-}
-/** Streaming legacy response whose CRLF record prefix has already been removed from `body`. */
-export declare class XHttpBinaryResponse extends WsHcmBinaryResponse {
-    readonly records: Readonly<Record<string, string>>;
-    constructor(response: Response, records: Readonly<Record<string, string>>);
-}
-declare const LEGACY_QUIT: unique symbol;
-/** One source-defined scalar literal per legacy query body line; strings are not code. */
-export type LegacyCatalogKey = {
-    type: "string";
-    value: string;
-} | {
-    type: "integer";
-    value: string;
-} | {
-    type: "real";
-    value: string;
-};
-/**
- * Legacy CRLF-framed `/xhttp` operations bound to an isolated legacy session.
- * Obtain instances through `LegacySession`, which owns its distinct frame SessionID.
- */
-export declare class LegacyXHttpApi {
-    private readonly transport;
-    private readonly sessionId;
-    constructor(transport: HttpTransport, sessionId: () => DecimalId | undefined);
-    private send;
-    private call;
-    /** Bootstraps or keeps alive the legacy session. */
-    idle(installationId?: string, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>>;
-    /**
-     * Streams URL bytes after CRLF result records; `lock=true` changes lock state.
-     * @mutating When `lock` is enabled.
-     */
-    getUrl(request: {
-        url: string;
-        lock?: boolean;
-        compress?: boolean;
-    }, options?: RequestOptions): Promise<XHttpBinaryResponse>;
-    /**
-     * Writes URL bytes using exact legacy framing.
-     * @mutating
-     */
-    putUrl(request: {
-        url: string;
-        body: Uint8Array | string;
-        writeDocInfo?: boolean;
-    }, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>>;
-    /**
-     * Deletes a URL; false strictness is serialized explicitly as required by legacy framing.
-     * @mutating
-     */
-    deleteUrl(request: {
-        url: string;
-        strictDelete?: boolean;
-    }, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>>;
-    /**
-     * Releases a legacy URL lock.
-     * @mutating
-     */
-    unlockUrl(url: string, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>>;
-    /**
-     * Allocates a new document ID in the named legacy database.
-     * @mutating
-     */
-    obtainNewDocId(request: {
-        db: string;
-    }, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>>;
-    /**
-     * Selects catalog rows by typed keys using one XQuery scalar literal per CRLF body line.
-     * Catalog and KeyName are explicit legacy header records. Strings escape apostrophes
-     * by doubling; integer/real lexical strings avoid implicit JavaScript conversion.
-     * The initial proven grammar supports unsigned integers, finite unsigned decimals,
-     * and single-line strings. Signed expressions, boolean/null keys and raw code are not accepted.
-     */
-    queryCatalogByKeys(request: {
-        catalog: string;
-        keyName: string;
-        keys: LegacyCatalogKey[];
-    }, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>>;
-    /**
-     * Executes server-side code supplied as the legacy request body.
-     * Server 2025.1.1171 rejects this action
-     * with Obsolete method: ServerEval when ALLOW-SERVER-EVAL is disabled.
-     * Fresh baseline fixtures confirmed disabled rejection with a masked HTTP 500
-     * and an enabled harmless Unicode string expression with a typed UTF-8 result.
-     * These checks do not establish other scripts or the separate SOAP LDS Eval path.
-     * The separate legacy XQuery action returns No longer supported.
-     * @mutating
-     */
-    eval(code: string, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>>;
-    /** Reads whether the current legacy context has administrator privileges. */
-    isAdmin(options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>>;
-    [LEGACY_QUIT](sessionId: DecimalId, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>>;
-}
 /** One caller-selected part of the stock chunk uploader. offset and totalBytes count decoded bytes. */
 export interface UploadChunkRequest {
     fileId: string;
@@ -645,14 +521,6 @@ export declare class WebPageApi {
     private readonly uploadToken?;
     private readonly maximumUploadBytes;
     constructor(transport: HttpTransport, uploadToken?: (() => string | undefined) | undefined, maximumUploadBytes?: number);
-    /**
-     * Copies one server URL to another.
-     * @mutating
-     */
-    copyUrl(request: {
-        srcUrl: string;
-        destUrl: string;
-    }, options?: RequestOptions): Promise<WsHcmResponse<string>>;
     /**
      * Asks the web create handler for unsaved document XML.
      * Success depends on classic/object-model branch and registered object type; this method does not persist the result.
@@ -705,16 +573,6 @@ export declare class WebPageApi {
         download?: boolean;
         base64?: boolean;
     }, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
-    /**
-     * Writes a page-service URL body with optional base64/text hints.
-     * @mutating
-     */
-    putUrl(request: {
-        url: string;
-        isBase64?: boolean;
-        isText?: boolean;
-        body: BodyInit;
-    }, options?: RequestOptions): Promise<WsHcmResponse<string>>;
     /**
      * Uploads one file through the shipped multipart f/session_token workflow.
      * The owning WebSession supplies its current private page token. Input is
@@ -824,15 +682,8 @@ export declare class WebExperimentalApi extends ExperimentalApi {
 }
 /** Schema-backed partial native operations plus the raw escape hatch. */
 export declare class NativeExperimentalApi extends ExperimentalApi {
-    private readonly sessionId;
     readonly spxml: NativeExperimentalSpXmlApi;
-    constructor(transport: HttpTransport, sessionId: () => DecimalId);
-    /** Reads the schema-backed partial native directory operation; flag types remain intentionally lexical/raw. */
-    readDirectory(request: {
-        url: string;
-        readFilesOnly?: string | RawXml;
-        readDirectoriesOnly?: string | RawXml;
-    }, options?: RequestOptions): Promise<SoapResult>;
+    constructor(transport: HttpTransport);
 }
 export declare function createNativeLdsApi(transport: HttpTransport, sessionId: () => DecimalId): NativeLdsApi;
 export declare function createWebLdsApi(transport: HttpTransport, sessionId: () => DecimalId): WebLdsApi;

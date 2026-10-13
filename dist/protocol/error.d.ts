@@ -1,5 +1,5 @@
 /** Stable high-level categories used for programmatic error handling. */
-export type WsHcmErrorKind = "auth" | "permission" | "soap-fault" | "xhttp-result" | "http" | "protocol" | "cleanup";
+export type WsHcmErrorKind = "auth" | "permission" | "soap-fault" | "http" | "protocol" | "cleanup";
 /**
  * Normalized API/transport error with bounded, redacted diagnostics.
  * Operation and cleanup failures preserve the operation error and attach cleanup in `cleanupError`.

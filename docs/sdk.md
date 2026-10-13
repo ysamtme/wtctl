@@ -42,7 +42,7 @@ await withHcmClient(config, async (client) => {
 | Объект | `get({id, fields})`, `getMany({ids, fields})`, `create({type, data})`, `patch({id, patch, remove, preview, expectedFingerprint})`, `delete({id, permanent: true})` |
 | Код и функции | `execute(code, params)`, `runAgent({id, objectId, objectIds})`, `rpc({library, method, arguments})`, `listRpc({query})`, `describeRpc("библиотека.функция", {source: true})` |
 | Логи | `listLogs()`, `searchLogs({file, text, level})`, `readLog({file})`, `followLog({file, cursor})` |
-| Файлы | `fileExists({url})`, `readFile({url})`, `uploadFile({filename, data})` |
+| Файлы | `fileExists({url})`, `readFile({url})`, `listFiles({url})`, `writeFile({url, text})`, `deleteFile({url})`, `uploadFile({filename, data})` |
 | Несколько операций | `batch({steps})` |
 | Большой результат | `readResult({resultId, offset, limit})`, `exportResult({resultId, path, format})` |
 | Любая операция по ID | `call("native.lds.loadDoc", {url})` |

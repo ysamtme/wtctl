@@ -23,7 +23,9 @@ wtctl server info
   "osType": "windows",
   "capabilityMask": "118039011",
   "database": "mssql",
-  "catalogLimits": [{ "objectTypeName": "collaborator", "maxRecordsNum": "250" }]
+  "catalogLimits": [{ "objectTypeName": "collaborator", "maxRecordsNum": "250" }],
+  "dataFolders": ["share", "wt_data", "trash"],
+  "codeFolders": ["wt", "wtv", "custom"]
 }
 ```
 
@@ -34,6 +36,7 @@ wtctl server info
 | `capabilityMask` | набор флагов, которыми сервер описывает возможности своей базы; передаётся в том виде, в каком прислал сервер: на MS SQL запись десятичная, на PostgreSQL — шестнадцатеричная (`0x00000002070821E3`) |
 | `database` | база данных сервера, выведена из `capabilityMask`: `mssql`, `postgresql`, `oracle`, `azure`, `xml` (файловая) или `other` |
 | `catalogLimits` | ограничения на число записей по типам объектов, которые сервер объявляет при запуске |
+| `dataFolders`, `codeFolders` | папки, в которые `files.write` пишет под правом `write`, и папки кода, где нужны `write` и `execute`; списки сервер сообщает сам, порядок — как у сервера |
 
 Как определяется `database`: `mssql`, `oracle`, `azure` и `xml` — теми же флагами, по которым тип базы показывает сам сервер. У PostgreSQL такого флага нет, значение `postgresql` выводится по признаку, наблюдавшемуся на 2025.1.1171 — 2025.2.1535. Проверено на MS SQL, PostgreSQL и файловой базе.
 

@@ -1,7 +1,7 @@
 import type { WebSocketFactory } from "./protocol/types.js";
 /** Public operation contracts shared by SDK, CLI, MCP and native adapters. */
 export type OperationEffect = "read" | "write" | "execute" | "unknown";
-export type NativeProfile = "native" | "web" | "legacy" | "anonymous";
+export type NativeProfile = "native" | "web" | "anonymous";
 export type JsonSchema = Readonly<Record<string, unknown>>;
 /** Transport settings. Credentials are never part of operation results. */
 export interface NativeConfig {
@@ -10,9 +10,6 @@ export interface NativeConfig {
     readonly password?: string;
     readonly timeoutMs: number;
     readonly maxResponseBytes: number;
-    readonly installationId?: string;
-    /** Optional persistent, caller-owned legacy client identity. An explicit installationId wins. */
-    readonly installationIdFile?: string;
     readonly fetch?: typeof globalThis.fetch;
     /** Trusted in-process socket connector; required alongside a custom fetch for WebSocket calls. */
     readonly webSocketFactory?: WebSocketFactory;
@@ -85,8 +82,6 @@ export interface OperationPage {
 }
 export interface BinaryResult {
     readonly kind: "binary";
-    /** Legacy /xhttp framed records, with their original case and lexical values; not HTTP headers. */
-    readonly records?: Readonly<Record<string, string>>;
     readonly bytes: Uint8Array;
     readonly contentType: string;
 }

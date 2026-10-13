@@ -2276,7 +2276,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes4, createHash: createHash4 } = __require("crypto");
+    var { randomBytes: randomBytes2, createHash: createHash4 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2827,7 +2827,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes4(16).toString("base64");
+      const key = randomBytes2(16).toString("base64");
       const request = isSecure ? https.request : http.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -3238,7 +3238,7 @@ var require_stream = __commonJS({
       };
       duplex._final = function(callback) {
         if (ws.readyState === ws.CONNECTING) {
-          ws.once("open", function open3() {
+          ws.once("open", function open2() {
             duplex._final(callback);
           });
           return;
@@ -3259,7 +3259,7 @@ var require_stream = __commonJS({
       };
       duplex._write = function(chunk, encoding, callback) {
         if (ws.readyState === ws.CONNECTING) {
-          ws.once("open", function open3() {
+          ws.once("open", function open2() {
             duplex._write(chunk, encoding, callback);
           });
           return;
@@ -4097,11 +4097,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names2, constants3) {
+      optimizeNames(names2, constants2) {
         if (!names2[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names2, constants3);
+          this.rhs = optimizeExpr(this.rhs, names2, constants2);
         return this;
       }
       get names() {
@@ -4118,10 +4118,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names2, constants3) {
+      optimizeNames(names2, constants2) {
         if (this.lhs instanceof code_1.Name && !names2[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names2, constants3);
+        this.rhs = optimizeExpr(this.rhs, names2, constants2);
         return this;
       }
       get names() {
@@ -4182,8 +4182,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names2, constants3) {
-        this.code = optimizeExpr(this.code, names2, constants3);
+      optimizeNames(names2, constants2) {
+        this.code = optimizeExpr(this.code, names2, constants2);
         return this;
       }
       get names() {
@@ -4212,12 +4212,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names2, constants3) {
+      optimizeNames(names2, constants2) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names2, constants3))
+          if (n.optimizeNames(names2, constants2))
             continue;
           subtractNames(names2, n.names);
           nodes.splice(i, 1);
@@ -4270,12 +4270,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names2, constants3) {
+      optimizeNames(names2, constants2) {
         var _a;
-        this.else = (_a = this.else) === null || _a === void 0 ? void 0 : _a.optimizeNames(names2, constants3);
-        if (!(super.optimizeNames(names2, constants3) || this.else))
+        this.else = (_a = this.else) === null || _a === void 0 ? void 0 : _a.optimizeNames(names2, constants2);
+        if (!(super.optimizeNames(names2, constants2) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names2, constants3);
+        this.condition = optimizeExpr(this.condition, names2, constants2);
         return this;
       }
       get names() {
@@ -4298,10 +4298,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names2, constants3) {
-        if (!super.optimizeNames(names2, constants3))
+      optimizeNames(names2, constants2) {
+        if (!super.optimizeNames(names2, constants2))
           return;
-        this.iteration = optimizeExpr(this.iteration, names2, constants3);
+        this.iteration = optimizeExpr(this.iteration, names2, constants2);
         return this;
       }
       get names() {
@@ -4337,10 +4337,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names2, constants3) {
-        if (!super.optimizeNames(names2, constants3))
+      optimizeNames(names2, constants2) {
+        if (!super.optimizeNames(names2, constants2))
           return;
-        this.iterable = optimizeExpr(this.iterable, names2, constants3);
+        this.iterable = optimizeExpr(this.iterable, names2, constants2);
         return this;
       }
       get names() {
@@ -4382,11 +4382,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names2, constants3) {
+      optimizeNames(names2, constants2) {
         var _a, _b;
-        super.optimizeNames(names2, constants3);
-        (_a = this.catch) === null || _a === void 0 ? void 0 : _a.optimizeNames(names2, constants3);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names2, constants3);
+        super.optimizeNames(names2, constants2);
+        (_a = this.catch) === null || _a === void 0 ? void 0 : _a.optimizeNames(names2, constants2);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names2, constants2);
         return this;
       }
       get names() {
@@ -4687,7 +4687,7 @@ var require_codegen = __commonJS({
     function addExprNames(names2, from) {
       return from instanceof code_1._CodeOrName ? addNames(names2, from.names) : names2;
     }
-    function optimizeExpr(expr, names2, constants3) {
+    function optimizeExpr(expr, names2, constants2) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -4702,14 +4702,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants3[n.str];
+        const c = constants2[n.str];
         if (c === void 0 || names2[n.str] !== 1)
           return n;
         delete names2[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names2[c.str] === 1 && constants3[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names2[c.str] === 1 && constants2[c.str] !== void 0);
       }
     }
     function subtractNames(names2, from) {
@@ -6671,7 +6671,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve6.call(this, root, ref);
+      let _sch = resolve5.call(this, root, ref);
       if (_sch === void 0) {
         const schema2 = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -6698,7 +6698,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve6(root, ref) {
+    function resolve5(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -7528,7 +7528,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve6(baseURI, relativeURI, options) {
+    function resolve5(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -7897,7 +7897,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve6,
+      resolve: resolve5,
       resolveComponent,
       equal,
       serialize,
@@ -11114,23 +11114,11 @@ function loadConfig(options = {}) {
       globalOverrides ? "Переменные WTCTL_USERNAME и WTCTL_PASSWORD." : "Поля username и password подключения либо переменные, названные в usernameEnv и passwordEnv."
     );
   const permissions = profile.permissions === void 0 ? {} : inputObject(profile.permissions, "permissions");
-  const installationId = string(
-    process.env.WTCTL_INSTALLATION_ID ?? profile.installationId,
-    "installationId"
-  );
-  if (installationId !== void 0 && !/^[0-9a-fA-F]{16}$/.test(installationId))
-    throw new HcmError("INVALID_CONFIG", "installationId: нужно 16 шестнадцатеричных цифр.");
-  const installationIdFile = string(
-    process.env.WTCTL_INSTALLATION_ID_FILE ?? profile.installationIdFile,
-    "installationIdFile"
-  );
   return {
     name: name3,
     baseUrl: url.href,
     ...username === void 0 ? {} : { username },
     ...password === void 0 ? {} : { password },
-    ...installationId === void 0 ? {} : { installationId },
-    ...installationIdFile === void 0 ? {} : { installationIdFile: resolve(installationIdFile) },
     timeoutMs: number(
       process.env.WTCTL_TIMEOUT_MS ?? profile.timeoutMs,
       3e4,
@@ -11233,9 +11221,6 @@ function withConnection(document, connection, replace) {
     }
   };
 }
-
-// src/protocol/client.ts
-import { randomBytes as randomBytes2 } from "node:crypto";
 
 // src/protocol/api.ts
 import { randomBytes, randomInt } from "node:crypto";
@@ -16439,48 +16424,6 @@ function parseSoapBody(method, source, status) {
 function xmlText(value, name3) {
   return textOf(findXmlNode(value, name3));
 }
-function buildXHttpEntity(action, records, body) {
-  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(action)) throw new TypeError("Неверное имя действия /xhttp.");
-  const lines = [`Action: ${action}`];
-  for (const [name3, value, spaceAfterColon = true] of records) {
-    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(name3)) throw new TypeError("Неверное имя записи /xhttp.");
-    if (value !== void 0) {
-      const lexicalValue = String(value);
-      if (/[\r\n]/.test(lexicalValue))
-        throw new TypeError("В значении записи /xhttp не должно быть перевода строки.");
-      lines.push(`${name3}:${spaceAfterColon ? " " : ""}${lexicalValue}`);
-    }
-  }
-  const head = new TextEncoder().encode(`${lines.join("\r\n")}\r
-\r
-`);
-  if (body === void 0) return head;
-  const tail = typeof body === "string" ? new TextEncoder().encode(body) : body;
-  const result = new Uint8Array(head.byteLength + tail.byteLength);
-  result.set(head);
-  result.set(tail, head.byteLength);
-  return result;
-}
-function parseXHttpEntity(bytes) {
-  const separator = new Uint8Array([13, 10, 13, 10]);
-  let boundary = -1;
-  for (let index = 0; index <= bytes.length - separator.length; index += 1) {
-    if (separator.every((value, offset) => bytes[index + offset] === value)) {
-      boundary = index;
-      break;
-    }
-  }
-  if (boundary < 0) {
-    throw new WsHcmApiError("protocol", "Invalid /xhttp response framing");
-  }
-  const headerText = new TextDecoder().decode(bytes.subarray(0, boundary));
-  const records = {};
-  for (const line of headerText.split("\r\n")) {
-    const colon = line.indexOf(":");
-    if (colon > 0) records[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
-  }
-  return { records, body: bytes.subarray(boundary + separator.length) };
-}
 
 // src/protocol/transport.ts
 import { Buffer as Buffer2 } from "node:buffer";
@@ -16934,13 +16877,13 @@ async function binaryResponse(response, operation) {
 function withRnd(path) {
   return query(path, { rnd: randomInt(1e9) });
 }
-async function openLdsSession(transport2, profile, installationId = "", basic = false) {
+async function openLdsSession(transport2, profile, basic = false) {
   const response = await soapCall(
     transport2,
     profile,
     withRnd("/services/LdsService"),
     "OpenSession",
-    [["InstallationID", installationId]],
+    [["InstallationID", ""]],
     { basic }
   );
   const sessionId = xmlText(response.data, "SessionID");
@@ -17078,20 +17021,6 @@ var NativeLdsApi = class {
       [
         ["Url", request.url],
         ["StrictDelete", request.strictDelete],
-        ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
-  /**
-   * Releases a URL lock owned by the current LDS context.
-   * @mutating
-   */
-  unlockUrl(url, options) {
-    return this.caller.call(
-      "UnlockUrl",
-      [
-        ["Url", url],
         ["SessionID", this.caller.id()]
       ],
       options
@@ -17280,22 +17209,6 @@ var NativeLdsApi = class {
   runMethod(request, options) {
     return runLdsMethod(this.caller, request, options);
   }
-  /**
-   * Executes server-side code. Treat every invocation as mutating.
-   * On server 2025.1.1171 this SOAP method responds Unknown method:
-   * Eval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.
-   * @mutating
-   */
-  eval(request, options) {
-    return this.caller.call(
-      "Eval",
-      [
-        ["Code", request.code],
-        ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
   /** Keeps the current native LDS session active. */
   idle(options) {
     return this.caller.call("Idle", [["SessionID", this.caller.id()]], options);
@@ -17365,20 +17278,6 @@ var WebLdsApi = class {
     return runLdsMethod(this.caller, request, options);
   }
   /**
-   * Deletes a URL through the shipped web LDS subset.
-   * @mutating
-   */
-  deleteUrl(url, options) {
-    return this.caller.call(
-      "DeleteUrl",
-      [
-        ["Url", url],
-        ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
-  /**
    * Deletes a document; web wire sends `StrictDelete=1` only when enabled.
    * @mutating
    */
@@ -17388,22 +17287,6 @@ var WebLdsApi = class {
       [
         ["Url", request.url],
         ["StrictDelete", request.strictDelete ? "1" : void 0]
-      ],
-      options
-    );
-  }
-  /**
-   * Executes server-side code in the web LDS context.
-   * On server 2025.1.1171 this SOAP method responds Unknown method:
-   * Eval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.
-   * @mutating
-   */
-  eval(code, options) {
-    return this.caller.call(
-      "Eval",
-      [
-        ["Code", code],
-        ["SessionID", this.caller.id()]
       ],
       options
     );
@@ -17835,353 +17718,11 @@ var WebSpXml2Api = class extends SpXml2Base {
     );
   }
 };
-var XHttpBinaryResponse = class extends WsHcmBinaryResponse {
-  records;
-  constructor(response, records) {
-    super(response);
-    this.records = records;
-  }
-};
-function xhttpBoundary(bytes) {
-  for (let index = 0; index <= bytes.length - 4; index += 1) {
-    if (bytes[index] === 13 && bytes[index + 1] === 10 && bytes[index + 2] === 13 && bytes[index + 3] === 10)
-      return index;
-  }
-  return -1;
-}
 function appendBytes(left, right) {
   const result = new Uint8Array(left.length + right.length);
   result.set(left);
   result.set(right, left.length);
   return result;
-}
-async function streamingXHttpResponse(response, action) {
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new WsHcmApiError("http", `HTTP ${response.status}`, {
-      operation: action,
-      status: response.status
-    });
-  }
-  if (response.body === null)
-    throw new WsHcmApiError("protocol", "Missing /xhttp response body", { operation: action });
-  const reader = response.body.getReader();
-  let released = false;
-  const release = () => {
-    if (!released) {
-      reader.releaseLock();
-      released = true;
-    }
-  };
-  const cancel = async (reason) => {
-    try {
-      await reader.cancel(reason);
-    } finally {
-      release();
-    }
-  };
-  let prefix = new Uint8Array();
-  let boundary = -1;
-  let entity;
-  try {
-    while (boundary < 0) {
-      const { done, value } = await reader.read();
-      if (done)
-        throw new WsHcmApiError("protocol", "Invalid /xhttp response framing", {
-          operation: action
-        });
-      prefix = appendBytes(prefix, value);
-      boundary = xhttpBoundary(prefix);
-      if ((boundary < 0 ? prefix.length : boundary + 4) > 65536) {
-        throw new WsHcmApiError("protocol", "/xhttp record section is too large", {
-          operation: action
-        });
-      }
-    }
-    entity = parseXHttpEntity(prefix.subarray(0, boundary + 4));
-    const result = entity.records.Result ?? entity.records.result;
-    if (result === void 0 || result.toLowerCase() !== "ok") {
-      throw new WsHcmApiError(
-        result === void 0 ? "protocol" : "xhttp-result",
-        result ?? "Missing /xhttp Result record",
-        { operation: action, status: response.status }
-      );
-    }
-  } catch (error2) {
-    await cancel(error2).catch(() => void 0);
-    throw error2;
-  }
-  let initial = prefix.subarray(boundary + 4);
-  const body = new ReadableStream({
-    async pull(controller) {
-      if (initial.length > 0) {
-        controller.enqueue(initial);
-        initial = new Uint8Array();
-        return;
-      }
-      try {
-        const next = await reader.read();
-        if (next.done) {
-          release();
-          controller.close();
-        } else controller.enqueue(next.value);
-      } catch (error2) {
-        await cancel(error2).catch(() => void 0);
-        controller.error(error2);
-      }
-    },
-    cancel(reason) {
-      return cancel(reason);
-    }
-  });
-  return new XHttpBinaryResponse(
-    new Response(body, { status: response.status, headers: response.headers }),
-    entity.records
-  );
-}
-var LEGACY_QUIT = Symbol("legacyQuit");
-function legacyCatalogKeyLiteral(key) {
-  if (key === null || typeof key !== "object" || Array.isArray(key) || Object.keys(key).length !== 2 || typeof key.value !== "string")
-    throw new TypeError("Ключ каталога — это объект ровно с двумя полями: type и строка value.");
-  if (key.type === "string") {
-    assertXmlCharacters(key.value);
-    if (/[\r\n\0]/.test(key.value))
-      throw new TypeError(
-        "В строковом ключе не должно быть перевода строки и нулевого символа: ключ занимает одну строку запроса."
-      );
-    return `'${key.value.replaceAll("'", "''")}'`;
-  }
-  if (key.type === "integer") {
-    if (!/^(?:0|[1-9]\d{0,18}|0x[\da-fA-F]{1,16})$/.test(key.value))
-      throw new TypeError(
-        "Целый ключ: нужно число без знака строкой — десятичное или шестнадцатеричное с 0x."
-      );
-    if (BigInt(key.value) > 9223372036854775807n)
-      throw new TypeError("Целый ключ не помещается в 64-битное целое со знаком.");
-    return key.value;
-  }
-  if (key.type === "real") {
-    if (!/^\d+\.\d+$/.test(key.value) || !Number.isFinite(Number(key.value)))
-      throw new TypeError(
-        "Дробный ключ: нужно число без знака с точкой и без экспоненты, например 1.5."
-      );
-    return key.value;
-  }
-  throw new TypeError("type ключа: нужно string, integer или real.");
-}
-var LegacyXHttpApi = class {
-  constructor(transport2, sessionId) {
-    this.transport = transport2;
-    this.sessionId = sessionId;
-  }
-  send(action, records, body, basic = false, options) {
-    const requestBody = buildXHttpEntity(action, records, body);
-    return this.transport.send(
-      query("/xhttp", { trans_id: randomInt(1e9) }),
-      { method: "POST", body: requestBody },
-      {
-        basic,
-        ...options?.signal === void 0 ? {} : { signal: options.signal },
-        ...options?.timeoutMs === void 0 ? {} : { timeoutMs: options.timeoutMs }
-      }
-    );
-  }
-  async call(action, records, body, basic = false, options) {
-    const response = await this.send(action, records, body, basic, options);
-    const rawBody = new Uint8Array(await response.arrayBuffer());
-    if (!response.ok)
-      throw new WsHcmApiError("http", `HTTP ${response.status}`, {
-        operation: action,
-        status: response.status
-      });
-    const entity = parseXHttpEntity(rawBody);
-    const result = entity.records.Result ?? entity.records.result;
-    if (result === void 0)
-      throw new WsHcmApiError("protocol", "Missing /xhttp Result record", { operation: action });
-    if (result.toLowerCase() !== "ok") {
-      throw new WsHcmApiError("xhttp-result", result, {
-        operation: action,
-        status: response.status,
-        details: {
-          recordNames: Object.keys(entity.records).filter(
-            (name3) => name3.toLowerCase() !== "sessionid"
-          )
-        }
-      });
-    }
-    return {
-      status: response.status,
-      headers: response.headers,
-      rawBody,
-      data: { ...entity, result }
-    };
-  }
-  /** Bootstraps or keeps alive the legacy session. */
-  idle(installationId, options) {
-    const id = this.sessionId();
-    return this.call(
-      "Idle",
-      id === void 0 ? [["InstallationID", installationId ?? ""]] : [
-        ["SessionID", id],
-        ["InstallationID", installationId]
-      ],
-      void 0,
-      id === void 0 || installationId !== void 0,
-      options
-    );
-  }
-  /**
-   * Streams URL bytes after CRLF result records; `lock=true` changes lock state.
-   * @mutating When `lock` is enabled.
-   */
-  async getUrl(request, options) {
-    return streamingXHttpResponse(
-      await this.send(
-        "GetUrl",
-        [
-          ["Url", request.url],
-          ["SessionID", this.sessionId()],
-          ["Lock", request.lock ? 1 : void 0],
-          ["Compress", request.compress === void 0 ? void 0 : request.compress ? 1 : 0]
-        ],
-        void 0,
-        false,
-        options
-      ),
-      "GetUrl"
-    );
-  }
-  /**
-   * Writes URL bytes using exact legacy framing.
-   * @mutating
-   */
-  putUrl(request, options) {
-    return this.call(
-      "PutUrl",
-      [
-        ["Url", request.url],
-        ["SessionID", this.sessionId()],
-        [
-          "WriteDocInfo",
-          request.writeDocInfo === void 0 ? void 0 : request.writeDocInfo ? 1 : 0
-        ]
-      ],
-      request.body,
-      false,
-      options
-    );
-  }
-  /**
-   * Deletes a URL; false strictness is serialized explicitly as required by legacy framing.
-   * @mutating
-   */
-  deleteUrl(request, options) {
-    return this.call(
-      "DeleteUrl",
-      [
-        ["Url", request.url, false],
-        ["SessionID", this.sessionId()],
-        ["StrictDelete", request.strictDelete ? 1 : 0]
-      ],
-      void 0,
-      false,
-      options
-    );
-  }
-  /**
-   * Releases a legacy URL lock.
-   * @mutating
-   */
-  unlockUrl(url, options) {
-    return this.call(
-      "UnlockUrl",
-      [
-        ["Url", url, false],
-        ["SessionID", this.sessionId()]
-      ],
-      void 0,
-      false,
-      options
-    );
-  }
-  /**
-   * Allocates a new document ID in the named legacy database.
-   * @mutating
-   */
-  obtainNewDocId(request, options) {
-    return this.call(
-      "ObtainNewDocID",
-      [
-        ["Db", request.db],
-        ["SessionID", this.sessionId()]
-      ],
-      void 0,
-      false,
-      options
-    );
-  }
-  /**
-   * Selects catalog rows by typed keys using one XQuery scalar literal per CRLF body line.
-   * Catalog and KeyName are explicit legacy header records. Strings escape apostrophes
-   * by doubling; integer/real lexical strings avoid implicit JavaScript conversion.
-   * The initial proven grammar supports unsigned integers, finite unsigned decimals,
-   * and single-line strings. Signed expressions, boolean/null keys and raw code are not accepted.
-   */
-  async queryCatalogByKeys(request, options) {
-    if (request === null || typeof request !== "object" || Array.isArray(request) || Object.keys(request).some((name3) => !["catalog", "keyName", "keys"].includes(name3)))
-      throw new TypeError("Запрос по ключам принимает только catalog, keyName и keys.");
-    if (typeof request.catalog !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(request.catalog))
-      throw new TypeError("catalog: нужно имя из латинских букв, цифр и _, первой не цифра.");
-    if (typeof request.keyName !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*$/.test(request.keyName))
-      throw new TypeError(
-        "keyName: нужен путь из имён через /; имя — латинские буквы, цифры и _, первой не цифра."
-      );
-    if (!Array.isArray(request.keys))
-      throw new TypeError("keys: нужен массив ключей вида {type, value}.");
-    const body = Array.from(request.keys, legacyCatalogKeyLiteral).join("\r\n");
-    return this.call(
-      "QueryCatalogByKeys",
-      [
-        ["Catalog", request.catalog],
-        ["KeyName", request.keyName],
-        ["SessionID", this.sessionId()]
-      ],
-      body,
-      false,
-      options
-    );
-  }
-  /**
-   * Executes server-side code supplied as the legacy request body.
-   * Server 2025.1.1171 rejects this action
-   * with Obsolete method: ServerEval when ALLOW-SERVER-EVAL is disabled.
-   * Fresh baseline fixtures confirmed disabled rejection with a masked HTTP 500
-   * and an enabled harmless Unicode string expression with a typed UTF-8 result.
-   * These checks do not establish other scripts or the separate SOAP LDS Eval path.
-   * The separate legacy XQuery action returns No longer supported.
-   * @mutating
-   */
-  eval(code, options) {
-    return this.call("Eval", [["SessionID", this.sessionId()]], code, false, options);
-  }
-  /** Reads whether the current legacy context has administrator privileges. */
-  isAdmin(options) {
-    return this.call("IsAdmin", [["SessionID", this.sessionId()]], void 0, false, options);
-  }
-  [LEGACY_QUIT](sessionId, options) {
-    if (typeof sessionId !== "string" || !/^\d+$/.test(sessionId))
-      throw new TypeError("sessionId: нужна строка из десятичных цифр.");
-    return this.call(
-      "QuitSession",
-      [["SessionID", decimal(sessionId, "sessionId")]],
-      void 0,
-      false,
-      options
-    );
-  }
-};
-async function quitLegacySession(api, sessionId, options) {
-  await api[LEGACY_QUIT](sessionId, options);
 }
 var WebPageApi = class {
   constructor(transport2, uploadToken, maximumUploadBytes = 8 * 1024 * 1024) {
@@ -18190,30 +17731,6 @@ var WebPageApi = class {
     this.maximumUploadBytes = maximumUploadBytes;
     if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
       throw new TypeError("maximumUploadBytes: нужно целое число больше нуля.");
-  }
-  /**
-   * Copies one server URL to another.
-   * @mutating
-   */
-  async copyUrl(request, options) {
-    const token = this.uploadToken?.();
-    if (!token || !/^[!-~]{1,256}$/.test(token))
-      throw new WsHcmApiError(
-        "protocol",
-        "В веб-сессии нет действующего токена страницы для копирования файла.",
-        { operation: "copyUrl", requestSent: false }
-      );
-    return textResponse(
-      await this.transport.send(
-        query("/spxml_web/service/copy_url.htm", {
-          dest_url: request.destUrl,
-          session_token: token,
-          src_url: request.srcUrl
-        }),
-        { method: "POST", body: "" },
-        options
-      )
-    );
   }
   /**
    * Asks the web create handler for unsaved document XML.
@@ -18319,23 +17836,6 @@ var WebPageApi = class {
       options
     );
     return binaryResponse(response, "get_url");
-  }
-  /**
-   * Writes a page-service URL body with optional base64/text hints.
-   * @mutating
-   */
-  async putUrl(request, options) {
-    return textResponse(
-      await this.transport.send(
-        query("/spxml_web/service/put_url.htm", {
-          url: request.url,
-          is_base64: request.isBase64 ? 1 : void 0,
-          is_text: request.isText ? 1 : void 0
-        }),
-        { method: "POST", body: request.body },
-        options
-      )
-    );
   }
   /**
    * Uploads one file through the shipped multipart f/session_token workflow.
@@ -18673,27 +18173,10 @@ var WebExperimentalApi = class extends ExperimentalApi {
   }
 };
 var NativeExperimentalApi = class extends ExperimentalApi {
-  constructor(transport2, sessionId) {
-    super(transport2);
-    this.sessionId = sessionId;
-    this.spxml = new NativeExperimentalSpXmlApi(transport2);
-  }
   spxml;
-  /** Reads the schema-backed partial native directory operation; flag types remain intentionally lexical/raw. */
-  readDirectory(request, options) {
-    return soapCall(
-      this.transport,
-      "native",
-      withRnd("/services/LdsService"),
-      "ReadDirectory",
-      [
-        ["Url", request.url],
-        ["ReadFilesOnly", request.readFilesOnly],
-        ["ReadDirectoriesOnly", request.readDirectoriesOnly],
-        ["SessionID", this.sessionId()]
-      ],
-      options
-    );
+  constructor(transport2) {
+    super(transport2);
+    this.spxml = new NativeExperimentalSpXmlApi(transport2);
   }
 };
 function createNativeLdsApi(transport2, sessionId) {
@@ -18987,7 +18470,7 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
     durationMs: Math.max(0, Math.round(performance.now() - started)),
     counts: { messages, receivedBytes }
   });
-  return new Promise((resolve6, reject) => {
+  return new Promise((resolve5, reject) => {
     let ws;
     let responseSocket;
     let deadline;
@@ -19010,7 +18493,7 @@ async function webSocketHeartbeat(http, factory, input2 = {}) {
         };
       if (failure2) reject(new WebSocketHeartbeatError(failure2.code, receipt()));
       else if (state.handshakeValidated && state.heartbeatWritten && state.heartbeatObserved)
-        resolve6(
+        resolve5(
           Object.freeze({
             ...canonicalReceipt(receipt()),
             handshakeValidated: true,
@@ -19227,7 +18710,7 @@ var NativeSession = class _NativeSession {
     this.spxml = this.rpc;
     this.spxml2 = new NativeSpXml2Api(transport2);
     this.resources = new ResourceApi(transport2);
-    this.experimental = new NativeExperimentalApi(transport2, () => this.sessionId);
+    this.experimental = new NativeExperimentalApi(transport2);
   }
   lds;
   physicalDocuments;
@@ -19241,7 +18724,7 @@ var NativeSession = class _NativeSession {
   static async open(defaults) {
     const http = transport(defaults);
     try {
-      const opened = await openLdsSession(http, "native", "", true);
+      const opened = await openLdsSession(http, "native", true);
       return new _NativeSession(http, opened.sessionId);
     } catch (error2) {
       try {
@@ -19597,94 +19080,6 @@ var WebSession = class _WebSession {
     }
   }
 };
-var LegacySession = class _LegacySession {
-  constructor(transport2, installationId) {
-    this.transport = transport2;
-    this.installationId = installationId;
-    this.xhttp = new LegacyXHttpApi(transport2, () => this.#sessionId);
-    this.experimental = new ExperimentalApi(transport2);
-  }
-  xhttp;
-  experimental;
-  installationId;
-  #sessionId;
-  #closed = false;
-  /** Caller-owned decimal legacy context ID, or `undefined` after close. */
-  get sessionId() {
-    return this.#sessionId;
-  }
-  static async open(defaults, installationId) {
-    const http = transport(defaults);
-    if (!/^[0-9A-Fa-f]{16}$/.test(installationId))
-      throw new TypeError("installationId: нужно 16 шестнадцатеричных цифр.");
-    const session = new _LegacySession(http, installationId);
-    let ownedId;
-    do {
-      ownedId = BigInt(`0x${randomBytes2(8).toString("hex")}`) & 0x7fffffffffffffffn;
-    } while (ownedId === 0n);
-    session.#sessionId = ownedId.toString(10);
-    try {
-      await session.xhttp.idle(installationId);
-      return session;
-    } catch (error2) {
-      session.#sessionId = void 0;
-      try {
-        if (!isTransportFailure(error2) && http.cookie.value !== void 0) {
-          const response = await http.send(
-            "/loggedoff.html",
-            {},
-            { allowStatuses: "any", redirect: "manual" }
-          );
-          await response.body?.cancel();
-        }
-      } catch (cleanup) {
-        attachCleanupError(error2, cleanup);
-      } finally {
-        http.dispose();
-      }
-      throw error2;
-    }
-  }
-  /** Drops local access/identity without claiming a server-side Quit acknowledgement. */
-  disposeLocal() {
-    this.#closed = true;
-    this.#sessionId = void 0;
-    this.transport.dispose();
-  }
-  /**
-   * Closes only the successfully bootstrapped caller-owned LDS context and clears local identity state.
-   * Failure is reported as `WsHcmApiError` with `kind: "cleanup"`.
-   */
-  async close() {
-    if (this.#closed) return;
-    this.#closed = true;
-    const errors = [];
-    try {
-      if (this.#sessionId !== void 0) await quitLegacySession(this.xhttp, this.#sessionId);
-    } catch (cause) {
-      errors.push(cause);
-    }
-    try {
-      if (!errors.some(isTransportFailure) && this.transport.cookie.value !== void 0) {
-        const response = await this.transport.send(
-          "/loggedoff.html",
-          {},
-          { allowStatuses: "any", redirect: "manual" }
-        );
-        await response.body?.cancel();
-      }
-    } catch (cause) {
-      errors.push(cause);
-    } finally {
-      this.disposeLocal();
-    }
-    if (errors.length)
-      throw new WsHcmApiError("cleanup", "Legacy session cleanup failed", {
-        details: { errorCount: errors.length },
-        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Legacy cleanup failures")
-      });
-  }
-};
 var WsHcmClient = class {
   diagnostics;
   experimental;
@@ -19720,10 +19115,6 @@ var WsHcmClient = class {
   openWebSession() {
     return WebSession.open(this.#defaults);
   }
-  /** Opens an isolated legacy `/xhttp` session using a real caller-supplied 16-hex InstallationID. */
-  openLegacySession(options) {
-    return LegacySession.open(this.#defaults, options.installationId);
-  }
   /** Runs an action in a native session and closes it in `finally`, preserving operation error precedence. */
   async withNativeSession(action) {
     return withCleanup(await this.openNativeSession(), action);
@@ -19731,10 +19122,6 @@ var WsHcmClient = class {
   /** Runs an action in a web session and closes it in `finally`, preserving operation error precedence. */
   async withWebSession(action) {
     return withCleanup(await this.openWebSession(), action);
-  }
-  /** Runs an action in a legacy session and closes it in `finally`, preserving operation error precedence. */
-  async withLegacySession(action, options) {
-    return withCleanup(await this.openLegacySession(options), action);
   }
 };
 
@@ -19867,10 +19254,7 @@ function prepare(value, schema2) {
 var compatibilityDescriptions = {
   "web.websocket.heartbeat": "One bounded raw $hbt/$ok exchange on the fixed stock /services/main_ws_service route. Uses the gateway-owned web cookie, closes the socket locally and reports peer EOF separately from a close acknowledgement. No business payload, event subscription, browser LDS WebSocket binding or automatic reconnect is implied. On server 2025.1.1171 the main service returned $ok and then EOF without a peer close frame.",
   "web.experimental.authenticate": "Partial shipped browser JSON login shape requiring its own login-page token. Server 2025.1.1171 has no authenticate route in its built-in SPXML2 API; optional application hooks may differ. On the tested installation the stock login page returned HTTP 200 with a rendered error and no token, so no authenticate POST or managed-ticket revocation was exercised. Successful body and cookie semantics remain unverified.",
-  "web.experimental.getUiTemplate": "Partial shipped browser UI-template route. Server 2025.1.1171 has no get_ui_template route in its built-in SPXML2 API; optional application hooks and other deployments may differ. A usable configured handler and its response semantics require independent verification.",
-  "native.experimental.readDirectory": "Low-level directory wire adapter; flag types are lexical/raw. WebSoft HCM 2025.1.1171 does not know ReadDirectory: all three known-directory variants returned SOAP faults. Use logs.list and logs.read for remote server logs. Support on other builds requires verification.",
-  "native.lds.eval": "Low-level native LDS Eval wire adapter; arbitrary code has execute effect. On WebSoft HCM 2025.1.1171 native and web LDS return Unknown method: Eval, including with ALLOW-SERVER-EVAL enabled. Use execute.script through the verified built-in RPC route. Support on other builds requires verification.",
-  "web.lds.eval": "Low-level web LDS Eval wire adapter; arbitrary code has execute effect. On WebSoft HCM 2025.1.1171 native and web LDS return Unknown method: Eval, including with ALLOW-SERVER-EVAL enabled. Use execute.script through the verified built-in RPC route. Support on other builds requires verification."
+  "web.experimental.getUiTemplate": "Partial shipped browser UI-template route. Server 2025.1.1171 has no get_ui_template route in its built-in SPXML2 API; optional application hooks and other deployments may differ. A usable configured handler and its response semantics require independent verification."
 };
 function decorateOperation(operation) {
   const description = compatibilityDescriptions[operation.id];
@@ -19879,9 +19263,7 @@ function decorateOperation(operation) {
 function getEffectiveNativeEffect(operation, args) {
   const isReference = (value) => value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 1 && typeof value.$ref === "string";
   const deferredArgs = isReference(args);
-  if ((operation.method === "loadDoc" || operation.method === "loadUrl" || operation.method === "getDoc") && (deferredArgs || args.tryLock === true || isReference(args.tryLock)))
-    return "write";
-  if (operation.profile === "legacy" && operation.method === "getUrl" && (deferredArgs || args.lock === true || isReference(args.lock)))
+  if ((operation.method === "loadDoc" || operation.method === "getDoc") && (deferredArgs || args.tryLock === true || isReference(args.tryLock)))
     return "write";
   return operation.effect;
 }
@@ -19894,7 +19276,6 @@ var NATIVE_ENTRIES = [
   { operation: decorateOperation({ "id": "native.lds.loadUrl", "profile": "native", "group": "lds", "method": "loadUrl", "title": "native lds loadUrl", "description": "Calls the implemented NativeLdsApi.loadUrl wire operation. Server authorization and availability are checked at execution time.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.loadUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "native.lds.putUrl", "profile": "native", "group": "lds", "method": "putUrl", "title": "native lds putUrl", "description": "Writes exact text/binary URL data as an XOP attachment.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] } }, "required": ["url", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.putUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] } }, "required": ["url", "data"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "native.lds.deleteUrl", "profile": "native", "group": "lds", "method": "deleteUrl", "title": "native lds deleteUrl", "description": "Deletes a URL, optionally requiring strict existence.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.deleteUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.unlockUrl", "profile": "native", "group": "lds", "method": "unlockUrl", "title": "native lds unlockUrl", "description": "Releases a URL lock owned by the current LDS context.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.unlockUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })["url"]) },
   { operation: decorateOperation({ "id": "native.lds.createDoc", "profile": "native", "group": "lds", "method": "createDoc", "title": "native lds createDoc", "description": "Initializes an unsaved document through the runtime object model.\nThe wire contract is supported, but success requires a registered object type; classic XMD catalogs may not qualify.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "objectTypeId": { "type": "string" }, "assignId": { "type": "boolean" } }, "required": ["objectTypeId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.createDoc(prepare(args, { "type": "object", "properties": { "objectTypeId": { "type": "string" }, "assignId": { "type": "boolean" } }, "required": ["objectTypeId"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "native.lds.loadDoc", "profile": "native", "group": "lds", "method": "loadDoc", "title": "native lds loadDoc", "description": "Calls the implemented NativeLdsApi.loadDoc wire operation. Server authorization and availability are checked at execution time.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.loadDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "useBinaryResponse": { "type": "boolean" }, "useMultipartResponse": { "type": "boolean" }, "tryLock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "native.lds.putDoc", "profile": "native", "group": "lds", "method": "putDoc", "title": "native lds putDoc", "description": "Persists caller-built XML as an XOP attachment.\nOmitted/false `skipActions` keeps server pre-save processing enabled; `true` suppresses its action-enable state.\n`data` must be created by `rawXml()`.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "writeDocInfo": { "type": "boolean" }, "skipActions": { "type": "boolean" }, "neverSaved": { "type": "boolean" }, "data": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["url", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.putDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "writeDocInfo": { "type": "boolean" }, "skipActions": { "type": "boolean" }, "neverSaved": { "type": "boolean" }, "data": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["url", "data"], "additionalProperties": false })) },
@@ -19906,14 +19287,11 @@ var NATIVE_ENTRIES = [
   { operation: decorateOperation({ "id": "native.lds.xQuery", "profile": "native", "group": "lds", "method": "xQuery", "title": "native lds xQuery", "description": "Executes XQuery with optional pagination/cursor lifecycle.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "expectToReadAll": { "type": "boolean" }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.xQuery(prepare(args, { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "expectToReadAll": { "type": "boolean" }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "native.lds.releaseCursor", "profile": "native", "group": "lds", "method": "releaseCursor", "title": "native lds releaseCursor", "description": "Releases a cursor previously returned to this LDS context.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.releaseCursor(prepare(args, { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false })["cursorId"]) },
   { operation: decorateOperation({ "id": "native.lds.runMethod", "profile": "native", "group": "lds", "method": "runMethod", "title": "native lds runMethod", "description": "Executes a server library method with inline XML `ArgData` children.\nServer 2025.1.1171 takes the arguments only as XML inside the SOAP body;\nit rejects external XOP attachments as Parameter is not XML.\nRunAsync uses a separate internal thread and returns no public task handle;\nits initial ResultData may be typed undefined and does not prove completion.\nGetAsyncMethodStatus and KillAsyncMethod cannot track this execution.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.runMethod(prepare(args, { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.lds.eval", "profile": "native", "group": "lds", "method": "eval", "title": "native lds eval", "description": "Executes server-side code. Treat every invocation as mutating.\nOn server 2025.1.1171 this SOAP method responds Unknown method:\nEval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "code": { "type": "string" } }, "required": ["code"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.eval(prepare(args, { "type": "object", "properties": { "code": { "type": "string" } }, "required": ["code"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "native.lds.idle", "profile": "native", "group": "lds", "method": "idle", "title": "native lds idle", "description": "Keeps the current native LDS session active.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).lds.idle() },
   { operation: decorateOperation({ "id": "web.lds.xQuery", "profile": "web", "group": "lds", "method": "xQuery", "title": "web lds xQuery", "description": "Executes web LDS XQuery. `keepCursor` defaults to `true`; pass `false` for one-shot reads.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.xQuery(prepare(args, { "type": "object", "properties": { "query": { "type": "string" }, "startPos": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "maxCount": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "keepCursor": { "type": "boolean" }, "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["query"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.lds.releaseCursor", "profile": "web", "group": "lds", "method": "releaseCursor", "title": "web lds releaseCursor", "description": "Releases a caller-owned web LDS cursor.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.releaseCursor(prepare(args, { "type": "object", "properties": { "cursorId": { "type": "string", "pattern": "^\\d+$" } }, "required": ["cursorId"], "additionalProperties": false })["cursorId"]) },
   { operation: decorateOperation({ "id": "web.lds.runMethod", "profile": "web", "group": "lds", "method": "runMethod", "title": "web lds runMethod", "description": "Executes the stock LDS RunMethod in this web SOAP 1.1 context.\nArgData contains inline typed XML children; SessionID precedes that stream.\nRunAsync uses a separate internal thread and returns no public task handle;\nits initial ResultData may be typed undefined and does not prove completion.\nGetAsyncMethodStatus and KillAsyncMethod cannot track this execution.\nServer target permissions still apply, independently of the web profile.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.runMethod(prepare(args, { "type": "object", "properties": { "libName": { "type": "string" }, "methodName": { "type": "string" }, "runAsync": { "type": "boolean" }, "errorLogName": { "type": "string" }, "argData": { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] } }, "required": ["libName", "methodName", "argData"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.lds.deleteUrl", "profile": "web", "group": "lds", "method": "deleteUrl", "title": "web lds deleteUrl", "description": "Deletes a URL through the shipped web LDS subset.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.deleteUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })["url"]) },
   { operation: decorateOperation({ "id": "web.lds.deleteDoc", "profile": "web", "group": "lds", "method": "deleteDoc", "title": "web lds deleteDoc", "description": "Deletes a document; web wire sends `StrictDelete=1` only when enabled.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.deleteDoc(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.lds.eval", "profile": "web", "group": "lds", "method": "eval", "title": "web lds eval", "description": "Executes server-side code in the web LDS context.\nOn server 2025.1.1171 this SOAP method responds Unknown method:\nEval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "code": { "type": "string" } }, "required": ["code"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lds.eval(prepare(args, { "type": "object", "properties": { "code": { "type": "string" } }, "required": ["code"], "additionalProperties": false })["code"]) },
   { operation: decorateOperation({ "id": "native.rpc.call", "profile": "native", "group": "rpc", "method": "call", "title": "native rpc call", "description": "Calls an existing server target; discovery evidence does not impose a hardcoded allowlist.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).rpc.call(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.rpc.call", "profile": "web", "group": "rpc", "method": "call", "title": "web rpc call", "description": "Calls an existing server target; discovery evidence does not impose a hardcoded allowlist.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).rpc.call(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "native.spxml.call", "profile": "native", "group": "spxml", "method": "call", "title": "native spxml call", "description": "Calls an existing server target; discovery evidence does not impose a hardcoded allowlist.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).spxml.call(prepare(args, { "type": "object", "properties": { "target": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" }, "args": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "valueType": { "type": "string", "minLength": 1 }, "lexicalValue": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["valueType", "lexicalValue"], "additionalProperties": false }, { "type": "object", "properties": { "lexicalValue": { "anyOf": [{ "type": "string", "x-normalization": "xml-element" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-element-box" }] } }, "required": ["lexicalValue"], "additionalProperties": false }] } } }, "required": ["target"], "additionalProperties": false })) },
@@ -19943,16 +19321,6 @@ var NATIVE_ENTRIES = [
   { operation: decorateOperation({ "id": "web.spxml2.getImage", "profile": "web", "group": "spxml2", "method": "getImage", "title": "web spxml2 getImage", "description": "Streams a web SPXML2 image with optional effect query values.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "effects": { "type": "object", "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }] } } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getImage(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "effects": { "type": "object", "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }] } } }, "required": ["url"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.spxml2.getPreloadedDesignFiles", "profile": "web", "group": "spxml2", "method": "getPreloadedDesignFiles", "title": "web spxml2 getPreloadedDesignFiles", "description": "Reads the default preloaded-design-file set.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.getPreloadedDesignFiles() },
   { operation: decorateOperation({ "id": "web.spxml2.stdEncrypt", "profile": "web", "group": "spxml2", "method": "stdEncrypt", "title": "web spxml2 stdEncrypt", "description": "Calls the shipped server `std_encrypt` service; this is not a general client-side encryption primitive.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).spxml2.stdEncrypt(prepare(args, { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"], "additionalProperties": false })["text"]) },
-  { operation: decorateOperation({ "id": "legacy.xhttp.idle", "profile": "legacy", "group": "xhttp", "method": "idle", "title": "legacy xhttp idle", "description": "Bootstraps or keeps alive the legacy session.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "installationId": { "type": "string" } }, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).xhttp.idle(prepare(args, { "type": "object", "properties": { "installationId": { "type": "string" } }, "required": [], "additionalProperties": false })["installationId"]) },
-  { operation: decorateOperation({ "id": "legacy.xhttp.getUrl", "profile": "legacy", "group": "xhttp", "method": "getUrl", "title": "legacy xhttp getUrl", "description": "Streams URL bytes after CRLF result records; `lock=true` changes lock state.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "lock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).xhttp.getUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "lock": { "type": "boolean" }, "compress": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "legacy.xhttp.putUrl", "profile": "legacy", "group": "xhttp", "method": "putUrl", "title": "legacy xhttp putUrl", "description": "Writes URL bytes using exact legacy framing.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "body": { "anyOf": [{ "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "type": "string" }] }, "writeDocInfo": { "type": "boolean" } }, "required": ["url", "body"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).xhttp.putUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "body": { "anyOf": [{ "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "type": "string" }] }, "writeDocInfo": { "type": "boolean" } }, "required": ["url", "body"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "legacy.xhttp.deleteUrl", "profile": "legacy", "group": "xhttp", "method": "deleteUrl", "title": "legacy xhttp deleteUrl", "description": "Deletes a URL; false strictness is serialized explicitly as required by legacy framing.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).xhttp.deleteUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "strictDelete": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "legacy.xhttp.unlockUrl", "profile": "legacy", "group": "xhttp", "method": "unlockUrl", "title": "legacy xhttp unlockUrl", "description": "Releases a legacy URL lock.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).xhttp.unlockUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })["url"]) },
-  { operation: decorateOperation({ "id": "legacy.xhttp.obtainNewDocId", "profile": "legacy", "group": "xhttp", "method": "obtainNewDocId", "title": "legacy xhttp obtainNewDocId", "description": "Allocates a new document ID in the named legacy database.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "db": { "type": "string" } }, "required": ["db"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).xhttp.obtainNewDocId(prepare(args, { "type": "object", "properties": { "db": { "type": "string" } }, "required": ["db"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "legacy.xhttp.queryCatalogByKeys", "profile": "legacy", "group": "xhttp", "method": "queryCatalogByKeys", "title": "legacy xhttp queryCatalogByKeys", "description": "Selects catalog rows by typed keys using one XQuery scalar literal per CRLF body line.\nCatalog and KeyName are explicit legacy header records. Strings escape apostrophes\nby doubling; integer/real lexical strings avoid implicit JavaScript conversion.\nThe initial proven grammar supports unsigned integers, finite unsigned decimals,\nand single-line strings. Signed expressions, boolean/null keys and raw code are not accepted.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "catalog": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }, "keyName": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)*$" }, "keys": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "type": { "const": "string" }, "value": { "type": "string" } }, "required": ["type", "value"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "const": "integer" }, "value": { "type": "string" } }, "required": ["type", "value"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "const": "real" }, "value": { "type": "string" } }, "required": ["type", "value"], "additionalProperties": false }] } } }, "required": ["catalog", "keyName", "keys"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).xhttp.queryCatalogByKeys(prepare(args, { "type": "object", "properties": { "catalog": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }, "keyName": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)*$" }, "keys": { "type": "array", "items": { "anyOf": [{ "type": "object", "properties": { "type": { "const": "string" }, "value": { "type": "string" } }, "required": ["type", "value"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "const": "integer" }, "value": { "type": "string" } }, "required": ["type", "value"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "const": "real" }, "value": { "type": "string" } }, "required": ["type", "value"], "additionalProperties": false }] } } }, "required": ["catalog", "keyName", "keys"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "legacy.xhttp.eval", "profile": "legacy", "group": "xhttp", "method": "eval", "title": "legacy xhttp eval", "description": "Executes server-side code supplied as the legacy request body.\nServer 2025.1.1171 rejects this action\nwith Obsolete method: ServerEval when ALLOW-SERVER-EVAL is disabled.\nFresh baseline fixtures confirmed disabled rejection with a masked HTTP 500\nand an enabled harmless Unicode string expression with a typed UTF-8 result.\nThese checks do not establish other scripts or the separate SOAP LDS Eval path.\nThe separate legacy XQuery action returns No longer supported.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "code": { "type": "string" } }, "required": ["code"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).xhttp.eval(prepare(args, { "type": "object", "properties": { "code": { "type": "string" } }, "required": ["code"], "additionalProperties": false })["code"]) },
-  { operation: decorateOperation({ "id": "legacy.xhttp.isAdmin", "profile": "legacy", "group": "xhttp", "method": "isAdmin", "title": "legacy xhttp isAdmin", "description": "Reads whether the current legacy context has administrator privileges.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).xhttp.isAdmin() },
-  { operation: decorateOperation({ "id": "web.pages.copyUrl", "profile": "web", "group": "pages", "method": "copyUrl", "title": "web pages copyUrl", "description": "Copies one server URL to another.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "srcUrl": { "type": "string" }, "destUrl": { "type": "string" } }, "required": ["srcUrl", "destUrl"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.copyUrl(prepare(args, { "type": "object", "properties": { "srcUrl": { "type": "string" }, "destUrl": { "type": "string" } }, "required": ["srcUrl", "destUrl"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.pages.createDoc", "profile": "web", "group": "pages", "method": "createDoc", "title": "web pages createDoc", "description": "Asks the web create handler for unsaved document XML.\nSuccess depends on classic/object-model branch and registered object type; this method does not persist the result.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "objectTypeId": { "type": "string" }, "assignId": { "type": "boolean" } }, "required": ["objectTypeId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.createDoc(prepare(args, { "type": "object", "properties": { "objectTypeId": { "type": "string" }, "assignId": { "type": "boolean" } }, "required": ["objectTypeId"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.pages.filePreviewPdf", "profile": "web", "group": "pages", "method": "filePreviewPdf", "title": "web pages filePreviewPdf", "description": "Reads the shipped PDF preview helper page as text.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.filePreviewPdf() },
   { operation: decorateOperation({ "id": "web.pages.getForm", "profile": "web", "group": "pages", "method": "getForm", "title": "web pages getForm", "description": "Reads a form by server-local URL as text.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getForm(prepare(args, { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"], "additionalProperties": false })) },
@@ -19961,7 +19329,6 @@ var NATIVE_ENTRIES = [
   { operation: decorateOperation({ "id": "web.pages.getIcon", "profile": "web", "group": "pages", "method": "getIcon", "title": "web pages getIcon", "description": "Streams a PNG generated by the stock icon page from an x-app/x-local .ico URL.\nThis page supports one fixed 16-pixel extraction, not arbitrary resizing or\na PNG input. A sufficiently fresh server icon-cache entry is returned as-is;\na cache miss creates directories/temp files and runs misc/image_convert.exe.\nAvailability therefore requires that cache entry or the installed converter.\nTreat this operation as write because it may change server cache/temp files.\nConsume or cancel the returned body.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string", "pattern": "^(?:x-local|x-app)://[^?#\\x00-\\x1f\\x7f]+\\.ico$" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getIcon(prepare(args, { "type": "object", "properties": { "url": { "type": "string", "pattern": "^(?:x-local|x-app)://[^?#\\x00-\\x1f\\x7f]+\\.ico$" } }, "required": ["url"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.pages.getUiText", "profile": "web", "group": "pages", "method": "getUiText", "title": "web pages getUiText", "description": "Reads and parses web UI text XML using its declared application charset.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getUiText() },
   { operation: decorateOperation({ "id": "web.pages.getUrl", "profile": "web", "group": "pages", "method": "getUrl", "title": "web pages getUrl", "description": "Streams page-service URL output; consume or cancel the returned body.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "navigate": { "type": "boolean" }, "download": { "type": "boolean" }, "base64": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.getUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "navigate": { "type": "boolean" }, "download": { "type": "boolean" }, "base64": { "type": "boolean" } }, "required": ["url"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "web.pages.putUrl", "profile": "web", "group": "pages", "method": "putUrl", "title": "web pages putUrl", "description": "Writes a page-service URL body with optional base64/text hints.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "isBase64": { "type": "boolean" }, "isText": { "type": "boolean" }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["url", "body"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.putUrl(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "isBase64": { "type": "boolean" }, "isText": { "type": "boolean" }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["url", "body"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.pages.uploadFile", "profile": "web", "group": "pages", "method": "uploadFile", "title": "web pages uploadFile", "description": "Uploads one file through the shipped multipart f/session_token workflow.\nThe owning WebSession supplies its current private page token. Input is\nbounded by maxResponseBytes and an 8 MiB client input budget; no chunks or\nlegacy base64 branch is implied. A successful response contains Url.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["filename", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.uploadFile(prepare(args, { "type": "object", "properties": { "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["filename", "data"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.pages.uploadChunk", "profile": "web", "group": "pages", "method": "uploadChunk", "title": "web pages uploadChunk", "description": "Sends one stock upload_chunk POST with exact data bytes and an explicit Content-Range.\nThe caller supplies a known 32-hex fileId and coordinates chunk order; the last part joins the file.\nReceipts do not independently prove chunk persistence or final file bytes.\nVerify staging with a storage-appropriate read before submitting the final part.\nFinal errors can leave an unknown output URL; do not retry or guess cleanup targets.\nRequires the installed WebSoft/libMain branch and its existing principal/upload policies.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "index": { "type": "integer", "minimum": 0, "maximum": 99999 }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 }, "totalBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }, "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["fileId", "filename", "index", "chunksTotal", "totalBytes", "offset", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.uploadChunk(prepare(args, { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "index": { "type": "integer", "minimum": 0, "maximum": 99999 }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 }, "totalBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }, "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["fileId", "filename", "index", "chunksTotal", "totalBytes", "offset", "data"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.pages.clearUploadChunks", "profile": "web", "group": "pages", "method": "clearUploadChunks", "title": "web pages clearUploadChunks", "description": "Requests deletion of [0, chunksTotal) for a known caller-selected 32-hex fileId.\nThe namespace is global; the server does not check who created this ID.\nAn empty ACK does not prove chunk absence, directory removal, final-file or scratch cleanup.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 } }, "required": ["fileId", "chunksTotal"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.clearUploadChunks(prepare(args, { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 } }, "required": ["fileId", "chunksTotal"], "additionalProperties": false })) },
@@ -19972,11 +19339,9 @@ var NATIVE_ENTRIES = [
   { operation: decorateOperation({ "id": "anonymous.diagnostics.xhttpInfo", "profile": "anonymous", "group": "diagnostics", "method": "xhttpInfo", "title": "anonymous diagnostics xhttpInfo", "description": "Reads `/xhttp_info`, using Basic auth only when client credentials were configured.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => gateway.client.diagnostics.xhttpInfo() },
   { operation: decorateOperation({ "id": "anonymous.experimental.rawRequest", "profile": "anonymous", "group": "experimental", "method": "rawRequest", "title": "anonymous experimental rawRequest", "description": "Sends a same-origin caller-defined request and returns its body as a stream.\n`unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;\nconfigured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.", "effect": "unknown", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => gateway.client.experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "native.experimental.rawRequest", "profile": "native", "group": "experimental", "method": "rawRequest", "title": "native experimental rawRequest", "description": "Sends a same-origin caller-defined request and returns its body as a stream.\n`unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;\nconfigured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.", "effect": "unknown", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "native.experimental.readDirectory", "profile": "native", "group": "experimental", "method": "readDirectory", "title": "native experimental readDirectory", "description": "Reads the schema-backed partial native directory operation; flag types remain intentionally lexical/raw.", "effect": "write", "status": "implemented", "inputSchema": { "type": "object", "properties": { "url": { "type": "string" }, "readFilesOnly": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] }, "readDirectoriesOnly": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["url"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).experimental.readDirectory(prepare(args, { "type": "object", "properties": { "url": { "type": "string" }, "readFilesOnly": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] }, "readDirectoriesOnly": { "anyOf": [{ "type": "string" }, { "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }] } }, "required": ["url"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.experimental.rawRequest", "profile": "web", "group": "experimental", "method": "rawRequest", "title": "web experimental rawRequest", "description": "Sends a same-origin caller-defined request and returns its body as a stream.\n`unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;\nconfigured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.", "effect": "unknown", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.experimental.getUiTemplate", "profile": "web", "group": "experimental", "method": "getUiTemplate", "title": "web experimental getUiTemplate", "description": "Reads the schema-backed but partial web UI-template route.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).experimental.getUiTemplate(prepare(args, { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.experimental.authenticate", "profile": "web", "group": "experimental", "method": "authenticate", "title": "web experimental authenticate", "description": "Calls the partial web authentication route; success cookie/body semantics are not fully established.", "effect": "execute", "status": "implemented", "inputSchema": { "type": "object", "properties": { "login": { "type": "string" }, "password": { "type": "string" }, "token": { "type": "string" } }, "required": ["login", "password", "token"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).experimental.authenticate(prepare(args, { "type": "object", "properties": { "login": { "type": "string" }, "password": { "type": "string" }, "token": { "type": "string" } }, "required": ["login", "password", "token"], "additionalProperties": false })) },
-  { operation: decorateOperation({ "id": "legacy.experimental.rawRequest", "profile": "legacy", "group": "experimental", "method": "rawRequest", "title": "legacy experimental rawRequest", "description": "Sends a same-origin caller-defined request and returns its body as a stream.\n`unsafe: true` is mandatory. Normal operation serializers, fault parsing and mutability guarantees are bypassed;\nconfigured auth/cookies still apply and the caller owns method, headers, body and stream cleanup.", "effect": "unknown", "status": "implemented", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.legacy()).experimental.rawRequest(prepare(args, { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false })) },
   { operation: decorateOperation({ "id": "web.lifecycle.admin", "profile": "web", "group": "lifecycle", "method": "admin", "title": "web lifecycle admin", "description": "Reads the `/admin` redirect response without following it.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lifecycle.admin() },
   { operation: decorateOperation({ "id": "web.lifecycle.main", "profile": "web", "group": "lifecycle", "method": "main", "title": "web lifecycle main", "description": "Reads the authenticated web Administrator main page.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lifecycle.main() },
   { operation: decorateOperation({ "id": "web.lifecycle.logout", "profile": "web", "group": "lifecycle", "method": "logout", "title": "web lifecycle logout", "description": "Runs both logout legs; observed transport loss stops further requests.", "effect": "read", "status": "implemented", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).lifecycle.logout() },
@@ -19990,95 +19355,6 @@ function freezeRegistry(value) {
     Object.freeze(value);
   }
   return value;
-}
-
-// src/native/identity.ts
-import { randomBytes as randomBytes3, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
-import { link, lstat, mkdir, open, unlink } from "node:fs/promises";
-import { basename, dirname, resolve as resolve2 } from "node:path";
-var inFlight = /* @__PURE__ */ new Map();
-var validIdentity = /^[0-9A-Fa-f]{16}(?:\r?\n)?$/;
-function loadOrCreateLegacyInstallationId(filename2) {
-  const path = resolve2(filename2);
-  const pending = inFlight.get(path);
-  if (pending) return pending;
-  const created = readOrCreate(path).catch((cause) => {
-    if (cause instanceof WsHcmApiError) throw cause;
-    throw new WsHcmApiError(
-      "protocol",
-      "Не удалось прочитать или создать файл с installationId старого клиента.",
-      { requestSent: false, cause }
-    );
-  }).finally(() => {
-    inFlight.delete(path);
-  });
-  inFlight.set(path, created);
-  return created;
-}
-async function readIdentity(path) {
-  const info = await lstat(path);
-  if (!info.isFile() || info.isSymbolicLink() || info.size < 16 || info.size > 18) {
-    throw new WsHcmApiError(
-      "protocol",
-      "Файл с installationId старого клиента должен быть обычным файлом из 16 шестнадцатеричных цифр.",
-      { requestSent: false }
-    );
-  }
-  const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-  try {
-    const current = await file.stat();
-    if (!current.isFile() || current.size < 16 || current.size > 18) {
-      throw new WsHcmApiError(
-        "protocol",
-        "В файле с installationId старого клиента не 16 шестнадцатеричных цифр.",
-        {
-          requestSent: false
-        }
-      );
-    }
-    const buffer = Buffer.alloc(19);
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-    const value = buffer.subarray(0, bytesRead).toString("utf8");
-    if (!validIdentity.test(value))
-      throw new WsHcmApiError(
-        "protocol",
-        "В файле с installationId старого клиента не 16 шестнадцатеричных цифр.",
-        {
-          requestSent: false
-        }
-      );
-    return value.slice(0, 16);
-  } finally {
-    await file.close();
-  }
-}
-async function readOrCreate(path) {
-  try {
-    return await readIdentity(path);
-  } catch (error2) {
-    if (error2.code !== "ENOENT") throw error2;
-  }
-  await mkdir(dirname(path), { recursive: true, mode: 448 });
-  const candidate = resolve2(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
-  const file = await open(candidate, "wx", 384);
-  try {
-    try {
-      await file.writeFile(`${randomBytes3(8).toString("hex").toUpperCase()}
-`, "ascii");
-      await file.sync();
-    } finally {
-      await file.close();
-    }
-    try {
-      await link(candidate, path);
-    } catch (error2) {
-      if (error2.code !== "EEXIST") throw error2;
-    }
-    return await readIdentity(path);
-  } finally {
-    await unlink(candidate);
-  }
 }
 
 // src/native/gateway.ts
@@ -20120,7 +19396,7 @@ managed.push({
     return (await gateway.web()).heartbeat(args);
   }
 });
-for (const profile of ["native", "web", "legacy"]) {
+for (const profile of ["native", "web"]) {
   for (const method of ["open", "close"]) {
     managed.push({
       operation: {
@@ -20136,8 +19412,7 @@ for (const profile of ["native", "web", "legacy"]) {
       },
       invoke: method === "open" ? async (gateway) => {
         if (profile === "native") await gateway.native();
-        else if (profile === "web") await gateway.web();
-        else await gateway.legacy();
+        else await gateway.web();
         return { opened: true, profile };
       } : async (gateway) => {
         await gateway.closeProfile(profile);
@@ -20251,8 +19526,9 @@ managed.push({
 var entries = freezeRegistry([...NATIVE_ENTRIES, ...managed]);
 var byId = new Map(entries.map((entry2) => [entry2.operation.id, entry2]));
 if (byId.size !== entries.length) throw new Error("Duplicate native operation ID");
+var INTERNAL = /* @__PURE__ */ new Set(["native.lds.loadUrl", "native.lds.putUrl", "native.lds.deleteUrl"]);
 function getNativeOperations() {
-  return entries.map((entry2) => entry2.operation);
+  return entries.map((entry2) => entry2.operation).filter((item) => !INTERNAL.has(item.id));
 }
 function sessionGone(error2) {
   if (!(error2 instanceof WsHcmApiError) || error2.kind !== "cleanup") return false;
@@ -20264,8 +19540,14 @@ function loginFailed(error2) {
   return typeof error2 === "object" && error2 !== null && failedLogins.has(error2);
 }
 var NativeGateway = class {
+  client;
+  nativeSession;
+  webSession;
+  closed = false;
+  accepting = true;
+  queue = Promise.resolve();
+  closePromise;
   constructor(config2) {
-    this.config = config2;
     if (config2.username === void 0 !== (config2.password === void 0))
       throw new TypeError("Имя пользователя и пароль задают вместе.");
     this.client = new WsHcmClient({
@@ -20277,14 +19559,6 @@ var NativeGateway = class {
       ...config2.username === void 0 ? {} : { auth: { username: config2.username, password: config2.password } }
     });
   }
-  client;
-  nativeSession;
-  webSession;
-  legacySession;
-  closed = false;
-  accepting = true;
-  queue = Promise.resolve();
-  closePromise;
   assertOpen() {
     if (this.closed) throw new WsHcmApiError("protocol", "Gateway is closed");
   }
@@ -20304,28 +19578,10 @@ var NativeGateway = class {
       throw error2;
     });
   }
-  legacy() {
-    this.assertOpen();
-    if (this.config.installationId === void 0 && this.config.installationIdFile === void 0)
-      throw new WsHcmApiError(
-        "protocol",
-        "Операциям старого клиента нужен installationId из 16 шестнадцатеричных цифр или файл installationIdFile, где он хранится.",
-        { requestSent: false }
-      );
-    return this.legacySession ??= (async () => {
-      const installationId = this.config.installationId ?? await loadOrCreateLegacyInstallationId(this.config.installationIdFile);
-      return this.client.openLegacySession({ installationId });
-    })().catch((error2) => {
-      this.legacySession = void 0;
-      if (error2 instanceof Error) failedLogins.add(error2);
-      throw error2;
-    });
-  }
   takeProfile(profile) {
-    const session = profile === "native" ? this.nativeSession : profile === "web" ? this.webSession : this.legacySession;
+    const session = profile === "native" ? this.nativeSession : this.webSession;
     if (profile === "native") this.nativeSession = void 0;
-    else if (profile === "web") this.webSession = void 0;
-    else this.legacySession = void 0;
+    else this.webSession = void 0;
     return session;
   }
   async closeProfile(profile) {
@@ -20378,13 +19634,13 @@ var NativeGateway = class {
    */
   async invoke(entry2, args) {
     const profile = entry2.operation.profile;
-    const session = profile === "native" ? this.nativeSession : profile === "web" ? this.webSession : profile === "legacy" ? this.legacySession : void 0;
+    const session = profile === "native" ? this.nativeSession : profile === "web" ? this.webSession : void 0;
     try {
       return await entry2.invoke(this, args);
     } catch (error2) {
       if (session === void 0 || profile === "anonymous" || !(error2 instanceof WsHcmApiError) || error2.kind !== "auth" || error2.status !== 401 || /(?:^|[.])(?:session|lifecycle)[.]|[.](?:open|close)Session$/.test(entry2.operation.id))
         throw error2;
-      const current = profile === "native" ? this.nativeSession : profile === "web" ? this.webSession : this.legacySession;
+      const current = profile === "native" ? this.nativeSession : this.webSession;
       if (current === session) {
         this.takeProfile(profile);
         (await session).disposeLocal();
@@ -20398,9 +19654,6 @@ var NativeGateway = class {
       const bytes = new Uint8Array(await new Response(result.body).arrayBuffer());
       return {
         kind: "binary",
-        // Framed lock/owner records are independent of successful payload bytes.
-        // Keep them first so stored JSON readers can inspect metadata before base64.
-        ...result instanceof XHttpBinaryResponse ? { records: { ...result.records } } : {},
         bytes,
         contentType: result.headers.get("content-type") ?? "application/octet-stream"
       };
@@ -20423,7 +19676,7 @@ var NativeGateway = class {
     this.closed = true;
     const errors = [];
     let transportLost = false;
-    for (const profile of ["native", "web", "legacy"]) {
+    for (const profile of ["native", "web"]) {
       try {
         if (transportLost) {
           const session = this.takeProfile(profile);
@@ -20444,6 +19697,161 @@ var NativeGateway = class {
   }
 };
 
+// src/scripts.ts
+import { randomUUID } from "node:crypto";
+var TARGET = "ms_tools.evaluate_remote_collection_obj";
+var FORM = "x-local://wtv/wtv_remote_collection.xmd";
+function prepareScript(value, params) {
+  const code = (params === void 0 ? "" : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(JSON.stringify(inputObject(params, "params"))).toString("base64")}"), "utf-8")); `) + requiredString(value, "code");
+  if (Buffer.byteLength(code) > 1024 * 1024)
+    throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");
+  const marker = `hcm_inline_${randomUUID().replaceAll("-", "")}`;
+  const xml = `<remote_collection SPXML-FORM="${FORM}" SPXML-FORM-ELEM="remote_collection"><code>${marker}</code><name>${marker}</name><use_cache>0</use_cache><script>${escapeXml(code)}</script></remote_collection>`;
+  return { request: { target: TARGET, args: [{ lexicalValue: { xml } }] }, executionId: marker };
+}
+var ID = /^(?:0x[0-9a-f]{1,16}|\d{1,20})$/i;
+var AGENT_RUN = `var doc = OpenDoc(UrlFromDocID(Int(PARAMS.id)));
+if (doc.TopElem.Name != 'server_agent') throw 'Объект с этим ID — не агент сервера (server_agent).';
+var from = StrXmlDate(Date());
+var started = doc.TopElem.run_agent(PARAMS.objectId, PARAMS.objectIds, Date(), true);
+if (started) doc.Save();
+RESULT = [{ started: started, from: from, to: StrXmlDate(Date()) }];`;
+function agentRun(args) {
+  const id = (value, path) => {
+    if (typeof value !== "string" || !ID.test(value))
+      throw new HcmError("INVALID_ARGUMENT", `${path}: нужен ID строкой, 0x… или десятичный.`);
+    return BigInt(value).toString();
+  };
+  const list2 = args.objectIds ?? [];
+  if (!Array.isArray(list2) || list2.length > 1e3)
+    throw new HcmError("INVALID_ARGUMENT", "objectIds: нужен список до 1000 ID.");
+  return {
+    code: AGENT_RUN,
+    params: {
+      id: id(args.id, "id"),
+      objectId: args.objectId === void 0 ? null : id(args.objectId, "objectId"),
+      objectIds: list2.map((item, index) => id(item, `objectIds[${index}]`)).join(";")
+    }
+  };
+}
+function agentRunResult(data2) {
+  const row = data2.result[0];
+  const time3 = (value) => String(value ?? "").slice(0, 19);
+  const started = row?.started === "1";
+  return {
+    started,
+    startedAt: time3(row?.from),
+    finishedAt: time3(row?.to),
+    hint: started ? "Код агента отработал до конца или до ошибки: ошибку сервер пишет только в лог. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt." : "Сервер агента не запустил; причину он пишет в лог agent."
+  };
+}
+function decodeRpcValue(value, depth = 0) {
+  if (depth > 64) throw new HcmError("SCRIPT_RESPONSE", "Результат вложен глубже 64 уровней.");
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new HcmError("SCRIPT_RESPONSE", "В результате нет элемента с VALUE-TYPE.");
+  const node = value;
+  const typeValue = node["@_VALUE-TYPE"];
+  if (typeof typeValue !== "string" || typeValue === "")
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "В результате есть элемент XML без типа.",
+      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call."
+    );
+  const type = typeValue.toLowerCase();
+  const children3 = Object.keys(node).filter((key) => !key.startsWith("@_") && key !== "#text");
+  const text4 = node["#text"] ?? "";
+  if (typeof text4 !== "string")
+    throw new HcmError("SCRIPT_RESPONSE", "Значение в результате — не текст.");
+  if (["array", "object", "null", "undefined"].includes(type) && text4.trim() !== "")
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "В массиве, объекте или null результата есть посторонний текст."
+    );
+  if (type === "array") {
+    if (children3.some((key) => key !== "e"))
+      throw new HcmError("SCRIPT_RESPONSE", "В массиве результата есть посторонние элементы.");
+    const items = node.e === void 0 ? [] : Array.isArray(node.e) ? node.e : [node.e];
+    return items.map((item) => decodeRpcValue(item, depth + 1));
+  }
+  if (type === "object") {
+    return Object.fromEntries(children3.map((key) => [key, decodeRpcValue(node[key], depth + 1)]));
+  }
+  if (type === "null" || type === "undefined") {
+    if (children3.length !== 0)
+      throw new HcmError("SCRIPT_RESPONSE", "В значении null результата есть вложенные элементы.");
+    return null;
+  }
+  if (!["string", "integer", "real", "bool", "date"].includes(type))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "В результате есть значение неподдерживаемого типа (VALUE-TYPE).",
+      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call."
+    );
+  if (children3.length !== 0)
+    throw new HcmError("SCRIPT_RESPONSE", "В простом значении результата есть вложенные элементы.");
+  return text4;
+}
+function rpcValue(response) {
+  try {
+    return { value: decodeRpcValue(findXmlNode(response, "Result")) };
+  } catch (error2) {
+    if (error2 instanceof HcmError && error2.code === "SCRIPT_RESPONSE") return response;
+    throw error2;
+  }
+}
+function scriptResult(response, executionId) {
+  const decoded = decodeRpcValue(findXmlNode(response, "Result"));
+  if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода в неожиданном виде: это не объект."
+    );
+  const value = decoded;
+  if (typeof value.error !== "string" || !/^\d+$/.test(value.error))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода без числового кода ошибки."
+    );
+  if (value.error !== "0") {
+    const reason = (typeof value.error_text === "string" ? value.error_text : "").split(/\r?\n/).map((line) => line.trim()).filter(
+      (line) => line !== "" && !line.startsWith("Error evaluating collection") && !line.includes("wtv_remote_collection.xmd")
+    ).join("\n");
+    const unread = /syntax error/i.test(reason) && !/^\(/m.test(reason);
+    throw new HcmError(
+      "SCRIPT_FAILED",
+      "Сервер сообщил об ошибке в коде SP-XML Script.",
+      unread ? "Сообщение сервера — в details.scriptError. Код не разобран и не выполнялся: данные не менялись." : "Сообщение сервера — в details.scriptError. До ошибки код мог изменить данные: их нужно проверить перед повтором.",
+      reason === "" ? void 0 : { scriptError: reason },
+      unread ? "not_sent" : "indeterminate"
+    );
+  }
+  if (!Array.isArray(value.result))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "RESULT — не массив.",
+      "Нужно присвоить RESULT массив, даже когда возвращать нечего: RESULT = [];"
+    );
+  if (!Array.isArray(value.columns) || value.data === null || typeof value.data !== "object" || Array.isArray(value.data))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода не полностью: нет columns или data."
+    );
+  const total = value.total;
+  const serverTicks = value.ticks;
+  if (typeof total !== "string" || typeof serverTicks !== "string" || !/^\d+$/.test(total) || !/^\d+$/.test(serverTicks))
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул результат кода с неверными счётчиками total или ticks."
+    );
+  const data2 = value.data;
+  return {
+    result: value.result,
+    ...value.columns.length ? { columns: value.columns } : {},
+    ...Object.keys(data2).length ? { data: data2 } : {},
+    executionId
+  };
+}
+
 // src/files.ts
 function fileContent(response, encoding) {
   if (encoding !== void 0 && encoding !== "base64")
@@ -20454,11 +19862,7 @@ function fileContent(response, encoding) {
     );
   const data2 = response !== null && typeof response === "object" ? response.Data : void 0;
   if (typeof data2 !== "string" || /[^A-Za-z0-9+/=\s]/.test(data2))
-    throw new HcmError(
-      "FILE_READ_RESPONSE",
-      "Сервер вернул файл в неожиданном виде.",
-      "Прочитать его можно операцией native.lds.loadUrl."
-    );
+    throw new HcmError("FILE_READ_RESPONSE", "Сервер вернул файл в неожиданном виде.");
   const content = Buffer.from(data2.replace(/\s+/g, ""), "base64");
   const binary = { base64: content.toString("base64"), bytes: content.length };
   if (encoding === "base64") return binary;
@@ -20490,6 +19894,126 @@ function fileExistsUrl(value) {
     else if (unit === 65534 || unit === 65535) throw invalid2();
   }
   return value;
+}
+function fileFolders(info) {
+  const data2 = /* @__PURE__ */ new Set();
+  const design = /* @__PURE__ */ new Set();
+  const entries2 = Array.isArray(info?.config_entries) ? info.config_entries : [];
+  for (const entry2 of entries2) {
+    const list2 = entry2?.name === "DATA-DB" ? data2 : entry2?.name === "DESIGN-DB" ? design : void 0;
+    if (list2 && typeof entry2.value === "string" && entry2.value) list2.add(entry2.value);
+  }
+  if (!data2.size && !design.size) return void 0;
+  return { data: [...data2], code: [...design].filter((name3) => !data2.has(name3)) };
+}
+function fileTarget(value, listing = false) {
+  const text4 = listing && typeof value === "string" ? value.replace(/\/$/, "") : value;
+  const [folder = "", ...path] = typeof text4 === "string" ? text4.slice(10).split("/") : [];
+  const plain = (part) => !/^[. ]*$|%(?:2e|2f|5c|[01][0-9a-f]|7f)/i.test(part);
+  if (typeof text4 !== "string" || !text4.startsWith("x-local://") || /[\\?#\p{Cc}\p{Cs}]/u.test(text4) || !/^[\w-]+$/.test(folder) || !(listing || path.length) || !path.every(plain))
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      listing ? "url: нужен адрес x-local://папка или x-local://папка/путь." : "url: нужен адрес x-local://папка/путь.",
+      `${listing ? "Без" : "Путь не пустой, без"} частей из одних точек и пробелов, без %2e, %2f, %5c, знаков \\ ? #. Например, x-local://share/report.txt.`
+    );
+  return { url: text4, folder };
+}
+function fileRoute(operation, folders, folder, canExecute) {
+  if (!folders) return "unlisted";
+  if (folders.data.includes(folder)) return "data";
+  if (!folders.code.includes(folder))
+    throw new HcmError(
+      "FOLDER_NOT_WRITABLE",
+      `Папка ${folder} не принимает файлы.`,
+      `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`
+    );
+  if (!canExecute)
+    throw new HcmError(
+      "EXECUTE_DISABLED",
+      `Папка ${folder} на этом сервере принимает ${operation === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
+      "Право execute включает владелец подключения в настройках подключения (permissions.execute)."
+    );
+  return "code";
+}
+function fileWriteContent(args) {
+  const { text: text4, base64: base642 } = args;
+  const bytes = typeof text4 === "string" && !new RegExp("\\p{Cs}", "u").test(text4) ? Buffer.from(text4) : typeof base642 === "string" ? Buffer.from(base642, "base64") : void 0;
+  if (text4 === void 0 === (base642 === void 0) || !bytes || text4 === void 0 && bytes.toString("base64") !== base642)
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "Нужно ровно одно из text (без непарных суррогатов) и base64 (без переводов строк)."
+    );
+  return {
+    ...typeof text4 === "string" ? { text: text4 } : {},
+    base64: bytes.toString("base64"),
+    bytes: bytes.length
+  };
+}
+function fileScript(code, params) {
+  try {
+    return prepareScript(code, params);
+  } catch (error2) {
+    if (!(error2 instanceof HcmError) || error2.code !== "SCRIPT_TOO_LARGE") throw error2;
+    throw new HcmError(
+      "FILE_TOO_LARGE",
+      "Файл не помещается в код для сервера.",
+      "В папку кода файл записывает код на сервере: текст — до 750 КБ (меньше, если в нём много переводов строк), двоичные данные — до 580 КБ."
+    );
+  }
+}
+function codeWrite(url, content) {
+  const text4 = content.text !== void 0;
+  return fileScript(
+    `PutUrlData(PARAMS.url, ${text4 ? "PARAMS.text" : "Base64Decode(PARAMS.base64)"});
+RESULT = [UrlFileSize(PARAMS.url)];`,
+    text4 ? { url, text: content.text } : { url, base64: content.base64 }
+  );
+}
+function codeDelete(url) {
+  return fileScript(
+    `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
+else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
+else { DeleteUrl(PARAMS.url); RESULT = ['deleted']; }`,
+    { url }
+  );
+}
+function codeDeleteRefusal(data2) {
+  if (data2.result[0] === "directory")
+    return new HcmError("FILE_IS_FOLDER", "Адрес — папка: в папке кода удаляется только файл.");
+  if (data2.result[0] === "absent")
+    return new HcmError("FILE_NOT_FOUND", "По адресу нет файла.", "Адрес проверяет files.exists.");
+  return void 0;
+}
+function codeList(url) {
+  return fileScript(
+    `var rows = [];
+var item = '';
+var folder = false;
+var dir = false;
+try { dir = IsDirectory(PARAMS.url); } catch (e) { dir = false; }
+if (dir) { for (item in ReadDirectory(PARAMS.url)) { folder = IsDirectory(item); rows.push({ u: item, f: folder, b: folder ? 0 : UrlFileSize(item) }); } }
+RESULT = dir ? rows : ['none'];`,
+    { url }
+  );
+}
+function fileList(data2, folder, search = "") {
+  if (data2.result[0] === "none")
+    throw new HcmError(
+      "FOLDER_NOT_FOUND",
+      "По адресу нет папки.",
+      "Список показывает только папку; файл читает files.read, адрес проверяет files.exists."
+    );
+  const rows2 = data2.result.map((row) => {
+    const name3 = typeof row?.u === "string" && row.u.startsWith(`${folder}/`) ? row.u.slice(folder.length + 1).replace(/\/$/, "") : "";
+    const bytes = Number(row?.b);
+    if (!name3 || /[/\\]/.test(name3) || row.f !== "1" && !Number.isFinite(bytes))
+      throw new HcmError("SCRIPT_RESPONSE", "Сервер вернул список папки в неожиданном виде.");
+    return row.f === "1" ? { name: name3, folder: true } : { name: name3, bytes };
+  });
+  const part = search.toLowerCase();
+  const items = rows2.filter((item) => item.name.toLowerCase().includes(part));
+  items.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  return { items, total: items.length };
 }
 function object(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error();
@@ -20571,9 +20095,27 @@ var composite = [
     schema({ url: string2, encoding: { type: "string", enum: ["base64"] } }, ["url"])
   ),
   definition(
+    "files.list",
+    "execute",
+    "Один уровень папки x-local://папка или x-local://папка/путь: items — файлы с размером (bytes) и вложенные папки (folder:true), по имени. search оставляет имена с этой частью, регистр не важен. Список даёт код на сервере: нужно право execute.",
+    schema({ url: string2, search: string2 }, ["url"])
+  ),
+  definition(
+    "files.write",
+    "write",
+    "Записать файл по адресу x-local://…: text — текст (пишется в UTF-8), base64 — двоичные данные. Файл заменяется целиком, вложенные папки сервер создаёт сам. В папку кода (wt, wtv, custom…) файл записывает код на сервере: нужно ещё право execute. Какие папки принимают запись, показывает server.info.",
+    schema({ url: string2, text: string2, base64: string2 }, ["url"])
+  ),
+  definition(
+    "files.delete",
+    "write",
+    "Удалить файл по адресу x-local://…. В папке данных так же удаляется пустая папка; в папке кода — только файл, и нужно ещё право execute.",
+    schema({ url: string2 }, ["url"])
+  ),
+  definition(
     "server.info",
     "read",
-    "Сведения, которые сервер отдаёт админке при запуске: версия, операционная система, маска возможностей, ограничения на число записей по типам объектов. Маска — не права пользователя, ограничения — не список каталогов. profile: native (по умолчанию) или web.",
+    "Сведения, которые сервер отдаёт админке при запуске: версия, операционная система, маска возможностей, ограничения на число записей по типам объектов; в профиле native ещё папки: dataFolders принимают запись через LDS, codeFolders — только кодом на сервере. Маска — не права пользователя, ограничения — не список каталогов. profile: native (по умолчанию) или web.",
     schema({ profile: { type: "string", enum: ["native", "web"] } })
   ),
   definition(
@@ -20877,15 +20419,13 @@ var TOPICS = [
   },
   {
     id: "files",
-    title: "Файлы сервера по адресу x-local://…: проверить, прочитать, записать, удалить, загрузить",
+    title: "Файлы сервера по адресу x-local://…: проверить, прочитать, показать папку, записать, удалить, загрузить",
     operations: {
       "files.exists": "Есть ли файл или папка по адресу.",
       "files.read": 'Прочитать файл: текст, если это текст в UTF-8, иначе base64; encoding:"base64" — всегда base64.',
-      "native.lds.loadUrl": "Прочитать файл как есть (base64), с блокировкой или сжатием.",
-      "native.lds.putUrl": "Записать файл по адресу.",
-      "native.lds.deleteUrl": "Удалить файл по адресу.",
-      "native.lds.unlockUrl": "Снять свою блокировку с адреса.",
-      "web.pages.copyUrl": "Скопировать файл с одного адреса на другой.",
+      "files.list": "Показать один уровень папки: файлы с размером и вложенные папки.",
+      "files.write": "Записать файл: text или base64; способ записи операция выбирает по папке.",
+      "files.delete": "Удалить файл (в папке данных — и пустую папку).",
       "web.pages.uploadFile": "Загрузить файл до 8 МБ в папку загрузок сервера; ответ содержит его адрес.",
       "web.pages.uploadChunk": "Загрузить одну часть большого файла.",
       "web.pages.clearUploadChunks": "Удалить загруженные части файла."
@@ -20945,17 +20485,13 @@ var TOPICS = [
   },
   {
     id: PROTOCOL,
-    title: "Прямые вызовы протокола: те же действия через веб-профиль и старый протокол, сессии, сырые запросы. Обычно не нужны",
+    title: "Прямые вызовы протокола: те же действия через веб-профиль, сессии, сырые запросы. Обычно не нужны",
     operations: {}
   }
 ];
 var NOTES = {
   "agents.run": "Вызов ждёт, пока код агента не кончится, и ограничен временем ожидания подключения (timeoutMs): долгого агента нужно запускать без ожидания — rpc.call {library:'tools', method:'start_agent', arguments:[id]} — и следить за логом agent. Параметры агента берутся из его документа. Агенты на C# и агенты выгрузки и импорта не проверялись.",
   "native.spxml2.getAppInfo": "Ответ большой и сохраняется целиком. Каталоги — databases[i].catalogs: {id, form_url, object_type}; основная база названа в default_db_name. Типы и их каталоги короче показывает schema.types.",
-  "native.lds.loadUrl": "Ответ: Data — содержимое в base64 одной строкой. Текстом файл отдаёт files.read.",
-  "native.lds.putUrl": 'data — текст файла строкой или {base64:"…"} для двоичных данных. Файл заменяется целиком.',
-  "native.lds.deleteUrl": "Так же удаляется пустая папка. strictDelete:true требует, чтобы адрес существовал.",
-  "web.pages.copyUrl": "Оба адреса — x-local://…. Учётной записи нужны чтение источника и запись в место назначения.",
   "web.pages.uploadFile": 'filename — имя без пути; data — текст или {base64:"…"}. Ответ: url — адрес файла, folderUrl — папка, которую сервер создал для него.',
   "web.pages.uploadChunk": "fileId — 32 шестнадцатеричных знака, его выбирает вызывающий. Части идут по порядку, последняя собирает файл. Ответ сервера не доказывает, что часть сохранена. При ошибке на последней части вслепую повторять нельзя: адрес итогового файла может остаться неизвестным.",
   "web.pages.clearUploadChunks": "Удаляет части с 0 по chunksTotal − 1 для заданного fileId. Сервер не проверяет, кто создал этот ID; пустой ответ не доказывает, что части удалены.",
@@ -21081,8 +20617,8 @@ function describeHcmOperation(id) {
 }
 
 // src/runtime.ts
-import { randomUUID as randomUUID4 } from "node:crypto";
-import { mkdir as mkdir3, appendFile } from "node:fs/promises";
+import { randomUUID as randomUUID3 } from "node:crypto";
+import { mkdir as mkdir2, appendFile } from "node:fs/promises";
 import { join as join3 } from "node:path";
 
 // src/log-output.ts
@@ -22608,20 +22144,26 @@ var SchemaReader = class {
 
 // src/results.ts
 import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
-import { mkdir as mkdir2, readFile, rename, stat, open as open2, unlink as unlink2 } from "node:fs/promises";
-import { constants as constants2, copyFile, link as link2, writeFile } from "node:fs/promises";
-import { dirname as dirname2, join as join2, resolve as resolve3 } from "node:path";
+import { mkdir, readFile, rename, stat, open, unlink } from "node:fs/promises";
+import { constants, copyFile, link, writeFile } from "node:fs/promises";
+import { dirname, join as join2, resolve as resolve2 } from "node:path";
 async function writeResultFile(path, chunks, overwrite = false) {
-  const target = resolve3(path);
+  const target = resolve2(path);
+  if ((await stat(target).catch(() => void 0))?.isDirectory())
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "path: по этому пути папка, а нужен путь к файлу.",
+      "К пути нужно добавить имя файла, например result.json."
+    );
   const temporary = `${target}.${randomUUID2()}.tmp`;
   try {
     await writeFile(temporary, chunks, { encoding: "utf8", mode: 384, flag: "wx" });
     const bytes = (await stat(temporary)).size;
     if (overwrite) await rename(temporary, target);
     else
-      await link2(temporary, target).catch((error2) => {
+      await link(temporary, target).catch((error2) => {
         if (error2.code === "EEXIST") throw error2;
-        return copyFile(temporary, target, constants2.COPYFILE_EXCL);
+        return copyFile(temporary, target, constants.COPYFILE_EXCL);
       });
     return bytes;
   } catch (error2) {
@@ -22640,7 +22182,7 @@ async function writeResultFile(path, chunks, overwrite = false) {
       );
     throw error2;
   } finally {
-    await unlink2(temporary).catch(() => {
+    await unlink(temporary).catch(() => {
     });
   }
 }
@@ -22740,7 +22282,7 @@ async function readExactly(file, position, length) {
 async function reading(paths, action) {
   const files = [];
   try {
-    for (const path of paths) files.push(await open2(path, "r"));
+    for (const path of paths) files.push(await open(path, "r"));
     return await action(files);
   } finally {
     await Promise.all(files.map((file) => file.close()));
@@ -22794,7 +22336,7 @@ var ResultStore = class {
     const scope = createHash2("sha256").update(`${config2.name}
 ${config2.baseUrl}
 ${config2.username ?? "anonymous"}`).digest("hex").slice(0, 24);
-    this.directory = join2(resolve3(config2.runtimeDir), scope, "results");
+    this.directory = join2(resolve2(config2.runtimeDir), scope, "results");
   }
   directory;
   path(id) {
@@ -22813,7 +22355,7 @@ ${config2.username ?? "anonymous"}`).digest("hex").slice(0, 24);
     const id = requiredString(input2.resultId, "resultId"), path = requiredString(input2.path, "path");
     const format = input2.format ?? "json";
     if (!["json", "jsonl", "text"].includes(format)) throw exportFormatError();
-    if (envelope) await mkdir2(dirname2(resolve3(path)), { recursive: true });
+    if (envelope) await mkdir(dirname(resolve2(path)), { recursive: true });
     const count = { items: 0 };
     const store = this;
     const source = async function* () {
@@ -22850,13 +22392,13 @@ ${config2.username ?? "anonymous"}`).digest("hex").slice(0, 24);
     const created = [];
     const files = [];
     const create = async (path) => {
-      const file = await open2(`${path}.tmp`, "wx", 384);
+      const file = await open(`${path}.tmp`, "wx", 384);
       files.push(file);
       created.push(`${path}.tmp`);
       return file;
     };
     try {
-      await mkdir2(this.directory, { recursive: true });
+      await mkdir(this.directory, { recursive: true });
       const body = await create(this.payload(id, "data.json"));
       const index = await create(this.payload(id, "data.idx"));
       const writer = new JsonWriter(body, index);
@@ -22928,7 +22470,7 @@ ${config2.username ?? "anonymous"}`).digest("hex").slice(0, 24);
       return { resultId: id, bytes: writer.bytes, ...list2 ? { list: list2.key } : {} };
     } catch (error2) {
       await Promise.allSettled(files.map((file) => file.close()));
-      await Promise.allSettled(created.map((path) => unlink2(path)));
+      await Promise.allSettled(created.map((path) => unlink(path)));
       if (error2 instanceof HcmError) throw error2;
       if (error2 instanceof TypeError)
         throw new HcmError("RESULT_SERIALIZATION", "Результат нельзя записать как JSON.");
@@ -23046,7 +22588,7 @@ ${config2.username ?? "anonymous"}`).digest("hex").slice(0, 24);
   async plain(id, metadata, offset, limit) {
     await this.assertSize(this.payload(id, "text.bin"), metadata.textChars * 2);
     if (offset >= metadata.textChars) return "";
-    const file = await open2(this.payload(id, "text.bin"), "r");
+    const file = await open(this.payload(id, "text.bin"), "r");
     try {
       const start = Math.max(0, offset - 1);
       const text4 = (await readExactly(file, start * 2, Math.min(limit + 3, metadata.textChars - start) * 2)).toString("utf16le");
@@ -23507,7 +23049,7 @@ var LogReader = class {
   }
   async whileBusy() {
     const wait = this.busyUntil - Date.now();
-    if (wait > 0) await new Promise((resolve6) => setTimeout(resolve6, wait));
+    if (wait > 0) await new Promise((resolve5) => setTimeout(resolve5, wait));
   }
   async allFiles() {
     const params = "<func_params><server_log_report><type_id>all</type_id><show_alert>false</show_alert></server_log_report></func_params>";
@@ -24477,161 +24019,6 @@ var RpcCatalog = class {
   }
 };
 
-// src/scripts.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
-var TARGET = "ms_tools.evaluate_remote_collection_obj";
-var FORM = "x-local://wtv/wtv_remote_collection.xmd";
-function prepareScript(value, params) {
-  const code = (params === void 0 ? "" : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(JSON.stringify(inputObject(params, "params"))).toString("base64")}"), "utf-8")); `) + requiredString(value, "code");
-  if (Buffer.byteLength(code) > 1024 * 1024)
-    throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");
-  const marker = `hcm_inline_${randomUUID3().replaceAll("-", "")}`;
-  const xml = `<remote_collection SPXML-FORM="${FORM}" SPXML-FORM-ELEM="remote_collection"><code>${marker}</code><name>${marker}</name><use_cache>0</use_cache><script>${escapeXml(code)}</script></remote_collection>`;
-  return { request: { target: TARGET, args: [{ lexicalValue: { xml } }] }, executionId: marker };
-}
-var ID = /^(?:0x[0-9a-f]{1,16}|\d{1,20})$/i;
-var AGENT_RUN = `var doc = OpenDoc(UrlFromDocID(Int(PARAMS.id)));
-if (doc.TopElem.Name != 'server_agent') throw 'Объект с этим ID — не агент сервера (server_agent).';
-var from = StrXmlDate(Date());
-var started = doc.TopElem.run_agent(PARAMS.objectId, PARAMS.objectIds, Date(), true);
-if (started) doc.Save();
-RESULT = [{ started: started, from: from, to: StrXmlDate(Date()) }];`;
-function agentRun(args) {
-  const id = (value, path) => {
-    if (typeof value !== "string" || !ID.test(value))
-      throw new HcmError("INVALID_ARGUMENT", `${path}: нужен ID строкой, 0x… или десятичный.`);
-    return BigInt(value).toString();
-  };
-  const list2 = args.objectIds ?? [];
-  if (!Array.isArray(list2) || list2.length > 1e3)
-    throw new HcmError("INVALID_ARGUMENT", "objectIds: нужен список до 1000 ID.");
-  return {
-    code: AGENT_RUN,
-    params: {
-      id: id(args.id, "id"),
-      objectId: args.objectId === void 0 ? null : id(args.objectId, "objectId"),
-      objectIds: list2.map((item, index) => id(item, `objectIds[${index}]`)).join(";")
-    }
-  };
-}
-function agentRunResult(data2) {
-  const row = data2.result[0];
-  const time3 = (value) => String(value ?? "").slice(0, 19);
-  const started = row?.started === "1";
-  return {
-    started,
-    startedAt: time3(row?.from),
-    finishedAt: time3(row?.to),
-    hint: started ? "Код агента отработал до конца или до ошибки: ошибку сервер пишет только в лог. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt." : "Сервер агента не запустил; причину он пишет в лог agent."
-  };
-}
-function decodeRpcValue(value, depth = 0) {
-  if (depth > 64) throw new HcmError("SCRIPT_RESPONSE", "Результат вложен глубже 64 уровней.");
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new HcmError("SCRIPT_RESPONSE", "В результате нет элемента с VALUE-TYPE.");
-  const node = value;
-  const typeValue = node["@_VALUE-TYPE"];
-  if (typeof typeValue !== "string" || typeValue === "")
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "В результате есть элемент XML без типа.",
-      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call."
-    );
-  const type = typeValue.toLowerCase();
-  const children3 = Object.keys(node).filter((key) => !key.startsWith("@_") && key !== "#text");
-  const text4 = node["#text"] ?? "";
-  if (typeof text4 !== "string")
-    throw new HcmError("SCRIPT_RESPONSE", "Значение в результате — не текст.");
-  if (["array", "object", "null", "undefined"].includes(type) && text4.trim() !== "")
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "В массиве, объекте или null результата есть посторонний текст."
-    );
-  if (type === "array") {
-    if (children3.some((key) => key !== "e"))
-      throw new HcmError("SCRIPT_RESPONSE", "В массиве результата есть посторонние элементы.");
-    const items = node.e === void 0 ? [] : Array.isArray(node.e) ? node.e : [node.e];
-    return items.map((item) => decodeRpcValue(item, depth + 1));
-  }
-  if (type === "object") {
-    return Object.fromEntries(children3.map((key) => [key, decodeRpcValue(node[key], depth + 1)]));
-  }
-  if (type === "null" || type === "undefined") {
-    if (children3.length !== 0)
-      throw new HcmError("SCRIPT_RESPONSE", "В значении null результата есть вложенные элементы.");
-    return null;
-  }
-  if (!["string", "integer", "real", "bool", "date"].includes(type))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "В результате есть значение неподдерживаемого типа (VALUE-TYPE).",
-      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call."
-    );
-  if (children3.length !== 0)
-    throw new HcmError("SCRIPT_RESPONSE", "В простом значении результата есть вложенные элементы.");
-  return text4;
-}
-function rpcValue(response) {
-  try {
-    return { value: decodeRpcValue(findXmlNode(response, "Result")) };
-  } catch (error2) {
-    if (error2 instanceof HcmError && error2.code === "SCRIPT_RESPONSE") return response;
-    throw error2;
-  }
-}
-function scriptResult(response, executionId) {
-  const decoded = decodeRpcValue(findXmlNode(response, "Result"));
-  if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода в неожиданном виде: это не объект."
-    );
-  const value = decoded;
-  if (typeof value.error !== "string" || !/^\d+$/.test(value.error))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода без числового кода ошибки."
-    );
-  if (value.error !== "0") {
-    const reason = (typeof value.error_text === "string" ? value.error_text : "").split(/\r?\n/).map((line) => line.trim()).filter(
-      (line) => line !== "" && !line.startsWith("Error evaluating collection") && !line.includes("wtv_remote_collection.xmd")
-    ).join("\n");
-    const unread = /syntax error/i.test(reason);
-    throw new HcmError(
-      "SCRIPT_FAILED",
-      "Сервер сообщил об ошибке в коде SP-XML Script.",
-      unread ? "Сообщение сервера — в details.scriptError. Код не разобран и не выполнялся: данные не менялись." : "Сообщение сервера — в details.scriptError. До ошибки код мог изменить данные: их нужно проверить перед повтором.",
-      reason === "" ? void 0 : { scriptError: reason },
-      unread ? "not_sent" : "indeterminate"
-    );
-  }
-  if (!Array.isArray(value.result))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "RESULT — не массив.",
-      "Нужно присвоить RESULT массив, даже когда возвращать нечего: RESULT = [];"
-    );
-  if (!Array.isArray(value.columns) || value.data === null || typeof value.data !== "object" || Array.isArray(value.data))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода не полностью: нет columns или data."
-    );
-  const total = value.total;
-  const serverTicks = value.ticks;
-  if (typeof total !== "string" || typeof serverTicks !== "string" || !/^\d+$/.test(total) || !/^\d+$/.test(serverTicks))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "Сервер вернул результат кода с неверными счётчиками total или ticks."
-    );
-  const data2 = value.data;
-  return {
-    result: value.result,
-    ...value.columns.length ? { columns: value.columns } : {},
-    ...Object.keys(data2).length ? { data: data2 } : {},
-    executionId
-  };
-}
-
 // src/server-info.ts
 var fields2 = ["sys_db_capability", "catalog_limits", "version_server", "os_type"];
 var maxCatalogXmlBytes = 256 * 1024;
@@ -24743,8 +24130,9 @@ var USUAL_CAUSES = {
   "objects.create": "значение, которое тип объекта не принимает",
   "schema.get": "формы по этому адресу нет",
   "rpc.call": "нет такой функции, неверные аргументы или ошибка внутри функции",
-  "native.lds.loadUrl": "по этому адресу ничего нет",
   "files.read": "по этому адресу ничего нет",
+  "files.write": "сервер не сообщил, какие папки принимают запись; в папку кода файл записывает код на сервере",
+  "files.delete": "по адресу нет файла или в папке есть файлы; если сервер не сообщил, какие папки принимают запись, это может быть папка кода, где файл удаляет код на сервере",
   "native.lds.loadDoc": "по этому адресу ничего нет",
   "native.lds.createDoc": "для этого типа объекта сервер заготовку не даёт",
   "native.lds.getModDeletedObjects": "на проверенных серверах эта операция не работает"
@@ -25002,8 +24390,6 @@ function plainAnswer(id, answer) {
     const { Url: _, ...rest } = data2;
     return { ...rest, url, folderUrl: url.slice(0, url.lastIndexOf("/")) };
   }
-  if (id === "native.lds.loadUrl" && typeof data2.Data === "string")
-    return { ...data2, Data: data2.Data.replace(/\s+/g, "") };
   if (id === "web.spxml.getAsyncMethodStatus" && data2.ResultData !== void 0)
     try {
       const decoded = rpcValue(data2);
@@ -25047,10 +24433,7 @@ var HcmRuntime = class {
   constructor(config2) {
     this.config = config2;
     this.results = new ResultStore(config2);
-    this.gateway = new NativeGateway({
-      ...config2,
-      installationIdFile: config2.installationIdFile ?? join3(this.results.directory, "..", "legacy-client.id")
-    });
+    this.gateway = new NativeGateway(config2);
     this.logs = new LogReader(this.gateway, config2);
     this.rpcCatalog = new RpcCatalog(
       () => this.applicationInfo(),
@@ -25282,7 +24665,7 @@ var HcmRuntime = class {
       retryable: false
     } : error2 instanceof WsHcmApiError ? {
       code: `PLATFORM_${error2.kind.toUpperCase()}`,
-      ...platformFailure(error2, this.config.baseUrl, id),
+      ...platformFailure(error2, this.config.baseUrl, state?.refusal ?? id),
       retryable: false,
       ...error2.status === void 0 ? {} : { details: { status: error2.status } }
     } : error2 instanceof TypeError ? {
@@ -25465,7 +24848,7 @@ var HcmRuntime = class {
     return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
   }
   async journal(entry2) {
-    await mkdir3(this.results.directory, { recursive: true });
+    await mkdir2(this.results.directory, { recursive: true });
     await appendFile(
       join3(this.results.directory, "mutations.jsonl"),
       `${JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), ...entry2 })}
@@ -25631,8 +25014,53 @@ var HcmRuntime = class {
           await this.gateway.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
           args.encoding
         );
-      case "server.info":
-        return this.serverInfo(args.profile === "web" ? "web" : "native");
+      case "files.list": {
+        const folder = fileTarget(args.url, true).url;
+        const search = args.search === void 0 ? "" : requiredString(args.search, "search");
+        const { request, executionId } = codeList(folder);
+        const data2 = await this.runCode(request, executionId, state);
+        if (data2.result[0] === "none") state.sent = false;
+        return fileList(data2, folder, search);
+      }
+      case "files.write":
+      case "files.delete": {
+        const writing = id === "files.write";
+        const target = fileTarget(args.url);
+        const content = writing ? fileWriteContent(args) : void 0;
+        const route = fileRoute(
+          writing ? "write" : "delete",
+          fileFolders(await this.applicationInfo().catch(() => void 0)),
+          target.folder,
+          this.config.permissions.execute
+        );
+        if (writing && route !== "unlisted") state.refusal = "files.write:listed";
+        if (route === "code") {
+          const { request, executionId } = content ? codeWrite(target.url, content) : codeDelete(target.url);
+          const data2 = await this.runCode(request, executionId, state);
+          if (content) return { bytes: Number(data2.result[0]), mutationOutcome: "confirmed" };
+          const refusal = codeDeleteRefusal(data2);
+          if (refusal) {
+            state.sent = false;
+            throw refusal;
+          }
+          return { deleted: true, mutationOutcome: "confirmed" };
+        }
+        state.sent = true;
+        if (content) {
+          await this.gateway.call("native.lds.putUrl", {
+            url: target.url,
+            data: { base64: content.base64 }
+          });
+          return { bytes: content.bytes, mutationOutcome: "confirmed" };
+        }
+        await this.gateway.call("native.lds.deleteUrl", { url: target.url });
+        return { deleted: true, mutationOutcome: "confirmed" };
+      }
+      case "server.info": {
+        const info = await this.serverInfo(args.profile === "web" ? "web" : "native");
+        const folders = info.profile === "native" ? fileFolders(await this.applicationInfo().catch(() => void 0)) : void 0;
+        return folders ? { ...info, dataFolders: folders.data, codeFolders: folders.code } : info;
+      }
       case "runtime.status": {
         const version2 = await this.gateway.call("native.rpc.call", {
           target: "tools.get_version",
@@ -25799,7 +25227,7 @@ var HcmRuntime = class {
           throw new HcmError("FORM_TYPE_MISMATCH", "В форме нет запрошенного типа объекта.");
         await this.requireFields(type, formUrl, data2, Object.keys(data2));
         const dbName = args.dbName === void 0 ? "wt_data" : identifier(args.dbName, "dbName");
-        const mutationId = randomUUID4();
+        const mutationId = randomUUID3();
         state.mutationId = mutationId;
         await this.journal({ mutationId, operation: id, stage: "allocating", type });
         state.sent = true;
@@ -25897,7 +25325,7 @@ var HcmRuntime = class {
         const branches = changes.changes.map(
           (change) => patchSegments(String(inputObject(change).path))[0][1]
         );
-        const mutationId = randomUUID4();
+        const mutationId = randomUUID3();
         await this.journal({
           mutationId,
           operation: id,
@@ -25958,7 +25386,7 @@ var HcmRuntime = class {
             void 0,
             "not_sent"
           );
-        const mutationId = randomUUID4();
+        const mutationId = randomUUID3();
         await this.journal({ mutationId, operation: id, stage: "prepared", objectId });
         state.sent = true;
         state.mutationId = mutationId;
@@ -26073,10 +25501,7 @@ var HcmRuntime = class {
       case "agents.run": {
         const agent = id === "agents.run" ? agentRun(args) : void 0;
         const { request, executionId } = agent ? prepareScript(agent.code, agent.params) : prepareScript(args.code, args.params);
-        prepare(request, this.describe("web.rpc.call").inputSchema);
-        state.executionId = executionId;
-        state.sent = true;
-        const data2 = scriptResult(await this.gateway.call("web.rpc.call", request), executionId);
+        const data2 = await this.runCode(request, executionId, state);
         if (!agent) return data2;
         this.logs.serverWroteLog();
         return agentRunResult(data2);
@@ -26091,6 +25516,18 @@ var HcmRuntime = class {
           if (error2 instanceof WsHcmApiError && error2.requestSent === false) state.sent = false;
           throw error2;
         }
+    }
+  }
+  /** Code prepared by prepareScript, run on the server; the answer is checked for a caught error. */
+  async runCode(request, executionId, state) {
+    prepare(request, this.describe("web.rpc.call").inputSchema);
+    state.executionId = executionId;
+    state.sent = true;
+    try {
+      return scriptResult(await this.gateway.call("web.rpc.call", request), executionId);
+    } catch (error2) {
+      if (error2 instanceof HcmError && error2.mutationOutcome === "not_sent") state.sent = false;
+      throw error2;
     }
   }
   async batch(args, state) {
@@ -31542,12 +30979,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve6) => {
+    return new Promise((resolve5) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve6();
+        resolve5();
       } else {
-        this._stdout.once("drain", resolve6);
+        this._stdout.once("drain", resolve5);
       }
     });
   }
@@ -36189,7 +35626,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
+        await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -36206,7 +35643,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve6, reject) => {
+    return new Promise((resolve5, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -36284,7 +35721,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve6(parseResult.data);
+            resolve5(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -36545,12 +35982,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve6, reject) => {
+    return new Promise((resolve5, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve6, interval);
+      const timeoutId = setTimeout(resolve5, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -37482,8 +36919,8 @@ var GUIDE_PAGES = [
   { topic: "objects", title: "Поля, настраиваемые поля, создание, правка, удаление", text: '# Объекты: поля, чтение, создание, правка, удаление\n\n## Поля типа\n\n`hcm_schema {type:"collaborator"}` показывает верхний уровень, до 80 полей на странице (`cursor: nextCursor` — дальше).\n\n| Аргумент | Что делает |\n| --- | --- |\n| `search:"логин"` | ищет слова в пути, заголовке и имени каталога, на который поле ссылается (`search:"subdivisions"`), на любой глубине; все слова должны быть в одном поле |\n| `path:"access"` | показывает поля внутри структуры; саму структуру описывает `element` в ответе: список ли это (`multiple`) и какой у элемента ключ (`key`) |\n| `deep:true` | показывает вложенные поля всех уровней одним списком; вместе с `path` — всё внутри этой структуры. Страницы те же: `total`, `nextCursor`; `cutBySize` — страница короче запрошенной, больше в ответ не помещается. Страница схемы не больше 16 КБ и как большой ответ не сохраняется: всю схему собирают страницами по `nextCursor` |\n| `origin:["custom"]` | только настраиваемые поля; ещё бывают `own`, `inherited`, `catalog` |\n| `kind:"ID вида"` | настраиваемые поля, заданные для вида объекта |\n| `include:["methods"]` | добавляет методы формы |\n\nПометки у поля:\n\n- `query:true` — поле есть в каталоге, по нему ищет `hcm_query`;\n- `computed:true` — значение вычисляет сервер, записать его нельзя; копии полей связанных объектов (`position_name`, `org_name`) так не помечены — о них ниже, в разделе про `resave`;\n- `origin:"catalog"` — поле есть в строке каталога, а на верхнем уровне документа его нет; то же значение может лежать в документе глубже (`access_level` строки — `access.access_level` документа), это покажет `hcm_schema {type, search:"имя"}`;\n- `references:"groups"` — в поле лежит ID объекта из этого каталога;\n- `references` — не всегда каталог: `common.…` и `lists.…` — список, в поле лежит ID его элемента; выражение сервера (`DefaultDb.GetOptCatalog(…)`, `tools.get_list_lngs()`) — на что ссылается поле, зависит от других данных. Элементы списка читает `hcm_xquery {query:"for $e in common.event_types return $e"}`: `id` — значение для поля, `name` — название. У строкового поля без `references` списка значений в форме нет: посмотри, что лежит у существующих объектов;\n- рядом со ссылкой каталог обычно хранит и название: `position_id` → `position_name`, `position_parent_id` → `position_parent_name`, `org_id` → `org_name`. Соединять каталоги ради названия не нужно;\n- `children:N` — структура: её поля показывает `path`, все вложенные сразу — `deep:true`;\n- `multiple:true` — список элементов.\n\nЕсли `hcm_types` показывает у типа `customFields:"by kind"`, настраиваемые поля зависят от вида объекта: передай `kind`. Какое поле хранит вид, сказано в `notes`.\n\n## Чтение\n\n`hcm_object_get {id:"0x…", fields:["login","lastname"]}`. Без `fields` приходит весь документ. В ответе `data` (поля), `type`, `url`, `fingerprint`. `fields` выбирает только поля верхнего уровня. `url` — адрес документа: чтение, правка и удаление принимают его вместо `id`.\n\n- Пустых полей в `data` нет: запрошенное поле без значения названо в `emptyFields`. Если запрошенного поля у типа нет вовсе, оно названо в `unknownFields`: сверь имя с `hcm_schema`.\n- Поле, которое сервер вычисляет только для каталога (`fullname` у сотрудника), в документе не хранится. Запрошенное в `fields`, оно приходит отдельно — в `fromCatalog`.\n- Несколько объектов за один вызов: `hcm_object_get {ids:["0x…","0x…"], fields:["name"]}`, до 100. Ответ — `items` в порядке `ids`, в каждом элементе `id`, `type`, `url` и документ в `data`. Объект, который не прочитан, остальных не останавливает: в его элементе `id` и `error`, в ответе `failed` — сколько таких. Ответ, который не поместился, сохраняет в файл `hcm_result_export`.\n- Повторяемый элемент (`multiple:true` в схеме) — всегда список, даже когда элемент один: `collaborators.collaborator` — массив.\n- Даты — местное время сервера, без смещения: `2026-10-02T16:42:00`. Логические поля — `"1"` и `"0"`, числа — строки.\n- ID принимается в любой записи: `"0x65CCCF743BBDFFB7"` и `"7335070936043061175"` — один объект. Аргумент `type` необязателен; если он задан и не совпал, ошибка `TYPE_MISMATCH` называет настоящий тип.\n\n## Создание\n\n`hcm_object_create {type:"group", data:{code:"sales", name:"Отдел продаж"}}`. В ответе `id` нового объекта. ID назначает сервер, в `data` его не передают. `type` — имя типа, а не каталога: `group`, а не `groups`.\n\nЗначения по умолчанию сервер подставляет сам. Обработчики, которые админка выполняет при создании, через API не запускаются: если они заполняют что-то важное, передай эти поля сами.\n\nЕсли ответ не пришёл или исход `indeterminate`, не создавай заново: сначала найди объект через `hcm_query`.\n\nКогда ID нужен до создания, документ записывают сами (проверено на 2025.1 и 2025.2 с PostgreSQL):\n\n1. `hcm_api_read {operationId:"native.lds.getNewObjectId", args:{dbName:"wt_data"}}` → `{"ObjectID":"7336568271880514489"}`. Это десятичная запись; тот же ID — `0x65D0B9F8F3D6EBB9`.\n2. Адрес нового документа складывается из записи `0x…`: первые 14 цифр — папка, последние две — файл: `x-local://wt_data/objects/65D0B9F8F3D6EB/B9.xml`.\n3. `hcm_api_write {operationId:"native.lds.putDoc", args:{url:"…", data:"<group SPXML-FORM=\\"x-local://wtv/wtv_group.xmd\\"><id>7336568271880514489</id><code>sales</code><name>Отдел продаж</name></group>", neverSaved:true, writeDocInfo:true}}`. В `<id>` — десятичная запись, адрес формы — `formUrl` из чтения объекта того же типа.\n4. Проверить: `hcm_object_get {id:"0x65D0B9F8F3D6EBB9"}`.\n\n## Правка\n\n```json\n{ "id": "0x65CCCF743BBDFFB7", "patch": { "name": "Новое имя", "is_hidden": true }, "remove": ["comment"], "preview": true }\n```\n\n`preview:true` показывает `changes` и ничего не записывает. Остальное содержимое документа при записи сохраняется. У поля, которого до правки не было, в `changes` нет `before`.\n\nПравка, которая ничего не меняет, на сервер не уходит: в ответе `noop:true`.\n\nПути к полям:\n\n| Что | Путь |\n| --- | --- |\n| поле | `name` |\n| поле в структуре | `access.access_level` |\n| элемент списка по номеру | `collaborators.collaborator[0].collaborator_id` |\n| элемент списка по ключу | `collaborators.collaborator[collaborator_id=0x5555555555555501].collaborator_id` |\n| настраиваемое поле | `custom_elems.custom_elem[name=код_поля].value` |\n\nЗапись по ключу создаёт элемент списка, если его нет; когда элементу нужен только ключ, значение повторяет ключ: `patch:{"collaborators.collaborator[collaborator_id=0x…].collaborator_id":"0x…"}` добавляет сотрудника в группу. Список целиком записывает структура-родитель, в `patch` и в `data` при создании: `{collaborators:{collaborator:[{collaborator_id:"0x…"},{collaborator_id:"0x…"}]}}`; прежние элементы при этом заменяются. Убрать все элементы — `remove:["collaborators"]`. `remove` с путём до элемента (`custom_elems.custom_elem[name=код_поля]`) удаляет элемент целиком. Значение `null` в `patch` делает поле пустым, `remove` убирает его из документа.\n\nЗначения: логические — `true` и `false`, ID — строкой.\n\nДата — строкой `"2024-05-17"` или `"2024-05-17T09:30:00"`. Это местное время сервера: смещение в значении (`Z`, `+03:00`) сервер отбрасывает и время не пересчитывает. Другую запись (`17.05.2024`, пробел вместо `T`) сервер читает неверно и сохраняет другое значение, поэтому клиент отвергает её до записи: `INVALID_ARGUMENT` с именем поля.\n\n`expectedFingerprint` со значением `fingerprint` из чтения защищает от чужой правки: если объект с тех пор изменился, придёт `CONFLICT` и ничего не запишется. Прочитай объект заново и повтори.\n\nПоле верхнего уровня, которого у типа нет, клиент отвергает до записи и до предпросмотра: `UNKNOWN_FIELD` называет лишние имена и похожие настоящие. Так же при создании. Вычисляемое поле (`computed:true`, например `fullname` у сотрудника) отвергается так же, с `INVALID_ARGUMENT`: меняй поля, из которых оно складывается (`lastname`, `firstname`, `middlename`).\n\nПосле записи клиент перечитывает объект и сверяет поля. `READ_BACK_MISMATCH` значит, что документ сохранён, но поля из `details.fields` не приняли значение. Остальные поля запроса записаны. Обычная причина: поле вычисляемое, сервер подставил своё значение или внутри структуры нет такого поля. Проверь поле в `hcm_schema`.\n\n## Поля, которые сервер заполняет сам\n\nЧасть полей документа — копии из связанного объекта. Сервер заполняет их в тот момент, когда сохраняют сам документ, а не когда меняется связанный объект. Записать такое поле напрямую нельзя: `READ_BACK_MISMATCH`.\n\nУ сотрудника это `position_name`, `position_parent_id` и `position_parent_name`: название должности `position_id` и подразделение, в котором она стоит.\n\nПеревести сотрудника в другое подразделение:\n\n1. В должности сотрудника записать новое подразделение: `hcm_object_patch {id:"<position_id>", patch:{parent_object_id:"<ID подразделения>"}}`.\n2. Сохранить карточку сотрудника заново: `hcm_object_patch {id:"<ID сотрудника>", resave:true}`.\n\n`resave:true` записывает документ и без правок, и сервер заполняет копии заново — в документе и в строке каталога. Без второго шага карточка и каталог `collaborators` показывают прежнее подразделение. `resave` можно задать вместе с `patch`.\n\nВ ответе правки `changes` — только твои изменения; поля, которые при сохранении изменил сам сервер, названы в `serverChanged` (имена верхнего уровня). Предпросмотр `resave` отвечает `noop:false` и пустым `changes`: что сервер заполнит заново, заранее не видно.\n\nПринять сотрудника на должность:\n\n1. `hcm_object_create {type:"collaborator", data:{lastname:"…", firstname:"…"}}`.\n2. `hcm_object_create {type:"position", data:{name:"…", org_id:"0x…", parent_object_id:"<ID подразделения>", basic_collaborator_id:"<ID сотрудника>"}}`.\n3. `hcm_object_patch {id:"<ID сотрудника>", patch:{position_id:"<ID должности>"}}` — название должности, подразделение и организацию сервер заполнит в карточке сам.\n\nДата приёма — поле сотрудника `hire_date`; `position_date` — другая дата, вступления в должность. Какие поля заполнены у уже работающих, покажет чтение одного из них целиком.\n\n## Удаление\n\n`hcm_object_delete {id:"0x…", permanent:true}` удаляет безвозвратно, корзины нет. С `catalog:"groups"` клиент проверит, что объект был в каталоге и исчез из него.\n\nСтроки связанных каталогов (`group_collaborators`, `event_collaborators`, `person_hierarchys`) на части серверов после удаления остаются, см. тему `queries`: проверь их запросом до и после. Нужна копия — прочитай объект до удаления (`hcm_object_get`). Вернуть объект можно только созданием нового: документ, записанный по прежнему адресу, на PostgreSQL потом не удаляется из каталога.\n\n`READ_BACK_MISMATCH` при удалении: сервер ответил без ошибки, но объект остался в каталоге. Причину сервер пишет в лог `spxml_unibridge`. На 2025.2 с MS SQL так бывает после перезапуска сервера и после получаса без сохранений (в логе `Unable to CommitAtomicOperation`): удаление проходит, как только на сервере сохранён любой документ, например `hcm_object_patch` с `resave:true`.\n\n## Ошибки\n\n| Код | Что случилось | Что делать |\n| --- | --- | --- |\n| `UNKNOWN_TYPE` | такого типа нет или вместо типа задан каталог | взять имя из `hint` или из `hcm_types` |\n| `INVALID_ARGUMENT` с именем поля | дата записана не так, как её читает сервер | записать как `"2024-05-17"` или `"2024-05-17T09:30:00"` |\n| `PLATFORM_SOAP-FAULT`, HTTP 500 при чтении | объекта с таким ID нет или это ID строки каталога без своего типа объекта: у такой строки документа нет | проверить ID через `hcm_query` |\n| `TYPE_MISMATCH` | объект другого типа, чем задан в `type` | тип — в `details.actualType` |\n| `CONFLICT` | объект изменился после чтения | прочитать заново |\n| `IMMUTABLE_ID` | попытка изменить `id` | ID не меняется |\n| `UNKNOWN_FIELD` | у типа нет поля с таким именем; ничего не записано | взять имя из `hint` или из `hcm_schema` |\n| `READ_BACK_MISMATCH` | часть полей не сохранилась | см. выше |\n| `WRITE_DISABLED` | запись запрещена подключением | сказать пользователю |' },
   { topic: "scripts", title: "Код на сервере, функции библиотек, фоновые задачи", text: '# Код на сервере, функции библиотек, фоновые задачи\n\nПраво `execute` требуют `hcm_script` и вызов функции (`rpc.call`). Список функций и их код (`rpc.list`, `rpc.describe`) читаются без него. Код и функции могут менять данные, отката нет.\n\n## `hcm_script`\n\nКод выполняется на сервере от имени пользователя подключения. Ответ — то, что код присвоил переменной `RESULT`. Это должен быть массив.\n\n```javascript\nvar rows = XQuery("for $e in collaborators where $e/is_dismiss = false() return $e");\nRESULT = [];\nfor (row in rows) RESULT.push({ id: row.id + \'\', name: row.fullname + \'\' });\n```\n\nОтвет: `{"result":[{"id":"6148914691236517121","name":"Иванов Иван Иванович"}], "executionId":"hcm_inline_…"}`.\n\nОткрыть документ, изменить и сохранить:\n\n```javascript\nvar doc = OpenDoc(UrlFromDocID(Int(\'0x65CCCE16EC975831\')));\ndoc.TopElem.comment = \'из кода\';\ndoc.Save();\nRESULT = [{ id: doc.DocID + \'\', comment: doc.TopElem.comment + \'\' }];\n```\n\nЗначения передавай в код аргументом `params`, а не подстановкой в текст: в коде это готовая переменная `PARAMS`.\n\n```json\n{ "code": "var doc = OpenDoc(UrlFromDocID(Int(PARAMS.id))); RESULT = [doc.TopElem.name + \'\'];", "params": { "id": "0x65CCCE16EC975831" } }\n```\n\n- `params` — объект JSON любой вложенности. Строки, числа, `true`, `false`, `null`, списки и объекты приходят как есть; кавычки и обратный слэш в строках экранировать не нужно.\n- ID передавай строкой и превращай в число в коде: `Int(PARAMS.id)`.\n- Код из файла на этом компьютере выполняет `file` вместо `code`: `hcm_script {file:"C:\\\\work\\\\check.js", params:{…}}`. Путь полный.\n\nЧто возвращать в `RESULT`:\n\n- строки, числа, логические значения, `null`, массивы и простые объекты `{…}`;\n- числа и логические значения приходят строками: `2` → `"2"`, `true` → `"1"`;\n- значение, полученное через `String(x)`, в ответ не попадает — пиши `x + \'\'`;\n- дату возвращай строкой: `StrDate(d)` даёт `"01.10.2026 23:08:29"`, `StrXmlDate(d)` — `"2026-10-01T23:08:29+00:00"`. Сама дата на части версий сервера в ответ не попадает;\n- документ и его структуру напрямую вернуть нельзя: структура даёт `SCRIPT_RESPONSE`, а сам документ на части версий сервера молча пропадает из ответа. Возвращай отдельные поля или текст XML: `doc.TopElem.access.Xml`;\n- ID из кода приходит в десятичной записи. Его можно передавать в другие инструменты как есть.\n\nЯзык — SP-XML Script, не современный JavaScript:\n\n- только `var`; `let`, `const` и стрелочных функций нет;\n- перебор: `for (row in rows)`;\n- ID из строки `0x…`: `Int(\'0x5555555555555501\')`;\n- обратный слэш в строке удваивают: `\'B:\\\\dir\'`. В тексте JSON, который код разбирает через `ParseJson`, его удваивают ещё раз: `ParseJson(\'{"w":"B:\\\\\\\\dir"}\')`. Одиночный `\\` перед обычной буквой молча пропадает — и в строке кода, и в `ParseJson`: `\'B:\\dir\'` даёт `B:dir`. Проще собрать объект прямо в коде;\n- `curUserID` — пользователь подключения. Запроса портала в этом коде нет: `Request` и `Response` не используй.\n\nФункции платформы и остальные правила языка гайд не описывает: для нетривиального кода нужна документация по платформе.\n\nОшибки кода приходят с кодом `SCRIPT_FAILED`, текст — в `error.details.scriptError`:\n\n| `scriptError` | Причина |\n| --- | --- |\n| `let not defined` | в коде `let` или `const` |\n| `JavaScript syntax error.` | синтаксис: стрелочная функция, незакрытая скобка |\n| `no_such_var not defined` | имя не объявлено |\n| `Элемент не найден … OpenDoc()`, `Object wt_data … not found` | документа с таким ID нет |\n| `Result is not an array` | `RESULT` присвоен не массив |\n\n`SCRIPT_RESPONSE` с текстом «RESULT — не массив» значит, что код не присвоил `RESULT`.\n\nЗапрос к базе из кода, `XQuery("sql: …")`, об ошибке не сообщает: при ошибке в тексте SQL (опечатка, колонка, которой нет) он возвращает пустую выборку, исключения нет, `try/catch` не срабатывает. Код при этом отвечает `ok: true` и пустым `result`. Пустой ответ такого запроса проверяй отдельно: причину база пишет в лог `spxml_unibridge`, см. тему `logs`.\n\nДлинный текст ошибки приходит до 2000 знаков; обрезанный кончается знаком «…». Целиком он записан в логе `xhttp` рядом с `executionId` из ответа.\n\nОтладочную строку из кода пишет `alert(\'текст\')`: она попадает в лог `xhttp`, см. тему `logs`.\n\nЕсли код упал, часть изменений могла пройти. Проверь данные, прежде чем запускать его снова.\n\n## Функции библиотек\n\nСервер разрешает вызывать снаружи часть функций своих библиотек (около 250 из тысячи с лишним). Остальные функции вызывают из кода: `hcm_script` с `tools.имя_функции(…)`.\n\n1. Найти: `hcm_api_read {operationId:"rpc.list", args:{query:"version"}}`. Фильтры: `library`, `method`, `query` (одна подстрока имени функции или имени параметра; описаний у функций нет — ищи английским словом, которым платформа называет нужное в именах). С `all:true` в списке будут и функции только для кода на сервере — у них `serverOnly:true`. Без `all` ответ называет, сколько таких функций подошло под фильтр и не показано: `serverOnlyHidden`.\n2. Посмотреть параметры и код: `hcm_api_read {operationId:"rpc.describe", args:{targetId:"tools.get_version", source:true}}`. Работает для любой функции библиотеки; у функции только для кода на сервере в ответе `serverOnly:true`. У параметров известны только имена: типы и что функция возвращает, видно по коду.\n3. Вызвать: `hcm_api_execute {operationId:"rpc.call", args:{library:"tools", method:"get_version", arguments:["wtv"]}}`. Ответ: `{"value":"2025.2.1535"}`.\n\nАргументы идут по порядку параметров. Строки, логические значения, `null` и целые числа передаются как есть. Для остального укажи тип явно: `{"valueType":"date","lexicalValue":"2026-10-01T00:00:00"}`, для большого целого — `{"valueType":"integer","lexicalValue":"6148914691236517121"}`.\n\nСписок функций не говорит, меняет ли функция данные. Читай её код через `source:true`.\n\nОтказ в вызове клиент объясняет по списку функций сервера:\n\n| Код | Что значит |\n| --- | --- |\n| `UNKNOWN_RPC_TARGET` | такой функции или библиотеки нет; в `hint` — похожие имена |\n| `RPC_SERVER_ONLY` | функция есть, но с клиента не вызывается, сервер ничего не выполнил: вызови её из кода — `hcm_script` с `RESULT = [tools.имя_функции(…) + \'\'];`, массив из её ответа обойди циклом, из объекта возьми нужные поля |\n| `INVALID_RPC_ARGUMENT` | аргумент задан не так; в `message` — его номер в `arguments` |\n| `PLATFORM_SOAP-FAULT` | функция вызвана, отказ случился внутри неё или из-за значений аргументов |\n\n## Агенты сервера\n\nЗапустить агента и дождаться конца его кода: `hcm_api_execute {operationId:"agents.run", args:{id:"0x65D6BB73BFE67019"}}`.\n\n```json\n{ "started": true, "startedAt": "2026-10-09T20:31:17", "finishedAt": "2026-10-09T20:31:19" }\n```\n\n- ID агента находит `hcm_query {catalog:"server_agents", where:{code:"…"}, fields:["id","name"]}`.\n- `objectId` в коде агента — `OBJECT_ID`, список `objectIds` — `OBJECTS_ID_STR`. Параметры агента берутся из его документа.\n- Ошибку в коде агента ответ не показывает: `started:true` значит только, что код запущен и закончился. Что он написал, ищи в логах за время между `startedAt` и `finishedAt`: строки `Starting server agent` и `Finished server agent` — в логе `agent`, `alert` и текст ошибки — в `xhttp`. У строк одного запуска одна метка потока в квадратных скобках: `hcm_logs_search {file:"xhttp_….log", context:"0139"}`.\n- Вызов ждёт не дольше времени ожидания подключения (`timeoutMs`). Долгого агента запускай без ожидания — `rpc.call {library:"tools", method:"start_agent", arguments:["0x…"]}` — и следи за логом `agent` через `hcm_log_follow`.\n- Как и запуск из админки, вызов сохраняет в агенте дату последнего запуска.\n\n## Фоновые задачи\n\nДолгую функцию запускают задачей:\n\n1. `hcm_api_execute {operationId:"rpc.call", args:{library:"tools", method:"get_version", arguments:["wtv"], async:true}}` → `{"TrackingID":"0x113AE554167EEE65"}`.\n2. `hcm_api_read {operationId:"web.spxml.getAsyncMethodStatus", args:{trackingId:"0x113AE554167EEE65"}}` → пока задача идёт, `IsRunning:"1"`; когда закончилась — `{"IsRunning":"0","value":"2025.2.1535"}`: `value` такой же, как у обычного вызова. Если функция упала, вместо `value` приходит `ErrorText`.\n\nИтог сервер отдаёт один раз: после ответа с `IsRunning:"0"` запись о задаче удаляется. Сохрани ответ и больше эту задачу не опрашивай.\n\nОстановить задачу: `hcm_api_write {operationId:"web.spxml.killAsyncMethod", args:{trackingId:"…"}}`. Это просьба: уже сделанные изменения не откатываются.' },
   { topic: "logs", title: "Логи сервера, поиск причины отказа", text: '# Логи сервера\n\nЛоги читаются через API сервера, доступ к его диску не нужен. Права `write` и `execute` не требуются.\n\n## Найти причину отказа\n\nСервер на отказ отвечает HTTP 500 без объяснения. Строку об отказе он пишет в главный лог — `xhttp_ГГГГ-ММ-ДД.log` за сегодняшнюю дату сервера.\n\n1. `hcm_logs_list {type:"xhttp"}` — взять имя файла; новые файлы идут первыми.\n2. `hcm_log_follow {file:"xhttp_2026-10-01.log"}` — последние 10 событий. Строка об отказе — среди них.\n3. Старые события ищет `hcm_logs_search {file:"xhttp_2026-10-01.log", level:"error", limit:5}` или поиск по тексту: `text:"XQUERY FAILED"`.\n\nСтрока бывает подробной, а бывает короткой и без имени объекта:\n\n```\nXQUERY FAILED: for $elem in webinar_systems … - \'webinar_systems\' not defined\nunibridge error: Недопустимое имя объекта "dbo.no_such_catalog"\nError evaluating collection \'hcm_inline_…\'  — ошибка кода из hcm_script, имя совпадает с executionId\nUnknown method: no_such_method\nЭлемент не найден          — объекта или файла по этому адресу нет\nНеизвестная ошибка\n```\n\nНасколько подробна строка, зависит от версии сервера. Ошибка в тексте запроса XQuery может не оставить в логе `xhttp` ничего: тогда проверь сам запрос, см. тему `queries`.\n\nУ одного запроса метка `context` в логах `xhttp` и `spxml_unibridge` одна. Если в `xhttp` только короткая строка («Неизвестная ошибка»), возьми её `context` и найди подробности: `hcm_logs_search {file:"spxml_unibridge_2026-10-01.log", context:"…"}`. Так же после `UNKNOWN_CATALOG`.\n\nЗапрос, который отвергла база данных (ответ `hcm_query` или `hcm_xquery` пуст и с `incomplete:true`), записан в логе `spxml_unibridge_ГГГГ-ММ-ДД.log`. Сразу после запроса вызови `hcm_log_follow {file:"spxml_unibridge_2026-10-01.log"}`: среди последних событий будет ошибка базы, а под ней строки `XQuery:` с текстом запроса и `SQL:` с тем, что из него получилось.\n\n```\nError: Ошибка при преобразовании типа данных varchar к bigint.          — MS SQL: ID в кавычках\nError: 42883: оператор не существует: timestamp without time zone >= character varying   — PostgreSQL: дата в кавычках\n```\n\n## Инструменты\n\n| Инструмент | Что делает |\n| --- | --- |\n| `hcm_logs_list` | файлы: имя, тип, дата, размер; сначала новые, 30 на странице. Тип — имя файла без даты: `xhttp`, `xhttp_middleware`, `agent`. Фильтры: `type`, `nameContains`, `startDate`, `endDate` |\n| `hcm_log_read` | текст: по умолчанию конец файла, сколько помещается в ответ. `tailBytes` — взять больше, `full:true` — весь файл |\n| `hcm_logs_search` | события по `text`, `level`, `context`; многострочное событие (со стеком) приходит целиком. `newestFirst:true` — сначала последние |\n| `hcm_log_follow` | что появилось с прошлого вызова |\n\nПоиск идёт по концу файла (512 КБ). Чтобы искать по всему файлу, добавь `full:true`. `totalEvents` в ответе — сколько событий в прочитанной части; `tailOnly:true` — прочитан только конец файла, и счёт идёт не по всему файлу; `tailOnly:false` — файл прочитан целиком.\n\nЧто в каком логе:\n\n| Лог | Что в нём |\n| --- | --- |\n| `xhttp` | главный: отказы сервера, ошибки кода из `hcm_script`, строки, которые код пишет через `alert`. Запрос, который сервер выполнил, строки не оставляет |\n| `spxml_unibridge` | ошибки базы данных с текстом запроса XQuery и SQL; файлы `spxml_unibridge_none_<номер>_<дата>` — тот же лог отдельных процессов сервера, все вместе показывает `hcm_logs_list {nameContains:"spxml_unibridge"}` |\n| `agent` | запуски агентов сервера и их ошибки |\n| `auth-events` | входы и выходы пользователей: `login LDS user1 <адрес>`. Строка об удалении (`delete_user LDS user1 wt_data`) называет пользователя и базу, но не объект: что именно удалено, логи не скажут |\n| `email` | отправка уведомлений |\n| `xhttp_middleware`, `dotnetcore`, `components`, `package_manager` (на 2025.1 — `pakage_manager`), `licensing`, `lucene` | запуск сервера и его частей. Последний запуск — последняя строка `Starting in Normal Mode` в `dotnetcore`: файл за день запуска, поиск с `full:true` и `newestFirst:true` |\n\nНабор логов зависит от версии и настроек сервера: точные имена показывает `hcm_logs_list`.\n\nПрочитанный текст сохраняется локально, в ответе `meta.resultId`; от текста, который не поместился (`tailBytes`, `full:true`), в ответе только начало. `hcm_result_read {resultId}` читает его частями как текст, `hcm_result_export {resultId, path, format:"text"}` сохраняет в файл. Весь лог в файл: `hcm_log_read {file:"…", full:true}` и экспорт по его `meta.resultId`. Текст сохраняется в UTF-8 со знаком BOM и концами строк LF: размер файла меньше `sizeBytes` на сервере на число строк; `fingerprint` считается по этому тексту.\n\nОтвет поиска: `events` (у каждого `time`, `context`, `level`, `text`), `matches` — сколько совпадений всего. В файле строка записана как `время [context] текст`; `text` — она же без времени и метки: для цитаты читать файл заново не нужно. Пока есть `nextOffset`, совпадения не кончились: повтори вызов с `offset: nextOffset` и `expectedFingerprint: fingerprint` из ответа. `cutBySize:true` значит, что на странице меньше событий, чем просил `limit`: больше не поместилось в один ответ (событие со стеком бывает длинным). `LOG_CHANGED` значит, что лог за это время дописан: начни поиск заново.\n\n`level` определяется по словам в тексте события, русским и английским, приблизительно. Счёт по `level:"error"` может быть занижен; если ошибок по нему нет, ищи по тексту.\n\nВремя в логе — время сервера. Сколько на сервере сейчас: `hcm_script {code:"RESULT = [StrDate(Date())];"}`.\n\nПосле каждой записи в лог сервер несколько секунд не отдаёт этот файл. Клиент сам пережидает это время, поэтому чтение лога сразу после отказа может занять около шести секунд. Повторять вызов в цикле не нужно: отказ в чтении сервер тоже пишет в лог, и ожидание начинается заново.\n\n## Своя строка в логе\n\nКод на сервере пишет в лог сам. Так проверяют, что код дошёл до нужного места:\n\n- `alert(\'текст\')` и `LogEvent(\'\', \'текст\')` — строка в `xhttp`;\n- первый аргумент `LogEvent` — имя лога, а не уровень. `LogEvent(\'info\', \'текст\')` пишет в лог `info`, которого нет: строка пропадает без ошибки;\n- свой лог сначала включают: `EnableLog(\'my_log\', true); LogEvent(\'my_log\', \'текст\');` — на сервере появится файл `my_log_ГГГГ-ММ-ДД.log`.\n\n## Следить за логом\n\n1. Первый вызов `hcm_log_follow {file:"…"}` отдаёт последние 10 событий и `cursor`.\n2. Выполни действие, которое проверяешь.\n3. `hcm_log_follow {file:"…", cursor:"…"}` отдаёт то, что появилось. Возьми новый `cursor` из ответа.\n\nПоследнее событие может прийти повторно, если его дописали. `omitted:N` — столько новых событий не поместилось в ответ, прочитай их поиском. `gapPossible:true` — часть событий могла быть пропущена: прочитай конец файла через `hcm_log_read`.\n\nКаждый день сервер начинает новый файл. Для нового файла начни без `cursor`.\n\n## Ошибки\n\n| Код | Что случилось | Что делать |\n| --- | --- | --- |\n| `LOG_READ_UNAVAILABLE` | сервер не отдал текст файла и со второй попытки: в лог всё время пишут | повторить через десять секунд или взять лог за прошлую дату; обходить через код не нужно |\n| `LOG_NOT_FOUND` | файла с таким именем в списке нет | взять имя из `hcm_logs_list` |\n| `LOG_CHANGED` | файл изменился между страницами | начать чтение заново |\n| `INVALID_LOG_CURSOR` | курсор от другого файла или испорчен | начать без `cursor` |' },
-  { topic: "files", title: "Файлы сервера, документ как XML", text: '# Файлы сервера и документ как XML\n\nФайл на сервере задаётся адресом `x-local://…` — путь от папки установки сервера. Примеры: `x-local://wt/web/default.html`, `x-local://share/uploaded_files/…`.\n\nОперации вызываются через `hcm_api_read` и `hcm_api_write` по ID. Аргументы одной операции показывает `hcm_api_describe {operationId:"…"}`.\n\n## Файлы\n\n| Действие | Вызов |\n| --- | --- |\n| Есть ли файл или папка | `hcm_api_read {operationId:"files.exists", args:{url:"x-local://wt/web/default.html"}}` → `{"exists":true}` |\n| Прочитать | `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"…","bytes":48}`; если файл не текст в UTF-8 — `{"base64":"…","bytes":6}`. С `encoding:"base64"` в ответе всегда `base64` |\n| Записать текст в папку данных | `hcm_api_write {operationId:"native.lds.putUrl", args:{url:"…", data:"текст файла"}}` |\n| Записать двоичные данные | то же с `data:{base64:"AAECAwT/"}` |\n| Удалить из папки данных | `hcm_api_write {operationId:"native.lds.deleteUrl", args:{url:"…"}}` |\n| Скопировать | `hcm_api_write {operationId:"web.pages.copyUrl", args:{srcUrl:"…", destUrl:"…"}}`; оба адреса — `x-local://…` |\n\nЗапись заменяет файл целиком, прежнее содержимое не сохраняется: чтобы дописать строку, прочитай файл и запиши его заново. Запись, копирование и удаление отвечают пустым значением; результат проверяй через `files.exists` и `files.read`. Чтение несуществующего файла даёт `PLATFORM_SOAP-FAULT` с HTTP 500: сначала проверь адрес через `files.exists`. Папку логов (`x-local://Logs/…`) сервер так не отдаёт: логи читают инструменты `hcm_log_*`.\n\n`native.lds.putUrl` и `native.lds.deleteUrl` работают только в папках данных — тех, что стоят в настройке сервера `DATA-DB`: обычно это `share`, `source`, `wt_data`, `trash`. В папках кода (`wt`, `wtv`, `applications`, `custom` и других) сервер отвечает на них `PLATFORM_SOAP-FAULT` с HTTP 500 и файл не меняет. Читаются и те, и другие.\n\nВ папку кода файл кладёт и удаляет код на сервере, для него нужно право `execute`:\n\n- записать текст: `hcm_script {code:"PutUrlData(PARAMS.url, PARAMS.text); RESULT = [UrlFileSize(PARAMS.url)];", params:{url:"x-local://wt/web/my_page.html", text:"…"}}` → размер файла в байтах; текст пишется в UTF-8 как есть;\n- записать двоичные данные: то же с `PutUrlData(PARAMS.url, Base64Decode(PARAMS.base64))`;\n- удалить: `hcm_script {code:"DeleteUrl(PARAMS.url); RESULT = [];", params:{url:"…"}}`.\n\nВложенные папки сервер создаёт сам. Код вместе с `params` ограничен 1 МиБ: это файл примерно до 500 КБ.\n\nСписка папки среди операций нет, его тоже даёт код: `hcm_script {code:"RESULT = ReadDirectory(PARAMS.url);", params:{url:"x-local://wt/web"}}` → адреса файлов и папок одного уровня. Штатная функция `tools.read_directory_server` для этого не подходит: на версиях 2025.1.1171–2025.2.1535 она отвечает `Prohibited by security policy`.\n\nБольшой файл читай командой: `wtctl files read АДРЕС --output ФАЙЛ.json` сохраняет ответ на диск и не тратит контекст.\n\n## Загрузка файла\n\n`hcm_api_write {operationId:"web.pages.uploadFile", args:{filename:"report.txt", data:"…"}}` кладёт файл до 8 МБ в папку загрузок сервера. В ответе `url` — адрес файла (`x-local://share/uploaded_files/1244386602490721313/report.txt`), `folderUrl` — папка с номером, которую сервер создал для него. После удаления файла папку удаляют тем же `native.lds.deleteUrl`.\n\n`data` — текст файла или `{base64:"…"}`. Двоичный или большой файл с диска этого компьютера загружает команда: `wtctl file upload report.pdf --input-file ./report.pdf`.\n\n## Документ как XML\n\nОбычно документ читают и правят через `hcm_object_get` и `hcm_object_patch`. Операции ниже нужны, когда нужен документ целиком в исходном виде.\n\n- Адрес документа — поле `url` в ответе `hcm_object_get`, например `x-local://wt_data/objects/607999B973FFE0/44.xml`. Адрес существующего документа бери оттуда; как составить адрес для нового ID, см. тему `objects`, раздел «Создание».\n- Прочитать текст XML: `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"<group SPXML-FORM=\\"x-local://wtv/wtv_group.xmd\\"><id>…</id>…</group>"}`. Как записаны значения в тексте, зависит от базы данных сервера: логическое поле бывает `false` и `0`, отступы и заголовок `<?xml …?>` есть не везде.\n- Прочитать разобранным в JSON: `hcm_api_read {operationId:"native.lds.loadDoc", args:{url:"…"}}`. Документ приходит в `data.Data.<тип>`. Повторяемый элемент из одного элемента здесь объект, а не список. Даты здесь и в тексте XML записаны со смещением `+00:00`: это местное время сервера.\n- Сохранить: `hcm_api_write {operationId:"native.lds.putDoc", args:{url:"…", data:"<group>…</group>"}}`. `data` — текст XML всего документа: он заменяет документ целиком. `neverSaved:true` — документ записывается впервые. С `writeDocInfo:true` сервер обновляет дату и автора изменения; без него они остаются как в тексте, и поиск по `modification_date` правку не видит. Чужую правку операция не замечает: `fingerprint` из `hcm_object_get` сверяй до записи сами. Чтобы изменить несколько полей, используй `hcm_object_patch`.\n- Создать из готового XML: `native.physicalDocuments.createFromXml`. Удалить: `native.lds.deleteDoc`.' },
-  { topic: "cli-sdk", title: "Команда `wtctl`, SDK, несколько операций одним вызовом", text: '# Команда `wtctl`, SDK, несколько операций одним вызовом\n\n## Как запустить\n\nЕсли `wtctl` есть в `PATH`, вызывай `wtctl`. Если нет, команду для этого компьютера называет гайд сервера: `hcm_guide {topic:"cli-sdk"}`, раздел «На этом компьютере» в конце.\n\nПодключение команда и SDK берут из файла подключений (какой файл — показывает `wtctl config path`) или из переменных `WTCTL_URL`, `WTCTL_USERNAME`, `WTCTL_PASSWORD` своей оболочки. Переменные, заданные в записи MCP-сервера, им не видны. `--connection ИМЯ` выбирает подключение из файла; без него берётся подключение по умолчанию.\n\n`wtctl help` показывает команды, `wtctl help КОМАНДА` — аргументы и примеры одной команды. Сначала читай справку нужной команды, флаги не угадывай.\n\n## Соответствие инструментам MCP\n\n| Инструмент | Команда |\n| --- | --- |\n| `hcm_status`, `hcm_check` | `wtctl status`, `wtctl check` |\n| `hcm_types`, `hcm_schema` | `wtctl types --search сотрудник`, `wtctl schema collaborator --search логин` |\n| `hcm_query` | `wtctl query --catalog collaborators --input-file where.json --fields id,fullname --order "fullname, hire_date desc"`; в файле условия: `{"is_dismiss":false}` |\n| `hcm_xquery` | `wtctl query \'for $e in collaborators order by $e/fullname return $e\' --fields id,fullname` |\n| `hcm_object_get` | `wtctl object get collaborator 0x5555555555555501 --fields login,lastname`; несколько объектов — `wtctl object get --ids 0x…,0x… --fields login` |\n| `hcm_object_create`, `_patch`, `_delete` | `wtctl object create ТИП --input-file object.json`, `object patch ТИП ID --input-file patch.json --preview` (`--resave` — сохранить и без правок), `object delete ТИП ID --permanent`; вместо `ТИП ID` годится `--url АДРЕС` |\n| `hcm_script` | `wtctl exec --input-file script.js`; параметры кода — `--params-file params.json` или `--params \'{\\"id\\":\\"0x…\\"}\'` |\n| `hcm_logs_list`, `hcm_logs_search`, `hcm_log_read`, `hcm_log_follow` | `wtctl logs list`, `logs search ФАЙЛ --level error --newest-first`, `logs read ФАЙЛ`, `logs follow ФАЙЛ` |\n| `hcm_api_list`, `hcm_api_describe` | `wtctl api list`, `wtctl api describe ОПЕРАЦИЯ` |\n| `hcm_api_read`, `_write`, `_execute` | `wtctl api call ОПЕРАЦИЯ --input-file args.json` |\n| `hcm_result_read`, `hcm_result_export` | `wtctl result read ID`, `wtctl result export ID --to ФАЙЛ` |\n| `hcm_guide` | `wtctl guide`, `wtctl guide ТЕМА` |\n\n## Ввод и вывод\n\n- JSON и код передавай файлом (`--input-file`) или через stdin (`--stdin`). `--args \'…\'` и `--where \'…\'` годятся для короткого JSON. Оболочки по-разному обрабатывают кавычки внутри аргумента; запись `\\"` команда понимает в любой из них: `--where \'{\\"is_dismiss\\":false}\'`. В cmd весь JSON берут в двойные кавычки.\n- Файл для `query` без `--catalog`: объект JSON — это все аргументы сразу (`{"catalog":"…","where":{…},"fields":[…],"order":[…],"limit":20,"startPosition":0}` или `{"query":"…","fields":[…],"limit":20,"startPosition":0}`), иначе — текст запроса XQuery. `--limit`, `--start-position`, `--fields` и `--order` в командной строке сильнее значений из файла.\n- Ответ — одна строка JSON в stdout: `{"ok":true,"data":…,"meta":…}` или `{"ok":false,"error":{"code","message","hint"},"meta":…}`. `help` и `guide` печатают текст; с `--json` — такой же ответ JSON.\n- Код выхода: 0 — успех, 1 — операция не выполнена, 2 — неверные аргументы команды.\n- `--output ФАЙЛ.json` сохраняет полный ответ в файл, какого бы размера он ни был; в stdout остаётся короткая сводка (у записи в ней `id` и `mutationOutcome`). Табличных форматов (CSV) команда не пишет. Используй для больших ответов. Если операция не выполнена, код выхода 1, в сводке есть `error`, в файле — полный ответ с `"ok":false`. Ошибка аргументов (код 2) и ошибка настроек подключения (код 1) печатаются в stderr; файл не создаётся, а файл от прошлого запуска остаётся как был. Сначала проверяй код выхода.\n- Без `--output` ответ больше лимита обрезается: `meta.truncated` и `meta.resultId`, в `data.preview` — начало. Дочитать: `wtctl result read ID` (список ответа читается по элементам) или `wtctl result export ID --to ФАЙЛ` (`--format jsonl` — по строке на элемент списка). Сохранённый текст лога или файла выгружается текстом: `--format text`. Страница короче запрошенной помечена `cutBySize`.\n\n## Несколько операций одним вызовом\n\n`wtctl run --input-file batch.json`:\n\n```json\n{\n  "steps": [\n    { "id": "runtime.query", "as": "found", "args": { "catalog": "groups", "fields": ["id", "name"], "limit": 1 } },\n    { "id": "objects.get", "args": { "id": { "$ref": "found.data.items.0.id" }, "fields": ["name"] } }\n  ]\n}\n```\n\n- `id` — ID операции. ID основных операций: `runtime.query`, `objects.get`, `objects.create`, `objects.patch`, `objects.delete`, `schema.get`, `schema.types`, `execute.script`, `rpc.call`; остальные показывает `wtctl api list`.\n- `as` даёт шагу имя: латинские буквы, цифры и `_`, первой не цифра. `{"$ref":"имя.data.путь"}` подставляет значение из ответа этого шага; элемент массива — по номеру (`items.0.id`).\n- Ответ: `results` — ответы шагов по порядку (у шага с именем оно повторено в `as`), `completed` — сколько шагов выполнено.\n- Это не транзакция: первый отказ останавливает остальные шаги, выполненные не откатываются. `stopOnError:false` выполняет все шаги.\n- Если отказал хоть один шаг, ответ всего вызова — `BATCH_FAILED`, а ответы шагов остаются в `data.results`. Какие шаги отказали, сказано в `error.details.failed`. Большой ответ пакета сохраняется: шаги читает `hcm_result_read` по `meta.resultId`.\n- Права проверяются для каждого шага.\n\nВ MCP тот же вызов идёт через инструмент по самому сильному шагу: только чтение — `hcm_api_read {operationId:"runtime.batch", args:{steps:[…]}}`, есть запись — `hcm_api_write`, есть код или вызов функции — `hcm_api_execute`. При ошибке выбора ответ называет нужный инструмент.\n\n## SDK\n\nSDK нужен, когда задачу удобнее решить скриптом: цикл по сотням объектов, своя обработка данных. Скрипт на JavaScript (Node.js 22.16 или новее):\n\n```javascript\n// script.mjs\nimport { loadConfig, withHcmClient, unwrap } from "wtctl";\n\nawait withHcmClient(loadConfig(), async (client) => {\n  const page = unwrap(\n    await client.query({ catalog: "collaborators", where: { is_dismiss: false }, fields: ["id", "fullname"] }),\n  );\n  for (const row of page.items) console.log(row.id, row.fullname);\n});\n```\n\nТак пишут в проекте, где пакет установлен. Без установки SDK импортируют по адресу из гайда сервера: `hcm_guide {topic:"cli-sdk"}`, раздел «На этом компьютере». `loadConfig()` без аргументов берёт то же подключение, что и команда.\n\n- `withHcmClient` открывает подключение и закрывает его после функции.\n- Каждый метод возвращает тот же ответ `{ok, data, meta}` или `{ok:false, error}`. `unwrap` достаёт `data` или бросает ошибку с полями `code`, `hint`, `mutationOutcome`.\n- Методы: `status`, `check`, `types`, `schema`, `query`, `get`, `create`, `patch`, `delete`, `execute` (код), `runAgent`, `rpc`, `listRpc`, `describeRpc`, `batch`, `listLogs`, `searchLogs`, `readLog`, `followLog`, `readFile`, `fileExists`, `uploadFile`, `readResult`, `exportResult`. Любая операция по ID: `client.call("native.lds.loadDoc", { url })`.\n- Аргументы методов те же, что у инструментов MCP: `client.patch({ id, patch: { name: "…" }, preview: true })`; код принимается и строкой, параметры кода — вторым аргументом: `client.execute("RESULT = [PARAMS.n];", { n: 1 })`. Код из файла: `client.execute(await readFile("check.js", "utf8"), params)`. Запустить агента и дождаться конца: `client.runAgent({ id })`. Запрос XQuery — тот же `query`: `client.query({ query: "for $e in … return $e", fields: ["id"] })`.\n- В цикле по страницам проверяй `page.incomplete`: пустая страница с `incomplete:true` — отвергнутый запрос, а не конец данных.\n- Ответ больше 24 КБ сохраняется на диск, и `unwrap` бросает ошибку `RESULT_STORED`. В скрипте подними предел: `withHcmClient({ ...loadConfig(), outputLimitBytes: 1024 * 1024 }, …)`, задавай `fields` и читай страницами: `startPosition: page.nextStartPosition`, пока оно есть.\n- `loadConfig({ connection: "имя" })` выбирает подключение, `configPath` — другой файл подключений. Права `write` и `execute` заданы в подключении, скрипт их не расширяет.' },
+  { topic: "files", title: "Файлы сервера, документ как XML", text: '# Файлы сервера и документ как XML\n\nФайл на сервере задаётся адресом `x-local://…` — путь от папки установки сервера. Примеры: `x-local://wt/web/default.html`, `x-local://share/uploaded_files/…`.\n\nОперации вызываются по ID через `hcm_api_read`, `hcm_api_write` и `hcm_api_execute`. Аргументы одной операции показывает `hcm_api_describe {operationId:"…"}`.\n\n## Файлы\n\n| Действие | Вызов |\n| --- | --- |\n| Есть ли файл или папка | `hcm_api_read {operationId:"files.exists", args:{url:"x-local://wt/web/default.html"}}` → `{"exists":true}` |\n| Прочитать | `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"…","bytes":48}`; если файл не текст в UTF-8 или в нём есть управляющие байты — `{"base64":"…","bytes":6}`. С `encoding:"base64"` в ответе всегда `base64` |\n| Список папки | `hcm_api_execute {operationId:"files.list", args:{url:"x-local://wt/web"}}` → `{"items":[{"name":"default.html","bytes":48},{"name":"img","folder":true}],"total":2}`. С `search:"default"` в ответе только имена с этой частью: так узнаётся и размер одного файла |\n| Записать текст | `hcm_api_write {operationId:"files.write", args:{url:"…", text:"текст файла"}}` → `{"bytes":21,"mutationOutcome":"confirmed"}` |\n| Записать двоичные данные | то же с `base64:"AAECAwT/"` вместо `text` |\n| Удалить | `hcm_api_write {operationId:"files.delete", args:{url:"…"}}` |\n\nТекст записывается в UTF-8 как есть. Запись заменяет файл целиком, прежнее содержимое не сохраняется: чтобы дописать строку, прочитай файл и запиши его заново. Копия делается так же: прочитай файл и запиши по новому адресу. Вложенные папки сервер создаёт сам.\n\nКуда можно писать, зависит от папки — первой части адреса после `x-local://`. Способ записи операция выбирает сама:\n\n- папки данных (обычно `share`, `source`, `wt_data`, `trash`): хватает права `write`; `files.delete` удаляет и пустую папку, на непустую сервер отвечает отказом;\n- папки кода (`wt`, `wtv`, `applications`, `custom` и другие): файл записывает и удаляет код на сервере, поэтому нужны оба права, `write` и `execute`; текст — до 750 КБ, двоичные данные — до 580 КБ; удаляется только файл, пустая папка остаётся;\n- остальные адреса, например `x-local://Logs/…`: операция отказывает до отправки и называет папки, которые запись принимают.\n\nСписки папок подключённого сервера: `hcm_api_read {operationId:"server.info"}` → `dataFolders`, `codeFolders`.\n\n`files.list` показывает один уровень папки и требует права `execute`: список даёт только код на сервере. Штатная функция `tools.read_directory_server` для этого не подходит: на версиях 2025.1.1171–2025.2.1535 она отвечает `Prohibited by security policy`.\n\nЧтение несуществующего файла даёт `PLATFORM_SOAP-FAULT` с HTTP 500: сначала проверь адрес через `files.exists`. Папку логов (`x-local://Logs/…`) сервер так не отдаёт: логи читают инструменты `hcm_log_*`.\n\nБольшой файл читай командой: `wtctl files read АДРЕС --output ФАЙЛ.json` сохраняет ответ на диск и не тратит контекст.\n\n## Загрузка файла\n\n`hcm_api_write {operationId:"web.pages.uploadFile", args:{filename:"report.txt", data:"…"}}` кладёт файл до 8 МБ в папку загрузок сервера. В ответе `url` — адрес файла (`x-local://share/uploaded_files/1244386602490721313/report.txt`), `folderUrl` — папка с номером, которую сервер создал для него. Вместе с файлом папка не исчезает: её удаляет отдельный вызов `files.delete` с адресом из `folderUrl`.\n\n`data` — текст файла или `{base64:"…"}`. Двоичный или большой файл с диска этого компьютера загружает команда: `wtctl file upload report.pdf --input-file ./report.pdf`.\n\n## Документ как XML\n\nОбычно документ читают и правят через `hcm_object_get` и `hcm_object_patch`. Операции ниже нужны, когда нужен документ целиком в исходном виде.\n\n- Адрес документа — поле `url` в ответе `hcm_object_get`, например `x-local://wt_data/objects/607999B973FFE0/44.xml`. Адрес существующего документа бери оттуда; как составить адрес для нового ID, см. тему `objects`, раздел «Создание».\n- Прочитать текст XML: `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"<group SPXML-FORM=\\"x-local://wtv/wtv_group.xmd\\"><id>…</id>…</group>"}`. Как записаны значения в тексте, зависит от базы данных сервера: логическое поле бывает `false` и `0`, отступы и заголовок `<?xml …?>` есть не везде.\n- Прочитать разобранным в JSON: `hcm_api_read {operationId:"native.lds.loadDoc", args:{url:"…"}}`. Документ приходит в `data.Data.<тип>`. Повторяемый элемент из одного элемента здесь объект, а не список. Даты здесь и в тексте XML записаны со смещением `+00:00`: это местное время сервера.\n- Сохранить: `hcm_api_write {operationId:"native.lds.putDoc", args:{url:"…", data:"<group>…</group>"}}`. `data` — текст XML всего документа: он заменяет документ целиком. `neverSaved:true` — документ записывается впервые. С `writeDocInfo:true` сервер обновляет дату и автора изменения; без него они остаются как в тексте, и поиск по `modification_date` правку не видит. Чужую правку операция не замечает: `fingerprint` из `hcm_object_get` сверяй до записи сами. Чтобы изменить несколько полей, используй `hcm_object_patch`.\n- Создать из готового XML: `native.physicalDocuments.createFromXml`. Удалить: `native.lds.deleteDoc`.' },
+  { topic: "cli-sdk", title: "Команда `wtctl`, SDK, несколько операций одним вызовом", text: '# Команда `wtctl`, SDK, несколько операций одним вызовом\n\n## Как запустить\n\nЕсли `wtctl` есть в `PATH`, вызывай `wtctl`. Если нет, команду для этого компьютера называет гайд сервера: `hcm_guide {topic:"cli-sdk"}`, раздел «На этом компьютере» в конце.\n\nПодключение команда и SDK берут из файла подключений (какой файл — показывает `wtctl config path`) или из переменных `WTCTL_URL`, `WTCTL_USERNAME`, `WTCTL_PASSWORD` своей оболочки. Переменные, заданные в записи MCP-сервера, им не видны. `--connection ИМЯ` выбирает подключение из файла; без него берётся подключение по умолчанию.\n\n`wtctl help` показывает команды, `wtctl help КОМАНДА` — аргументы и примеры одной команды. Сначала читай справку нужной команды, флаги не угадывай.\n\n## Соответствие инструментам MCP\n\n| Инструмент | Команда |\n| --- | --- |\n| `hcm_status`, `hcm_check` | `wtctl status`, `wtctl check` |\n| `hcm_types`, `hcm_schema` | `wtctl types --search сотрудник`, `wtctl schema collaborator --search логин` |\n| `hcm_query` | `wtctl query --catalog collaborators --input-file where.json --fields id,fullname --order "fullname, hire_date desc"`; в файле условия: `{"is_dismiss":false}` |\n| `hcm_xquery` | `wtctl query \'for $e in collaborators order by $e/fullname return $e\' --fields id,fullname` |\n| `hcm_object_get` | `wtctl object get collaborator 0x5555555555555501 --fields login,lastname`; несколько объектов — `wtctl object get --ids 0x…,0x… --fields login` |\n| `hcm_object_create`, `_patch`, `_delete` | `wtctl object create ТИП --input-file object.json`, `object patch ТИП ID --input-file patch.json --preview` (`--resave` — сохранить и без правок), `object delete ТИП ID --permanent`; вместо `ТИП ID` годится `--url АДРЕС` |\n| `hcm_script` | `wtctl exec --input-file script.js`; параметры кода — `--params-file params.json` или `--params \'{\\"id\\":\\"0x…\\"}\'` |\n| `hcm_logs_list`, `hcm_logs_search`, `hcm_log_read`, `hcm_log_follow` | `wtctl logs list`, `logs search ФАЙЛ --level error --newest-first`, `logs read ФАЙЛ`, `logs follow ФАЙЛ` |\n| `hcm_api_list`, `hcm_api_describe` | `wtctl api list`, `wtctl api describe ОПЕРАЦИЯ` |\n| `hcm_api_read`, `_write`, `_execute` | `wtctl api call ОПЕРАЦИЯ --input-file args.json` |\n| `hcm_result_read`, `hcm_result_export` | `wtctl result read ID`, `wtctl result export ID --to ФАЙЛ` |\n| `hcm_guide` | `wtctl guide`, `wtctl guide ТЕМА` |\n\n## Ввод и вывод\n\n- JSON и код передавай файлом (`--input-file`) или через stdin (`--stdin`). `--args \'…\'` и `--where \'…\'` годятся для короткого JSON. Оболочки по-разному обрабатывают кавычки внутри аргумента; запись `\\"` команда понимает в любой из них: `--where \'{\\"is_dismiss\\":false}\'`. В cmd весь JSON берут в двойные кавычки.\n- Файл для `query` без `--catalog`: объект JSON — это все аргументы сразу (`{"catalog":"…","where":{…},"fields":[…],"order":[…],"limit":20,"startPosition":0}` или `{"query":"…","fields":[…],"limit":20,"startPosition":0}`), иначе — текст запроса XQuery. `--limit`, `--start-position`, `--fields` и `--order` в командной строке сильнее значений из файла.\n- Ответ — одна строка JSON в stdout: `{"ok":true,"data":…,"meta":…}` или `{"ok":false,"error":{"code","message","hint"},"meta":…}`. `help` и `guide` печатают текст; с `--json` — такой же ответ JSON.\n- Код выхода: 0 — успех, 1 — операция не выполнена, 2 — неверные аргументы команды.\n- `--output ФАЙЛ.json` сохраняет полный ответ в файл, какого бы размера он ни был; в stdout остаётся короткая сводка (у записи в ней `id` и `mutationOutcome`). Табличных форматов (CSV) команда не пишет. Используй для больших ответов. Если операция не выполнена, код выхода 1, в сводке есть `error`, в файле — полный ответ с `"ok":false`. Ошибка аргументов (код 2) и ошибка настроек подключения (код 1) печатаются в stderr; файл не создаётся, а файл от прошлого запуска остаётся как был. Сначала проверяй код выхода.\n- Без `--output` ответ больше лимита обрезается: `meta.truncated` и `meta.resultId`, в `data.preview` — начало. Дочитать: `wtctl result read ID` (список ответа читается по элементам) или `wtctl result export ID --to ФАЙЛ` (`--format jsonl` — по строке на элемент списка). Сохранённый текст лога или файла выгружается текстом: `--format text`. Страница короче запрошенной помечена `cutBySize`.\n\n## Несколько операций одним вызовом\n\n`wtctl run --input-file batch.json`:\n\n```json\n{\n  "steps": [\n    { "id": "runtime.query", "as": "found", "args": { "catalog": "groups", "fields": ["id", "name"], "limit": 1 } },\n    { "id": "objects.get", "args": { "id": { "$ref": "found.data.items.0.id" }, "fields": ["name"] } }\n  ]\n}\n```\n\n- `id` — ID операции. ID основных операций: `runtime.query`, `objects.get`, `objects.create`, `objects.patch`, `objects.delete`, `schema.get`, `schema.types`, `execute.script`, `rpc.call`; остальные показывает `wtctl api list`.\n- `as` даёт шагу имя: латинские буквы, цифры и `_`, первой не цифра. `{"$ref":"имя.data.путь"}` подставляет значение из ответа этого шага; элемент массива — по номеру (`items.0.id`).\n- Ответ: `results` — ответы шагов по порядку (у шага с именем оно повторено в `as`), `completed` — сколько шагов выполнено.\n- Это не транзакция: первый отказ останавливает остальные шаги, выполненные не откатываются. `stopOnError:false` выполняет все шаги.\n- Если отказал хоть один шаг, ответ всего вызова — `BATCH_FAILED`, а ответы шагов остаются в `data.results`. Какие шаги отказали, сказано в `error.details.failed`. Большой ответ пакета сохраняется: шаги читает `hcm_result_read` по `meta.resultId`.\n- Права проверяются для каждого шага.\n\nВ MCP тот же вызов идёт через инструмент по самому сильному шагу: только чтение — `hcm_api_read {operationId:"runtime.batch", args:{steps:[…]}}`, есть запись — `hcm_api_write`, есть код или вызов функции — `hcm_api_execute`. При ошибке выбора ответ называет нужный инструмент.\n\n## SDK\n\nSDK нужен, когда задачу удобнее решить скриптом: цикл по сотням объектов, своя обработка данных. Скрипт на JavaScript (Node.js 22.16 или новее):\n\n```javascript\n// script.mjs\nimport { loadConfig, withHcmClient, unwrap } from "wtctl";\n\nawait withHcmClient(loadConfig(), async (client) => {\n  const page = unwrap(\n    await client.query({ catalog: "collaborators", where: { is_dismiss: false }, fields: ["id", "fullname"] }),\n  );\n  for (const row of page.items) console.log(row.id, row.fullname);\n});\n```\n\nТак пишут в проекте, где пакет установлен. Без установки SDK импортируют по адресу из гайда сервера: `hcm_guide {topic:"cli-sdk"}`, раздел «На этом компьютере». `loadConfig()` без аргументов берёт то же подключение, что и команда.\n\n- `withHcmClient` открывает подключение и закрывает его после функции.\n- Каждый метод возвращает тот же ответ `{ok, data, meta}` или `{ok:false, error}`. `unwrap` достаёт `data` или бросает ошибку с полями `code`, `hint`, `mutationOutcome`.\n- Методы: `status`, `check`, `types`, `schema`, `query`, `get`, `create`, `patch`, `delete`, `execute` (код), `runAgent`, `rpc`, `listRpc`, `describeRpc`, `batch`, `listLogs`, `searchLogs`, `readLog`, `followLog`, `readFile`, `fileExists`, `listFiles`, `writeFile`, `deleteFile`, `uploadFile`, `readResult`, `exportResult`. Любая операция по ID: `client.call("native.lds.loadDoc", { url })`.\n- Аргументы методов те же, что у инструментов MCP: `client.patch({ id, patch: { name: "…" }, preview: true })`; код принимается и строкой, параметры кода — вторым аргументом: `client.execute("RESULT = [PARAMS.n];", { n: 1 })`. Код из файла: `client.execute(await readFile("check.js", "utf8"), params)`. Запустить агента и дождаться конца: `client.runAgent({ id })`. Запрос XQuery — тот же `query`: `client.query({ query: "for $e in … return $e", fields: ["id"] })`.\n- В цикле по страницам проверяй `page.incomplete`: пустая страница с `incomplete:true` — отвергнутый запрос, а не конец данных.\n- Ответ больше 24 КБ сохраняется на диск, и `unwrap` бросает ошибку `RESULT_STORED`. В скрипте подними предел: `withHcmClient({ ...loadConfig(), outputLimitBytes: 1024 * 1024 }, …)`, задавай `fields` и читай страницами: `startPosition: page.nextStartPosition`, пока оно есть.\n- `loadConfig({ connection: "имя" })` выбирает подключение, `configPath` — другой файл подключений. Права `write` и `execute` заданы в подключении, скрипт их не расширяет.' },
   { topic: "errors", title: "Коды ошибок и что с ними делать", text: '# Ошибки\n\nОшибка приходит так:\n\n```json\n{ "ok": false, "error": { "code": "UNKNOWN_FIELD", "message": "…", "hint": "…", "details": { "fields": ["…"] }, "mutationOutcome": "not_sent" } }\n```\n\nСначала читай `hint`: там сказано, что делать. `details` и `mutationOutcome` есть не у каждой ошибки. `mutationOutcome` есть у операций записи и выполнения кода; у запроса XQuery, который сервер отверг, его нет — такой запрос ничего не менял:\n\n| Значение | Что значит | Что делать |\n| --- | --- | --- |\n| `not_sent` | запрос на сервер не ушёл | исправить и повторить можно |\n| `confirmed` | запись прошла и проверена | повторять не нужно |\n| `indeterminate` | запрос ушёл; ответа нет или проверка после записи не сошлась | прочитать объект и только потом решать, повторять ли |\n\n## Запреты\n\n| Код | Что делать |\n| --- | --- |\n| `WRITE_DISABLED`, `EXECUTE_DISABLED` | подключению не дано это право. Остановиться и сказать пользователю; другой способ сделать то же самое не искать |\n| `PLATFORM_AUTH`, `PLATFORM_PERMISSION` | сервер не принял логин или не дал доступ. Сказать пользователю. Сессию, которую сервер закрыл за время простоя, клиент открывает заново сам: эта ошибка значит отказ в самом входе |\n\n## Отказ сервера\n\n`PLATFORM_SOAP-FAULT` или `PLATFORM_HTTP` с `details.status: 500` — сервер отказал и причину в ответе не назвал. Обычную причину подсказывает `hint`. Строка об отказе бывает в логе: `hcm_log_follow {file:"xhttp_ГГГГ-ММ-ДД.log"}`, см. тему `logs`. Она может быть короткой («Элемент не найден»), а после ошибки в тексте запроса её может не быть вовсе.\n\nЧастые причины: объекта с таким ID нет; файла по адресу нет; ошибка в тексте XQuery; имени каталога нет на сервере.\n\n`PLATFORM_HTTP` без статуса или `PLATFORM_PROTOCOL` — нет связи с сервером или ответ не разобран. Проверь `hcm_status`, затем `hcm_check`: он показывает, какой шаг не проходит.\n\n## Неверный вызов\n\n| Код | Что делать |\n| --- | --- |\n| `mcp.invalid_arguments` | аргументы не подходят инструменту MCP; какие — в `details.validation` |\n| `mcp.effect_mismatch` | операция вызвана не тем инструментом из `hcm_api_read`, `_write`, `_execute`: нужный назван в `hint` |\n| `cli.invalid_input` | неверные аргументы команды: `wtctl help КОМАНДА` |\n| `INVALID_ARGUMENT` | в `message` назван аргумент. Сверить с описанием инструмента или `hcm_api_describe` |\n| `INVALID_IDENTIFIER`, `DUPLICATE_STEP` | имя каталога, поля или шага пакета (`as`): латинские буквы, цифры и `_`, первой не цифра; имена шагов не повторяются |\n| `UNKNOWN_TYPE`, `UNKNOWN_CATALOG` | взять имя из `hcm_types` |\n| `UNKNOWN_CATALOG_FIELD` | поля нет в каталоге: взять поле с `query:true` из `hcm_schema` или читать документ через `hcm_object_get` |\n| `UNKNOWN_OPERATION`, `UNKNOWN_TOPIC` | взять ID из `hcm_api_list` |\n| `UNKNOWN_RPC_TARGET` | такой функции или библиотеки на сервере нет: в `hint` — похожие имена; искать через `rpc.list` с `query` и `all:true` |\n| `RPC_SERVER_ONLY` | функция вызывается только из кода на сервере: `hcm_script`, см. тему `scripts` |\n| `INVALID_FILTER_OPERATOR`, `INVALID_FILTER_VALUE` | см. тему `queries` |\n| `INVALID_PATCH_PATH`, `PATCH_PATH_MISSING`, `PATCH_INDEX_MISSING`, `AMBIGUOUS_PATCH` | путь в `patch` или `remove` неверен, см. тему `objects` |\n| `INVALID_RPC_ARGUMENT` | аргумент функции задан неверно, см. тему `scripts` |\n\n## Запись\n\n| Код | Что случилось | Что делать |\n| --- | --- | --- |\n| `CONFLICT` | объект изменился после чтения; ничего не записано | прочитать заново и повторить |\n| `UNKNOWN_FIELD` | у типа нет поля с таким именем; ничего не записано | взять имя из `hint` или из `hcm_schema` |\n| `READ_BACK_MISMATCH` | документ сохранён, но поля из `details.fields` не приняли значение; что не совпало — в `details.differences` | проверить поля в `hcm_schema`, прочитать объект; заново не создавать. При удалении — объект остался в каталоге, см. тему `objects` |\n| `IMMUTABLE_ID` | попытка изменить `id` | ID не меняется |\n| `TYPE_MISMATCH`, `TARGET_MISMATCH` | объект другого типа, чем указан | настоящий тип — в `details.actualType`; проверить `type` и ID |\n| `DELETE_MODE_REQUIRED` | удаление без `permanent:true`; в MCP это `mcp.invalid_arguments` с `permanent` в `details.validation` | добавить `permanent:true`: корзины нет |\n| `BATCH_FAILED` | шаг пакета не выполнен | номера и коды отказавших шагов — в `error.details.failed`, ответы всех шагов — в `data.results` (большой ответ сохранён, его читает `hcm_result_read`); выполненные шаги не откатываются |\n\n## Код и запросы\n\n| Код | Что делать |\n| --- | --- |\n| `SCRIPT_FAILED` | текст ошибки кода — в `details.scriptError`, см. тему `scripts` |\n| `SCRIPT_RESPONSE` | код не присвоил `RESULT` массив или вернул то, что не передаётся (документ, структуру) |\n| `QUERY_REPRESENTATION` | запрос XQuery вернул не строки каталога: закончить на `return $e` |\n\n## Логи и результаты\n\n| Код | Что делать |\n| --- | --- |\n| `LOG_READ_UNAVAILABLE` | сервер не отдал этот файл и со второй попытки: повторить через десять секунд или взять лог за прошлую дату |\n| `LOG_NOT_FOUND` | взять имя файла из `hcm_logs_list` |\n| `LOG_CHANGED` | лог дописан между страницами: начать заново |\n| `INVALID_LOG_CURSOR` | начать `hcm_log_follow` без `cursor` |\n| `RESULT_NOT_FOUND`, `INVALID_RESULT_ID` | сохранённого результата с таким ID нет: взять `meta.resultId` из ответа или повторить исходный вызов |\n| `INVALID_RESULT_FORMAT` | у результата нет такой формы: `text` — для текста (лог, файл), `jsonl` — для списка, `json` подходит любому |\n\nНеизвестный код: действуй по `hint`. Если запись могла пройти (`indeterminate`), сначала проверь состояние на сервере.' }
 ];
 
@@ -37544,7 +36981,7 @@ ${onThisComputer(local2)}` } : page;
 }
 
 // src/version.ts
-var VERSION = "0.1.2";
+var VERSION = "0.2.0";
 
 // src/mcp/server.ts
 function text3(description, required2 = false, maximum = 2048) {
@@ -38131,8 +37568,8 @@ function createHcmMcpServer(runtime, options = {}) {
 async function runMcpStdio(runtime, connectionName, writeDiagnostic, local2) {
   const server = createHcmMcpServer(runtime, { connectionName, local: local2 });
   let resolveClosed;
-  const closed = new Promise((resolve6) => {
-    resolveClosed = resolve6;
+  const closed = new Promise((resolve5) => {
+    resolveClosed = resolve5;
   });
   server.onclose = resolveClosed;
   server.onerror = () => {
@@ -38495,27 +37932,26 @@ var COMMANDS = {
     ]
   },
   file: {
-    summary: "Файл сервера как есть: get (base64), put, upload, delete.",
+    summary: "Загрузка файла в папку загрузок сервера: upload.",
     usage: [
-      "wtctl file get АДРЕС",
-      "wtctl file put АДРЕС --input-file resource.bin",
-      "wtctl file upload ИМЯ --input-file resource.bin [--content-type application/octet-stream]",
-      "wtctl file delete АДРЕС"
+      "wtctl file upload ИМЯ --input-file resource.bin [--content-type application/octet-stream]"
     ],
-    notes: [
-      "АДРЕС — x-local://…",
-      "upload кладёт файл в папку загрузок сервера; в ответе url — адрес файла, folderUrl — папка, созданная для него."
-    ]
+    notes: ["В ответе url — адрес файла, folderUrl — папка, созданная для него."]
   },
   files: {
-    summary: "Файл сервера: read (текстом), exists.",
+    summary: "Файл сервера: read (текстом), exists, list, write, delete.",
     usage: [
       "wtctl files read АДРЕС",
       "wtctl files read АДРЕС --base64",
-      "wtctl files exists АДРЕС"
+      "wtctl files exists АДРЕС",
+      "wtctl files list АДРЕС [--search ЧАСТЬ_ИМЕНИ]",
+      "wtctl files write АДРЕС --input-file ФАЙЛ",
+      "wtctl files delete АДРЕС"
     ],
     notes: [
-      "read отдаёт text, если файл — текст в UTF-8, иначе base64; --base64 отдаёт base64 и для текста."
+      "read отдаёт text, если файл — текст в UTF-8, иначе base64; --base64 отдаёт base64 и для текста.",
+      "list показывает один уровень папки и требует права execute.",
+      "write записывает байты файла ФАЙЛ (или --stdin); в папку кода (wt, wtv, custom…) файл записывает код на сервере, нужно право execute."
     ]
   },
   doc: {
@@ -38701,7 +38137,7 @@ var DeferredRuntime = class {
 };
 
 // src/cli/run.ts
-import { resolve as resolve4 } from "node:path";
+import { resolve as resolve3 } from "node:path";
 var MAX_INPUT_BYTES = 8 * 1024 * 1024;
 var COMMON = ["config", "connection", "json", "output", "help", "password-stdin"];
 var INPUT = ["input-file", "stdin", "args"];
@@ -38792,7 +38228,7 @@ async function putData(command, args, io) {
     bytes = await io.readBinaryStdin(MAX_INPUT_BYTES);
   else
     throw new CliInputError(
-      "Для file put/upload нужен двоичный источник через --input-file или --stdin.",
+      "Нужен двоичный источник через --input-file или --stdin.",
       "Адаптер ввода должен поддерживать точные байты; преобразование файла в текст не допускается."
     );
   if (bytes.byteLength > MAX_INPUT_BYTES) throw new CliInputError("Ввод превышает 8 МиБ.");
@@ -38830,7 +38266,7 @@ function withSettings(local2, args) {
   return {
     ...local2,
     settings: {
-      ...configPath === void 0 ? {} : { configPath: resolve4(configPath) },
+      ...configPath === void 0 ? {} : { configPath: resolve3(configPath) },
       ...connection === void 0 ? {} : { connection },
       environment: configPath === void 0 && process.env.WTCTL_URL !== void 0
     }
@@ -39083,10 +38519,22 @@ async function commandInvocation(args, io) {
       throw new CliInputError("Неизвестная команда object.");
     }
     case "files": {
-      if (action !== "exists" && action !== "read")
+      if (!["exists", "read", "list", "write", "delete"].includes(action ?? ""))
         throw new CliInputError("Неизвестная команда files.");
-      allowOptions(args, action === "read" ? ["base64"] : []);
+      allowOptions(
+        args,
+        action === "read" ? ["base64"] : action === "write" ? ["input-file", "stdin"] : action === "list" ? ["search"] : []
+      );
       exactPositionals(args, 3);
+      if (action === "write" || action === "delete" || action === "list")
+        return {
+          operationId: `files.${action}`,
+          args: {
+            url: requirePositional(args, 2, "серверный URL"),
+            ...action === "write" ? { base64: (await putData("file", args, io)).data.base64 } : {},
+            ...optional2("search", stringOption(args, "search"))
+          }
+        };
       if (action === "read")
         return {
           operationId: "files.read",
@@ -39105,30 +38553,33 @@ async function commandInvocation(args, io) {
       }
       return { operationId: "files.exists", args: { url } };
     }
-    case "doc":
     case "file": {
-      if (command === "file" && action === "upload") {
-        allowOptions(args, ["input-file", "stdin", "content-type"]);
-        exactPositionals(args, 3);
-        return {
-          operationId: "web.pages.uploadFile",
-          args: {
-            filename: requirePositional(args, 2, "имя файла без пути"),
-            ...await putData("file", args, io),
-            ...optional2("contentType", stringOption(args, "content-type"))
-          }
-        };
-      }
+      if (action !== "upload") throw new CliInputError("Неизвестная команда file.");
+      allowOptions(args, ["input-file", "stdin", "content-type"]);
+      exactPositionals(args, 3);
+      return {
+        operationId: "web.pages.uploadFile",
+        args: {
+          filename: requirePositional(args, 2, "имя файла без пути"),
+          ...await putData("file", args, io),
+          ...optional2("contentType", stringOption(args, "content-type"))
+        }
+      };
+    }
+    case "doc": {
       if (!action || !["get", "put", "delete"].includes(action))
-        throw new CliInputError("Неизвестная команда документа/ресурса.");
+        throw new CliInputError("Неизвестная команда документа.");
       allowOptions(args, action === "put" ? INPUT : []);
       exactPositionals(args, 3);
       const url = requirePositional(args, 2, "серверный URL");
-      const native = command === "doc" ? { get: "native.lds.loadDoc", put: "native.lds.putDoc", delete: "native.lds.deleteDoc" } : { get: "native.lds.loadUrl", put: "native.lds.putUrl", delete: "native.lds.deleteUrl" };
-      const operationId = action === "get" ? native.get : action === "put" ? native.put : native.delete;
+      const native = {
+        get: "native.lds.loadDoc",
+        put: "native.lds.putDoc",
+        delete: "native.lds.deleteDoc"
+      };
       return {
-        operationId,
-        args: { ...action === "put" ? await putData(command, args, io) : {}, url }
+        operationId: native[action],
+        args: { ...action === "put" ? await putData("doc", args, io) : {}, url }
       };
     }
     case "rpc": {
@@ -39655,9 +39106,9 @@ async function runCli(argv, io, dependencies) {
 // src/cli/node-io.ts
 import process4 from "node:process";
 import { createReadStream } from "node:fs";
-import { mkdir as mkdir4 } from "node:fs/promises";
+import { mkdir as mkdir3 } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
-import { dirname as dirname3, resolve as resolve5 } from "node:path";
+import { dirname as dirname2, resolve as resolve4 } from "node:path";
 async function readBoundedBytes(stream, maximumBytes) {
   const parts = [];
   let bytes = 0;
@@ -39687,7 +39138,7 @@ function writeStream(stream, text4) {
   });
 }
 async function writeAtomicOutput(path, text4) {
-  await mkdir4(dirname3(resolve5(path)), { recursive: true });
+  await mkdir3(dirname2(resolve4(path)), { recursive: true });
   await writeResultFile(path, [text4], true);
 }
 async function promptLine(question, secret = false) {
@@ -39731,7 +39182,7 @@ function nodeIo() {
 
 // src/cli/local-install.ts
 import { existsSync as existsSync2, realpathSync } from "node:fs";
-import { dirname as dirname4, join as join4 } from "node:path";
+import { dirname as dirname3, join as join4 } from "node:path";
 import process5 from "node:process";
 import { pathToFileURL } from "node:url";
 function localInstall() {
@@ -39743,7 +39194,7 @@ function localInstall() {
   } catch {
     return void 0;
   }
-  const sdk = join4(dirname4(script), "..", "index.js");
+  const sdk = join4(dirname3(script), "..", "index.js");
   return {
     node: process5.execPath,
     script,

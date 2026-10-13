@@ -2271,7 +2271,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes3, createHash } = __require("crypto");
+    var { randomBytes: randomBytes2, createHash } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2822,7 +2822,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes3(16).toString("base64");
+      const key = randomBytes2(16).toString("base64");
       const request = isSecure ? https.request : http.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -8929,48 +8929,6 @@ function parseSoapBody(method, source, status) {
 function xmlText(value, name) {
   return textOf(findXmlNode(value, name));
 }
-function buildXHttpEntity(action, records, body) {
-  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(action)) throw new TypeError("Неверное имя действия /xhttp.");
-  const lines = [`Action: ${action}`];
-  for (const [name, value, spaceAfterColon = true] of records) {
-    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(name)) throw new TypeError("Неверное имя записи /xhttp.");
-    if (value !== void 0) {
-      const lexicalValue = String(value);
-      if (/[\r\n]/.test(lexicalValue))
-        throw new TypeError("В значении записи /xhttp не должно быть перевода строки.");
-      lines.push(`${name}:${spaceAfterColon ? " " : ""}${lexicalValue}`);
-    }
-  }
-  const head = new TextEncoder().encode(`${lines.join("\r\n")}\r
-\r
-`);
-  if (body === void 0) return head;
-  const tail = typeof body === "string" ? new TextEncoder().encode(body) : body;
-  const result = new Uint8Array(head.byteLength + tail.byteLength);
-  result.set(head);
-  result.set(tail, head.byteLength);
-  return result;
-}
-function parseXHttpEntity(bytes) {
-  const separator = new Uint8Array([13, 10, 13, 10]);
-  let boundary = -1;
-  for (let index = 0; index <= bytes.length - separator.length; index += 1) {
-    if (separator.every((value, offset) => bytes[index + offset] === value)) {
-      boundary = index;
-      break;
-    }
-  }
-  if (boundary < 0) {
-    throw new WsHcmApiError("protocol", "Invalid /xhttp response framing");
-  }
-  const headerText = new TextDecoder().decode(bytes.subarray(0, boundary));
-  const records = {};
-  for (const line of headerText.split("\r\n")) {
-    const colon = line.indexOf(":");
-    if (colon > 0) records[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
-  }
-  return { records, body: bytes.subarray(boundary + separator.length) };
-}
 
 // src/protocol/transport.ts
 import { Buffer as Buffer2 } from "node:buffer";
@@ -9412,13 +9370,13 @@ async function binaryResponse(response, operation) {
 function withRnd(path) {
   return query(path, { rnd: randomInt(1e9) });
 }
-async function openLdsSession(transport2, profile, installationId = "", basic = false) {
+async function openLdsSession(transport2, profile, basic = false) {
   const response = await soapCall(
     transport2,
     profile,
     withRnd("/services/LdsService"),
     "OpenSession",
-    [["InstallationID", installationId]],
+    [["InstallationID", ""]],
     { basic }
   );
   const sessionId = xmlText(response.data, "SessionID");
@@ -9556,20 +9514,6 @@ var NativeLdsApi = class {
       [
         ["Url", request.url],
         ["StrictDelete", request.strictDelete],
-        ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
-  /**
-   * Releases a URL lock owned by the current LDS context.
-   * @mutating
-   */
-  unlockUrl(url, options) {
-    return this.caller.call(
-      "UnlockUrl",
-      [
-        ["Url", url],
         ["SessionID", this.caller.id()]
       ],
       options
@@ -9758,22 +9702,6 @@ var NativeLdsApi = class {
   runMethod(request, options) {
     return runLdsMethod(this.caller, request, options);
   }
-  /**
-   * Executes server-side code. Treat every invocation as mutating.
-   * On server 2025.1.1171 this SOAP method responds Unknown method:
-   * Eval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.
-   * @mutating
-   */
-  eval(request, options) {
-    return this.caller.call(
-      "Eval",
-      [
-        ["Code", request.code],
-        ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
   /** Keeps the current native LDS session active. */
   idle(options) {
     return this.caller.call("Idle", [["SessionID", this.caller.id()]], options);
@@ -9843,20 +9771,6 @@ var WebLdsApi = class {
     return runLdsMethod(this.caller, request, options);
   }
   /**
-   * Deletes a URL through the shipped web LDS subset.
-   * @mutating
-   */
-  deleteUrl(url, options) {
-    return this.caller.call(
-      "DeleteUrl",
-      [
-        ["Url", url],
-        ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
-  /**
    * Deletes a document; web wire sends `StrictDelete=1` only when enabled.
    * @mutating
    */
@@ -9866,22 +9780,6 @@ var WebLdsApi = class {
       [
         ["Url", request.url],
         ["StrictDelete", request.strictDelete ? "1" : void 0]
-      ],
-      options
-    );
-  }
-  /**
-   * Executes server-side code in the web LDS context.
-   * On server 2025.1.1171 this SOAP method responds Unknown method:
-   * Eval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.
-   * @mutating
-   */
-  eval(code, options) {
-    return this.caller.call(
-      "Eval",
-      [
-        ["Code", code],
-        ["SessionID", this.caller.id()]
       ],
       options
     );
@@ -10313,353 +10211,11 @@ var WebSpXml2Api = class extends SpXml2Base {
     );
   }
 };
-var XHttpBinaryResponse = class extends WsHcmBinaryResponse {
-  records;
-  constructor(response, records) {
-    super(response);
-    this.records = records;
-  }
-};
-function xhttpBoundary(bytes) {
-  for (let index = 0; index <= bytes.length - 4; index += 1) {
-    if (bytes[index] === 13 && bytes[index + 1] === 10 && bytes[index + 2] === 13 && bytes[index + 3] === 10)
-      return index;
-  }
-  return -1;
-}
 function appendBytes(left, right) {
   const result = new Uint8Array(left.length + right.length);
   result.set(left);
   result.set(right, left.length);
   return result;
-}
-async function streamingXHttpResponse(response, action) {
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new WsHcmApiError("http", `HTTP ${response.status}`, {
-      operation: action,
-      status: response.status
-    });
-  }
-  if (response.body === null)
-    throw new WsHcmApiError("protocol", "Missing /xhttp response body", { operation: action });
-  const reader = response.body.getReader();
-  let released = false;
-  const release = () => {
-    if (!released) {
-      reader.releaseLock();
-      released = true;
-    }
-  };
-  const cancel = async (reason) => {
-    try {
-      await reader.cancel(reason);
-    } finally {
-      release();
-    }
-  };
-  let prefix = new Uint8Array();
-  let boundary = -1;
-  let entity;
-  try {
-    while (boundary < 0) {
-      const { done, value } = await reader.read();
-      if (done)
-        throw new WsHcmApiError("protocol", "Invalid /xhttp response framing", {
-          operation: action
-        });
-      prefix = appendBytes(prefix, value);
-      boundary = xhttpBoundary(prefix);
-      if ((boundary < 0 ? prefix.length : boundary + 4) > 65536) {
-        throw new WsHcmApiError("protocol", "/xhttp record section is too large", {
-          operation: action
-        });
-      }
-    }
-    entity = parseXHttpEntity(prefix.subarray(0, boundary + 4));
-    const result = entity.records.Result ?? entity.records.result;
-    if (result === void 0 || result.toLowerCase() !== "ok") {
-      throw new WsHcmApiError(
-        result === void 0 ? "protocol" : "xhttp-result",
-        result ?? "Missing /xhttp Result record",
-        { operation: action, status: response.status }
-      );
-    }
-  } catch (error) {
-    await cancel(error).catch(() => void 0);
-    throw error;
-  }
-  let initial = prefix.subarray(boundary + 4);
-  const body = new ReadableStream({
-    async pull(controller) {
-      if (initial.length > 0) {
-        controller.enqueue(initial);
-        initial = new Uint8Array();
-        return;
-      }
-      try {
-        const next = await reader.read();
-        if (next.done) {
-          release();
-          controller.close();
-        } else controller.enqueue(next.value);
-      } catch (error) {
-        await cancel(error).catch(() => void 0);
-        controller.error(error);
-      }
-    },
-    cancel(reason) {
-      return cancel(reason);
-    }
-  });
-  return new XHttpBinaryResponse(
-    new Response(body, { status: response.status, headers: response.headers }),
-    entity.records
-  );
-}
-var LEGACY_QUIT = Symbol("legacyQuit");
-function legacyCatalogKeyLiteral(key) {
-  if (key === null || typeof key !== "object" || Array.isArray(key) || Object.keys(key).length !== 2 || typeof key.value !== "string")
-    throw new TypeError("Ключ каталога — это объект ровно с двумя полями: type и строка value.");
-  if (key.type === "string") {
-    assertXmlCharacters(key.value);
-    if (/[\r\n\0]/.test(key.value))
-      throw new TypeError(
-        "В строковом ключе не должно быть перевода строки и нулевого символа: ключ занимает одну строку запроса."
-      );
-    return `'${key.value.replaceAll("'", "''")}'`;
-  }
-  if (key.type === "integer") {
-    if (!/^(?:0|[1-9]\d{0,18}|0x[\da-fA-F]{1,16})$/.test(key.value))
-      throw new TypeError(
-        "Целый ключ: нужно число без знака строкой — десятичное или шестнадцатеричное с 0x."
-      );
-    if (BigInt(key.value) > 9223372036854775807n)
-      throw new TypeError("Целый ключ не помещается в 64-битное целое со знаком.");
-    return key.value;
-  }
-  if (key.type === "real") {
-    if (!/^\d+\.\d+$/.test(key.value) || !Number.isFinite(Number(key.value)))
-      throw new TypeError(
-        "Дробный ключ: нужно число без знака с точкой и без экспоненты, например 1.5."
-      );
-    return key.value;
-  }
-  throw new TypeError("type ключа: нужно string, integer или real.");
-}
-var LegacyXHttpApi = class {
-  constructor(transport2, sessionId) {
-    this.transport = transport2;
-    this.sessionId = sessionId;
-  }
-  send(action, records, body, basic = false, options) {
-    const requestBody = buildXHttpEntity(action, records, body);
-    return this.transport.send(
-      query("/xhttp", { trans_id: randomInt(1e9) }),
-      { method: "POST", body: requestBody },
-      {
-        basic,
-        ...options?.signal === void 0 ? {} : { signal: options.signal },
-        ...options?.timeoutMs === void 0 ? {} : { timeoutMs: options.timeoutMs }
-      }
-    );
-  }
-  async call(action, records, body, basic = false, options) {
-    const response = await this.send(action, records, body, basic, options);
-    const rawBody = new Uint8Array(await response.arrayBuffer());
-    if (!response.ok)
-      throw new WsHcmApiError("http", `HTTP ${response.status}`, {
-        operation: action,
-        status: response.status
-      });
-    const entity = parseXHttpEntity(rawBody);
-    const result = entity.records.Result ?? entity.records.result;
-    if (result === void 0)
-      throw new WsHcmApiError("protocol", "Missing /xhttp Result record", { operation: action });
-    if (result.toLowerCase() !== "ok") {
-      throw new WsHcmApiError("xhttp-result", result, {
-        operation: action,
-        status: response.status,
-        details: {
-          recordNames: Object.keys(entity.records).filter(
-            (name) => name.toLowerCase() !== "sessionid"
-          )
-        }
-      });
-    }
-    return {
-      status: response.status,
-      headers: response.headers,
-      rawBody,
-      data: { ...entity, result }
-    };
-  }
-  /** Bootstraps or keeps alive the legacy session. */
-  idle(installationId, options) {
-    const id = this.sessionId();
-    return this.call(
-      "Idle",
-      id === void 0 ? [["InstallationID", installationId ?? ""]] : [
-        ["SessionID", id],
-        ["InstallationID", installationId]
-      ],
-      void 0,
-      id === void 0 || installationId !== void 0,
-      options
-    );
-  }
-  /**
-   * Streams URL bytes after CRLF result records; `lock=true` changes lock state.
-   * @mutating When `lock` is enabled.
-   */
-  async getUrl(request, options) {
-    return streamingXHttpResponse(
-      await this.send(
-        "GetUrl",
-        [
-          ["Url", request.url],
-          ["SessionID", this.sessionId()],
-          ["Lock", request.lock ? 1 : void 0],
-          ["Compress", request.compress === void 0 ? void 0 : request.compress ? 1 : 0]
-        ],
-        void 0,
-        false,
-        options
-      ),
-      "GetUrl"
-    );
-  }
-  /**
-   * Writes URL bytes using exact legacy framing.
-   * @mutating
-   */
-  putUrl(request, options) {
-    return this.call(
-      "PutUrl",
-      [
-        ["Url", request.url],
-        ["SessionID", this.sessionId()],
-        [
-          "WriteDocInfo",
-          request.writeDocInfo === void 0 ? void 0 : request.writeDocInfo ? 1 : 0
-        ]
-      ],
-      request.body,
-      false,
-      options
-    );
-  }
-  /**
-   * Deletes a URL; false strictness is serialized explicitly as required by legacy framing.
-   * @mutating
-   */
-  deleteUrl(request, options) {
-    return this.call(
-      "DeleteUrl",
-      [
-        ["Url", request.url, false],
-        ["SessionID", this.sessionId()],
-        ["StrictDelete", request.strictDelete ? 1 : 0]
-      ],
-      void 0,
-      false,
-      options
-    );
-  }
-  /**
-   * Releases a legacy URL lock.
-   * @mutating
-   */
-  unlockUrl(url, options) {
-    return this.call(
-      "UnlockUrl",
-      [
-        ["Url", url, false],
-        ["SessionID", this.sessionId()]
-      ],
-      void 0,
-      false,
-      options
-    );
-  }
-  /**
-   * Allocates a new document ID in the named legacy database.
-   * @mutating
-   */
-  obtainNewDocId(request, options) {
-    return this.call(
-      "ObtainNewDocID",
-      [
-        ["Db", request.db],
-        ["SessionID", this.sessionId()]
-      ],
-      void 0,
-      false,
-      options
-    );
-  }
-  /**
-   * Selects catalog rows by typed keys using one XQuery scalar literal per CRLF body line.
-   * Catalog and KeyName are explicit legacy header records. Strings escape apostrophes
-   * by doubling; integer/real lexical strings avoid implicit JavaScript conversion.
-   * The initial proven grammar supports unsigned integers, finite unsigned decimals,
-   * and single-line strings. Signed expressions, boolean/null keys and raw code are not accepted.
-   */
-  async queryCatalogByKeys(request, options) {
-    if (request === null || typeof request !== "object" || Array.isArray(request) || Object.keys(request).some((name) => !["catalog", "keyName", "keys"].includes(name)))
-      throw new TypeError("Запрос по ключам принимает только catalog, keyName и keys.");
-    if (typeof request.catalog !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(request.catalog))
-      throw new TypeError("catalog: нужно имя из латинских букв, цифр и _, первой не цифра.");
-    if (typeof request.keyName !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*$/.test(request.keyName))
-      throw new TypeError(
-        "keyName: нужен путь из имён через /; имя — латинские буквы, цифры и _, первой не цифра."
-      );
-    if (!Array.isArray(request.keys))
-      throw new TypeError("keys: нужен массив ключей вида {type, value}.");
-    const body = Array.from(request.keys, legacyCatalogKeyLiteral).join("\r\n");
-    return this.call(
-      "QueryCatalogByKeys",
-      [
-        ["Catalog", request.catalog],
-        ["KeyName", request.keyName],
-        ["SessionID", this.sessionId()]
-      ],
-      body,
-      false,
-      options
-    );
-  }
-  /**
-   * Executes server-side code supplied as the legacy request body.
-   * Server 2025.1.1171 rejects this action
-   * with Obsolete method: ServerEval when ALLOW-SERVER-EVAL is disabled.
-   * Fresh baseline fixtures confirmed disabled rejection with a masked HTTP 500
-   * and an enabled harmless Unicode string expression with a typed UTF-8 result.
-   * These checks do not establish other scripts or the separate SOAP LDS Eval path.
-   * The separate legacy XQuery action returns No longer supported.
-   * @mutating
-   */
-  eval(code, options) {
-    return this.call("Eval", [["SessionID", this.sessionId()]], code, false, options);
-  }
-  /** Reads whether the current legacy context has administrator privileges. */
-  isAdmin(options) {
-    return this.call("IsAdmin", [["SessionID", this.sessionId()]], void 0, false, options);
-  }
-  [LEGACY_QUIT](sessionId, options) {
-    if (typeof sessionId !== "string" || !/^\d+$/.test(sessionId))
-      throw new TypeError("sessionId: нужна строка из десятичных цифр.");
-    return this.call(
-      "QuitSession",
-      [["SessionID", decimal(sessionId, "sessionId")]],
-      void 0,
-      false,
-      options
-    );
-  }
-};
-async function quitLegacySession(api, sessionId, options) {
-  await api[LEGACY_QUIT](sessionId, options);
 }
 var WebPageApi = class {
   constructor(transport2, uploadToken, maximumUploadBytes = 8 * 1024 * 1024) {
@@ -10668,30 +10224,6 @@ var WebPageApi = class {
     this.maximumUploadBytes = maximumUploadBytes;
     if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
       throw new TypeError("maximumUploadBytes: нужно целое число больше нуля.");
-  }
-  /**
-   * Copies one server URL to another.
-   * @mutating
-   */
-  async copyUrl(request, options) {
-    const token = this.uploadToken?.();
-    if (!token || !/^[!-~]{1,256}$/.test(token))
-      throw new WsHcmApiError(
-        "protocol",
-        "В веб-сессии нет действующего токена страницы для копирования файла.",
-        { operation: "copyUrl", requestSent: false }
-      );
-    return textResponse(
-      await this.transport.send(
-        query("/spxml_web/service/copy_url.htm", {
-          dest_url: request.destUrl,
-          session_token: token,
-          src_url: request.srcUrl
-        }),
-        { method: "POST", body: "" },
-        options
-      )
-    );
   }
   /**
    * Asks the web create handler for unsaved document XML.
@@ -10797,23 +10329,6 @@ var WebPageApi = class {
       options
     );
     return binaryResponse(response, "get_url");
-  }
-  /**
-   * Writes a page-service URL body with optional base64/text hints.
-   * @mutating
-   */
-  async putUrl(request, options) {
-    return textResponse(
-      await this.transport.send(
-        query("/spxml_web/service/put_url.htm", {
-          url: request.url,
-          is_base64: request.isBase64 ? 1 : void 0,
-          is_text: request.isText ? 1 : void 0
-        }),
-        { method: "POST", body: request.body },
-        options
-      )
-    );
   }
   /**
    * Uploads one file through the shipped multipart f/session_token workflow.
@@ -11151,27 +10666,10 @@ var WebExperimentalApi = class extends ExperimentalApi {
   }
 };
 var NativeExperimentalApi = class extends ExperimentalApi {
-  constructor(transport2, sessionId) {
-    super(transport2);
-    this.sessionId = sessionId;
-    this.spxml = new NativeExperimentalSpXmlApi(transport2);
-  }
   spxml;
-  /** Reads the schema-backed partial native directory operation; flag types remain intentionally lexical/raw. */
-  readDirectory(request, options) {
-    return soapCall(
-      this.transport,
-      "native",
-      withRnd("/services/LdsService"),
-      "ReadDirectory",
-      [
-        ["Url", request.url],
-        ["ReadFilesOnly", request.readFilesOnly],
-        ["ReadDirectoriesOnly", request.readDirectoriesOnly],
-        ["SessionID", this.sessionId()]
-      ],
-      options
-    );
+  constructor(transport2) {
+    super(transport2);
+    this.spxml = new NativeExperimentalSpXmlApi(transport2);
   }
 };
 function createNativeLdsApi(transport2, sessionId) {
@@ -11669,7 +11167,6 @@ async function webSocketHeartbeat(http, factory, input = {}) {
 }
 
 // src/protocol/client.ts
-import { randomBytes as randomBytes2 } from "node:crypto";
 function transport(defaults, webHeaders = false) {
   return new HttpTransport({
     baseUrl: defaults.baseUrl,
@@ -11706,7 +11203,7 @@ var NativeSession = class _NativeSession {
     this.spxml = this.rpc;
     this.spxml2 = new NativeSpXml2Api(transport2);
     this.resources = new ResourceApi(transport2);
-    this.experimental = new NativeExperimentalApi(transport2, () => this.sessionId);
+    this.experimental = new NativeExperimentalApi(transport2);
   }
   lds;
   physicalDocuments;
@@ -11720,7 +11217,7 @@ var NativeSession = class _NativeSession {
   static async open(defaults) {
     const http = transport(defaults);
     try {
-      const opened = await openLdsSession(http, "native", "", true);
+      const opened = await openLdsSession(http, "native", true);
       return new _NativeSession(http, opened.sessionId);
     } catch (error) {
       try {
@@ -12076,94 +11573,6 @@ var WebSession = class _WebSession {
     }
   }
 };
-var LegacySession = class _LegacySession {
-  constructor(transport2, installationId) {
-    this.transport = transport2;
-    this.installationId = installationId;
-    this.xhttp = new LegacyXHttpApi(transport2, () => this.#sessionId);
-    this.experimental = new ExperimentalApi(transport2);
-  }
-  xhttp;
-  experimental;
-  installationId;
-  #sessionId;
-  #closed = false;
-  /** Caller-owned decimal legacy context ID, or `undefined` after close. */
-  get sessionId() {
-    return this.#sessionId;
-  }
-  static async open(defaults, installationId) {
-    const http = transport(defaults);
-    if (!/^[0-9A-Fa-f]{16}$/.test(installationId))
-      throw new TypeError("installationId: нужно 16 шестнадцатеричных цифр.");
-    const session = new _LegacySession(http, installationId);
-    let ownedId;
-    do {
-      ownedId = BigInt(`0x${randomBytes2(8).toString("hex")}`) & 0x7fffffffffffffffn;
-    } while (ownedId === 0n);
-    session.#sessionId = ownedId.toString(10);
-    try {
-      await session.xhttp.idle(installationId);
-      return session;
-    } catch (error) {
-      session.#sessionId = void 0;
-      try {
-        if (!isTransportFailure(error) && http.cookie.value !== void 0) {
-          const response = await http.send(
-            "/loggedoff.html",
-            {},
-            { allowStatuses: "any", redirect: "manual" }
-          );
-          await response.body?.cancel();
-        }
-      } catch (cleanup) {
-        attachCleanupError(error, cleanup);
-      } finally {
-        http.dispose();
-      }
-      throw error;
-    }
-  }
-  /** Drops local access/identity without claiming a server-side Quit acknowledgement. */
-  disposeLocal() {
-    this.#closed = true;
-    this.#sessionId = void 0;
-    this.transport.dispose();
-  }
-  /**
-   * Closes only the successfully bootstrapped caller-owned LDS context and clears local identity state.
-   * Failure is reported as `WsHcmApiError` with `kind: "cleanup"`.
-   */
-  async close() {
-    if (this.#closed) return;
-    this.#closed = true;
-    const errors = [];
-    try {
-      if (this.#sessionId !== void 0) await quitLegacySession(this.xhttp, this.#sessionId);
-    } catch (cause) {
-      errors.push(cause);
-    }
-    try {
-      if (!errors.some(isTransportFailure) && this.transport.cookie.value !== void 0) {
-        const response = await this.transport.send(
-          "/loggedoff.html",
-          {},
-          { allowStatuses: "any", redirect: "manual" }
-        );
-        await response.body?.cancel();
-      }
-    } catch (cause) {
-      errors.push(cause);
-    } finally {
-      this.disposeLocal();
-    }
-    if (errors.length)
-      throw new WsHcmApiError("cleanup", "Legacy session cleanup failed", {
-        details: { errorCount: errors.length },
-        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Legacy cleanup failures")
-      });
-  }
-};
 var WsHcmClient = class {
   diagnostics;
   experimental;
@@ -12199,10 +11608,6 @@ var WsHcmClient = class {
   openWebSession() {
     return WebSession.open(this.#defaults);
   }
-  /** Opens an isolated legacy `/xhttp` session using a real caller-supplied 16-hex InstallationID. */
-  openLegacySession(options) {
-    return LegacySession.open(this.#defaults, options.installationId);
-  }
   /** Runs an action in a native session and closes it in `finally`, preserving operation error precedence. */
   async withNativeSession(action) {
     return withCleanup(await this.openNativeSession(), action);
@@ -12210,10 +11615,6 @@ var WsHcmClient = class {
   /** Runs an action in a web session and closes it in `finally`, preserving operation error precedence. */
   async withWebSession(action) {
     return withCleanup(await this.openWebSession(), action);
-  }
-  /** Runs an action in a legacy session and closes it in `finally`, preserving operation error precedence. */
-  async withLegacySession(action, options) {
-    return withCleanup(await this.openLegacySession(options), action);
   }
 };
 
@@ -12234,13 +11635,11 @@ export {
   findXmlNode,
   WsHcmBinaryResponse,
   rpc,
-  XHttpBinaryResponse,
   resolvePhysicalDocumentLocation,
   parsePhysicalDocumentId,
   NativePhysicalDocumentsApi,
   WebSocketHeartbeatError,
   NativeSession,
   WebSession,
-  LegacySession,
   WsHcmClient
 };
