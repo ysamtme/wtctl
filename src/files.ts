@@ -1,5 +1,7 @@
-import { HcmError } from "./errors.js";
+import { HcmError, requiredString } from "./errors.js";
 import { freezeRegistry } from "./immutable.js";
+import type { HcmServer } from "./hcm-server.js";
+import type { WriteOutcome } from "./write-outcome.js";
 import { prepareScript, type ScriptData } from "./scripts.js";
 
 /** One absolute platform URL; this predicate does not read its contents. */
@@ -53,7 +55,7 @@ export function fileContent(response: unknown, encoding?: unknown): FileReadData
   }
 }
 
-export const FILE_EXISTS_TARGET = "tools.file_url_exists_server";
+const FILE_EXISTS_TARGET = "tools.file_url_exists_server";
 // The shipped provider attribute lookup binds its URL to a 256-character SQL
 // parameter. Keep the input within that declared bound instead of allowing a
 // longer URL to be silently truncated by this provider's parameter binding.
@@ -102,7 +104,7 @@ export type FileDeleteData = { readonly deleted: true; readonly mutationOutcome:
 /** Folders of the server: data ones take files through LDS, code ones only code on the server. */
 export type FileFolders = { readonly data: readonly string[]; readonly code: readonly string[] };
 /** Only the two folder lists of the application info are read; undefined when the server gave none. */
-export function fileFolders(info: Record<string, unknown> | undefined): FileFolders | undefined {
+function fileFolders(info: Record<string, unknown> | undefined): FileFolders | undefined {
   const data = new Set<string>();
   const design = new Set<string>();
   const entries = Array.isArray(info?.config_entries) ? info.config_entries : [];
@@ -116,7 +118,7 @@ export function fileFolders(info: Record<string, unknown> | undefined): FileFold
 }
 
 /** The folder is the first part of the address and decides the route: no part may get around it. */
-export function fileTarget(value: unknown, listing = false): { url: string; folder: string } {
+function fileTarget(value: unknown, listing = false): { url: string; folder: string } {
   // A folder to list may end with a slash and have no path: x-local://share.
   const text = listing && typeof value === "string" ? value.replace(/\/$/, "") : value;
   const [folder = "", ...path] = typeof text === "string" ? text.slice(10).split("/") : [];
@@ -142,7 +144,7 @@ export function fileTarget(value: unknown, listing = false): { url: string; fold
 }
 
 /** Folders of the server database delete by address with no error and remove nothing (2025.1.1333 - 2025.2.1535); refused before any request. */
-export function assertFileDeletable(folder: string): void {
+function assertFileDeletable(folder: string): void {
   if (folder === "wt_data" || folder === "trash")
     throw new HcmError(
       "FILE_NOT_DELETABLE",
@@ -152,7 +154,7 @@ export function assertFileDeletable(folder: string): void {
 }
 
 /** The route is chosen before anything is sent; "unlisted": the server did not say which folders take files. */
-export function fileRoute(
+function fileRoute(
   operation: "write" | "delete",
   folders: FileFolders | undefined,
   folder: string,
@@ -177,7 +179,7 @@ export function fileRoute(
 }
 
 /** The bytes to write: text in UTF-8, or base64 without line breaks. */
-export function fileWriteContent(args: Record<string, unknown>) {
+function fileWriteContent(args: Record<string, unknown>) {
   const { text, base64 } = args;
   const bytes =
     typeof text === "string" && !/\p{Cs}/u.test(text)
@@ -214,7 +216,7 @@ function fileScript(code: string, params: Record<string, string>) {
     );
   }
 }
-export function codeWrite(url: string, content: { base64: string; text?: string }) {
+function codeWrite(url: string, content: { base64: string; text?: string }) {
   const text = content.text !== undefined;
   return fileScript(
     `PutUrlData(PARAMS.url, ${text ? "PARAMS.text" : "Base64Decode(PARAMS.base64)"});
@@ -222,7 +224,7 @@ RESULT = [UrlFileSize(PARAMS.url)];`,
     text ? { url, text: content.text! } : { url, base64: content.base64 },
   );
 }
-export function codeDelete(url: string) {
+function codeDelete(url: string) {
   return fileScript(
     `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
 else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
@@ -230,7 +232,7 @@ else { DeleteUrl(PARAMS.url); if (UrlExists(PARAMS.url)) RESULT = ['remains']; e
     { url },
   );
 }
-export function fileRemains(): HcmError {
+function fileRemains(): HcmError {
   return new HcmError(
     "READ_BACK_MISMATCH",
     "Сервер ответил на удаление без ошибки, но файл или папка по адресу остались.",
@@ -240,7 +242,7 @@ export function fileRemains(): HcmError {
   );
 }
 /** The code found a folder or nothing at the address and deleted nothing. */
-export function codeDeleteRefusal(data: ScriptData): HcmError | undefined {
+function codeDeleteRefusal(data: ScriptData): HcmError | undefined {
   if (data.result[0] === "directory")
     return new HcmError("FILE_IS_FOLDER", "Адрес — папка: в папке кода удаляется только файл.");
   if (data.result[0] === "absent")
@@ -254,7 +256,7 @@ export interface FileListData {
   readonly total: number;
 }
 /** One level of a folder: the addresses ReadDirectory gives, which of them are folders, and the file sizes. */
-export function codeList(url: string) {
+function codeList(url: string) {
   return fileScript(
     `var rows = [];
 var item = '';
@@ -266,7 +268,7 @@ RESULT = dir ? rows : ['none'];`,
     { url },
   );
 }
-export function fileList(data: ScriptData, folder: string, search = ""): FileListData {
+function fileList(data: ScriptData, folder: string, search = ""): FileListData {
   if (data.result[0] === "none")
     throw new HcmError(
       "FOLDER_NOT_FOUND",
@@ -340,5 +342,94 @@ export function parseFileExists(response: unknown): FileExistsData {
       "Сервер ответил на проверку файла в неожиданном виде.",
       "Ожидается значение Bool 0 или 1 от функции tools.file_url_exists_server. Её ответ как есть покажет rpc.call.",
     );
+  }
+}
+
+/** What an operation tells the runtime about one call: the outcome and the failure hint are built from it. */
+export interface FileCall {
+  outcome: WriteOutcome;
+  refusal?: string;
+}
+
+/** The file operations: a method is the whole sequence of one, from the address check to the check after the answer. */
+export class ServerFiles {
+  constructor(
+    private readonly server: Pick<HcmServer, "call" | "read" | "runCode" | "applicationInfo">,
+    private readonly permissions: { readonly execute: boolean },
+  ) {}
+
+  async exists(args: Record<string, unknown>): Promise<FileExistsData> {
+    return parseFileExists(
+      await this.server.read("native.rpc.call", {
+        target: FILE_EXISTS_TARGET,
+        args: [{ valueType: "string", lexicalValue: fileExistsUrl(args.url) }],
+      }),
+    );
+  }
+
+  async read(args: Record<string, unknown>): Promise<FileReadData> {
+    return fileContent(
+      await this.server.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
+      args.encoding,
+    );
+  }
+
+  async list(args: Record<string, unknown>, call: FileCall): Promise<FileListData> {
+    const folder = fileTarget(args.url, true).url;
+    const search = args.search === undefined ? "" : requiredString(args.search, "search");
+    const data = await this.server.runCode(
+      codeList(folder),
+      call.outcome,
+      (answer) => answer.result[0] === "none",
+    );
+    return fileList(data, folder, search);
+  }
+
+  async write(args: Record<string, unknown>, call: FileCall): Promise<FileWriteData> {
+    const target = fileTarget(args.url);
+    const content = fileWriteContent(args);
+    if ((await this.route("write", target.folder, call)) === "code") {
+      const data = await this.server.runCode(codeWrite(target.url, content), call.outcome);
+      return { bytes: Number(data.result[0]), mutationOutcome: "confirmed" };
+    }
+    await this.server.call(
+      "native.lds.putUrl",
+      { url: target.url, data: { base64: content.base64 } },
+      call.outcome,
+    );
+    return { bytes: content.bytes, mutationOutcome: "confirmed" };
+  }
+
+  async delete(args: Record<string, unknown>, call: FileCall): Promise<FileDeleteData> {
+    const target = fileTarget(args.url);
+    assertFileDeletable(target.folder);
+    if ((await this.route("delete", target.folder, call)) === "code") {
+      const data = await this.server.runCode(
+        codeDelete(target.url),
+        call.outcome,
+        (answer) => !!codeDeleteRefusal(answer),
+      );
+      const refusal = codeDeleteRefusal(data);
+      if (refusal) throw refusal;
+      if (data.result[0] === "remains") throw fileRemains();
+      return { deleted: true, mutationOutcome: "confirmed" };
+    }
+    await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
+    // An address the existence check does not accept (over 256 characters) is not checked.
+    if (target.url.length <= FILE_EXISTS_URL_MAX_LENGTH)
+      if ((await this.exists({ url: target.url })).exists) throw fileRemains();
+    return { deleted: true, mutationOutcome: "confirmed" };
+  }
+
+  /** A failure to read the application info means the server gave no folder lists. */
+  async folders(): Promise<FileFolders | undefined> {
+    return fileFolders(await this.server.applicationInfo().catch(() => undefined));
+  }
+
+  private async route(operation: "write" | "delete", folder: string, call: FileCall) {
+    const route = fileRoute(operation, await this.folders(), folder, this.permissions.execute);
+    // The usual cause of a refused write (an unlisted code folder) is named only where the server did not list folders.
+    if (operation === "write" && route !== "unlisted") call.refusal = "files.write:listed";
+    return route;
   }
 }

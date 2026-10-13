@@ -12,7 +12,7 @@ import {
   discoverOperations,
   operationHelp,
   type CompactOperationPage,
-} from "../src/cli/discovery.js";
+} from "../src/operation-help.js";
 import { parseArguments } from "../src/cli/arguments.js";
 import { cliHelp, cliHelpText } from "../src/cli/help.js";
 import { commandInvocation, serializeResult } from "../src/cli/run.js";
@@ -22,11 +22,10 @@ import { rpcValue } from "../src/scripts.js";
 import { catalogQuery, queryPage } from "../src/query.js";
 import { fileContent } from "../src/files.js";
 import { logMatches, logNews } from "../src/log-output.js";
-import { HcmRuntime } from "../src/runtime.js";
 import { HcmError } from "../src/errors.js";
-import { WsHcmApiError } from "../src/protocol/error.js";
 import type { CliIo, RuntimePort } from "../src/cli/types.js";
 import type { OperationMap } from "../src/operation-map.js";
+import { fakeRuntime, refuse } from "./fake-server.js";
 import { mcpJson } from "./mcp-json.js";
 
 test("the overview by task covers every operation once and stays small", () => {
@@ -133,25 +132,17 @@ test("a patch takes plain {path: value} and a list of paths to remove, whichever
     { id: "objects.patch", args: { id: "1", remove: ["a.b[0]"], preview: true } },
   ]);
   // The operation itself takes remove, so a program and a step of several operations can pass it too.
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 65536,
-    runtimeDir: ".unused",
-    permissions: { write: true, execute: false },
-  });
-  runtime.gateway.close = async () => undefined;
-  runtime.gateway.call = async (id) => {
-    assert.equal(id, "native.lds.loadDoc");
-    return {
-      kind: "binary",
-      bytes: new TextEncoder().encode(
-        "<group><id>1</id><name>G</name><comment>c</comment><code>k</code></group>",
-      ),
-    };
-  };
+  const { runtime } = fakeRuntime(
+    {
+      "native.lds.loadDoc": {
+        kind: "binary",
+        bytes: new TextEncoder().encode(
+          "<group><id>1</id><name>G</name><comment>c</comment><code>k</code></group>",
+        ),
+      },
+    },
+    { permissions: { write: true, execute: false } },
+  );
   try {
     const changes = async (args: Record<string, unknown>) =>
       ((await runtime.call("objects.patch", { id: "1", preview: true, ...args })).data as any)
@@ -303,26 +294,16 @@ test("an unknown type is named as such instead of a bare server failure", async 
 });
 
 test("the runtime explains a refused search and points a bare HTTP 500 to the server log", async () => {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 4096,
-    runtimeDir: ".unused",
-    permissions: { write: false, execute: true },
-  });
-  const refusal = () =>
-    new WsHcmApiError("soap-fault", "Internal Server Error", { operation: "XQuery", status: 500 });
-  runtime.gateway.call = async (id) => {
-    if (id === "native.spxml2.getAppInfo")
-      return {
+  const { runtime } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": {
         default_db_name: "sample",
         databases: [{ id: "sample", catalogs: [{ id: "people", object_type: "person" }] }],
-      };
-    throw refusal();
-  };
-  runtime.gateway.close = async () => undefined;
+      },
+      "*": refuse(),
+    },
+    { outputLimitBytes: 4096, permissions: { write: false, execute: true } },
+  );
   try {
     const unknown = await runtime.call("runtime.query", { catalog: "persons" });
     assert.equal(unknown.error?.code, "UNKNOWN_CATALOG");
@@ -539,21 +520,16 @@ test("the description of one operation says how to pass data and leaves registry
 });
 
 test("a raw server answer comes without XML indentation and namespace attributes", async () => {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 4096,
-    runtimeDir: ".unused",
-    permissions: { write: false, execute: false },
-  });
-  runtime.gateway.call = async () => ({
-    Data: { group: { name: "A", note: " ", "#text": "\n\t\n" }, "#text": "\n" },
-    "#text": "kept",
-    "@_xmlns": "http://www.datex-soft.com/",
-  });
-  runtime.gateway.close = async () => undefined;
+  const { runtime } = fakeRuntime(
+    {
+      "*": {
+        Data: { group: { name: "A", note: " ", "#text": "\n\t\n" }, "#text": "\n" },
+        "#text": "kept",
+        "@_xmlns": "http://www.datex-soft.com/",
+      },
+    },
+    { outputLimitBytes: 4096, permissions: { write: false, execute: false } },
+  );
   try {
     const result = await runtime.call("native.lds.loadDoc", { url: "x-local://a.xml" });
     assert.deepEqual(result.data, { Data: { group: { name: "A", note: " " } }, "#text": "kept" });
@@ -563,18 +539,14 @@ test("a raw server answer comes without XML indentation and namespace attributes
 });
 
 test("an upload answers with the address of the file; a file read as base64 comes in one piece", async () => {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 4096,
-    runtimeDir: await mkdtemp(join(tmpdir(), "wtctl-upload-")),
-    permissions: { write: true, execute: false },
-  });
-  runtime.gateway.call = async (id) =>
-    id === "web.pages.uploadFile" ? { Url: "123/report.txt" } : { Data: "\nAAEC\nAwQF\n\t\t\t" };
-  runtime.gateway.close = async () => undefined;
+  const { runtime } = fakeRuntime(
+    { "web.pages.uploadFile": { Url: "123/report.txt" }, "*": { Data: "\nAAEC\nAwQF\n\t\t\t" } },
+    {
+      outputLimitBytes: 4096,
+      runtimeDir: await mkdtemp(join(tmpdir(), "wtctl-upload-")),
+      permissions: { write: true, execute: false },
+    },
+  );
   try {
     const uploaded = await runtime.call("web.pages.uploadFile", {
       filename: "report.txt",

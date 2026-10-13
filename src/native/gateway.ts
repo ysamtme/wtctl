@@ -6,6 +6,7 @@ import { rawXml } from "../protocol/xml.js";
 import { NATIVE_ENTRIES, type NativeEntry } from "./generated.js";
 import { validate, prepare } from "./validation.js";
 import { freezeRegistry } from "../immutable.js";
+import { getEffectiveNativeEffect } from "./metadata.js";
 
 const empty = { type: "object", properties: {}, required: [], additionalProperties: false };
 const managed: NativeEntry[] = [];
@@ -190,6 +191,15 @@ if (byId.size !== entries.length) throw new Error("Duplicate native operation ID
 const INTERNAL = new Set(["native.lds.loadUrl", "native.lds.putUrl", "native.lds.deleteUrl"]);
 export function getNativeOperations(): readonly NativeOperation[] {
   return entries.map((entry) => entry.operation).filter((item) => !INTERNAL.has(item.id));
+}
+
+/** The effect of a registry operation for these arguments, internal operations included; undefined for an unknown ID. */
+export function nativeEffect(
+  id: string,
+  args: Record<string, unknown>,
+): NativeOperation["effect"] | undefined {
+  const entry = byId.get(id);
+  return entry && getEffectiveNativeEffect(entry.operation, args);
 }
 
 /** Every failure inside a cleanup error is the server's HTTP 401: it no longer knows the session. */

@@ -8,7 +8,7 @@ import type {
   OperationResult,
 } from "../contracts.js";
 import { HcmError } from "../errors.js";
-import type { RuntimePort } from "./types.js";
+import type { RuntimePort } from "../runtime-port.js";
 
 /**
  * A runtime for a server that starts before its connection is set up. An agent host shows a server

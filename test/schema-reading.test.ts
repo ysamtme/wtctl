@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { HcmMcpTools } from "../src/mcp/server.js";
-import { HcmRuntime } from "../src/runtime.js";
 import { SchemaReader, type SchemaInput, type SchemaResult } from "../src/schema.js";
+import { fakeRuntime } from "./fake-server.js";
 import { mcpJson } from "./mcp-json.js";
 
 const forms: Record<string, string> = {
@@ -152,21 +152,13 @@ test("deep lists nested fields of every depth in one paged listing, under a path
 });
 
 test("hcm_schema and the operation behind it take deep", async () => {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 65536,
-    runtimeDir: ".unused",
-    permissions: { write: false, execute: false },
-  });
-  runtime.gateway.close = async () => undefined;
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    throw new Error(`unexpected ${id}`);
-  };
+  const { runtime } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": info,
+      "native.spxml2.getForm": (args) => form(String(args.url)),
+    },
+    { permissions: { write: false, execute: false } },
+  );
   try {
     const answer = mcpJson(await new HcmMcpTools(runtime).invoke("hcm_schema", inside));
     assert.deepEqual(

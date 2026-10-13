@@ -2,57 +2,40 @@
 // can tell, and from the server's own lists where only the server's bare HTTP 500 is left.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { HcmRuntime } from "../src/runtime.js";
-import { WsHcmApiError } from "../src/protocol/error.js";
 import { errorInFrontendTerms } from "../src/frontend-names.js";
+import { fakeRuntime, refusal, refuse } from "./fake-server.js";
 
-function fixture(execute = true) {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 65536,
-    runtimeDir: ".unused",
-    permissions: { write: true, execute },
-  });
-  runtime.gateway.close = async () => undefined;
-  return runtime;
-}
-const refusal = (operation: string) =>
-  new WsHcmApiError("soap-fault", "Internal Server Error", { operation, status: 500 });
 const library = `<SPXML-INLINE-FORM><tools>
   <get_version PROPERTY="1" ALLOW-CALL-FROM-CLIENT="1" PARAM="kind" EXPR="return kind;"/>
   <server_side PROPERTY="1" PARAM="id" EXPR="return id;"/>
 </tools></SPXML-INLINE-FORM>`;
 
 test("an object of a type the server does not have is refused before anything is written", async () => {
-  const runtime = fixture();
-  const calls: string[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    calls.push(id);
-    if (id === "native.spxml2.getAppInfo")
-      return {
-        default_db_name: "sample",
-        shared_docs: [{ id: "common", url: "x-local://wtv/common.xml" }],
-        databases: [
-          {
-            id: "sample",
-            catalogs: [
-              { id: "groups", object_type: "group" },
-              // The server leaves this catalog without the type of its objects.
-              { id: "events", object_type: "", form_url: "x-local://wtv/wtv_events.xmd" },
-            ],
-          },
-        ],
-      };
-    if (id === "native.spxml2.getForm" && declared && args.url === "x-local://wtv/common.xml")
-      return `<common><exchange_object_types>
+  let declared = true;
+  const { runtime, server } = fakeRuntime({
+    "native.spxml2.getAppInfo": {
+      default_db_name: "sample",
+      shared_docs: [{ id: "common", url: "x-local://wtv/common.xml" }],
+      databases: [
+        {
+          id: "sample",
+          catalogs: [
+            { id: "groups", object_type: "group" },
+            // The server leaves this catalog without the type of its objects.
+            { id: "events", object_type: "", form_url: "x-local://wtv/wtv_events.xmd" },
+          ],
+        },
+      ],
+    },
+    "native.spxml2.getForm": (args, id) => {
+      if (declared && args.url === "x-local://wtv/common.xml")
+        return `<common><exchange_object_types>
         <exchange_object_type><name>event</name></exchange_object_type>
       </exchange_object_types></common>`;
-    throw refusal(id);
-  };
-  let declared = true;
+      throw refusal(id);
+    },
+    "*": refuse(),
+  });
   const create = (type: string) => runtime.call("objects.create", { type, data: { name: "x" } });
   try {
     // The catalog name has a form of its own, so the form alone would not stop the write.
@@ -62,14 +45,13 @@ test("an object of a type the server does not have is refused before anything is
     assert.equal(catalog.error?.mutationOutcome, "not_sent");
     assert.match((await create("events")).error!.hint!, /Похожие: event\./);
     assert.equal((await create("no_such")).error?.code, "UNKNOWN_TYPE");
-    assert.equal(calls.filter((id) => /putDoc|getNewObjectId/.test(id)).length, 0);
+    assert.equal(server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length, 0);
     // A type the server declares without naming its catalog is a type: the refusal that follows
     // is the fixture's missing form, not the check.
     assert.equal((await create("event")).error?.code, "PLATFORM_SOAP-FAULT");
     // Without the server's declaration only a catalog name can be told from a type.
     declared = false;
-    const fresh = fixture();
-    fresh.gateway.call = runtime.gateway.call;
+    const fresh = fakeRuntime(server).runtime;
     try {
       assert.equal(
         (await fresh.call("objects.create", { type: "no_such", data: { name: "x" } })).error?.code,
@@ -92,21 +74,22 @@ test("an object of a type the server does not have is refused before anything is
 });
 
 test("a refused library call is explained from the server's list of functions", async () => {
-  const runtime = fixture();
   let known = true;
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") {
+  const { runtime, server } = fakeRuntime({
+    "native.spxml2.getAppInfo": (_args, id) => {
       if (!known) throw refusal(id);
       return {
         default_db_name: "sample",
         shared_docs: [{ id: "tools", url: "x-local://l/t.xml" }],
       };
-    }
-    if (id === "native.lds.loadUrl") return { Data: Buffer.from(library).toString("base64") };
-    assert.match(id, /^(native\.rpc\.call|web\.spxml\.callMethodAsync)$/);
-    assert.match(String(args.target), /^tools\./);
-    throw refusal(id);
-  };
+    },
+    "native.lds.loadUrl": { Data: Buffer.from(library).toString("base64") },
+    "*": (args, id) => {
+      assert.match(id, /^(native\.rpc\.call|web\.spxml\.callMethodAsync)$/);
+      assert.match(String(args.target), /^tools\./);
+      throw refusal(id);
+    },
+  });
   try {
     const call = (method: string, extra = {}) =>
       runtime.call("rpc.call", { library: "tools", method, arguments: [], ...extra });
@@ -128,9 +111,8 @@ test("a refused library call is explained from the server's list of functions", 
     await runtime.close();
   }
   // Without the server's list there is nothing to judge by.
-  const blind = fixture();
+  const blind = fakeRuntime(server).runtime;
   known = false;
-  blind.gateway.call = runtime.gateway.call;
   try {
     const result = await blind.call("rpc.call", { library: "tools", method: "nope" });
     assert.equal(result.error?.code, "PLATFORM_SOAP-FAULT");
@@ -140,10 +122,7 @@ test("a refused library call is explained from the server's list of functions", 
 });
 
 test("a malformed function argument is named by its place in arguments", async () => {
-  const runtime = fixture();
-  runtime.gateway.call = async () => {
-    throw new Error("nothing may be sent");
-  };
+  const { runtime } = fakeRuntime();
   try {
     const object = await runtime.call("rpc.call", {
       library: "tools",

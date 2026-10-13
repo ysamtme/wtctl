@@ -15,9 +15,9 @@ import { platformFailure } from "../src/platform-errors.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
 import { errorInFrontendTerms } from "../src/frontend-names.js";
 import { catalogQuery, withoutFalseOffset, xqueryNames } from "../src/query.js";
-import { HcmRuntime } from "../src/runtime.js";
 import { SchemaReader } from "../src/schema.js";
 import type { CliIo } from "../src/cli/types.js";
+import { fakeRuntime, refuse, refusal, type Script } from "./fake-server.js";
 import { mcpJson } from "./mcp-json.js";
 
 const forms: Record<string, string> = {
@@ -43,36 +43,32 @@ const form = async (url: string) => {
 };
 const xml = (text: string) => ({ kind: "binary", bytes: new TextEncoder().encode(text) });
 
-function fixture(runtimeDir = ".unused", outputLimitBytes = 65536) {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes,
-    runtimeDir,
-    permissions: { write: true, execute: true },
-  });
-  runtime.gateway.close = async () => undefined;
-  return runtime;
-}
+const base: Script = {
+  "native.spxml2.getAppInfo": info,
+  "native.spxml2.getForm": (args) => form(String(args.url)),
+};
+const manyRows = () => ({
+  Data: {
+    person: Array.from({ length: 200 }, (_, id) => ({ id: String(id), lastname: "Фамилия" })),
+  },
+  TotalCount: "200",
+  EOF: "true",
+});
 
 test("a requested field that only the catalog has comes from the catalog row, under its own name", async () => {
-  const runtime = fixture();
   const queries: string[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    if (id === "native.lds.loadDoc")
-      return xml("<person><id>1</id><lastname>Иванов</lastname></person>");
-    assert.equal(id, "native.lds.xQuery");
-    queries.push(String(args.query));
-    return {
-      Data: { person: [{ id: "1", lastname: "Иванов", fullname: "Иванов Пётр" }] },
-      TotalCount: "1",
-      EOF: "true",
-    };
-  };
+  const { runtime } = fakeRuntime({
+    ...base,
+    "native.lds.loadDoc": xml("<person><id>1</id><lastname>Иванов</lastname></person>"),
+    "native.lds.xQuery": (args) => {
+      queries.push(String(args.query));
+      return {
+        Data: { person: [{ id: "1", lastname: "Иванов", fullname: "Иванов Пётр" }] },
+        TotalCount: "1",
+        EOF: "true",
+      };
+    },
+  });
   try {
     const got = await runtime.call("objects.get", {
       id: "1",
@@ -95,20 +91,22 @@ test("a requested field that only the catalog has comes from the catalog row, un
 
 test("a patch that changes nothing is not a preview; resave writes the document as it is", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
-  const runtime = fixture(directory);
   const written: string[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    // After a save the server fills in a field of its own.
-    if (id === "native.lds.loadDoc")
-      return xml(
-        `<person><id>1</id><lastname>Иванов</lastname>${written.length ? "<comment>от сервера</comment>" : ""}</person>`,
-      );
-    assert.equal(id, "native.lds.putDoc");
-    written.push(String(args.data));
-    return {};
-  };
+  const { runtime } = fakeRuntime(
+    {
+      ...base,
+      // After a save the server fills in a field of its own.
+      "native.lds.loadDoc": () =>
+        xml(
+          `<person><id>1</id><lastname>Иванов</lastname>${written.length ? "<comment>от сервера</comment>" : ""}</person>`,
+        ),
+      "native.lds.putDoc": (args) => {
+        written.push(String(args.data));
+        return {};
+      },
+    },
+    { runtimeDir: directory },
+  );
   try {
     const same = await runtime.call("objects.patch", { id: "1", patch: { lastname: "Иванов" } });
     const answer = same.data as Record<string, unknown>;
@@ -145,21 +143,23 @@ test("a patch that changes nothing is not a preview; resave writes the document 
 
 test("a reference that keeps a copy of the object under it survives a patch of another field", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
-  const runtime = fixture(directory);
   const written: string[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    // The server lays a document out with line breaks; under a reference it keeps sd.
-    if (id === "native.lds.loadDoc")
-      return xml(
-        written.at(-1) ??
-          "<person>\n\t<id>1</id>\n\t<lastname>Иванов</lastname>\n\t<boss_id>5\n\t\t<sd>\n\t\t\t<name>Пётр</name>\n\t\t</sd>\n\t</boss_id>\n\t<comment>первая\nвторая</comment>\n</person>",
-      );
-    assert.equal(id, "native.lds.putDoc");
-    written.push(String(args.data));
-    return {};
-  };
+  const { runtime } = fakeRuntime(
+    {
+      ...base,
+      // The server lays a document out with line breaks; under a reference it keeps sd.
+      "native.lds.loadDoc": () =>
+        xml(
+          written.at(-1) ??
+            "<person>\n\t<id>1</id>\n\t<lastname>Иванов</lastname>\n\t<boss_id>5\n\t\t<sd>\n\t\t\t<name>Пётр</name>\n\t\t</sd>\n\t</boss_id>\n\t<comment>первая\nвторая</comment>\n</person>",
+        ),
+      "native.lds.putDoc": (args) => {
+        written.push(String(args.data));
+        return {};
+      },
+    },
+    { runtimeDir: directory },
+  );
   try {
     const saved = await runtime.call("objects.patch", { id: "1", patch: { lastname: "Петров" } });
     assert.equal((saved.data as any).mutationOutcome, "confirmed");
@@ -176,19 +176,21 @@ test("a reference that keeps a copy of the object under it survives a patch of a
 
 test("the check after a write knows the fields a base type gives; a mismatch says what differs", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
-  const runtime = fixture(directory);
   let stored = "<person><id>1</id><lastname>Иванов</lastname></person>";
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    if (id === "native.lds.loadDoc") return xml(stored);
-    assert.equal(id, "native.lds.putDoc");
-    // The server keeps a logical value as 1 and, here, does not take the new last name.
-    stored = String(args.data)
-      .replace("<is_admin>true<", "<is_admin>1<")
-      .replace("Петров", "Иванов");
-    return {};
-  };
+  const { runtime } = fakeRuntime(
+    {
+      ...base,
+      "native.lds.loadDoc": () => xml(stored),
+      "native.lds.putDoc": (args) => {
+        // The server keeps a logical value as 1 and, here, does not take the new last name.
+        stored = String(args.data)
+          .replace("<is_admin>true<", "<is_admin>1<")
+          .replace("Петров", "Иванов");
+        return {};
+      },
+    },
+    { runtimeDir: directory },
+  );
   try {
     const flag = await runtime.call("objects.patch", {
       id: "1",
@@ -207,14 +209,8 @@ test("the check after a write knows the fields a base type gives; a mismatch say
 });
 
 test("a field of a list element made by the same patch has no value before", async () => {
-  const runtime = fixture();
   let document = "<person><id>1</id><roles></roles></person>";
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    assert.equal(id, "native.lds.loadDoc");
-    return xml(document);
-  };
+  const { runtime } = fakeRuntime({ ...base, "native.lds.loadDoc": () => xml(document) });
   try {
     const changes = async (patch: Record<string, unknown>) =>
       ((await runtime.call("objects.patch", { id: "1", preview: true, patch })).data as any)
@@ -254,15 +250,7 @@ test("a refused XQuery text is explained by the catalog or the field it names", 
       ["groups", ["person_id"]],
     ],
   );
-  const runtime = fixture();
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    throw new WsHcmApiError("soap-fault", "Internal Server Error", {
-      operation: "XQuery",
-      status: 500,
-    });
-  };
+  const { runtime } = fakeRuntime({ ...base, "*": refuse() });
   try {
     const query = (text: string) => runtime.call("runtime.query", { query: text });
     const field = await query("for $e in people where $e/comment = 'x' return $e");
@@ -283,14 +271,15 @@ test("a refused XQuery text is explained by the catalog or the field it names", 
 });
 
 test("the reason of a script failure is kept long, and a cut text says it is cut", async () => {
-  const runtime = fixture();
-  runtime.gateway.call = async () => {
-    throw new HcmError("SCRIPT_FAILED", "m", undefined, {
-      scriptError: "e".repeat(3000),
-      other: "o".repeat(300),
-      short: "s",
-    });
-  };
+  const { runtime } = fakeRuntime({
+    "*": () => {
+      throw new HcmError("SCRIPT_FAILED", "m", undefined, {
+        scriptError: "e".repeat(3000),
+        other: "o".repeat(300),
+        short: "s",
+      });
+    },
+  });
   try {
     const failed = await runtime.call("native.lds.loadDoc", { url: "x-local://a.xml" });
     const details = failed.error!.details as Record<string, string>;
@@ -305,9 +294,8 @@ test("the reason of a script failure is kept long, and a cut text says it is cut
 });
 
 test("a finished background task gives its result as a plain value, like the direct call", async () => {
-  const runtime = fixture();
   let answer: unknown = { IsRunning: "1" };
-  runtime.gateway.call = async () => answer;
+  const { runtime } = fakeRuntime({ "*": () => answer });
   try {
     const status = () => runtime.call("web.spxml.getAsyncMethodStatus", { trackingId: "0x1" });
     assert.deepEqual((await status()).data, { IsRunning: "1" });
@@ -383,7 +371,7 @@ test("a log search page shorter than asked says so; newest first is an option", 
   assert.equal(cut.nextOffset, cut.events.length);
   assert.equal(logMatches(search as never, 100_000).cutBySize, undefined);
 
-  const runtime = fixture();
+  const { runtime } = fakeRuntime();
   const log = ["10:00:01 first", "10:00:02 second", "10:00:03 third"].join("\r\n");
   runtime.logs.read = async () =>
     ({
@@ -454,19 +442,15 @@ test("a catalog query sorts by catalog fields; a wrong order is refused before t
       HcmError,
       JSON.stringify(order),
     );
-  const runtime = fixture();
   const sent: string[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    sent.push(String(args.query));
-    if (sent.length > 1)
-      throw new WsHcmApiError("soap-fault", "Internal Server Error", {
-        operation: "XQuery",
-        status: 500,
-      });
-    return { Data: { person: [{ id: "1", lastname: "A" }] }, TotalCount: "1", EOF: "true" };
-  };
+  const { runtime } = fakeRuntime({
+    ...base,
+    "native.lds.xQuery": (args, id) => {
+      sent.push(String(args.query));
+      if (sent.length > 1) throw refusal(id);
+      return { Data: { person: [{ id: "1", lastname: "A" }] }, TotalCount: "1", EOF: "true" };
+    },
+  });
   try {
     // The tool takes the order as a list, the way the guide writes it.
     const sorted = mcpJson(
@@ -514,20 +498,17 @@ test("a date comes without the offset the server adds to its local time", async 
       n: null,
     },
   );
-  const runtime = fixture();
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    if (id === "native.lds.loadDoc")
-      return xml(
-        "<person><id>1</id><lastname>A</lastname><roles><role><role_id>x</role_id><since>2025-01-01T00:00:00+00:00</since></role></roles></person>",
-      );
-    return {
+  const { runtime } = fakeRuntime({
+    ...base,
+    "native.lds.loadDoc": xml(
+      "<person><id>1</id><lastname>A</lastname><roles><role><role_id>x</role_id><since>2025-01-01T00:00:00+00:00</since></role></roles></person>",
+    ),
+    "native.lds.xQuery": {
       Data: { person: [{ id: "1", hire_date: "2024-08-04T00:00:00+00:00" }] },
       TotalCount: "1",
       EOF: "true",
-    };
-  };
+    },
+  });
   try {
     const row = await runtime.call("runtime.query", { catalog: "people", fields: ["hire_date"] });
     assert.deepEqual((row.data as any).items, [{ hire_date: "2024-08-04T00:00:00" }]);
@@ -560,14 +541,10 @@ test("a date comes without the offset the server adds to its local time", async 
 
 test("an answer that did not fit says which operations read it, in the caller's own names", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
-  const runtime = fixture(directory, 2048);
-  runtime.gateway.call = async () => ({
-    Data: {
-      person: Array.from({ length: 200 }, (_, id) => ({ id: String(id), lastname: "Фамилия" })),
-    },
-    TotalCount: "200",
-    EOF: "true",
-  });
+  const { runtime, server } = fakeRuntime(
+    { "*": manyRows },
+    { runtimeDir: directory, outputLimitBytes: 2048 },
+  );
   try {
     const big = await runtime.call("runtime.query", { catalog: "people", limit: 1000 });
     assert.equal(big.meta.truncated, true);
@@ -579,11 +556,11 @@ test("an answer that did not fit says which operations read it, in the caller's 
     const command = errorInFrontendTerms(big, "cli").data as { hint: string };
     assert.match(command.hint, /wtctl result read .* wtctl result export/);
     // Rows too long even for a preview leave the counters of the answer in it.
-    runtime.gateway.call = async () => ({
+    server.on("*", () => ({
       Data: { person: ["1", "2"].map((id) => ({ id, lastname: "Ф".repeat(1500) })) },
       TotalCount: "2",
       EOF: "true",
-    });
+    }));
     const long = await runtime.call("runtime.query", { catalog: "people", limit: 1000 });
     // The preview of a stored answer names its keys: a list by its size.
     assert.deepEqual((long.data as any).preview, {
@@ -598,16 +575,10 @@ test("an answer that did not fit says which operations read it, in the caller's 
 });
 
 test("a disabled right names who turns it on", async () => {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 4096,
-    runtimeDir: ".unused",
-    permissions: { write: false, execute: false },
-  });
-  runtime.gateway.close = async () => undefined;
+  const { runtime } = fakeRuntime(
+    {},
+    { outputLimitBytes: 4096, permissions: { write: false, execute: false } },
+  );
   try {
     const write = await runtime.call("objects.patch", { id: "1", patch: { name: "N" } });
     assert.equal(write.error?.code, "WRITE_DISABLED");
@@ -621,17 +592,13 @@ test("a disabled right names who turns it on", async () => {
 });
 
 test("a batch that went on past failures names the failed steps in the error", async () => {
-  const runtime = fixture();
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    if (String(args.query).includes("comment"))
-      throw new WsHcmApiError("soap-fault", "Internal Server Error", {
-        operation: "XQuery",
-        status: 500,
-      });
-    return { Data: { person: [{ id: "1", lastname: "A" }] }, TotalCount: "1", EOF: "true" };
-  };
+  const { runtime } = fakeRuntime({
+    ...base,
+    "native.lds.xQuery": (args, id) => {
+      if (String(args.query).includes("comment")) throw refusal(id);
+      return { Data: { person: [{ id: "1", lastname: "A" }] }, TotalCount: "1", EOF: "true" };
+    },
+  });
   try {
     const named = await runtime.call("runtime.batch", {
       steps: [{ id: "runtime.status" }, { id: "runtime.status", as: "mt-p-005" }],
@@ -678,14 +645,10 @@ test("a batch that went on past failures names the failed steps in the error", a
 
 test("a failed batch whose answer was stored says what reads the steps", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
-  const runtime = fixture(directory, 2048);
-  runtime.gateway.call = async () => ({
-    Data: {
-      person: Array.from({ length: 200 }, (_, id) => ({ id: String(id), lastname: "Фамилия" })),
-    },
-    TotalCount: "200",
-    EOF: "true",
-  });
+  const { runtime } = fakeRuntime(
+    { "*": manyRows },
+    { runtimeDir: directory, outputLimitBytes: 2048 },
+  );
   try {
     const batch = await runtime.call("runtime.batch", {
       stopOnError: false,
@@ -719,14 +682,10 @@ test("a failed batch whose answer was stored says what reads the steps", async (
 
 test("the list of a stored answer is read by elements and exported by lines", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
-  const runtime = fixture(directory, 2048);
-  runtime.gateway.call = async () => ({
-    Data: {
-      person: Array.from({ length: 200 }, (_, id) => ({ id: String(id), lastname: "Фамилия" })),
-    },
-    TotalCount: "200",
-    EOF: "true",
-  });
+  const { runtime } = fakeRuntime(
+    { "*": manyRows },
+    { runtimeDir: directory, outputLimitBytes: 2048 },
+  );
   try {
     const big = await runtime.call("runtime.query", { catalog: "people", limit: 1000 });
     assert.match((big.data as any).hint, /список items по элементам/);
@@ -773,7 +732,7 @@ test("the list of a stored answer is read by elements and exported by lines", as
 
 test("a stored answer with a list under another name is read by that list", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
-  const runtime = fixture(directory, 2048);
+  const { runtime } = fakeRuntime({}, { runtimeDir: directory, outputLimitBytes: 2048 });
   try {
     const stored = await runtime.results.put({
       total: 300,
@@ -858,8 +817,7 @@ test("the whole set of query arguments next to --catalog is refused with the way
 
 test("a file read as an object by its address says what reads it", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
-  const runtime = fixture(directory);
-  runtime.gateway.call = async () => xml("<!-- form --><a/><b/>");
+  const { runtime } = fakeRuntime({ "*": xml("<!-- form --><a/><b/>") }, { runtimeDir: directory });
   try {
     const failed = await runtime.call("objects.get", { url: "x-local://wtv/wtv_person.xmd" });
     assert.deepEqual(
@@ -876,10 +834,10 @@ test("a file read as an object by its address says what reads it", async () => {
 
 test("the text of a file that fits in the answer is still kept and exported to a file", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
-  const runtime = fixture(directory);
-  runtime.gateway.call = async () => ({
-    Data: Buffer.from("строка 1\nстрока 2\n").toString("base64"),
-  });
+  const { runtime } = fakeRuntime(
+    { "*": { Data: Buffer.from("строка 1\nстрока 2\n").toString("base64") } },
+    { runtimeDir: directory },
+  );
   try {
     const read = await runtime.call("files.read", { url: "x-local://Logs/a.log" });
     assert.equal(read.meta.truncated, undefined);

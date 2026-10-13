@@ -3,10 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { HcmRuntime } from "../src/runtime.js";
 import { HcmClient, unwrap } from "../src/sdk.js";
 import { parseSoapBody } from "../src/protocol/protocol.js";
 import { escapeXml } from "../src/protocol/xml.js";
+import { fakeRuntime, type FakeServer } from "./fake-server.js";
 
 type Row = { id: string; name: string; EOF?: string; TotalCount?: string };
 const sourceRows: Row[] = Array.from({ length: 7 }, (_, index) => ({
@@ -24,38 +24,34 @@ const pageXml = (rows: Row[], metadata = ""): string =>
 
 async function fixture(
   response: (start: number, limit: number, request: Record<string, unknown>) => string,
-  run: (client: HcmClient, calls: Record<string, unknown>[]) => Promise<void>,
+  run: (client: HcmClient, calls: FakeServer["calls"]) => Promise<void>,
   execute = false,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "hcm-query-page-"));
-  const runtime = new HcmRuntime({
-    name: "query-page-fixture",
-    baseUrl: "http://fixture.invalid/",
-    runtimeDir: directory,
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 65536,
-    permissions: { write: false, execute },
-    fetch: async () => {
-      throw new Error("Query parser fixture must not use a live server");
+  const { runtime, server } = fakeRuntime(
+    {
+      "native.lds.xQuery": (args) => {
+        assert.equal(args.expectToReadAll, false);
+        assert.equal(args.keepCursor, false);
+        const body = response(Number(args.startPos), Number(args.maxCount), args);
+        return parseSoapBody(
+          "XQuery",
+          `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><XQueryResponse>${body}</XQueryResponse></s:Body></s:Envelope>`,
+          200,
+        );
+      },
     },
-  });
-  const calls: Record<string, unknown>[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    assert.equal(id, "native.lds.xQuery");
-    assert.equal(args.expectToReadAll, false);
-    assert.equal(args.keepCursor, false);
-    calls.push(args);
-    const body = response(Number(args.startPos), Number(args.maxCount), args);
-    return parseSoapBody(
-      "XQuery",
-      `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><XQueryResponse>${body}</XQueryResponse></s:Body></s:Envelope>`,
-      200,
-    );
-  };
-  runtime.gateway.close = async () => undefined;
+    {
+      name: "query-page-fixture",
+      runtimeDir: directory,
+      permissions: { write: false, execute },
+      fetch: async () => {
+        throw new Error("Query parser fixture must not use a live server");
+      },
+    },
+  );
   try {
-    await run(HcmClient.fromRuntime(runtime), calls);
+    await run(HcmClient.fromRuntime(runtime), server.calls);
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });
@@ -93,7 +89,7 @@ test("SDK follows returned offsets across normal and short object pages, without
         startPosition = page.nextStartPosition;
       }
       assert.deepEqual(
-        calls.map((call) => call.startPos),
+        calls.filter(({ id }) => id === "native.lds.xQuery").map(({ args }) => args.startPos),
         [0, 2, 3, 5, 7],
       );
     },

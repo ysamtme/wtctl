@@ -380,3 +380,8 @@ export function queryPage(
     ...(hints.length ? { hint: hints.join(" ") } : {}),
   };
 }
+
+/** A document with a nested value: the form tells whether it is a repeated element. */
+export function hasStructure(data: Record<string, unknown>): boolean {
+  return Object.values(data).some((value) => value !== null && typeof value === "object");
+}

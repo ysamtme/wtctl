@@ -5,8 +5,8 @@ import {
   RPC_CATALOG_PAGE_MAX_BYTES,
   type RpcCatalogFilter,
 } from "../src/rpc-catalog.js";
-import { HcmRuntime } from "../src/runtime.js";
 import { HcmError } from "../src/errors.js";
+import { fakeRuntime } from "./fake-server.js";
 
 const library = `<SPXML-INLINE-FORM><tools>
   <!-- <fake ALLOW-CALL-FROM-CLIENT="1"/> -->
@@ -19,25 +19,6 @@ const library = `<SPXML-INLINE-FORM><tools>
 const response = (source: string) => ({
   Data: Buffer.from(source).toString("base64").replace(/.{60}/g, "$&\n"),
 });
-function fixture() {
-  const runtime = new HcmRuntime({
-    name: "rpc-fixture",
-    baseUrl: "http://rpc-fixture.invalid/",
-    username: "fixture",
-    password: "synthetic",
-    runtimeDir: ".runtime",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 65536,
-    permissions: { write: false, execute: false },
-    fetch: async () => {
-      throw new Error("Fixture must not access the network");
-    },
-  });
-  runtime.gateway.close = async () => undefined;
-  return runtime;
-}
-
 test("built-in discovery retains pagination, compact cards, filters and immutable parameters", async () => {
   const catalog = new RpcCatalog();
   const page = await catalog.list();
@@ -132,7 +113,6 @@ test("invalid catalog inputs are rejected before reading metadata without echoin
 });
 
 test("runtime reads filtered library files once, skips broken files, and built-in discovery makes zero requests", async () => {
-  const runtime = fixture();
   const files = new Map([
     ["x-local://libs/tools.xml", library],
     [
@@ -142,11 +122,9 @@ test("runtime reads filtered library files once, skips broken files, and built-i
     ["x-local://libs/malformed.xml", "<SPXML-INLINE-FORM><tools>"],
     ["x-local://libs/data.xml", "<data><name>Not a library</name></data>"],
   ]);
-  const calls: string[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    calls.push(String(args.url ?? id));
-    if (id === "native.spxml2.getAppInfo")
-      return {
+  const { runtime, server } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": {
         default_db_name: "sample",
         shared_docs: [
           { id: "tools", url: "x-local://libs/tools.xml" },
@@ -158,12 +136,16 @@ test("runtime reads filtered library files once, skips broken files, and built-i
           { id: "tools", url: "x-local://sample/common.xml" },
           { id: "tools", url: "x-local://data_local/config.xml" },
         ],
-      };
-    assert.equal(id, "native.lds.loadUrl");
-    const source = files.get(String(args.url));
-    if (!source) throw new Error("Synthetic missing file");
-    return response(source);
-  };
+      },
+      "native.lds.loadUrl": (args) => {
+        const source = files.get(String(args.url));
+        if (!source) throw new Error("Synthetic missing file");
+        return response(source);
+      },
+    },
+    { permissions: { write: false, execute: false } },
+  );
+  const calls = () => server.calls.map(({ id, args }) => String(args.url ?? id));
   try {
     for (const [id, args] of [
       ["rpc.list", { builtIn: true, limit: 3 }],
@@ -173,10 +155,10 @@ test("runtime reads filtered library files once, skips broken files, and built-i
       assert.equal(builtIn.ok, true);
       assert.equal((builtIn.data as { source: string }).source, "built-in 2025.1.1171");
     }
-    assert.deepEqual(calls, []);
+    assert.deepEqual(calls(), []);
     const first = await runtime.call("rpc.list", { library: "tools" });
     assert.equal(first.ok, true, JSON.stringify(first.error));
-    assert.deepEqual(calls, [
+    assert.deepEqual(calls(), [
       "native.spxml2.getAppInfo",
       "x-local://libs/tools.xml",
       "x-local://libs/extension.xml",
@@ -193,9 +175,9 @@ test("runtime reads filtered library files once, skips broken files, and built-i
       // tools.server_side matches too, but a client cannot call it.
       serverOnlyHidden: 1,
     });
-    const before = calls.length;
+    const before = calls().length;
     assert.deepEqual((await runtime.call("rpc.list", { library: "tools" })).data, first.data);
-    assert.equal(calls.length, before);
+    assert.equal(calls().length, before);
     assert.deepEqual(
       (await runtime.call("rpc.describe", { targetId: "tools.get_version", source: true })).data,
       {
@@ -206,7 +188,7 @@ test("runtime reads filtered library files once, skips broken files, and built-i
         code: "return a && b;",
       },
     );
-    assert.equal(calls.length, before);
+    assert.equal(calls().length, before);
     // A function without the client gate is left out of the list unless asked for, and can be described.
     const everything = await runtime.call("rpc.list", { library: "tools", all: true });
     assert.deepEqual(
@@ -234,15 +216,15 @@ test("runtime reads filtered library files once, skips broken files, and built-i
     assert.equal(mistyped.error?.code, "UNKNOWN_RPC_TARGET");
     assert.match(mistyped.error!.message, /В библиотеке tools нет функции get_vers/);
     assert.match(mistyped.error!.hint!, /Похожие: get_version/);
-    assert.equal(calls.length, before);
+    assert.equal(calls().length, before);
     const all = await runtime.call("rpc.list");
     assert.equal(all.ok, true);
     assert.equal((all.data as { total: number }).total, 7);
     assert.deepEqual((all.data as { skipped: string[] }).skipped, ["broken", "missing"]);
-    assert.equal(calls.filter((url) => url === "x-local://libs/tools.xml").length, 1);
-    const complete = calls.length;
+    assert.equal(calls().filter((url) => url === "x-local://libs/tools.xml").length, 1);
+    const complete = calls().length;
     assert.deepEqual((await runtime.call("rpc.list")).data, all.data);
-    assert.deepEqual(calls.slice(complete), ["x-local://libs/missing.xml"]);
+    assert.deepEqual(calls().slice(complete), ["x-local://libs/missing.xml"]);
   } finally {
     await runtime.close();
   }

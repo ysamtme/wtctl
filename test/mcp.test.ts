@@ -11,7 +11,7 @@ import { HcmError } from "../src/errors.js";
 import { HcmRuntime } from "../src/runtime.js";
 import type { ConnectionConfig } from "../src/contracts.js";
 import { mcpJson } from "./mcp-json.js";
-import { operationHelp } from "../src/cli/discovery.js";
+import { operationHelp } from "../src/operation-help.js";
 
 function fixture() {
   const definitions: OperationDefinition[] = (

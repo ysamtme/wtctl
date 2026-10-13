@@ -6,7 +6,7 @@ import type { CliDependencies, CliIo, RuntimePort } from "../src/cli/types.js";
 import type { ConnectionConfig, OperationDefinition, OperationResult } from "../src/contracts.js";
 import { HcmError } from "../src/errors.js";
 import { describeHcmOperation, listHcmOperations } from "../src/catalog.js";
-import { operationHelp } from "../src/cli/discovery.js";
+import { operationHelp } from "../src/operation-help.js";
 import { cliHelp } from "../src/cli/help.js";
 import { ResultStore } from "../src/results.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";

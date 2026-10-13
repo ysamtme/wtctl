@@ -1,12 +1,12 @@
 // files.write and files.delete: the client picks the path from the server's folder lists before sending.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { HcmRuntime } from "../src/runtime.js";
 import { HcmClient, unwrap } from "../src/sdk.js";
 import { runCli } from "../src/cli/run.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
 import { parseXml } from "../src/protocol/xml.js";
 import type { CliIo } from "../src/cli/types.js";
+import { fakeRuntime, refusal } from "./fake-server.js";
 
 const entries = [
   { name: "DATA-DB", value: "share" },
@@ -22,40 +22,43 @@ const scriptAnswer = (value: string) =>
 const infoFields =
   '<sys_db_capability VALUE-TYPE="integer">1</sys_db_capability><catalog_limits VALUE-TYPE="string">&lt;catalogs/&gt;</catalog_limits><version_server VALUE-TYPE="string">2030.1.1</version_server><os_type VALUE-TYPE="string">windows</os_type>';
 
-function fixture(options: { execute?: boolean; lists?: boolean; refuse?: boolean } = {}) {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 65536,
-    runtimeDir: ".unused",
-    permissions: { write: true, execute: options.execute ?? true },
-  });
-  runtime.gateway.close = async () => undefined;
-  const state = { sent: [] as { id: string; args: Record<string, any> }[], answer: "0", calls: 0 };
-  runtime.gateway.call = async (id, args = {}) => {
-    state.calls++;
-    if (id === "native.spxml2.getAppInfo")
-      return options.lists === false ? {} : { config_entries: entries };
-    if (id === "native.rpc.call" && args.target === "tools.file_url_exists_server") {
-      // The existence check finds only the addresses that name "stays".
-      const found = String(+JSON.stringify(args).includes("stays"));
-      const xml = `<ResultData><Result VALUE-TYPE="bool">${found}</Result></ResultData>`;
-      return { valueType: "bool", lexicalValue: found, xml: parseXml(xml) };
-    }
-    if (id === "native.rpc.call")
-      return {
-        valueType: "Object",
-        xml: parseXml(
-          `<ResultData><Result VALUE-TYPE="Object">${infoFields}</Result></ResultData>`,
-        ),
-      };
-    state.sent.push({ id, args });
-    if (options.refuse) throw new WsHcmApiError("soap-fault", "refused", { status: 500 });
-    return id === "web.rpc.call" ? scriptAnswer(state.answer) : {};
+function fixture(
+  options: { execute?: boolean; lists?: boolean; refuse?: boolean; door?: boolean } = {},
+) {
+  const { runtime, server } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": options.lists === false ? {} : { config_entries: entries },
+      "native.rpc.call": (args) => {
+        if (args.target !== "tools.file_url_exists_server")
+          return {
+            valueType: "Object",
+            xml: parseXml(
+              `<ResultData><Result VALUE-TYPE="Object">${infoFields}</Result></ResultData>`,
+            ),
+          };
+        if (options.door) throw new WsHcmApiError("http", "unauthorized", { status: 401 });
+        // The existence check finds only the addresses that name "stays".
+        const found = String(+JSON.stringify(args).includes("stays"));
+        const xml = `<ResultData><Result VALUE-TYPE="bool">${found}</Result></ResultData>`;
+        return { valueType: "bool", lexicalValue: found, xml: parseXml(xml) };
+      },
+      "*": (_args, id) => {
+        if (options.refuse) throw refusal(id);
+        return id === "web.rpc.call" ? scriptAnswer(state.answer) : {};
+      },
+    },
+    { permissions: { write: true, execute: options.execute ?? true } },
+  );
+  // What was sent to write or delete: the lists and the existence checks are not counted.
+  const state = {
+    answer: "0",
+    get sent() {
+      return server.calls.filter(
+        ({ id }) => id !== "native.spxml2.getAppInfo" && id !== "native.rpc.call",
+      );
+    },
   };
-  return { runtime, state };
+  return { runtime, state, server };
 }
 const ids = (state: { sent: { id: string }[] }) => state.sent.map((call) => call.id);
 
@@ -111,7 +114,7 @@ test("a folder that takes no files, or a code folder without execute, is refused
       assert.equal(gone.error?.code, "FILE_NOT_DELETABLE");
       assert.equal(gone.error?.mutationOutcome, "not_sent");
       assert.match(gone.error!.message, new RegExp(`^В папке ${folder} сервер не удаляет`));
-      assert.equal(f.state.calls, 0);
+      assert.equal(f.server.calls.length, 0);
       await f.runtime.close();
     }
   assert.deepEqual(ids(state), []);
@@ -208,6 +211,15 @@ test("a deletion after which the address is still there is indeterminate, on bot
   const code = await runtime.call("files.delete", { url: "x-local://wt/a.txt" });
   assert.equal(code.error?.code, "READ_BACK_MISMATCH");
   assert.equal(code.error?.mutationOutcome, "indeterminate");
+  await runtime.close();
+});
+
+test("a deletion accepted and then met by a refusal at the door in the check is indeterminate", async () => {
+  const { runtime, state } = fixture({ door: true });
+  const result = await runtime.call("files.delete", { url: "x-local://share/a.txt" });
+  assert.deepEqual(ids(state), ["native.lds.deleteUrl"]);
+  assert.equal(result.error?.mutationOutcome, "indeterminate");
+  assert.match(result.error?.hint ?? "", /запрос на запись уже ушёл/);
   await runtime.close();
 });
 

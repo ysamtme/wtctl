@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { HcmError } from "../src/errors.js";
-import { HcmRuntime } from "../src/runtime.js";
 import { HcmClient, unwrap } from "../src/sdk.js";
 import { parseXml } from "../src/protocol/xml.js";
+import { fakeRuntime } from "./fake-server.js";
 
 const element = (value: string | Record<string, string>) =>
   typeof value === "string"
@@ -20,26 +20,14 @@ const scriptAnswer = (rows: (string | Record<string, string>)[]) =>
   );
 
 function fixture(rows: (string | Record<string, string>)[], execute = true) {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 65536,
-    runtimeDir: join(tmpdir(), "wtctl-files-list"),
-    permissions: { write: true, execute },
-  });
-  runtime.gateway.close = async () => undefined;
-  const sent: { id: string; args: Record<string, any> }[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    sent.push({ id, args });
-    return id === "web.rpc.call" ? scriptAnswer(rows) : { Data: "QUJD" };
-  };
-  return { runtime, sent };
+  return fakeRuntime(
+    { "*": (_args, id) => (id === "web.rpc.call" ? scriptAnswer(rows) : { Data: "QUJD" }) },
+    { runtimeDir: join(tmpdir(), "wtctl-files-list"), permissions: { write: true, execute } },
+  );
 }
 
 test("a folder is listed by name with file sizes and folder marks; the code gets the address as given", async () => {
-  const { runtime, sent } = fixture([
+  const { runtime, server } = fixture([
     { u: "x-local://share/б файл%20.txt", f: "0", b: "12" },
     { u: "x-local://share/img", f: "1", b: "0" },
     { u: "x-local://share/a.txt", f: "0", b: "3" },
@@ -55,9 +43,9 @@ test("a folder is listed by name with file sizes and folder marks; the code gets
   });
   const found = await runtime.call("files.list", { url: "x-local://share", search: "Файл" });
   assert.deepEqual(found.data, { items: [{ name: "б файл%20.txt", bytes: 12 }], total: 1 });
-  assert.match(JSON.stringify(sent[0]!.args), /ReadDirectory\(PARAMS\.url\)/);
+  assert.match(JSON.stringify(server.calls[0]!.args), /ReadDirectory\(PARAMS\.url\)/);
   const params = /Base64Decode\(&quot;([A-Za-z0-9+/=]+)&quot;\)/.exec(
-    JSON.stringify(sent[0]!.args),
+    JSON.stringify(server.calls[0]!.args),
   )![1]!;
   assert.deepEqual(JSON.parse(Buffer.from(params, "base64").toString()), {
     url: "x-local://share",
@@ -74,12 +62,12 @@ test("no folder is an error that sent nothing; the right is execute; bad address
 
   const plain = fixture([], false);
   assert.equal((await call(plain)).error?.code, "EXECUTE_DISABLED");
-  assert.deepEqual(plain.sent, []);
+  assert.deepEqual(plain.server.calls, []);
 
   const bad = fixture([]);
   for (const url of ["x-local://share/..", "x-local://a/b%2fc", "x-local://", "x-local://a\b"])
     assert.equal((await call(bad, url)).error?.code, "INVALID_ARGUMENT", url);
-  assert.deepEqual(bad.sent, []);
+  assert.deepEqual(bad.server.calls, []);
   assert.deepEqual((await call(bad)).data, { items: [], total: 0 });
 
   for (const row of [
@@ -91,29 +79,29 @@ test("no folder is an error that sent nothing; the right is execute; bad address
 });
 
 test("an error that says not_sent does not make a sent write not_sent", async () => {
-  const { runtime } = fixture([]);
-  runtime.gateway.call = async () => {
+  const { runtime, server } = fixture([]);
+  server.on("*", () => {
     throw new HcmError("X", "m", undefined, undefined, "not_sent");
-  };
+  });
   const write = await runtime.call("files.write", { url: "x-local://share/a", text: "a" });
   assert.equal(write.error?.mutationOutcome, "indeterminate");
 });
 
 test("the URL operations of LDS are unknown from outside and still work inside files.read", async () => {
-  const { runtime, sent } = fixture([]);
+  const { runtime, server } = fixture([]);
   const args = { url: "x-local://share/a" };
   for (const id of ["native.lds.putUrl", "native.lds.deleteUrl", "native.lds.loadUrl"]) {
     assert.throws(() => runtime.describe(id), { code: "UNKNOWN_OPERATION" }, id);
     assert.equal((await runtime.call(id, args)).error?.code, "UNKNOWN_OPERATION");
     assert.equal((await runtime.call("runtime.batch", { steps: [{ id, args }] })).ok, false, id);
   }
-  assert.equal(sent.length, 0);
+  assert.equal(server.calls.length, 0);
   assert.deepEqual((await runtime.call("files.read", args)).data, { text: "ABC", bytes: 3 });
-  assert.equal(sent[0]!.id, "native.lds.loadUrl");
+  assert.equal(server.calls[0]!.id, "native.lds.loadUrl");
 });
 
 test("the removed operations are unknown from outside", async () => {
-  const { runtime, sent } = fixture([]);
+  const { runtime, server } = fixture([]);
   const removed = `native.lds.getModDeletedObjects native.lds.createDoc native.lds.loadLargeField native.lds.putLargeField native.lds.deleteLargeField web.spxml.putLargeField web.spxml.getLargeField web.spxml.putLargeFieldFromUrl web.pages.createDoc web.pages.getIcon web.lifecycle.logout2 web.experimental.getUiTemplate native.experimental.spxml.getLargeField native.experimental.spxml.putLargeField native.experimental.spxml.putLargeFieldFromUrl native.experimental.spxml.callMethodAsync native.experimental.spxml.getBackgroundTasksByName native.experimental.spxml.getAsyncMethodStatus native.experimental.spxml.killAsyncMethod native.experimental.spxml.getDoc native.experimental.spxml.putDoc`;
   for (const id of removed.split(" ")) {
     assert.throws(() => runtime.describe(id), { code: "UNKNOWN_OPERATION" }, id);
@@ -124,5 +112,5 @@ test("the removed operations are unknown from outside", async () => {
       id,
     );
   }
-  assert.equal(sent.length, 0);
+  assert.equal(server.calls.length, 0);
 });

@@ -6,10 +6,12 @@ import { basename, dirname, join, resolve } from "node:path";
 import { HcmRuntime } from "../src/runtime.js";
 import { HcmClient } from "../src/sdk.js";
 import { HcmError } from "../src/errors.js";
+import { WsHcmApiError } from "../src/protocol/error.js";
 import { XmlDocument } from "../src/documents.js";
 import { getNativeOperations } from "../src/native/index.js";
 import { findXmlNode, parseXml } from "../src/protocol/xml.js";
 import type { ConnectionConfig } from "../src/contracts.js";
+import { fakeRuntime, type FakeServer, type Script } from "./fake-server.js";
 
 const config = (runtimeDir: string, outputLimitBytes = 1024): ConnectionConfig => ({
   name: "review",
@@ -103,16 +105,7 @@ test("Runtime and SDK discovery reject zero limits and advance through all ranke
 });
 
 test("public operation descriptors cannot change shared validation or write policy", async () => {
-  const runtime = new HcmRuntime({
-    ...config(".runtime"),
-    permissions: { write: false, execute: false },
-  });
-  let requests = 0;
-  runtime.gateway.call = async () => {
-    requests++;
-    return {};
-  };
-  runtime.gateway.close = async () => undefined;
+  const { runtime, server } = fakeRuntime({}, { permissions: { write: false, execute: false } });
   try {
     const create = runtime.describe("objects.create");
     assert.throws(() => Object.assign(create, { effect: "read" }), TypeError);
@@ -126,21 +119,29 @@ test("public operation descriptors cannot change shared validation or write poli
     });
     assert.equal(result.error?.code, "WRITE_DISABLED");
     assert.equal(result.error?.mutationOutcome, "not_sent");
-    assert.equal(requests, 0);
+    assert.equal(server.calls.length, 0);
   } finally {
     await runtime.close();
   }
 });
 
+const doc = (text: string) => ({
+  kind: "binary",
+  bytes: new TextEncoder().encode(text),
+  contentType: "application/xml",
+});
+const fixtureForm =
+  '<SPXML-FORM><fixture><id TYPE="integer"/><name TYPE="string"/></fixture></SPXML-FORM>';
+
 async function fixture(
-  action: (runtime: HcmRuntime) => Promise<void>,
+  script: Script,
+  action: (runtime: HcmRuntime, server: FakeServer) => Promise<void>,
   outputLimitBytes = 1024,
 ): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), "hcm-review-"));
-  const runtime = new HcmRuntime(config(directory, outputLimitBytes));
-  runtime.gateway.close = async () => undefined;
+  const { runtime, server } = fakeRuntime(script, { runtimeDir: directory, outputLimitBytes });
   try {
-    await action(runtime);
+    await action(runtime, server);
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });
@@ -148,22 +149,20 @@ async function fixture(
 }
 
 test("failure receipts retain exact prepared execution IDs when a password matches their prefix", async () => {
-  const runtime = new HcmRuntime({
-    ...config(".unused"),
-    username: "synthetic",
-    password: "inline",
-  });
   let preparedId: unknown;
-  runtime.gateway.call = async (id, args) => {
-    assert.equal(id, "web.rpc.call");
-    const request = args.args as { lexicalValue: { xml: string } }[];
-    preparedId = findXmlNode(parseXml(request[0]!.lexicalValue.xml), "code");
-    throw new HcmError("SCRIPT_FAILED", "Synthetic inline diagnostic.", undefined, {
-      executionId: "untrusted-inline",
-      diagnostic: "untrusted-inline",
-    });
-  };
-  runtime.gateway.close = async () => undefined;
+  const { runtime } = fakeRuntime(
+    {
+      "web.rpc.call": (args) => {
+        const request = args.args as { lexicalValue: { xml: string } }[];
+        preparedId = findXmlNode(parseXml(request[0]!.lexicalValue.xml), "code");
+        throw new HcmError("SCRIPT_FAILED", "Synthetic inline diagnostic.", undefined, {
+          executionId: "untrusted-inline",
+          diagnostic: "untrusted-inline",
+        });
+      },
+    },
+    { outputLimitBytes: 1024, username: "synthetic", password: "inline" },
+  );
   try {
     const result = await runtime.call("execute.script", { code: "RESULT=[];" });
     assert.equal(result.error?.mutationOutcome, "indeterminate");
@@ -178,24 +177,20 @@ test("failure receipts retain exact prepared execution IDs when a password match
 
 test("failed document writes preserve journal UUID and numeric object ID despite matching a short password", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-review-"));
-  const runtime = new HcmRuntime({ ...config(directory), username: "synthetic", password: "4" });
-  runtime.gateway.call = async (id) => {
-    if (id === "native.lds.loadDoc")
-      return {
-        kind: "binary",
-        bytes: new TextEncoder().encode("<fixture><id>41</id><name>before</name></fixture>"),
-        contentType: "application/xml",
-      };
-    if (id === "native.spxml2.getForm")
-      return '<SPXML-FORM><fixture><id TYPE="integer"/><name TYPE="string"/></fixture></SPXML-FORM>';
-    assert.equal(id, "native.lds.putDoc");
-    throw new HcmError("SYNTHETIC_WRITE_FAILED", "Synthetic 4 diagnostic.", undefined, {
-      mutationId: "untrusted-4",
-      objectId: "untrusted-4",
-      diagnostic: "untrusted-4",
-    });
-  };
-  runtime.gateway.close = async () => undefined;
+  const { runtime } = fakeRuntime(
+    {
+      "native.lds.loadDoc": doc("<fixture><id>41</id><name>before</name></fixture>"),
+      "native.spxml2.getForm": fixtureForm,
+      "native.lds.putDoc": () => {
+        throw new HcmError("SYNTHETIC_WRITE_FAILED", "Synthetic 4 diagnostic.", undefined, {
+          mutationId: "untrusted-4",
+          objectId: "untrusted-4",
+          diagnostic: "untrusted-4",
+        });
+      },
+    },
+    { runtimeDir: directory, outputLimitBytes: 1024, username: "synthetic", password: "4" },
+  );
   try {
     const result = await runtime.call("objects.patch", { id: "41", patch: { name: "after" } });
     const journal = JSON.parse(
@@ -220,74 +215,70 @@ test("failed document writes preserve journal UUID and numeric object ID despite
 });
 
 test("runtime concurrent close waits for accepted work and the same cleanup outcome", async () => {
-  await fixture(async (runtime) => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let cleanupCalls = 0;
-    runtime.gateway.call = async () => {
-      await gate;
-      return { completed: true };
-    };
-    runtime.gateway.close = async () => {
-      cleanupCalls++;
-    };
-    const accepted = runtime.call("native.lds.idle");
-    const first = runtime.close();
-    const second = runtime.close();
-    let secondSettled = false;
-    void second.then(() => {
-      secondSettled = true;
-    });
-    try {
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      assert.equal(secondSettled, false, "every close caller must wait for the accepted operation");
-    } finally {
-      release();
-      await Promise.all([accepted, first, second]);
-    }
-    assert.equal(cleanupCalls, 1);
-    assert.equal((await runtime.call("native.lds.idle")).error?.code, "RUNTIME_CLOSED");
+  const runtime = new HcmRuntime(config(".unused"));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
   });
+  let cleanupCalls = 0;
+  runtime.gateway.call = async () => {
+    await gate;
+    return { completed: true };
+  };
+  runtime.gateway.close = async () => {
+    cleanupCalls++;
+  };
+  const accepted = runtime.call("native.lds.idle");
+  const first = runtime.close();
+  const second = runtime.close();
+  let secondSettled = false;
+  void second.then(() => {
+    secondSettled = true;
+  });
+  try {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(secondSettled, false, "every close caller must wait for the accepted operation");
+  } finally {
+    release();
+    await Promise.all([accepted, first, second]);
+  }
+  assert.equal(cleanupCalls, 1);
+  assert.equal((await runtime.call("native.lds.idle")).error?.code, "RUNTIME_CLOSED");
 });
 
 test("document data does not disappear because a field name resembles transport credentials", async () => {
-  await fixture(async (runtime) => {
-    const source =
-      "<fixture><id>41</id><password>application-value</password><cookie>business-cookie</cookie><authorization>delegation</authorization><sessionid>external-reference</sessionid></fixture>";
-    runtime.gateway.call = async () => ({
-      kind: "binary",
-      bytes: new TextEncoder().encode(source),
-      contentType: "application/xml",
-    });
-    const result = await runtime.call("objects.get", {
-      id: "41",
-      fields: ["id", "password", "cookie", "authorization", "sessionid"],
-    });
-    assert.equal(result.ok, true);
-    assert.deepEqual((result.data as { data: unknown }).data, {
-      id: "41",
-      password: "application-value",
-      cookie: "business-cookie",
-      authorization: "delegation",
-      sessionid: "external-reference",
-    });
-  }, 24000);
+  const source =
+    "<fixture><id>41</id><password>application-value</password><cookie>business-cookie</cookie><authorization>delegation</authorization><sessionid>external-reference</sessionid></fixture>";
+  await fixture(
+    { "*": doc(source) },
+    async (runtime) => {
+      const result = await runtime.call("objects.get", {
+        id: "41",
+        fields: ["id", "password", "cookie", "authorization", "sessionid"],
+      });
+      assert.equal(result.ok, true);
+      assert.deepEqual((result.data as { data: unknown }).data, {
+        id: "41",
+        password: "application-value",
+        cookie: "business-cookie",
+        authorization: "delegation",
+        sessionid: "external-reference",
+      });
+    },
+    24000,
+  );
 });
 
 test("batch references address full prior values even when their public result is stored", async () => {
-  await fixture(async (runtime) => {
-    let loadedUrl: unknown;
-    runtime.gateway.call = async (id, args) => {
-      if (id === "native.spxml2.getAppInfo")
-        return { url: "x-local://fixture.txt", metadata: "x".repeat(5000) };
-      if (id === "native.lds.loadUrl") {
-        loadedUrl = args.url;
-        return { Data: "Zml4dHVyZQ==" };
-      }
-      throw new Error("Unexpected operation");
-    };
+  let loadedUrl: unknown;
+  const script: Script = {
+    "native.spxml2.getAppInfo": { url: "x-local://fixture.txt", metadata: "x".repeat(5000) },
+    "native.lds.loadUrl": (args) => {
+      loadedUrl = args.url;
+      return { Data: "Zml4dHVyZQ==" };
+    },
+  };
+  await fixture(script, async (runtime) => {
     const result = await runtime.call("runtime.batch", {
       steps: [
         { id: "native.spxml2.getAppInfo", as: "source" },
@@ -300,113 +291,107 @@ test("batch references address full prior values even when their public result i
 });
 
 test("batch artifact failure retains sent writes and bounded step receipts instead of not_sent", async () => {
-  await fixture(async (runtime) => {
-    let writes = 0;
-    runtime.gateway.call = async () => {
-      writes++;
-      return { acknowledged: true, large: "x".repeat(5000) };
-    };
-    await mkdir(dirname(runtime.results.directory), { recursive: true });
-    await writeFile(runtime.results.directory, "foreign file blocks result storage");
-    const result = await runtime.call("runtime.batch", {
-      steps: [
-        {
-          id: "native.lds.putDoc",
-          args: { url: "x-local://fixture/owned.xml", data: "<fixture/>" },
-        },
-      ],
-    });
-    assert.equal(writes, 1);
-    assert.equal(result.error?.code, "RESULT_WRITE_FAILED");
-    assert.equal(result.error?.mutationOutcome, "indeterminate");
-    const receipt = result.data as {
-      partial: boolean;
-      receiptOnly: boolean;
-      completed: number;
-      sentMutationSteps: number;
-      receipts: { operationId: string; ok: boolean }[];
-    };
-    assert.equal(receipt.partial, true);
-    assert.equal(receipt.receiptOnly, true);
-    assert.equal(receipt.completed, 1);
-    assert.equal(receipt.sentMutationSteps, 1);
-    assert.deepEqual(receipt.receipts, [{ index: 0, operationId: "native.lds.putDoc", ok: true }]);
-    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= runtime.config.outputLimitBytes);
-    assert.doesNotMatch(JSON.stringify(result), /xxxxx/);
-  });
+  await fixture(
+    { "*": { acknowledged: true, large: "x".repeat(5000) } },
+    async (runtime, server) => {
+      await mkdir(dirname(runtime.results.directory), { recursive: true });
+      await writeFile(runtime.results.directory, "foreign file blocks result storage");
+      const result = await runtime.call("runtime.batch", {
+        steps: [
+          {
+            id: "native.lds.putDoc",
+            args: { url: "x-local://fixture/owned.xml", data: "<fixture/>" },
+          },
+        ],
+      });
+      assert.equal(server.calls.length, 1);
+      assert.equal(result.error?.code, "RESULT_WRITE_FAILED");
+      assert.equal(result.error?.mutationOutcome, "indeterminate");
+      const receipt = result.data as {
+        partial: boolean;
+        receiptOnly: boolean;
+        completed: number;
+        sentMutationSteps: number;
+        receipts: { operationId: string; ok: boolean }[];
+      };
+      assert.equal(receipt.partial, true);
+      assert.equal(receipt.receiptOnly, true);
+      assert.equal(receipt.completed, 1);
+      assert.equal(receipt.sentMutationSteps, 1);
+      assert.deepEqual(receipt.receipts, [
+        { index: 0, operationId: "native.lds.putDoc", ok: true },
+      ]);
+      assert.ok(Buffer.byteLength(JSON.stringify(result)) <= runtime.config.outputLimitBytes);
+      assert.doesNotMatch(JSON.stringify(result), /xxxxx/);
+    },
+  );
 });
 
 test("batch storage failure preserves not_sent when only a rejected mutation and a read ran", async () => {
-  await fixture(async (runtime) => {
-    let reads = 0;
-    runtime.gateway.call = async (id) => {
-      assert.equal(id, "native.spxml2.getAppInfo");
-      reads++;
-      return { large: "x".repeat(5000) };
-    };
-    await mkdir(dirname(runtime.results.directory), { recursive: true });
-    await writeFile(runtime.results.directory, "foreign file blocks result storage");
-    const result = await runtime.call("runtime.batch", {
-      stopOnError: false,
-      steps: [
-        {
-          id: "native.lds.putDoc",
-          args: { url: "x-local://fixture/owned.xml", data: "<fixture>\0</fixture>" },
-        },
-        { id: "native.spxml2.getAppInfo" },
-      ],
-    });
-    assert.equal(reads, 1);
-    assert.equal(result.error?.code, "RESULT_WRITE_FAILED");
-    assert.equal(result.error?.mutationOutcome, "not_sent");
-    const data = result.data as {
-      completed: number;
-      sentMutationSteps: number;
-      receipts: { ok: boolean; mutationOutcome?: string }[];
-    };
-    assert.equal(data.completed, 2);
-    assert.equal(data.sentMutationSteps, 0);
-    assert.equal(data.receipts[0]?.ok, false);
-    assert.equal(data.receipts[0]?.mutationOutcome, "not_sent");
-    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= runtime.config.outputLimitBytes);
-  });
+  await fixture(
+    { "native.spxml2.getAppInfo": { large: "x".repeat(5000) } },
+    async (runtime, server) => {
+      await mkdir(dirname(runtime.results.directory), { recursive: true });
+      await writeFile(runtime.results.directory, "foreign file blocks result storage");
+      const result = await runtime.call("runtime.batch", {
+        stopOnError: false,
+        steps: [
+          {
+            id: "native.lds.putDoc",
+            args: { url: "x-local://fixture/owned.xml", data: "<fixture>\0</fixture>" },
+          },
+          { id: "native.spxml2.getAppInfo" },
+        ],
+      });
+      assert.equal(server.calls.length, 1);
+      assert.equal(result.error?.code, "RESULT_WRITE_FAILED");
+      assert.equal(result.error?.mutationOutcome, "not_sent");
+      const data = result.data as {
+        completed: number;
+        sentMutationSteps: number;
+        receipts: { ok: boolean; mutationOutcome?: string }[];
+      };
+      assert.equal(data.completed, 2);
+      assert.equal(data.sentMutationSteps, 0);
+      assert.equal(data.receipts[0]?.ok, false);
+      assert.equal(data.receipts[0]?.mutationOutcome, "not_sent");
+      assert.ok(Buffer.byteLength(JSON.stringify(result)) <= runtime.config.outputLimitBytes);
+    },
+  );
 });
 
 test("remove followed by set verifies the final patch intent rather than an intermediate deletion", async () => {
-  await fixture(async (runtime) => {
-    let source = "<fixture><id>41</id><name>old</name></fixture>";
-    let writes = 0;
-    runtime.gateway.call = async (id, args) => {
-      if (id === "native.lds.loadDoc")
-        return {
-          kind: "binary",
-          bytes: new TextEncoder().encode(source),
-          contentType: "application/xml",
-        };
-      if (id === "native.spxml2.getForm")
-        return '<SPXML-FORM><fixture><id TYPE="integer"/><name TYPE="string"/></fixture></SPXML-FORM>';
-      if (id === "native.lds.putDoc") {
-        source = String(args.data);
-        writes++;
-        return { completed: true };
-      }
-      throw new Error("Unexpected operation");
-    };
-    const result = await runtime.call("objects.patch", {
-      id: "41",
-      patch: [
-        { op: "remove", path: "name" },
-        { op: "set", path: "name", value: "new" },
-      ],
-    });
-    assert.equal(XmlDocument.parse(source).snapshot().data.name, "new");
-    assert.equal(writes, 1);
-    assert.equal(result.ok, true, "a successful final state must not be reported indeterminate");
-  }, 24000);
+  let source = "<fixture><id>41</id><name>old</name></fixture>";
+  let writes = 0;
+  const script: Script = {
+    "native.lds.loadDoc": () => doc(source),
+    "native.spxml2.getForm": fixtureForm,
+    "native.lds.putDoc": (args) => {
+      source = String(args.data);
+      writes++;
+      return { completed: true };
+    },
+  };
+  await fixture(
+    script,
+    async (runtime) => {
+      const result = await runtime.call("objects.patch", {
+        id: "41",
+        patch: [
+          { op: "remove", path: "name" },
+          { op: "set", path: "name", value: "new" },
+        ],
+      });
+      assert.equal(XmlDocument.parse(source).snapshot().data.name, "new");
+      assert.equal(writes, 1);
+      assert.equal(result.ok, true, "a successful final state must not be reported indeterminate");
+    },
+    24000,
+  );
 });
 
 test("failed responses remain bounded when an untrusted operation identifier is enormous", async () => {
-  await fixture(async (runtime) => {
+  await fixture({}, async (runtime) => {
     const result = await runtime.call("x".repeat(10000));
     assert.equal(result.ok, false);
     assert.equal(result.error?.code, "INVALID_OPERATION_ID");
@@ -442,156 +427,152 @@ test("invalid native XML rejected before HTTP is reported not_sent", async () =>
 });
 
 test("queued arguments retain preview intent even if a caller reuses and mutates its object", async () => {
-  await fixture(async (runtime) => {
-    const args: Record<string, unknown> = { id: "41", patch: { name: "preview" }, preview: true };
-    let release!: () => void;
-    const wait = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let writes = 0;
-    runtime.gateway.call = async (operation) => {
-      if (operation === "native.lds.loadDoc") {
-        await wait;
-        return {
-          kind: "binary",
-          bytes: new TextEncoder().encode("<fixture><id>41</id><name>original</name></fixture>"),
-          contentType: "application/xml",
-        };
-      }
-      // The form is read to check the field names; this fixture has none.
-      if (operation === "native.spxml2.getForm") throw new Error("Fixture form is unavailable");
+  const args: Record<string, unknown> = { id: "41", patch: { name: "preview" }, preview: true };
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let writes = 0;
+  const script: Script = {
+    "native.lds.loadDoc": async () => {
+      await wait;
+      return doc("<fixture><id>41</id><name>original</name></fixture>");
+    },
+    // The form is read to check the field names; this fixture has none.
+    "native.spxml2.getForm": () => {
+      throw new Error("Fixture form is unavailable");
+    },
+    "*": () => {
       writes++;
       throw new Error("A preview may not send another operation");
-    };
-    const pending = runtime.call("objects.patch", args);
-    args.preview = false;
-    (args.patch as Record<string, unknown>).name = "changed after submission";
-    release();
-    const result = await pending;
-    assert.equal(result.ok, true);
-    assert.equal(writes, 0);
-    assert.equal(
-      ((result.data as { changes: Record<string, unknown>[] }).changes[0] ?? {}).after,
-      "preview",
-    );
-  }, 24000);
+    },
+  };
+  await fixture(
+    script,
+    async (runtime) => {
+      const pending = runtime.call("objects.patch", args);
+      args.preview = false;
+      (args.patch as Record<string, unknown>).name = "changed after submission";
+      release();
+      const result = await pending;
+      assert.equal(result.ok, true);
+      assert.equal(writes, 0);
+      assert.equal(
+        ((result.data as { changes: Record<string, unknown>[] }).changes[0] ?? {}).after,
+        "preview",
+      );
+    },
+    24000,
+  );
 });
 
 for (const idElement of ["", "<id/>"])
   test(`documents with ${idElement || "no id"} use their physical identity without changing XML`, async () => {
-    await fixture(async (runtime) => {
-      const objectId = "0x1000000000000029";
-      const url = "x-local://wt_data/objects/10000000000000/29.xml";
-      let source = `<fixture>${idElement}<name>before</name><future vendor="fixture">preserve</future></fixture>`;
-      let deleted = false;
-      const queries: unknown[] = [];
-      runtime.gateway.call = async (operation, args) => {
-        if (operation === "native.lds.loadDoc")
-          return {
-            kind: "binary",
-            bytes: new TextEncoder().encode(source),
-            contentType: "application/xml",
-          };
-        if (operation === "native.spxml2.getForm")
-          return '<SPXML-FORM><fixture><id TYPE="integer"/><name TYPE="string"/></fixture></SPXML-FORM>';
-        if (operation === "native.lds.putDoc") {
-          assert.equal(args.url, url);
-          source = String(args.data);
-          return { completed: true };
-        }
-        if (operation === "native.lds.xQuery") {
-          queries.push(args.query);
-          return { Data: deleted ? {} : { fixture: { id: objectId } } };
-        }
-        assert.equal(operation, "native.lds.deleteDoc");
+    const objectId = "0x1000000000000029";
+    const url = "x-local://wt_data/objects/10000000000000/29.xml";
+    let source = `<fixture>${idElement}<name>before</name><future vendor="fixture">preserve</future></fixture>`;
+    let deleted = false;
+    const queries: unknown[] = [];
+    const script: Script = {
+      "native.lds.loadDoc": () => doc(source),
+      "native.spxml2.getForm": fixtureForm,
+      "native.lds.putDoc": (args) => {
+        assert.equal(args.url, url);
+        source = String(args.data);
+        return { completed: true };
+      },
+      "native.lds.xQuery": (args) => {
+        queries.push(args.query);
+        return { Data: deleted ? {} : { fixture: { id: objectId } } };
+      },
+      "native.lds.deleteDoc": (args) => {
         assert.equal(args.url, url);
         deleted = true;
         return { completed: true };
-      };
-      for (const target of [{ id: objectId }, { url }]) {
-        const result = await runtime.call("objects.get", target);
-        assert.equal(result.ok, true, JSON.stringify(result));
-        assert.equal((result.data as { id: string }).id, objectId);
-        assert.equal((result.data as { url: string }).url, url);
-      }
-      const decimal = await runtime.call("objects.get", {
-        url: "x-local://wt_data/objects/0000/41.xml",
-      });
-      assert.equal(decimal.ok, true);
-      assert.equal((decimal.data as { id: string }).id, "41");
-      const outside = await runtime.call("objects.get", { url: "x-local://wtv/fixture.xml" });
-      assert.equal(outside.ok, true);
-      assert.equal(Object.hasOwn(outside.data as object, "id"), false);
-      const patched = await runtime.call("objects.patch", {
-        id: objectId,
-        patch: { name: "after" },
-      });
-      assert.equal(patched.ok, true, JSON.stringify(patched));
-      assert.equal((patched.data as { id: string }).id, objectId);
-      const data = XmlDocument.parse(source).snapshot().data;
-      assert.equal(data.name, "after");
-      assert.equal(data.id, idElement ? "" : undefined);
-      assert.equal(Object.hasOwn(data, "id"), !!idElement);
-      assert.match(source, /<future vendor="fixture">preserve<\/future>/);
-      const removed = await runtime.call("objects.delete", {
-        id: objectId,
-        catalog: "fixtures",
-        permanent: true,
-      });
-      assert.equal(removed.ok, true, JSON.stringify(removed));
-      assert.equal((removed.data as { id: string }).id, objectId);
-      assert.equal(deleted, true);
-      const query = `for $elem in fixtures where $elem/id = ${objectId} return $elem`;
-      assert.deepEqual(queries, [query, query]);
-    }, 24000);
+      },
+    };
+    await fixture(
+      script,
+      async (runtime) => {
+        for (const target of [{ id: objectId }, { url }]) {
+          const result = await runtime.call("objects.get", target);
+          assert.equal(result.ok, true, JSON.stringify(result));
+          assert.equal((result.data as { id: string }).id, objectId);
+          assert.equal((result.data as { url: string }).url, url);
+        }
+        const decimal = await runtime.call("objects.get", {
+          url: "x-local://wt_data/objects/0000/41.xml",
+        });
+        assert.equal(decimal.ok, true);
+        assert.equal((decimal.data as { id: string }).id, "41");
+        const outside = await runtime.call("objects.get", { url: "x-local://wtv/fixture.xml" });
+        assert.equal(outside.ok, true);
+        assert.equal(Object.hasOwn(outside.data as object, "id"), false);
+        const patched = await runtime.call("objects.patch", {
+          id: objectId,
+          patch: { name: "after" },
+        });
+        assert.equal(patched.ok, true, JSON.stringify(patched));
+        assert.equal((patched.data as { id: string }).id, objectId);
+        const data = XmlDocument.parse(source).snapshot().data;
+        assert.equal(data.name, "after");
+        assert.equal(data.id, idElement ? "" : undefined);
+        assert.equal(Object.hasOwn(data, "id"), !!idElement);
+        assert.match(source, /<future vendor="fixture">preserve<\/future>/);
+        const removed = await runtime.call("objects.delete", {
+          id: objectId,
+          catalog: "fixtures",
+          permanent: true,
+        });
+        assert.equal(removed.ok, true, JSON.stringify(removed));
+        assert.equal((removed.data as { id: string }).id, objectId);
+        assert.equal(deleted, true);
+        const query = `for $elem in fixtures where $elem/id = ${objectId} return $elem`;
+        assert.deepEqual(queries, [query, query]);
+      },
+      24000,
+    );
   });
 
 test("creation is confirmed when the server stores the document without its id", async () => {
-  await fixture(async (runtime) => {
-    const objectId = "0x1000000000000029";
-    let source = "";
-    runtime.gateway.call = async (operation, args) => {
-      if (operation === "native.spxml2.getForm")
-        return '<SPXML-FORM><fixture><name TYPE="string"/></fixture></SPXML-FORM>';
-      if (operation === "native.lds.getNewObjectId") return { ObjectID: objectId };
-      if (operation === "native.lds.putDoc") {
-        assert.match(String(args.data), /<id>0x1000000000000029<\/id>/);
-        source = String(args.data).replace(/<id>[^<]*<\/id>/, "");
-        return { completed: true };
-      }
-      assert.equal(operation, "native.lds.loadDoc");
-      return {
-        kind: "binary",
-        bytes: new TextEncoder().encode(source),
-        contentType: "application/xml",
-      };
-    };
-    const created = await runtime.call("objects.create", {
-      type: "fixture",
-      data: { name: "new" },
-    });
-    assert.equal(created.ok, true, JSON.stringify(created));
-    const data = created.data as { id: string; mutationOutcome: string };
-    assert.equal(data.id, objectId);
-    assert.equal(data.mutationOutcome, "confirmed");
-  }, 24000);
+  const objectId = "0x1000000000000029";
+  let source = "";
+  const script: Script = {
+    "native.spxml2.getForm": '<SPXML-FORM><fixture><name TYPE="string"/></fixture></SPXML-FORM>',
+    "native.lds.getNewObjectId": { ObjectID: objectId },
+    "native.lds.putDoc": (args) => {
+      assert.match(String(args.data), /<id>0x1000000000000029<\/id>/);
+      source = String(args.data).replace(/<id>[^<]*<\/id>/, "");
+      return { completed: true };
+    },
+    "native.lds.loadDoc": () => doc(source),
+  };
+  await fixture(
+    script,
+    async (runtime) => {
+      const created = await runtime.call("objects.create", {
+        type: "fixture",
+        data: { name: "new" },
+      });
+      assert.equal(created.ok, true, JSON.stringify(created));
+      const data = created.data as { id: string; mutationOutcome: string };
+      assert.equal(data.id, objectId);
+      assert.equal(data.mutationOutcome, "confirmed");
+    },
+    24000,
+  );
 });
 
 test("a conflicting ID and URL cannot read, patch or delete the document selected by URL", async () => {
-  await fixture(async (runtime) => {
-    let mutations = 0;
-    runtime.gateway.call = async (operation) => {
-      if (operation === "native.lds.loadDoc")
-        return {
-          kind: "binary",
-          bytes: new TextEncoder().encode(
-            "<fixture><id>42</id><name>other document</name></fixture>",
-          ),
-          contentType: "application/xml",
-        };
+  let mutations = 0;
+  const script: Script = {
+    "native.lds.loadDoc": doc("<fixture><id>42</id><name>other document</name></fixture>"),
+    "*": () => {
       mutations++;
       throw new Error("Conflicting target sent a mutation");
-    };
+    },
+  };
+  await fixture(script, async (runtime) => {
     const url = "x-local://wt_data/objects/0000/41.xml";
     const byUrl = await runtime.call("objects.get", { url });
     assert.equal(byUrl.ok, true);
@@ -615,8 +596,7 @@ test("a conflicting ID and URL cannot read, patch or delete the document selecte
 });
 
 test("a bounded-request batch remains retrievable when its aggregate exceeds two individual response budgets", async () => {
-  await fixture(async (runtime) => {
-    runtime.gateway.call = async () => ({ text: "x".repeat(900000) });
+  await fixture({ "*": { text: "x".repeat(900000) } }, async (runtime) => {
     const batch = await runtime.call("runtime.batch", {
       steps: [
         { id: "native.spxml2.getAppInfo" },
@@ -639,4 +619,84 @@ test("a bounded-request batch remains retrievable when its aggregate exceeds two
     );
     assert.ok((page.data as { text: string }).text.length);
   });
+});
+
+test("a patch whose read-back returns another document is TARGET_MISMATCH and indeterminate", async () => {
+  let source = "<fixture><id>41</id><name>before</name></fixture>";
+  const script: Script = {
+    "native.lds.loadDoc": () => doc(source),
+    "native.spxml2.getForm": fixtureForm,
+    "native.lds.putDoc": () => {
+      source = "<fixture><id>42</id><name>after</name></fixture>";
+      return { completed: true };
+    },
+  };
+  await fixture(script, async (runtime) => {
+    const result = await runtime.call("objects.patch", { id: "41", patch: { name: "after" } });
+    assert.equal(result.error?.code, "TARGET_MISMATCH");
+    assert.equal(result.error?.mutationOutcome, "indeterminate");
+  });
+});
+
+test("a write after close is RUNTIME_CLOSED and carries no mutation outcome", async () => {
+  const { runtime, server } = fakeRuntime();
+  await runtime.close();
+  const result = await runtime.call("objects.create", { type: "fixture", data: { name: "x" } });
+  assert.equal(result.error?.code, "RUNTIME_CLOSED");
+  assert.equal(Object.hasOwn(result.error ?? {}, "mutationOutcome"), false);
+  assert.equal(server.calls.length, 0);
+});
+
+const unauthorized = () => new WsHcmApiError("http", "unauthorized", { status: 401 });
+const readBackHint =
+  /запрос на запись уже ушёл: после восстановления входа проверить, прошла ли запись/;
+
+test("a refusal at the door after an accepted write is indeterminate and the hint says the write went out", async () => {
+  let loads = 0;
+  const patch = (door: "load" | "put") =>
+    fixture(
+      {
+        "native.lds.loadDoc": () => {
+          if (door === "load" && ++loads === 3) throw unauthorized();
+          return doc("<fixture><id>41</id><name>before</name></fixture>");
+        },
+        "native.spxml2.getForm": fixtureForm,
+        "native.lds.putDoc": () => {
+          if (door === "put") throw unauthorized();
+          return { completed: true };
+        },
+      },
+      async (runtime) => {
+        const result = await runtime.call("objects.patch", { id: "41", patch: { name: "after" } });
+        assert.equal(result.error?.code, "PLATFORM_HTTP");
+        assert.equal(result.error?.details?.objectId, "41");
+        if (door === "put") {
+          assert.equal(result.error?.mutationOutcome, "not_sent");
+          assert.doesNotMatch(result.error?.hint ?? "", readBackHint);
+        } else {
+          assert.equal(result.error?.mutationOutcome, "indeterminate");
+          assert.match(result.error?.hint ?? "", readBackHint);
+        }
+      },
+    );
+  await patch("load");
+  await patch("put");
+});
+
+test("a creation whose ID was issued and whose write is refused at the door is indeterminate", async () => {
+  await fixture(
+    {
+      "native.spxml2.getForm": '<SPXML-FORM><fixture><name TYPE="string"/></fixture></SPXML-FORM>',
+      "native.lds.getNewObjectId": { ObjectID: "0x1000000000000029" },
+      "native.lds.putDoc": () => {
+        throw unauthorized();
+      },
+    },
+    async (runtime) => {
+      const result = await runtime.call("objects.create", { type: "fixture", data: { name: "n" } });
+      assert.equal(result.error?.mutationOutcome, "indeterminate");
+      assert.match(result.error?.hint ?? "", readBackHint);
+      assert.equal(result.error?.details?.objectId, "0x1000000000000029");
+    },
+  );
 });

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { SchemaReader } from "../src/schema.js";
-import { HcmRuntime } from "../src/runtime.js";
 import { buildXml, type XmlObject } from "../src/protocol/xml.js";
+import { fakeRuntime } from "./fake-server.js";
 
 const personUrl = "x-local://wtv/wtv_person.xmd";
 const catalogUrl = "x-local://wtv/wtv_people.xmd";
@@ -453,53 +453,40 @@ test("forms, language and common live for the reader lifetime; custom fields ref
 });
 
 test("repeated runtime schema.get reads each form and language file once in one process", async () => {
-  const runtime = new HcmRuntime({
-    name: "schema-fixture",
-    baseUrl: "http://schema-fixture.invalid/",
-    username: "fixture",
-    password: "synthetic",
-    runtimeDir: ".runtime",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 65536,
-    permissions: { write: false, execute: false },
-    fetch: async () => {
-      throw new Error("Schema fixture must not access the network");
+  const { runtime, server } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": applicationInfo,
+      "native.spxml2.getForm": (args) => {
+        const source = forms.get(String(args.url));
+        assert.ok(source, "Only handwritten forms are read");
+        return source;
+      },
+      "native.lds.loadDoc": (args) => {
+        const document = documents.get(String(args.url));
+        assert.ok(document, "Only handwritten documents are read");
+        const root =
+          args.url === commonUrl ? "common" : args.url === customUrl ? "custom_templates" : "const";
+        return { kind: "binary", bytes: Buffer.from(buildXml({ [root]: document })) };
+      },
     },
-  });
-  const calls: { id: string; url?: unknown }[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    calls.push({ id, url: args.url });
-    if (id === "native.spxml2.getAppInfo") return applicationInfo;
-    if (id === "native.spxml2.getForm") {
-      const source = forms.get(String(args.url));
-      assert.ok(source, "Only handwritten forms are read");
-      return source;
-    }
-    assert.equal(id, "native.lds.loadDoc");
-    const document = documents.get(String(args.url));
-    assert.ok(document, "Only handwritten documents are read");
-    const root =
-      args.url === commonUrl ? "common" : args.url === customUrl ? "custom_templates" : "const";
-    return { kind: "binary", bytes: Buffer.from(buildXml({ [root]: document })) };
-  };
-  runtime.gateway.close = async () => undefined;
+    { permissions: { write: false, execute: false } },
+  );
   try {
     const first = await runtime.call("schema.get", { type: "person" });
     assert.equal(first.ok, true, JSON.stringify(first.error));
-    const readCount = calls.length;
+    const readCount = server.calls.length;
     const second = await runtime.call("schema.get", { type: "person" });
     assert.equal(second.ok, true, JSON.stringify(second.error));
     assert.deepEqual(second.data, first.data);
-    assert.equal(calls.length, readCount);
-    assert.equal(calls.filter((call) => call.url === languageUrl).length, 1);
+    assert.equal(server.calls.length, readCount);
+    assert.equal(server.calls.filter((call) => call.args.url === languageUrl).length, 1);
     for (const url of [
       personUrl,
       catalogUrl,
       "x-local://wtv/base/person.xmd",
       "x-local://wtv/base/name.xmd",
     ])
-      assert.equal(calls.filter((call) => call.url === url).length, 1);
+      assert.equal(server.calls.filter((call) => call.args.url === url).length, 1);
   } finally {
     await runtime.close();
   }

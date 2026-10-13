@@ -1,20 +1,6 @@
-import type {
-  ConnectionConfig,
-  OperationDefinition,
-  OperationEffect,
-  OperationFilter,
-  OperationPage,
-  OperationResult,
-} from "../contracts.js";
-
-export interface RuntimePort {
-  readonly results?: Pick<import("../results.js").ResultStore, "export"> | undefined;
-  listOperations(filter?: OperationFilter): OperationPage;
-  describe(id: string): OperationDefinition;
-  getOperationEffect(id: string, args?: Record<string, unknown>): OperationEffect;
-  call(id: string, args?: Record<string, unknown>): Promise<OperationResult>;
-  close(): Promise<void>;
-}
+import type { ConnectionConfig } from "../contracts.js";
+import type { RuntimePort } from "../runtime-port.js";
+export type { RuntimePort } from "../runtime-port.js";
 
 export interface CliIo {
   /** Indent JSON for a person at a terminal; otherwise results are one compact line. */

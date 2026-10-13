@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { XmlDocument } from "../src/documents.js";
-import { HcmRuntime } from "../src/runtime.js";
 import { SchemaReader } from "../src/schema.js";
 import { queryPage } from "../src/query.js";
 import { buildXml, createPlatformXmlParser, parseXml } from "../src/protocol/xml.js";
+import { fakeRuntime } from "./fake-server.js";
 
 const names =
   "__proto__ constructor prototype hasOwnProperty toString valueOf __defineGetter__ __defineSetter__ __lookupGetter__ __lookupSetter__".split(
@@ -99,16 +99,10 @@ test("form descriptors expose all reserved field names", async () => {
 
 test("document parser limits return a safe runtime error without document contents", async () => {
   const source = `<sample>${"<node>".repeat(101)}private-document-marker${"</node>".repeat(101)}</sample>`;
-  const runtime = new HcmRuntime({
-    name: "fixture",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 65536,
-    outputLimitBytes: 65536,
-    runtimeDir: ".runtime",
-    permissions: { write: false, execute: false },
-  });
-  runtime.gateway.call = async () => ({ kind: "binary", bytes: Buffer.from(source) });
+  const { runtime } = fakeRuntime(
+    { "*": { kind: "binary", bytes: Buffer.from(source) } },
+    { permissions: { write: false, execute: false } },
+  );
   try {
     const result = await runtime.call("objects.get", { url: "fixture.xml" });
     assert.equal(result.error?.code, "INVALID_XML");

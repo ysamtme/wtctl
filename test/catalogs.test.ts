@@ -5,9 +5,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { HcmRuntime } from "../src/runtime.js";
 import { SchemaReader } from "../src/schema.js";
 import { verifyFields } from "../src/verification.js";
+import { fakeRuntime, type Script } from "./fake-server.js";
 
 const forms: Record<string, string> = {
   "x-local://wtv/common.xml": `<common><exchange_object_types>
@@ -128,31 +128,21 @@ test("a catalog without an object type gives its row fields and says whether its
   );
 });
 
-function fixture(runtimeDir = ".unused") {
-  const runtime = new HcmRuntime({
-    name: "t",
-    baseUrl: "http://fixture.invalid/",
-    timeoutMs: 1000,
-    maxResponseBytes: 1024 * 1024,
-    outputLimitBytes: 65536,
-    runtimeDir,
-    permissions: { write: true, execute: true },
-  });
-  runtime.gateway.close = async () => undefined;
-  return runtime;
-}
+const schemaAnswers: Script = {
+  "native.spxml2.getAppInfo": info,
+  "native.spxml2.getForm": (args) => form(String(args.url)),
+};
 
 test("an empty answer for a name that is not a catalog is not taken for an empty catalog", async () => {
-  const runtime = fixture();
-  const sent: string[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    assert.equal(id, "native.lds.xQuery");
-    sent.push(String(args.query));
-    // On an empty database table the server lets a wrong name through.
-    return { Data: "", TotalCount: "0", EOF: "true" };
-  };
+  // On an empty database table the server lets a wrong name through.
+  const { runtime, server } = fakeRuntime({
+    ...schemaAnswers,
+    "native.lds.xQuery": { Data: "", TotalCount: "0", EOF: "true" },
+  });
+  const sent = () =>
+    server.calls
+      .filter(({ id }) => id === "native.lds.xQuery")
+      .map(({ args }) => String(args.query));
   try {
     const wrong = await runtime.call("runtime.query", { catalog: "event" });
     assert.equal(wrong.error?.code, "UNKNOWN_CATALOG");
@@ -163,7 +153,7 @@ test("an empty answer for a name that is not a catalog is not taken for an empty
     });
     assert.deepEqual(empty.data, { items: [], total: 0 });
     assert.equal(
-      sent[1],
+      sent()[1],
       "for $elem in events where ($elem/start_date >= date('2026-01-01')) return $elem",
     );
     // A date field is known also where the row of the catalog bears another name.
@@ -172,7 +162,7 @@ test("an empty answer for a name that is not a catalog is not taken for an empty
       where: { changed: { gte: "2026-01-01" } },
     });
     assert.equal(
-      sent.at(-1),
+      sent().at(-1),
       "for $elem in plans where ($elem/changed >= date('2026-01-01')) return $elem",
     );
     // An ID in decimal reaches an integer field as a number; in a string field digits stay a string.
@@ -181,14 +171,14 @@ test("an empty answer for a name that is not a catalog is not taken for an empty
       where: { id: "7336555599450041442", name: "40702810900000001234" },
     });
     assert.equal(
-      sent.at(-1),
+      sent().at(-1),
       "for $elem in events where ($elem/id = 7336555599450041442) and ($elem/name = '40702810900000001234') return $elem",
     );
     // A common list is refused before the server with the way to read it.
-    const before = sent.length;
+    const before = sent().length;
     const common = await runtime.call("runtime.query", { catalog: "common.kinds" });
     assert.equal(common.error?.message, "common.kinds — общий список сервера, а не каталог.");
-    assert.equal(sent.length, before);
+    assert.equal(sent().length, before);
   } finally {
     await runtime.close();
   }
@@ -206,14 +196,7 @@ test("a date is confirmed by its clock time and refused before the write when th
 
   // The last call here gets as far as the journal of writes, which is a file.
   const directory = await mkdtemp(join(tmpdir(), "hcm-catalogs-"));
-  const runtime = fixture(directory);
-  const calls: string[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    calls.push(id);
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    throw new Error(`unexpected ${id}`);
-  };
+  const { runtime, server } = fakeRuntime(schemaAnswers, { runtimeDir: directory });
   try {
     for (const value of ["05.12.2026", "2026-12-05 09:30", "завтра"]) {
       const refused = await runtime.call("objects.create", {
@@ -230,7 +213,7 @@ test("a date is confirmed by its clock time and refused before the write when th
       data: { note: "05.12.2026", start_date: "2026-12-05" },
     });
     assert.equal(text.error?.code, "INTERNAL_ERROR");
-    assert.equal(calls.at(-1), "native.lds.getNewObjectId");
+    assert.equal(server.calls.at(-1)?.id, "native.lds.getNewObjectId");
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });
@@ -238,19 +221,13 @@ test("a date is confirmed by its clock time and refused before the write when th
 });
 
 test("a field the type does not have is refused before the write and before the preview", async () => {
-  const runtime = fixture();
-  const calls: string[] = [];
-  runtime.gateway.call = async (id, args = {}) => {
-    calls.push(id);
-    if (id === "native.spxml2.getAppInfo") return info;
-    if (id === "native.spxml2.getForm") return form(String(args.url));
-    if (id === "native.lds.loadDoc")
-      return {
-        kind: "binary",
-        bytes: new TextEncoder().encode("<event><id>1</id><name>E</name></event>"),
-      };
-    throw new Error(`unexpected ${id}`);
-  };
+  const { runtime, server } = fakeRuntime({
+    ...schemaAnswers,
+    "native.lds.loadDoc": {
+      kind: "binary",
+      bytes: new TextEncoder().encode("<event><id>1</id><name>E</name></event>"),
+    },
+  });
   try {
     const created = await runtime.call("objects.create", {
       type: "event",
@@ -284,7 +261,7 @@ test("a field the type does not have is refused before the write and before the 
     // Removing what is not there changes nothing and is not an error.
     const removed = await runtime.call("objects.patch", { id: "1", remove: ["no_such"] });
     assert.equal((removed.data as { noop: boolean }).noop, true);
-    assert.equal(calls.filter((id) => /putDoc|getNewObjectId/.test(id)).length, 0);
+    assert.equal(server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length, 0);
   } finally {
     await runtime.close();
   }

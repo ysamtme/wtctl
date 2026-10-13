@@ -59,3 +59,10 @@ export function boundedInteger(
     );
   return value;
 }
+/** The text of an XML node that is a string or has #text; the answer of the server lacks it otherwise. */
+export function scalar(value: unknown, label: string): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "#text" in value)
+    return String((value as Record<string, unknown>)["#text"]);
+  throw new HcmError("PLATFORM_RESPONSE", `В ответе сервера нет ${label}.`);
+}

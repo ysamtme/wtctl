@@ -1,4 +1,5 @@
 import { HcmRuntime } from "./runtime.js";
+import type { RuntimePort } from "./runtime-port.js";
 import type { ResultExportInput } from "./results.js";
 export type { ResultExportInput } from "./results.js";
 import type { CheckData } from "./self-check.js";
@@ -294,12 +295,10 @@ export type ResultPage<T = unknown> =
     };
 
 /** The complete safe runtime boundary; a client can borrow an existing runtime without opening a second session. */
-export interface HcmSdkRuntime {
-  listOperations(filter?: OperationFilter): OperationPage;
-  describe(id: string): OperationDefinition;
-  call(id: string, args?: HcmData): Promise<OperationResult>;
-  close(): Promise<void>;
-}
+export interface HcmSdkRuntime extends Pick<
+  RuntimePort,
+  "listOperations" | "describe" | "call" | "close"
+> {}
 
 /** An actionable operation error retains partial results without serialising them automatically. */
 export class HcmOperationError extends HcmError {

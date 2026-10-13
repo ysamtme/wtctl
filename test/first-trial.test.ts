@@ -6,17 +6,17 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeHcmOperation } from "../src/catalog.js";
-import { operationHelp } from "../src/cli/discovery.js";
+import { operationHelp } from "../src/operation-help.js";
 import { errorInFrontendTerms } from "../src/frontend-names.js";
 import { LogReader, logKind, parseLogEvents, type LogGateway } from "../src/logs.js";
 import { HcmMcpTools } from "../src/mcp/server.js";
-import { WsHcmApiError } from "../src/protocol/error.js";
 import { escapeXml, findXmlNode, parseXml } from "../src/protocol/xml.js";
 import { ResultStore } from "../src/results.js";
 import { HcmRuntime } from "../src/runtime.js";
 import { withRepeated } from "../src/schema.js";
 import type { ConnectionConfig, OperationResult } from "../src/contracts.js";
 import type { RuntimePort } from "../src/cli/types.js";
+import { fakeRuntime, refusal, type Answer } from "./fake-server.js";
 import { mcpJson } from "./mcp-json.js";
 
 const base = {
@@ -28,6 +28,7 @@ const base = {
   runtimeDir: ".unused",
   logBusyMs: 1,
 } as const;
+const readOnly = { outputLimitBytes: 4096, permissions: { write: false, execute: false } };
 
 /** A server that knows only sessions opened at or after `validFrom`; older ones get HTTP 401. */
 function sessionServer(options: { refuseLogin?: boolean } = {}) {
@@ -170,13 +171,10 @@ test("a stored log is read and exported as its text, and the answer shows how it
   const directory = await mkdtemp(join(tmpdir(), "hcm-trial-"));
   try {
     const text = Array.from({ length: 400 }, (_, index) => `12:00:00 line ${index} «ё»`).join("\n");
-    const runtime = new HcmRuntime({
-      ...base,
-      runtimeDir: directory,
-      permissions: { write: false, execute: false },
-    });
-    runtime.gateway.call = async () => ({ file: "a.log", text, rows: [1, 2, 3, 4, 5] });
-    runtime.gateway.close = async () => undefined;
+    const { runtime } = fakeRuntime(
+      { "*": { file: "a.log", text, rows: [1, 2, 3, 4, 5] } },
+      { ...readOnly, runtimeDir: directory },
+    );
     const stored = await runtime.call("native.lds.loadDoc", { url: "x-local://a.xml" });
     assert.equal(stored.meta.truncated, true);
     const data = stored.data as { preview: Record<string, unknown>; resultId: string };
@@ -215,8 +213,7 @@ test("a stored log is read and exported as its text, and the answer shows how it
 
 const groupForm = "x-local://wtv/wtv_group.xmd";
 const peopleForm = "x-local://wtv/wtv_people.xmd";
-function shapedRuntime(refuse?: (id: string, args: Record<string, unknown>) => boolean) {
-  const runtime = new HcmRuntime({ ...base, permissions: { write: false, execute: true } });
+function shapedRuntime(refuses?: (id: string, args: Record<string, unknown>) => boolean) {
   const forms: Record<string, string> = {
     [groupForm]:
       '<SPXML-FORM><group><id TYPE="integer"/><name TYPE="string"/><code TYPE="string"/>' +
@@ -227,13 +224,15 @@ function shapedRuntime(refuse?: (id: string, args: Record<string, unknown>) => b
       '<SPXML-FORM><people><person MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><lastname TYPE="string"/><hire_date TYPE="date"/>' +
       '<roles><role MULTIPLE="1"><role_id TYPE="string"/></role></roles></person></people></SPXML-FORM>',
   };
-  const calls: string[] = [];
-  runtime.gateway.call = async (id, args) => {
-    calls.push(id);
-    if (refuse?.(id, args))
-      throw new WsHcmApiError("soap-fault", "Internal Server Error", { status: 500 });
-    if (id === "native.spxml2.getAppInfo")
-      return {
+  const answering =
+    (answer: Answer): Answer =>
+    (args, id) => {
+      if (refuses?.(id, args)) throw refusal(id);
+      return typeof answer === "function" ? answer(args, id) : answer;
+    };
+  return fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": answering({
         default_db_name: "sample",
         databases: [
           {
@@ -241,31 +240,28 @@ function shapedRuntime(refuse?: (id: string, args: Record<string, unknown>) => b
             catalogs: [{ id: "people", object_type: "person", form_url: peopleForm }],
           },
         ],
-      };
-    if (id === "native.spxml2.getForm") {
-      const form = forms[String(args.url)];
-      if (form === undefined) throw new Error("no such form");
-      return form;
-    }
-    if (id === "native.lds.loadDoc")
-      return {
+      }),
+      "native.spxml2.getForm": answering((args) => {
+        const form = forms[String(args.url)];
+        if (form === undefined) throw new Error("no such form");
+        return form;
+      }),
+      "native.lds.loadDoc": answering({
         kind: "binary",
         bytes: new TextEncoder().encode(
           `<group SPXML-FORM="${groupForm}"><id>1</id><name>G</name>` +
             "<collaborators><collaborator><collaborator_id>5</collaborator_id></collaborator></collaborators>" +
             "<tags><tag><name>a</name></tag><tag><name>b</name></tag></tags></group>",
         ),
-      };
-    if (id === "native.lds.xQuery")
-      return {
+      }),
+      "native.lds.xQuery": answering({
         Data: { person: [{ id: "1", roles: { role: { role_id: "admin" } } }, { id: "2" }] },
         TotalCount: "2",
         EOF: "true",
-      };
-    throw new Error(`unexpected ${id}`);
-  };
-  runtime.gateway.close = async () => undefined;
-  return { runtime, calls };
+      }),
+    },
+    { outputLimitBytes: 4096, permissions: { write: false, execute: true } },
+  );
 }
 
 test("a repeated element is a list also when the object holds one item", async () => {
@@ -282,10 +278,13 @@ test("a repeated element is a list also when the object holds one item", async (
   assert.deepEqual(object.data.tags, { tag: [{ name: "a" }, { name: "b" }] }, "inherited");
   assert.equal(object.unknownFields, undefined);
   // Scalar fields only: the form is not needed and is not requested again.
-  const before = f.calls.length;
+  const before = f.server.calls.length;
   const scalar = (await f.runtime.call("objects.get", { id: "1", fields: ["name"] })).data;
   assert.deepEqual((scalar as Record<string, unknown>).data, { name: "G" });
-  assert.deepEqual(f.calls.slice(before), ["native.lds.loadDoc"]);
+  assert.deepEqual(
+    f.server.calls.slice(before).map(({ id }) => id),
+    ["native.lds.loadDoc"],
+  );
   await f.runtime.close();
 });
 
@@ -329,11 +328,11 @@ test("several objects are read in one call; one that is not read is named in its
 });
 
 test("status names the signed-in user when the server tells its document; a step of a batch keeps its name", async () => {
-  const runtime = new HcmRuntime({ ...base, permissions: { write: false, execute: false } });
   let user: string | undefined = "x-local://wt_data/objects/6aa1b2c3d4e5f6/07.xml";
-  runtime.gateway.call = async (id) =>
-    id === "native.rpc.call" ? { Result: "2025.2" } : { auth_object_url: user };
-  runtime.gateway.close = async () => undefined;
+  const { runtime, server } = fakeRuntime(
+    { "native.rpc.call": { Result: "2025.2" }, "*": () => ({ auth_object_url: user }) },
+    readOnly,
+  );
   const status = (await runtime.call("runtime.status", {})).data as Record<string, unknown>;
   assert.equal(status.userId, "0x6AA1B2C3D4E5F607");
   const batch = (
@@ -346,10 +345,8 @@ test("status names the signed-in user when the server tells its document; a step
     ["first", undefined],
   );
   await runtime.close();
-  const silent = new HcmRuntime({ ...base, permissions: { write: false, execute: false } });
   user = undefined;
-  silent.gateway.call = runtime.gateway.call;
-  silent.gateway.close = async () => undefined;
+  const { runtime: silent } = fakeRuntime(server, readOnly);
   assert.equal(
     Object.hasOwn((await silent.call("runtime.status", {})).data as object, "userId"),
     false,
@@ -358,18 +355,16 @@ test("status names the signed-in user when the server tells its document; a step
 });
 
 test("a condition on a date field is sent as date('…'); the form is read only for a value written as a date", async () => {
-  const sent: unknown[] = [];
-  const f = shapedRuntime((id, args) => {
-    if (id === "native.lds.xQuery") sent.push(args.query);
-    return false;
-  });
+  const f = shapedRuntime();
+  const sent = () =>
+    f.server.calls.filter(({ id }) => id === "native.lds.xQuery").map(({ args }) => args.query);
   await f.runtime.call("runtime.query", {
     catalog: "people",
     where: { lastname: "Иванов" },
     fields: ["id"],
   });
   assert.deepEqual(
-    f.calls,
+    f.server.calls.map(({ id }) => id),
     ["native.lds.xQuery"],
     "no date in the condition: the form is not needed",
   );
@@ -379,12 +374,15 @@ test("a condition on a date field is sent as date('…'); the form is read only 
     fields: ["id"],
   });
   assert.equal(
-    sent[1],
+    sent()[1],
     "for $elem in people where ($elem/hire_date >= date('2024-01-01')) and ($elem/lastname = '2024-01-01') return $elem",
   );
   // A catalog the server does not have: the query goes as written and the server's refusal is explained.
   await f.runtime.call("runtime.query", { catalog: "nobody", where: { hire_date: "2024-01-01" } });
-  assert.equal(sent[2], "for $elem in nobody where ($elem/hire_date = '2024-01-01') return $elem");
+  assert.equal(
+    sent()[2],
+    "for $elem in nobody where ($elem/hire_date = '2024-01-01') return $elem",
+  );
   await f.runtime.close();
 });
 
@@ -408,9 +406,10 @@ test("a refused query is not reported as a possible write, unless it hands SQL t
 });
 
 test("an empty element of a raw answer is an empty string, not its indentation", async () => {
-  const runtime = new HcmRuntime({ ...base, permissions: { write: false, execute: false } });
-  runtime.gateway.call = async () => ({ Catalogs: "\n\t\t\t", note: " ", lines: "a\n\tb" });
-  runtime.gateway.close = async () => undefined;
+  const { runtime } = fakeRuntime(
+    { "*": { Catalogs: "\n\t\t\t", note: " ", lines: "a\n\tb" } },
+    readOnly,
+  );
   const result = await runtime.call("native.lds.getCatalogsStat", {});
   assert.deepEqual(result.data, { Catalogs: "", note: " ", lines: "a\n\tb" });
   await runtime.close();
@@ -422,8 +421,7 @@ test("several operations in one call: the steps are described, checked and class
   assert.deepEqual(Object.keys(steps.items.properties), ["id", "args", "as"]);
   assert.match(help.description, /\$ref/);
   assert.equal(help.details, undefined);
-  const runtime = new HcmRuntime({ ...base, permissions: { write: false, execute: false } });
-  runtime.gateway.close = async () => undefined;
+  const { runtime } = fakeRuntime({}, readOnly);
   assert.equal(
     runtime.getOperationEffect("runtime.batch", {
       steps: [{ id: "runtime.query", args: { catalog: "people" } }, { id: "objects.get" }],

@@ -1,11 +1,11 @@
-import type { OperationDefinition, OperationFilter, OperationPage } from "../contracts.js";
+import type { OperationDefinition, OperationFilter, OperationPage } from "./contracts.js";
 import {
   operationMap,
   operationNotes,
   operationSummary,
   operationTopic,
   type OperationMap,
-} from "../operation-map.js";
+} from "./operation-map.js";
 
 export interface OperationCard {
   readonly id: string;

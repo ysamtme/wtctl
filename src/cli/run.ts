@@ -13,7 +13,7 @@ import {
   type CliArguments,
 } from "./arguments.js";
 import { cliHelp, cliHelpText } from "./help.js";
-import { discoverOperations, operationHelp } from "./discovery.js";
+import { discoverOperations, operationHelp } from "../operation-help.js";
 import { configExample, defaultConfigPath, parseConfiguration, withConnection } from "../config.js";
 import { DeferredRuntime } from "./deferred-runtime.js";
 import { VERSION } from "../version.js";

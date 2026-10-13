@@ -1,6 +1,6 @@
 import process from "node:process";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import type { RuntimePort } from "../cli/types.js";
+import type { RuntimePort } from "../runtime-port.js";
 import type { LocalInstall } from "../guide.js";
 import { createHcmMcpServer } from "./server.js";
 

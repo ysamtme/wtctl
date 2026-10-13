@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
 import { HcmError, inputObject, boundedInteger, requiredString } from "./errors.js";
+import type { ServerPort } from "./hcm-server.js";
 import { parseXml } from "./protocol/xml.js";
 import { WsHcmApiError, attachCleanupError, isTransportFailure } from "./protocol/error.js";
 
-export interface LogGateway {
-  call(id: string, args: Record<string, unknown>): Promise<unknown>;
-}
+export type LogGateway = ServerPort;
 export interface LogFile {
   readonly name: string;
   readonly url: string;
