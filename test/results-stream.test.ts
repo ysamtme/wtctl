@@ -266,6 +266,11 @@ test("export rejects incompatible formats and existing files without leaving tem
     await assert.rejects(store.export({ resultId, path: join(path + "-missing", "out") }), {
       code: "FOLDER_NOT_FOUND",
     });
+    // A folder given as the path is named as such, with and without overwrite.
+    for (const overwrite of [false, true])
+      await assert.rejects(store.export({ resultId, path: store.config.runtimeDir, overwrite }), {
+        code: "INVALID_ARGUMENT",
+      });
   });
 });
 

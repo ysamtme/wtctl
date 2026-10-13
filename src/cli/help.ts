@@ -147,27 +147,26 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
     ],
   },
   file: {
-    summary: "Файл сервера как есть: get (base64), put, upload, delete.",
+    summary: "Загрузка файла в папку загрузок сервера: upload.",
     usage: [
-      "wtctl file get АДРЕС",
-      "wtctl file put АДРЕС --input-file resource.bin",
       "wtctl file upload ИМЯ --input-file resource.bin [--content-type application/octet-stream]",
-      "wtctl file delete АДРЕС",
     ],
-    notes: [
-      "АДРЕС — x-local://…",
-      "upload кладёт файл в папку загрузок сервера; в ответе url — адрес файла, folderUrl — папка, созданная для него.",
-    ],
+    notes: ["В ответе url — адрес файла, folderUrl — папка, созданная для него."],
   },
   files: {
-    summary: "Файл сервера: read (текстом), exists.",
+    summary: "Файл сервера: read (текстом), exists, list, write, delete.",
     usage: [
       "wtctl files read АДРЕС",
       "wtctl files read АДРЕС --base64",
       "wtctl files exists АДРЕС",
+      "wtctl files list АДРЕС [--search ЧАСТЬ_ИМЕНИ]",
+      "wtctl files write АДРЕС --input-file ФАЙЛ",
+      "wtctl files delete АДРЕС",
     ],
     notes: [
       "read отдаёт text, если файл — текст в UTF-8, иначе base64; --base64 отдаёт base64 и для текста.",
+      "list показывает один уровень папки и требует права execute.",
+      "write записывает байты файла ФАЙЛ (или --stdin); в папку кода (wt, wtv, custom…) файл записывает код на сервере, нужно право execute.",
     ],
   },
   doc: {

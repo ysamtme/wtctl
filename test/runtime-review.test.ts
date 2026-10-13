@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { HcmRuntime } from "../src/runtime.js";
@@ -129,54 +129,6 @@ test("public operation descriptors cannot change shared validation or write poli
     assert.equal(requests, 0);
   } finally {
     await runtime.close();
-  }
-});
-
-test("runtime lazily persists a scoped legacy identity across CLI-style invocations", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "hcm-runtime-identity-"));
-  const frames: string[] = [];
-  const settings: ConnectionConfig = {
-    ...config(directory),
-    username: "fixture",
-    password: "fixture",
-    fetch: async (_input, init) => {
-      frames.push(new TextDecoder().decode(init?.body as Uint8Array));
-      return new Response("Result: ok\r\n\r\n", {
-        headers: { "set-cookie": "SessionID=fixture-auth" },
-      });
-    },
-  };
-  try {
-    for (let invocation = 0; invocation < 2; invocation++) {
-      const runtime = new HcmRuntime(settings);
-      const identityFile = join(runtime.results.directory, "..", "legacy-client.id");
-      try {
-        runtime.describe("objects.get");
-        if (invocation === 0) await assert.rejects(stat(identityFile), { code: "ENOENT" });
-        const result = await runtime.call("legacy.session.open");
-        assert.equal(result.ok, true, JSON.stringify(result));
-        assert.match(await readFile(identityFile, "utf8"), /^[0-9A-F]{16}\n$/);
-      } finally {
-        await runtime.close();
-      }
-    }
-    const opens = frames.filter((frame) => frame.startsWith("Action: Idle"));
-    assert.equal(opens.length, 2);
-    assert.equal(
-      /^InstallationID: (\w+)\r$/m.exec(opens[0]!)![1],
-      /^InstallationID: (\w+)\r$/m.exec(opens[1]!)![1],
-    );
-    const contexts = opens.map((frame) => /^SessionID: (\d+)\r$/m.exec(frame)![1]!);
-    assert.notEqual(contexts[0], contexts[1]);
-    assert.deepEqual(
-      frames
-        .filter((frame) => frame.startsWith("Action: QuitSession"))
-        .map((frame) => /^SessionID: (\d+)\r$/m.exec(frame)![1]!)
-        .sort(),
-      contexts.sort(),
-    );
-  } finally {
-    await rm(directory, { recursive: true, force: true });
   }
 });
 
@@ -332,14 +284,14 @@ test("batch references address full prior values even when their public result i
         return { url: "x-local://fixture.txt", metadata: "x".repeat(5000) };
       if (id === "native.lds.loadUrl") {
         loadedUrl = args.url;
-        return { body: "fixture" };
+        return { Data: "Zml4dHVyZQ==" };
       }
       throw new Error("Unexpected operation");
     };
     const result = await runtime.call("runtime.batch", {
       steps: [
         { id: "native.spxml2.getAppInfo", as: "source" },
-        { id: "native.lds.loadUrl", args: { url: { $ref: "source.data.url" } } },
+        { id: "files.read", args: { url: { $ref: "source.data.url" } } },
       ],
     });
     assert.equal(result.ok, true, "a stored preview must not invalidate dependent steps");

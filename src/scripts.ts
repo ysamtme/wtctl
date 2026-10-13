@@ -183,7 +183,8 @@ export function scriptResult(response: unknown, executionId: string): ScriptData
       )
       .join("\n");
     // The server reads the whole code before it runs it: with a syntax error nothing was executed.
-    const unread = /syntax error/i.test(reason);
+    // A syntax error with call frames below it comes from eval() in running code.
+    const unread = /syntax error/i.test(reason) && !/^\(/m.test(reason);
     throw new HcmError(
       "SCRIPT_FAILED",
       "Сервер сообщил об ошибке в коде SP-XML Script.",

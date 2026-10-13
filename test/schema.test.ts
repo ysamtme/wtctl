@@ -458,7 +458,6 @@ test("repeated runtime schema.get reads each form and language file once in one 
     baseUrl: "http://schema-fixture.invalid/",
     username: "fixture",
     password: "synthetic",
-    installationId: "abcdef0123456789",
     runtimeDir: ".runtime",
     timeoutMs: 1000,
     maxResponseBytes: 1024 * 1024,

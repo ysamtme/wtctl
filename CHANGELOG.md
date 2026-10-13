@@ -2,6 +2,36 @@
 
 Пока версия ниже 1.0, имена инструментов, команд и аргументов могут меняться. Такие изменения идут в описании версии первыми, в разделе «Несовместимые изменения».
 
+## 0.2.0 — 2026-10-13
+
+Файлы сервера: запись и удаление в любой папке, куда сервер принимает файлы, и список папки. Убраны операции, которые не работали.
+
+Несовместимые изменения:
+
+- Операции с файлом по адресу убраны: `native.lds.loadUrl`, `native.lds.putUrl`, `native.lds.deleteUrl`, `native.lds.unlockUrl`, `web.lds.deleteUrl`, `web.pages.copyUrl`. Вместо них — `files.read`, `files.write`, `files.delete`, `files.list`; копия файла — чтение и запись по новому адресу.
+- Команды `wtctl file get`, `file put`, `file delete` убраны: их заменяют `wtctl files read`, `files write`, `files delete`. `wtctl file upload` осталась.
+- Убраны 16 операций, на всех проверенных серверах они отвечали отказом или не использовались: группа `legacy.xhttp` (9 операций), `legacy.session.open`, `legacy.session.close`, `legacy.experimental.rawRequest`, `native.lds.eval`, `web.lds.eval`, `native.experimental.readDirectory`, `web.pages.putUrl`. Профиль `legacy` убран целиком.
+- Ключи подключения `installationId` и `installationIdFile`, переменные `WTCTL_INSTALLATION_ID` и `WTCTL_INSTALLATION_ID_FILE` убраны; оставшиеся в файле подключений ключи игнорируются.
+- `wtctl/protocol`: убраны `LegacySession`, `XHttpBinaryResponse`, типы `LegacyCatalogKey` и `XHttpResult`, методы клиента `openLegacySession` и `withLegacySession`, вид ошибки `xhttp-result`, методы `NativeLdsApi.unlockUrl`, `WebLdsApi.deleteUrl`, `WebPageApi.copyUrl`. У двоичного результата больше нет поля `records`.
+
+Новое:
+
+- `files.write` и `files.delete` работают в любой папке, куда сервер принимает файлы. Путь клиент выбирает до отправки, по спискам папок самого сервера: в папке данных (`share`, `wt_data` и других) хватает права `write`; в папке кода (`wt`, `wtv`, `custom` и других) файл записывает и удаляет код на сервере, нужны `write` и `execute`; в остальные папки запрос не отправляется. `files.delete` в папке данных удаляет и пустую папку.
+- `files.list` — один уровень папки: файлы с размером и вложенные папки; `search` оставляет имена с заданной частью. Нужно право `execute`.
+- `server.info` называет папки подключённого сервера: `dataFolders`, `codeFolders`.
+- CLI: `wtctl files write`, `files delete`, `files list`. SDK: `writeFile`, `deleteFile`, `listFiles`.
+- Страница [docs/compatibility.md](docs/compatibility.md): что отличается между версиями сервера и базами, что не работает ни на одном проверенном сервере, что не проверено.
+
+Исправления:
+
+- Синтаксическая ошибка во всём коде для сервера даёт исход `not_sent`: такой код сервер не выполняет. Раньше подсказка говорила то же, а исход был `indeterminate`.
+- `files.delete` по адресу без файла в папке кода отвечает `FILE_NOT_FOUND`.
+- `results.export` с путём к папке вместо файла отвечает `INVALID_ARGUMENT`, а не внутренней ошибкой.
+
+Прочее:
+
+- `scripts/generate-native-registry.mjs --check` сверяет `src/native/generated.ts` с кодом протокола; проверка входит в `npm run verify`.
+
 ## 0.1.2 — 2026-10-13
 
 Только тексты, код не менялся.

@@ -71,7 +71,7 @@ test("discovery needs no search: no selection gives the overview, a topic gives 
   }
   // Task wording in Russian finds operations whose identifiers are English.
   for (const [query, expected] of [
-    ["файл", "native.lds.loadUrl"],
+    ["файл", "files.read"],
     ["фонов", "web.spxml.getAsyncMethodStatus"],
     ["функци", "rpc.list"],
     ["upload", "web.pages.uploadFile"],
@@ -80,7 +80,7 @@ test("discovery needs no search: no selection gives the overview, a topic gives 
       listHcmOperations({ query, limit: 100 }).operations.some((item) => item.id === expected),
       query,
     );
-  assert.equal(operationTopic("web.lds.eval"), "protocol");
+  assert.equal(operationTopic("native.lds.idle"), "protocol");
   assert.throws(() => listHcmOperations({ topic: "missing" }), { code: "UNKNOWN_TOPIC" });
 });
 
@@ -533,8 +533,8 @@ test("the description of one operation says how to pass data and leaves registry
   assert.match(operationHelp(describeHcmOperation("native.lds.loadDoc")).details!, /files\.read/);
   // A plain operation keeps its registry schema as it is.
   assert.deepEqual(
-    operationHelp(describeHcmOperation("native.lds.deleteUrl")).inputSchema,
-    describeHcmOperation("native.lds.deleteUrl").inputSchema,
+    operationHelp(describeHcmOperation("native.lds.deleteDoc")).inputSchema,
+    describeHcmOperation("native.lds.deleteDoc").inputSchema,
   );
 });
 
@@ -584,8 +584,8 @@ test("an upload answers with the address of the file; a file read as base64 come
       url: "x-local://share/uploaded_files/123/report.txt",
       folderUrl: "x-local://share/uploaded_files/123",
     });
-    const loaded = await runtime.call("native.lds.loadUrl", { url: "x-local://a.bin" });
-    assert.deepEqual(loaded.data, { Data: "AAECAwQF" });
+    const loaded = await runtime.call("files.read", { url: "x-local://a.bin" });
+    assert.deepEqual(loaded.data, { base64: "AAECAwQF", bytes: 6 });
   } finally {
     await runtime.close();
   }

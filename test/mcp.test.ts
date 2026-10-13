@@ -210,10 +210,6 @@ test("actual runtime effect prevents TryLock and raw query from slipping through
         operationId: "native.lds.loadDoc",
         args: { url: "x-local://wt_data/synthetic.xml", tryLock: true },
       },
-      {
-        operationId: "native.lds.loadUrl",
-        args: { url: "x-local://wtv/synthetic.xml", tryLock: true },
-      },
       { operationId: "runtime.query", args: { query: "(1)" } },
       {
         operationId: "runtime.batch",
@@ -244,7 +240,7 @@ test("actual runtime effect prevents TryLock and raw query from slipping through
         args: {
           steps: [
             { id: "native.spxml2.getAppInfo", as: "metadata" },
-            { id: "native.lds.loadUrl", args: { $ref: "metadata.data.loadArguments" } },
+            { id: "native.lds.loadDoc", args: { $ref: "metadata.data.loadArguments" } },
           ],
         },
       },

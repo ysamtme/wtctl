@@ -3,9 +3,9 @@ import test from "node:test";
 import { WsHcmClient } from "../src/protocol/client.js";
 import { WsHcmApiError, isTransportFailure } from "../src/protocol/error.js";
 
-type Profile = "native" | "web" | "legacy";
+type Profile = "native" | "web";
 type Phase = "request" | "body" | "web-lds-request" | "web-lds-body";
-const profiles: readonly Profile[] = ["native", "web", "legacy"];
+const profiles: readonly Profile[] = ["native", "web"];
 const ownedCookie = { "set-cookie": "SessionID=only-this-bootstrap" };
 const base = {
   baseUrl: "http://bootstrap-fixture.invalid/",
@@ -14,9 +14,7 @@ const base = {
   maxResponseBytes: 1024,
 };
 function open(client: WsHcmClient, profile: Profile) {
-  if (profile === "native") return client.openNativeSession();
-  if (profile === "web") return client.openWebSession();
-  return client.openLegacySession({ installationId: "1234567890ABCDEF" });
+  return profile === "native" ? client.openNativeSession() : client.openWebSession();
 }
 function lostBody(error: Error = new TypeError("The fixture response body was lost")): Response {
   return new Response(
@@ -29,7 +27,7 @@ function lostBody(error: Error = new TypeError("The fixture response body was lo
   );
 }
 
-test("native, web and legacy opening halt remote cleanup after request or response-body loss, including a partially opened web HTTP context", async () => {
+test("native and web opening halt remote cleanup after request or response-body loss, including a partially opened web HTTP context", async () => {
   for (const profile of profiles) {
     const phases: readonly Phase[] =
       profile === "web"
@@ -70,7 +68,7 @@ test("native, web and legacy opening halt remote cleanup after request or respon
   }
 });
 
-test("ordinary bootstrap rejection and a bounded-response violation still clean the owned HTTP context without guessing LDS or legacy identities", async () => {
+test("ordinary bootstrap rejection and a bounded-response violation still clean the owned HTTP context without guessing LDS identities", async () => {
   for (const profile of profiles) {
     for (const variant of ["server-rejection", "response-budget"] as const) {
       const calls: { path: string; body: string }[] = [];
@@ -91,8 +89,6 @@ test("ordinary bootstrap rejection and a bounded-response violation still clean 
             return new Response("x".repeat(129), { headers: ownedCookie });
           if (profile === "web" && path === "/spxml_web/main.htm")
             return new Response("<html>owned bootstrap</html>", { headers: ownedCookie });
-          if (profile === "legacy")
-            return new Response("Result: denied\r\n\r\n", { headers: ownedCookie });
           return new Response(
             "<Fault><faultcode>Server</faultcode><faultstring>Internal Server Error</faultstring></Fault>",
             { status: 500, headers: ownedCookie },
@@ -104,14 +100,7 @@ test("ordinary bootstrap rejection and a bounded-response violation still clean 
           assert.ok(error instanceof WsHcmApiError);
           assert.equal(isTransportFailure(error), false);
           assert.equal(error.cleanupError, undefined);
-          assert.equal(
-            error.kind,
-            variant === "response-budget"
-              ? "protocol"
-              : profile === "legacy"
-                ? "xhttp-result"
-                : "soap-fault",
-          );
+          assert.equal(error.kind, variant === "response-budget" ? "protocol" : "soap-fault");
           return true;
         });
         const cleanup = calls.filter(({ path }) => /logout|loggedoff/.test(path));
@@ -160,8 +149,6 @@ test("ordinary bootstrap rejection stays primary when HTTP cleanup loses headers
           }
           if (profile === "web" && path === "/spxml_web/main.htm")
             return new Response("<html>owned bootstrap</html>", { headers: ownedCookie });
-          if (profile === "legacy")
-            return new Response("Result: denied\r\n\r\n", { headers: ownedCookie });
           return new Response(
             "<Fault><faultcode>Server</faultcode><faultstring>Internal Server Error</faultstring></Fault>",
             { status: 500, headers: ownedCookie },
@@ -171,9 +158,9 @@ test("ordinary bootstrap rejection stays primary when HTTP cleanup loses headers
       try {
         await assert.rejects(open(client, profile), (error: unknown) => {
           assert.ok(error instanceof WsHcmApiError, `${profile}/${cleanupPhase}`);
-          assert.equal(error.kind, profile === "legacy" ? "xhttp-result" : "soap-fault");
-          assert.equal(error.status, profile === "legacy" ? 200 : 500);
-          assert.equal(error.operation, profile === "legacy" ? "Idle" : "OpenSession");
+          assert.equal(error.kind, "soap-fault");
+          assert.equal(error.status, 500);
+          assert.equal(error.operation, "OpenSession");
           const cleanup = error.cleanupError;
           assert.ok(
             cleanup instanceof WsHcmApiError,
@@ -201,9 +188,7 @@ test("ordinary bootstrap rejection stays primary when HTTP cleanup loses headers
           calls.map(({ path }) => path),
           profile === "web"
             ? ["/spxml_web/main.htm", "/services/LdsService", "/spxml_web/logout.htm"]
-            : profile === "native"
-              ? ["/services/LdsService", "/loggedoff.html"]
-              : ["/xhttp", "/loggedoff.html"],
+            : ["/services/LdsService", "/loggedoff.html"],
           `${profile}/${cleanupPhase}`,
         );
         assert.equal(calls.at(-1)?.cookie, "SessionID=only-this-bootstrap");

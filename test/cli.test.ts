@@ -372,19 +372,9 @@ const commandCases: {
     args: { url: "x-local://wt_data/synthetic.xml" },
   },
   {
-    argv: ["file", "get", "x-local://wtv/synthetic.txt"],
-    id: "native.lds.loadUrl",
-    args: { url: "x-local://wtv/synthetic.txt" },
-  },
-  {
-    argv: ["file", "put", "x-local://wtv/synthetic.txt", "--args", '{"data":{"base64":"QQ=="}}'],
-    id: "native.lds.putUrl",
-    args: { data: { base64: "QQ==" }, url: "x-local://wtv/synthetic.txt" },
-  },
-  {
-    argv: ["file", "delete", "x-local://wtv/synthetic.txt"],
-    id: "native.lds.deleteUrl",
-    args: { url: "x-local://wtv/synthetic.txt" },
+    argv: ["files", "list", "x-local://wtv"],
+    id: "files.list",
+    args: { url: "x-local://wtv" },
   },
   {
     argv: ["files", "exists", "x-local://Share/Папка/📄A%2FB (draft).txt"],
@@ -448,12 +438,6 @@ const commandCases: {
     input: "<root/>",
     id: "native.lds.putDoc",
     args: { data: "<root/>", url: "x-local://wt_data/synthetic.xml" },
-  },
-  {
-    argv: ["file", "put", "x-local://wtv/synthetic.txt", "--stdin"],
-    input: "A",
-    id: "native.lds.putUrl",
-    args: { data: { base64: "QQ==" }, url: "x-local://wtv/synthetic.txt" },
   },
   {
     argv: [
@@ -1591,12 +1575,9 @@ test("password stdin is separate credential input, preserves whitespace, and nev
   }
 });
 
-test("file put/upload use exact bounded binary input without UTF-8 conversion", async () => {
+test("file upload uses exact bounded binary input without UTF-8 conversion", async () => {
   const bytes = Buffer.from([0, 255, 254, 65]);
-  for (const [action, target] of [
-    ["put", "x-local://wtv/synthetic.bin"],
-    ["upload", "synthetic.bin"],
-  ]) {
+  for (const [action, target] of [["upload", "synthetic.bin"]]) {
     const f = fixture();
     f.io.readBinaryFile = async () => bytes;
     assert.equal(
@@ -1609,7 +1590,7 @@ test("file put/upload use exact bounded binary input without UTF-8 conversion", 
     );
     assert.deepEqual(f.state.calls[0]?.args, {
       data: { base64: bytes.toString("base64") },
-      ...(action === "put" ? { url: target } : { filename: target }),
+      filename: target,
     });
     const stdin = fixture();
     stdin.io.readBinaryStdin = async () => bytes;

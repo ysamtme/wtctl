@@ -1,6 +1,6 @@
 /**
  * Expected request shape of every supported protocol call: transport, HTTP method, path and
- * SOAP operation or legacy action name. Used only by the request-construction test.
+ * SOAP operation name. Used only by the request-construction test.
  */
 export const WIRE_CONTRACT = [
   {
@@ -37,13 +37,6 @@ export const WIRE_CONTRACT = [
     httpMethod: "POST",
     pathTemplate: "/services/LdsService?rnd={number}",
     operationName: "DeleteUrl",
-  },
-  {
-    id: "native-lds-eval",
-    transportId: "http-soap",
-    httpMethod: "POST",
-    pathTemplate: "/services/LdsService?rnd={number}",
-    operationName: "Eval",
   },
   {
     id: "native-lds-get-catalogs-stat",
@@ -144,13 +137,6 @@ export const WIRE_CONTRACT = [
     operationName: "RunMethod",
   },
   {
-    id: "native-lds-unlock-url",
-    transportId: "http-soap",
-    httpMethod: "POST",
-    pathTemplate: "/services/LdsService?rnd={number}",
-    operationName: "UnlockUrl",
-  },
-  {
     id: "native-lds-xquery",
     transportId: "http-soap",
     httpMethod: "POST",
@@ -186,67 +172,11 @@ export const WIRE_CONTRACT = [
     operationName: "get_form",
   },
   {
-    id: "native-xhttp-delete-url",
-    transportId: "http-xhttp-text",
-    httpMethod: "POST",
-    pathTemplate: "/xhttp?trans_id={number}",
-    operationName: "DeleteUrl",
-  },
-  {
-    id: "native-xhttp-eval",
-    transportId: "http-xhttp-text",
-    httpMethod: "POST",
-    pathTemplate: "/xhttp?trans_id={number}",
-    operationName: "Eval",
-  },
-  {
-    id: "native-xhttp-get-url",
-    transportId: "http-xhttp-text",
-    httpMethod: "POST",
-    pathTemplate: "/xhttp?trans_id={number}",
-    operationName: "GetUrl",
-  },
-  {
-    id: "native-xhttp-idle",
-    transportId: "http-xhttp-text",
-    httpMethod: "POST",
-    pathTemplate: "/xhttp?trans_id={number}",
-    operationName: "Idle",
-  },
-  {
     id: "native-xhttp-info",
     transportId: "http-page",
     httpMethod: "GET",
     pathTemplate: "/xhttp_info",
     operationName: "active request diagnostics",
-  },
-  {
-    id: "native-xhttp-is-admin",
-    transportId: "http-xhttp-text",
-    httpMethod: "POST",
-    pathTemplate: "/xhttp?trans_id={number}",
-    operationName: "IsAdmin",
-  },
-  {
-    id: "native-xhttp-obtain-new-doc-id",
-    transportId: "http-xhttp-text",
-    httpMethod: "POST",
-    pathTemplate: "/xhttp?trans_id={number}",
-    operationName: "ObtainNewDocID",
-  },
-  {
-    id: "native-xhttp-put-url",
-    transportId: "http-xhttp-text",
-    httpMethod: "POST",
-    pathTemplate: "/xhttp?trans_id={number}",
-    operationName: "PutUrl",
-  },
-  {
-    id: "native-xhttp-unlock-url",
-    transportId: "http-xhttp-text",
-    httpMethod: "POST",
-    pathTemplate: "/xhttp?trans_id={number}",
-    operationName: "UnlockUrl",
   },
   {
     id: "web-admin-alias",
@@ -261,20 +191,6 @@ export const WIRE_CONTRACT = [
     httpMethod: "POST",
     pathTemplate: "/services/LdsService?rnd={number}",
     operationName: "DeleteDoc",
-  },
-  {
-    id: "web-lds-delete-url",
-    transportId: "http-soap",
-    httpMethod: "POST",
-    pathTemplate: "/services/LdsService?rnd={number}",
-    operationName: "DeleteUrl",
-  },
-  {
-    id: "web-lds-eval",
-    transportId: "http-soap",
-    httpMethod: "POST",
-    pathTemplate: "/services/LdsService?rnd={number}",
-    operationName: "Eval",
   },
   {
     id: "web-lds-open-session",
@@ -319,13 +235,6 @@ export const WIRE_CONTRACT = [
     operationName: "main-page",
   },
   {
-    id: "web-page-copy-url-htm",
-    transportId: "http-page",
-    httpMethod: "POST",
-    pathTemplate: "/spxml_web/service/copy_url.htm",
-    operationName: "copy_url.htm",
-  },
-  {
     id: "web-page-create-doc-htm",
     transportId: "http-page",
     httpMethod: "POST",
@@ -366,13 +275,6 @@ export const WIRE_CONTRACT = [
     httpMethod: "GET",
     pathTemplate: "/spxml_web/service/get_url.htm",
     operationName: "get_url.htm",
-  },
-  {
-    id: "web-page-put-url-htm",
-    transportId: "http-page",
-    httpMethod: "POST",
-    pathTemplate: "/spxml_web/service/put_url.htm",
-    operationName: "put_url.htm",
   },
   {
     id: "web-resource-lds-get-resource-image",

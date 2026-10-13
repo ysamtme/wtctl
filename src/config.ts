@@ -217,25 +217,11 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
     );
   const permissions =
     profile.permissions === undefined ? {} : inputObject(profile.permissions, "permissions");
-  const installationId = string(
-    process.env.WTCTL_INSTALLATION_ID ?? profile.installationId,
-    "installationId",
-  );
-  if (installationId !== undefined && !/^[0-9a-fA-F]{16}$/.test(installationId))
-    throw new HcmError("INVALID_CONFIG", "installationId: нужно 16 шестнадцатеричных цифр.");
-  const installationIdFile = string(
-    process.env.WTCTL_INSTALLATION_ID_FILE ?? profile.installationIdFile,
-    "installationIdFile",
-  );
   return {
     name,
     baseUrl: url.href,
     ...(username === undefined ? {} : { username }),
     ...(password === undefined ? {} : { password }),
-    ...(installationId === undefined ? {} : { installationId }),
-    ...(installationIdFile === undefined
-      ? {}
-      : { installationIdFile: resolve(installationIdFile) }),
     timeoutMs: number(
       process.env.WTCTL_TIMEOUT_MS ?? profile.timeoutMs,
       30000,

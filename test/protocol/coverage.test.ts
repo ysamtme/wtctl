@@ -33,16 +33,6 @@ function responseFor(url: URL, init: RequestInit, operationId?: WireOperationId)
             : "";
     return soapResponse(soapMethod, inner);
   }
-  if (url.pathname === "/xhttp") {
-    const action = /^Action: ([A-Za-z0-9]+)/.exec(body)?.[1];
-    const records = action === "Idle" ? "Result: ok\r\nSessionID: 43" : "Result: ok\r\nIsAdmin: 1";
-    return new Response(`${records}\r\n\r\npayload`, {
-      status: 200,
-      ...(action === "Idle"
-        ? { headers: { "set-cookie": "SessionID=legacy-cookie; Path=/" } }
-        : {}),
-    });
-  }
   if (url.pathname === "/spxml_web/main.htm") {
     return new Response('<script>gFaApp.webSessionToken = "page-token";</script>', {
       status: 200,
@@ -87,7 +77,7 @@ async function cancel(response: WsHcmBinaryResponse): Promise<void> {
   await response.body?.cancel();
 }
 
-test("all 68 supported operation units construct a request through a public method", async () => {
+test("all 54 supported operation units construct a request through a public method", async () => {
   const pending: WireOperationId[] = [];
   const covered = new Set<WireOperationId>();
   const fetch: typeof globalThis.fetch = async (input, init = {}) => {
@@ -98,7 +88,6 @@ test("all 68 supported operation units construct a request through a public meth
         url.pathname === "/loggedoff.html" ||
         url.pathname === "/spxml_web/logout.htm" ||
         url.pathname === "/spxml_web/logout2.htm" ||
-        url.pathname === "/xhttp" ||
         /<CloseSession\b/.test(requestBody(init));
       assert.ok(cleanup, `unexpected untracked request: ${init.method ?? "GET"} ${url.pathname}`);
       return responseFor(url, init);
@@ -113,18 +102,9 @@ test("all 68 supported operation units construct a request through a public meth
         new RegExp(`<${metadata.operationName}\\b`),
         `${operationId} SOAP operation`,
       );
-    if (metadata.transportId === "http-xhttp-text")
-      assert.match(
-        requestBody(init),
-        new RegExp(`^Action: ${metadata.operationName}\\r\\n`),
-        `${operationId} xhttp action`,
-      );
     if (operationId === "web-spxml2-get-app-info") {
       assert.equal(url.searchParams.get("fast_start"), "1");
       assert.match(url.searchParams.get("rnd") ?? "", /^\d+$/);
-    }
-    if (operationId === "web-page-copy-url-htm") {
-      assert.deepEqual([...url.searchParams.keys()], ["dest_url", "session_token", "src_url"]);
     }
     covered.add(operationId);
     return responseFor(url, init, operationId);
@@ -166,7 +146,6 @@ test("all 68 supported operation units construct a request through a public meth
   await cover("native-lds-delete-url", () =>
     native.lds.deleteUrl({ url: "x-local://wt/test.xml" }),
   );
-  await cover("native-lds-unlock-url", () => native.lds.unlockUrl("x-local://wt/test.xml"));
   await cover("native-lds-create-doc", () =>
     native.lds.createDoc({ objectTypeId: "collaborator" }),
   );
@@ -202,7 +181,6 @@ test("all 68 supported operation units construct a request through a public meth
   await cover("native-lds-run-method", () =>
     native.lds.runMethod({ libName: "tools", methodName: "method", argData: fragment }),
   );
-  await cover("native-lds-eval", () => native.lds.eval({ code: "1" }));
   await cover("native-lds-idle", () => native.lds.idle());
   await cover("native-spxml-call-method", () =>
     native.rpc.call({ target: "tools.get_version", args: [rpc.string("wtv")] }),
@@ -218,35 +196,13 @@ test("all 68 supported operation units construct a request through a public meth
   );
   await cover("native-lds-close-session", () => native.close());
 
-  const legacy = await cover("native-xhttp-idle", () =>
-    client.openLegacySession({ installationId: "0123456789ABCDEF" }),
-  );
-  await cancel(
-    await cover("native-xhttp-get-url", () =>
-      legacy.xhttp.getUrl({ url: "x-local://wt/test.xml" }),
-    ),
-  );
-  await cover("native-xhttp-put-url", () =>
-    legacy.xhttp.putUrl({ url: "x-local://wt/test.xml", body: "data" }),
-  );
-  await cover("native-xhttp-delete-url", () =>
-    legacy.xhttp.deleteUrl({ url: "x-local://wt/test.xml" }),
-  );
-  await cover("native-xhttp-unlock-url", () => legacy.xhttp.unlockUrl("x-local://wt/test.xml"));
-  await cover("native-xhttp-obtain-new-doc-id", () => legacy.xhttp.obtainNewDocId({ db: "main" }));
-  await cover("native-xhttp-eval", () => legacy.xhttp.eval("1"));
-  await cover("native-xhttp-is-admin", () => legacy.xhttp.isAdmin());
-  await legacy.close();
-
   const web = await cover(["web-main-page", "web-lds-open-session"], () => client.openWebSession());
   await cover("web-admin-alias", () => web.lifecycle.admin());
   await cover("web-lds-xquery", () =>
     web.lds.xQuery({ query: "for $x in collaborators return $x" }),
   );
   await cover("web-lds-release-cursor", () => web.lds.releaseCursor("10"));
-  await cover("web-lds-delete-url", () => web.lds.deleteUrl("x-local://wt/test.xml"));
   await cover("web-lds-delete-doc", () => web.lds.deleteDoc({ url: "x-local://wt/test.xml" }));
-  await cover("web-lds-eval", () => web.lds.eval("1"));
   await cover("web-spxml-call-method", () => web.spxml.callMethod({ target: "tools.get_version" }));
   await cover("web-spxml-call-method-async", () =>
     web.spxml.callMethodAsync({ target: "tools.get_version" }),
@@ -293,9 +249,6 @@ test("all 68 supported operation units construct a request through a public meth
   );
   await cover("web-spxml2-get-preloaded-design-files", () => web.spxml2.getPreloadedDesignFiles());
   await cover("web-spxml2-std-encrypt", () => web.spxml2.stdEncrypt("value"));
-  await cover("web-page-copy-url-htm", () =>
-    web.pages.copyUrl({ srcUrl: "x-local://wt/a", destUrl: "x-local://wt/b" }),
-  );
   await cover("web-page-create-doc-htm", () =>
     web.pages.createDoc({ objectTypeId: "collaborator" }),
   );
@@ -308,9 +261,6 @@ test("all 68 supported operation units construct a request through a public meth
   await cancel(
     await cover("web-page-get-url-htm", () => web.pages.getUrl({ url: "x-local://wt/a" })),
   );
-  await cover("web-page-put-url-htm", () =>
-    web.pages.putUrl({ url: "x-local://wt/a", body: "data" }),
-  );
   await cancel(
     await cover("web-resource-lds-get-resource-image", () =>
       web.resources.getImage({ resourceId: "1" }),
@@ -319,6 +269,6 @@ test("all 68 supported operation units construct a request through a public meth
   await cover(["web-logout-page", "web-logout2-page"], () => web.lifecycle.logout());
   await web.close();
 
-  assert.equal(covered.size, 68);
+  assert.equal(covered.size, 54);
   assert.deepEqual([...covered].sort(), WIRE_CONTRACT.map(({ id }) => id).sort());
 });

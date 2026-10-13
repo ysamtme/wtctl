@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { WsHcmApiError, WsHcmClient, rawXml, rpc } from "../../src/protocol/index.js";
-import { HttpTransport } from "../../src/protocol/transport.js";
-import { LegacyXHttpApi } from "../../src/protocol/api.js";
 
 function bodyText(init: RequestInit): string {
   if (typeof init.body === "string") return init.body;
@@ -127,88 +125,6 @@ test("RPC distinguishes an existing empty typed string from a missing Result", a
       client.close();
     }
   }
-});
-
-test("legacy streaming framing releases readers on success, rejection, cancellation and stream errors", async () => {
-  class CapturingTransport extends HttpTransport {
-    response: Response | undefined;
-    override async send(...args: Parameters<HttpTransport["send"]>): Promise<Response> {
-      return (this.response = await super.send(...args));
-    }
-  }
-  const encoder = new TextEncoder();
-  for (const [source, expected] of [
-    ["Result: ok\r\n\r\npayload", "payload"],
-    ["Result: denied\r\n\r\n", /denied/],
-    ["Result: ok", /framing/],
-    [`Result: ok\r\nLong: ${"x".repeat(65536)}\r\n\r\npayload`, /record section/],
-  ] as const) {
-    const transport = new CapturingTransport({
-      baseUrl: "http://wt.test/",
-      timeoutMs: 1000,
-      maxResponseBytes: 131072,
-      fetch: async () => new Response(encoder.encode(source)),
-    });
-    const api = new LegacyXHttpApi(transport, () => "42");
-    if (typeof expected === "string")
-      assert.equal(
-        await new Response((await api.getUrl({ url: "x-local://fixture" })).body).text(),
-        expected,
-      );
-    else await assert.rejects(api.getUrl({ url: "x-local://fixture" }), expected);
-    assert.equal(transport.response?.body?.locked, false);
-    transport.dispose();
-  }
-  let cancelled = false;
-  const transport = new CapturingTransport({
-    baseUrl: "http://wt.test/",
-    timeoutMs: 1000,
-    fetch: async () =>
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode("Result: ok\r\n\r\npayload"));
-          },
-          cancel() {
-            cancelled = true;
-          },
-        }),
-      ),
-  });
-  await (
-    await new LegacyXHttpApi(transport, () => "42").getUrl({ url: "x-local://fixture" })
-  ).body?.cancel();
-  assert.equal(cancelled, true);
-  assert.equal(transport.response?.body?.locked, false);
-  transport.dispose();
-  let pulls = 0;
-  const broken = new CapturingTransport({
-    baseUrl: "http://wt.test/",
-    timeoutMs: 1000,
-    fetch: async () =>
-      new Response(
-        new ReadableStream({
-          pull(controller) {
-            if (pulls++ === 0) controller.enqueue(encoder.encode("Result: ok\r\n\r\n"));
-            else controller.error(new Error("broken legacy body"));
-          },
-        }),
-      ),
-  });
-  await assert.rejects(
-    async () =>
-      new Response(
-        (await new LegacyXHttpApi(broken, () => "42").getUrl({ url: "x-local://fixture" })).body,
-      ).arrayBuffer(),
-    (error) =>
-      error instanceof WsHcmApiError &&
-      error.kind === "http" &&
-      error.status === undefined &&
-      error.cause instanceof Error &&
-      error.cause.message === "broken legacy body",
-  );
-  assert.equal(broken.response?.body?.locked, false);
-  broken.dispose();
 });
 
 test("native CreateDoc uses exact SOAP 1.2 contract without LDS SessionID", async () => {
@@ -817,42 +733,6 @@ test("SOAP fault messages are bounded and redact common secret fields", async ()
   });
 });
 
-test("failed /xhttp Result does not expose record values", async () => {
-  const sessionSecret = "secret-session-value";
-  const tokenSecret = "secret-token-value";
-  let request = 0;
-  const client = new WsHcmClient({
-    baseUrl: "http://wt.test/",
-    auth: { username: "user", password: "secret" },
-    fetch: (async () => {
-      request += 1;
-      if (request === 1)
-        return new Response("Result: ok\r\nSessionID: 43\r\n\r\n", { status: 200 });
-      if (request === 2)
-        return new Response(
-          `Result: denied\r\nSessionID: ${sessionSecret}\r\nToken: ${tokenSecret}\r\n\r\n`,
-          { status: 200 },
-        );
-      return new Response("Result: ok\r\n\r\n", { status: 200 });
-    }) as typeof globalThis.fetch,
-  });
-
-  await assert.rejects(
-    client.withLegacySession((session) => session.xhttp.isAdmin(), {
-      installationId: "0123456789ABCDEF",
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof WsHcmApiError);
-      assert.equal(error.kind, "xhttp-result");
-      const visible = `${String(error)} ${JSON.stringify(error)}`;
-      assert.doesNotMatch(visible, new RegExp(sessionSecret));
-      assert.doesNotMatch(visible, new RegExp(tokenSecret));
-      return true;
-    },
-  );
-  assert.equal(request, 3, "legacy cleanup must still run");
-});
-
 test("plain operation Error remains primary when cleanup also fails", async () => {
   const primary = new Error("plain operation failure") as Error & { cleanupError?: unknown };
   const client = new WsHcmClient({
@@ -977,35 +857,6 @@ test("web lifecycle attempts logout2 after logout failure and remains idempotent
   assert.deepEqual(logoutCalls, ["logout", "logout2"]);
   await session.close();
   assert.deepEqual(logoutCalls, ["logout", "logout2"]);
-});
-
-test("native experimental ReadDirectory keeps schema order, raw flags and LDS identity", async () => {
-  let calls = 0;
-  const client = new WsHcmClient({
-    baseUrl: "http://wt.test/",
-    auth: { username: "user", password: "secret" },
-    fetch: nativeLifecycle((url, init) => {
-      const body = bodyText(init);
-      if (!body.includes("<ReadDirectory")) return undefined;
-      calls += 1;
-      assert.equal(url.pathname, "/services/LdsService");
-      assert.match(url.search, /^\?rnd=\d+$/);
-      assert.match(
-        body,
-        /<ReadDirectory[^>]*><Url>x-local:\/\/wt<\/Url><ReadFilesOnly>false<\/ReadFilesOnly><ReadDirectoriesOnly><false\/><\/ReadDirectoriesOnly><SessionID>42<\/SessionID><\/ReadDirectory>/,
-      );
-      return soap("ReadDirectory", "<Items/>");
-    }),
-  });
-
-  await client.withNativeSession((session) =>
-    session.experimental.readDirectory({
-      url: "x-local://wt",
-      readFilesOnly: "false",
-      readDirectoriesOnly: rawXml("<false/>"),
-    }),
-  );
-  assert.equal(calls, 1);
 });
 
 test("transport and web experimental regressions preserve errors, secrets and required URLs", async () => {

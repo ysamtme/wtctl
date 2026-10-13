@@ -17,6 +17,12 @@ export async function writeResultFile(
   overwrite = false,
 ): Promise<number> {
   const target = resolve(path);
+  if ((await stat(target).catch(() => undefined))?.isDirectory())
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "path: по этому пути папка, а нужен путь к файлу.",
+      "К пути нужно добавить имя файла, например result.json.",
+    );
   const temporary = `${target}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, chunks, { encoding: "utf8", mode: 0o600, flag: "wx" });

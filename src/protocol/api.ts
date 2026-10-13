@@ -1,16 +1,12 @@
 import { randomBytes, randomInt } from "node:crypto";
 import { WsHcmApiError } from "./error.js";
 import {
-  buildXHttpEntity,
   parseSoapBody,
-  parseXHttpEntity,
   soapContentType,
   soapEnvelope,
   xmlText,
   type SoapField,
   type SoapProfile,
-  type XHttpEntity,
-  type XHttpRecord,
 } from "./protocol.js";
 import { HttpTransport, query } from "./transport.js";
 import {
@@ -21,7 +17,6 @@ import {
   type WsHcmResponse,
 } from "./types.js";
 import {
-  assertXmlCharacters,
   escapeXml,
   findXmlNode,
   isRawXml,
@@ -323,7 +318,6 @@ export interface OpenSessionResult {
 export async function openLdsSession(
   transport: HttpTransport,
   profile: SoapProfile,
-  installationId = "",
   basic = false,
 ): Promise<OpenSessionResult> {
   const response = await soapCall(
@@ -331,7 +325,7 @@ export async function openLdsSession(
     profile,
     withRnd("/services/LdsService"),
     "OpenSession",
-    [["InstallationID", installationId]],
+    [["InstallationID", ""]],
     { basic },
   );
   const sessionId = xmlText(response.data, "SessionID");
@@ -560,20 +554,6 @@ export class NativeLdsApi {
       [
         ["Url", request.url],
         ["StrictDelete", request.strictDelete],
-        ["SessionID", this.caller.id()],
-      ],
-      options,
-    );
-  }
-  /**
-   * Releases a URL lock owned by the current LDS context.
-   * @mutating
-   */
-  unlockUrl(url: string, options?: RequestOptions): Promise<SoapResult> {
-    return this.caller.call(
-      "UnlockUrl",
-      [
-        ["Url", url],
         ["SessionID", this.caller.id()],
       ],
       options,
@@ -813,22 +793,6 @@ export class NativeLdsApi {
   runMethod(request: RunMethodRequest, options?: RequestOptions): Promise<SoapResult> {
     return runLdsMethod(this.caller, request, options);
   }
-  /**
-   * Executes server-side code. Treat every invocation as mutating.
-   * On server 2025.1.1171 this SOAP method responds Unknown method:
-   * Eval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.
-   * @mutating
-   */
-  eval(request: { code: string }, options?: RequestOptions): Promise<SoapResult> {
-    return this.caller.call(
-      "Eval",
-      [
-        ["Code", request.code],
-        ["SessionID", this.caller.id()],
-      ],
-      options,
-    );
-  }
   /** Keeps the current native LDS session active. */
   idle(options?: RequestOptions): Promise<SoapResult> {
     return this.caller.call("Idle", [["SessionID", this.caller.id()]], options);
@@ -904,20 +868,6 @@ export class WebLdsApi {
     return runLdsMethod(this.caller, request, options);
   }
   /**
-   * Deletes a URL through the shipped web LDS subset.
-   * @mutating
-   */
-  deleteUrl(url: string, options?: RequestOptions): Promise<SoapResult> {
-    return this.caller.call(
-      "DeleteUrl",
-      [
-        ["Url", url],
-        ["SessionID", this.caller.id()],
-      ],
-      options,
-    );
-  }
-  /**
    * Deletes a document; web wire sends `StrictDelete=1` only when enabled.
    * @mutating
    */
@@ -930,22 +880,6 @@ export class WebLdsApi {
       [
         ["Url", request.url],
         ["StrictDelete", request.strictDelete ? "1" : undefined],
-      ],
-      options,
-    );
-  }
-  /**
-   * Executes server-side code in the web LDS context.
-   * On server 2025.1.1171 this SOAP method responds Unknown method:
-   * Eval even with ALLOW-SERVER-EVAL enabled. Availability must be checked per server.
-   * @mutating
-   */
-  eval(code: string, options?: RequestOptions): Promise<SoapResult> {
-    return this.caller.call(
-      "Eval",
-      [
-        ["Code", code],
-        ["SessionID", this.caller.id()],
       ],
       options,
     );
@@ -1493,34 +1427,6 @@ export class WebSpXml2Api extends SpXml2Base {
   }
 }
 
-/** Buffered legacy `/xhttp` result records and exact raw response bytes. */
-export interface XHttpResult extends XHttpEntity {
-  readonly result: string;
-}
-
-/** Streaming legacy response whose CRLF record prefix has already been removed from `body`. */
-export class XHttpBinaryResponse extends WsHcmBinaryResponse {
-  readonly records: Readonly<Record<string, string>>;
-
-  constructor(response: Response, records: Readonly<Record<string, string>>) {
-    super(response);
-    this.records = records;
-  }
-}
-
-function xhttpBoundary(bytes: Uint8Array): number {
-  for (let index = 0; index <= bytes.length - 4; index += 1) {
-    if (
-      bytes[index] === 13 &&
-      bytes[index + 1] === 10 &&
-      bytes[index + 2] === 13 &&
-      bytes[index + 3] === 10
-    )
-      return index;
-  }
-  return -1;
-}
-
 function appendBytes(
   left: Uint8Array<ArrayBufferLike>,
   right: Uint8Array<ArrayBufferLike>,
@@ -1529,407 +1435,6 @@ function appendBytes(
   result.set(left);
   result.set(right, left.length);
   return result;
-}
-
-async function streamingXHttpResponse(
-  response: Response,
-  action: string,
-): Promise<XHttpBinaryResponse> {
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new WsHcmApiError("http", `HTTP ${response.status}`, {
-      operation: action,
-      status: response.status,
-    });
-  }
-  if (response.body === null)
-    throw new WsHcmApiError("protocol", "Missing /xhttp response body", { operation: action });
-  const reader = response.body.getReader();
-  let released = false;
-  const release = (): void => {
-    if (!released) {
-      reader.releaseLock();
-      released = true;
-    }
-  };
-  const cancel = async (reason?: unknown): Promise<void> => {
-    try {
-      await reader.cancel(reason);
-    } finally {
-      release();
-    }
-  };
-  let prefix: Uint8Array<ArrayBufferLike> = new Uint8Array();
-  let boundary = -1;
-  let entity: XHttpEntity;
-  try {
-    while (boundary < 0) {
-      const { done, value } = await reader.read();
-      if (done)
-        throw new WsHcmApiError("protocol", "Invalid /xhttp response framing", {
-          operation: action,
-        });
-      prefix = appendBytes(prefix, value);
-      boundary = xhttpBoundary(prefix);
-      if ((boundary < 0 ? prefix.length : boundary + 4) > 65_536) {
-        throw new WsHcmApiError("protocol", "/xhttp record section is too large", {
-          operation: action,
-        });
-      }
-    }
-    entity = parseXHttpEntity(prefix.subarray(0, boundary + 4));
-    const result = entity.records.Result ?? entity.records.result;
-    if (result === undefined || result.toLowerCase() !== "ok") {
-      throw new WsHcmApiError(
-        result === undefined ? "protocol" : "xhttp-result",
-        result ?? "Missing /xhttp Result record",
-        { operation: action, status: response.status },
-      );
-    }
-  } catch (error) {
-    await cancel(error).catch(() => undefined);
-    throw error;
-  }
-  let initial = prefix.subarray(boundary + 4);
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      if (initial.length > 0) {
-        controller.enqueue(initial);
-        initial = new Uint8Array();
-        return;
-      }
-      try {
-        const next = await reader.read();
-        if (next.done) {
-          release();
-          controller.close();
-        } else controller.enqueue(next.value);
-      } catch (error) {
-        await cancel(error).catch(() => undefined);
-        controller.error(error);
-      }
-    },
-    cancel(reason) {
-      return cancel(reason);
-    },
-  });
-  return new XHttpBinaryResponse(
-    new Response(body, { status: response.status, headers: response.headers }),
-    entity.records,
-  );
-}
-
-const LEGACY_QUIT = Symbol("legacyQuit");
-
-/** One source-defined scalar literal per legacy query body line; strings are not code. */
-export type LegacyCatalogKey =
-  | { type: "string"; value: string }
-  | { type: "integer"; value: string }
-  | { type: "real"; value: string };
-
-function legacyCatalogKeyLiteral(key: LegacyCatalogKey): string {
-  if (
-    key === null ||
-    typeof key !== "object" ||
-    Array.isArray(key) ||
-    Object.keys(key).length !== 2 ||
-    typeof key.value !== "string"
-  )
-    throw new TypeError("Ключ каталога — это объект ровно с двумя полями: type и строка value.");
-  if (key.type === "string") {
-    assertXmlCharacters(key.value);
-    if (/[\r\n\0]/.test(key.value))
-      throw new TypeError(
-        "В строковом ключе не должно быть перевода строки и нулевого символа: ключ занимает одну строку запроса.",
-      );
-    return `'${key.value.replaceAll("'", "''")}'`;
-  }
-  if (key.type === "integer") {
-    if (!/^(?:0|[1-9]\d{0,18}|0x[\da-fA-F]{1,16})$/.test(key.value))
-      throw new TypeError(
-        "Целый ключ: нужно число без знака строкой — десятичное или шестнадцатеричное с 0x.",
-      );
-    if (BigInt(key.value) > 9_223_372_036_854_775_807n)
-      throw new TypeError("Целый ключ не помещается в 64-битное целое со знаком.");
-    return key.value;
-  }
-  if (key.type === "real") {
-    if (!/^\d+\.\d+$/.test(key.value) || !Number.isFinite(Number(key.value)))
-      throw new TypeError(
-        "Дробный ключ: нужно число без знака с точкой и без экспоненты, например 1.5.",
-      );
-    return key.value;
-  }
-  throw new TypeError("type ключа: нужно string, integer или real.");
-}
-
-/**
- * Legacy CRLF-framed `/xhttp` operations bound to an isolated legacy session.
- * Obtain instances through `LegacySession`, which owns its distinct frame SessionID.
- */
-export class LegacyXHttpApi {
-  constructor(
-    private readonly transport: HttpTransport,
-    private readonly sessionId: () => DecimalId | undefined,
-  ) {}
-
-  private send(
-    action: string,
-    records: readonly XHttpRecord[],
-    body?: Uint8Array | string,
-    basic = false,
-    options?: RequestOptions,
-  ): Promise<Response> {
-    const requestBody = buildXHttpEntity(action, records, body);
-    return this.transport.send(
-      query("/xhttp", { trans_id: randomInt(1_000_000_000) }),
-      { method: "POST", body: requestBody as unknown as BodyInit },
-      {
-        basic,
-        ...(options?.signal === undefined ? {} : { signal: options.signal }),
-        ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-      },
-    );
-  }
-
-  private async call(
-    action: string,
-    records: readonly XHttpRecord[],
-    body?: Uint8Array | string,
-    basic = false,
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<XHttpResult>> {
-    const response = await this.send(action, records, body, basic, options);
-    const rawBody = new Uint8Array(await response.arrayBuffer());
-    if (!response.ok)
-      throw new WsHcmApiError("http", `HTTP ${response.status}`, {
-        operation: action,
-        status: response.status,
-      });
-    const entity = parseXHttpEntity(rawBody);
-    const result = entity.records.Result ?? entity.records.result;
-    if (result === undefined)
-      throw new WsHcmApiError("protocol", "Missing /xhttp Result record", { operation: action });
-    if (result.toLowerCase() !== "ok") {
-      throw new WsHcmApiError("xhttp-result", result, {
-        operation: action,
-        status: response.status,
-        details: {
-          recordNames: Object.keys(entity.records).filter(
-            (name) => name.toLowerCase() !== "sessionid",
-          ),
-        },
-      });
-    }
-    return {
-      status: response.status,
-      headers: response.headers,
-      rawBody,
-      data: { ...entity, result },
-    };
-  }
-  /** Bootstraps or keeps alive the legacy session. */
-  idle(installationId?: string, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>> {
-    const id = this.sessionId();
-    return this.call(
-      "Idle",
-      id === undefined
-        ? [["InstallationID", installationId ?? ""]]
-        : [
-            ["SessionID", id],
-            ["InstallationID", installationId],
-          ],
-      undefined,
-      id === undefined || installationId !== undefined,
-      options,
-    );
-  }
-  /**
-   * Streams URL bytes after CRLF result records; `lock=true` changes lock state.
-   * @mutating When `lock` is enabled.
-   */
-  async getUrl(
-    request: { url: string; lock?: boolean; compress?: boolean },
-    options?: RequestOptions,
-  ): Promise<XHttpBinaryResponse> {
-    return streamingXHttpResponse(
-      await this.send(
-        "GetUrl",
-        [
-          ["Url", request.url],
-          ["SessionID", this.sessionId()],
-          ["Lock", request.lock ? 1 : undefined],
-          ["Compress", request.compress === undefined ? undefined : request.compress ? 1 : 0],
-        ],
-        undefined,
-        false,
-        options,
-      ),
-      "GetUrl",
-    );
-  }
-  /**
-   * Writes URL bytes using exact legacy framing.
-   * @mutating
-   */
-  putUrl(
-    request: { url: string; body: Uint8Array | string; writeDocInfo?: boolean },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<XHttpResult>> {
-    return this.call(
-      "PutUrl",
-      [
-        ["Url", request.url],
-        ["SessionID", this.sessionId()],
-        [
-          "WriteDocInfo",
-          request.writeDocInfo === undefined ? undefined : request.writeDocInfo ? 1 : 0,
-        ],
-      ],
-      request.body,
-      false,
-      options,
-    );
-  }
-  /**
-   * Deletes a URL; false strictness is serialized explicitly as required by legacy framing.
-   * @mutating
-   */
-  deleteUrl(
-    request: { url: string; strictDelete?: boolean },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<XHttpResult>> {
-    return this.call(
-      "DeleteUrl",
-      [
-        ["Url", request.url, false],
-        ["SessionID", this.sessionId()],
-        ["StrictDelete", request.strictDelete ? 1 : 0],
-      ],
-      undefined,
-      false,
-      options,
-    );
-  }
-  /**
-   * Releases a legacy URL lock.
-   * @mutating
-   */
-  unlockUrl(url: string, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>> {
-    return this.call(
-      "UnlockUrl",
-      [
-        ["Url", url, false],
-        ["SessionID", this.sessionId()],
-      ],
-      undefined,
-      false,
-      options,
-    );
-  }
-  /**
-   * Allocates a new document ID in the named legacy database.
-   * @mutating
-   */
-  obtainNewDocId(
-    request: { db: string },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<XHttpResult>> {
-    return this.call(
-      "ObtainNewDocID",
-      [
-        ["Db", request.db],
-        ["SessionID", this.sessionId()],
-      ],
-      undefined,
-      false,
-      options,
-    );
-  }
-  /**
-   * Selects catalog rows by typed keys using one XQuery scalar literal per CRLF body line.
-   * Catalog and KeyName are explicit legacy header records. Strings escape apostrophes
-   * by doubling; integer/real lexical strings avoid implicit JavaScript conversion.
-   * The initial proven grammar supports unsigned integers, finite unsigned decimals,
-   * and single-line strings. Signed expressions, boolean/null keys and raw code are not accepted.
-   */
-  async queryCatalogByKeys(
-    request: { catalog: string; keyName: string; keys: LegacyCatalogKey[] },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<XHttpResult>> {
-    if (
-      request === null ||
-      typeof request !== "object" ||
-      Array.isArray(request) ||
-      Object.keys(request).some((name) => !["catalog", "keyName", "keys"].includes(name))
-    )
-      throw new TypeError("Запрос по ключам принимает только catalog, keyName и keys.");
-    // The native handler interpolates these into XQuery syntax. A read-only
-    // adapter must accept identifiers/field paths, never caller expressions.
-    if (typeof request.catalog !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(request.catalog))
-      throw new TypeError("catalog: нужно имя из латинских букв, цифр и _, первой не цифра.");
-    if (
-      typeof request.keyName !== "string" ||
-      !/^[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*$/.test(request.keyName)
-    )
-      throw new TypeError(
-        "keyName: нужен путь из имён через /; имя — латинские буквы, цифры и _, первой не цифра.",
-      );
-    if (!Array.isArray(request.keys))
-      throw new TypeError("keys: нужен массив ключей вида {type, value}.");
-    const body = Array.from(request.keys, legacyCatalogKeyLiteral).join("\r\n");
-    return this.call(
-      "QueryCatalogByKeys",
-      [
-        ["Catalog", request.catalog],
-        ["KeyName", request.keyName],
-        ["SessionID", this.sessionId()],
-      ],
-      body,
-      false,
-      options,
-    );
-  }
-  /**
-   * Executes server-side code supplied as the legacy request body.
-   * Server 2025.1.1171 rejects this action
-   * with Obsolete method: ServerEval when ALLOW-SERVER-EVAL is disabled.
-   * Fresh baseline fixtures confirmed disabled rejection with a masked HTTP 500
-   * and an enabled harmless Unicode string expression with a typed UTF-8 result.
-   * These checks do not establish other scripts or the separate SOAP LDS Eval path.
-   * The separate legacy XQuery action returns No longer supported.
-   * @mutating
-   */
-  eval(code: string, options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>> {
-    return this.call("Eval", [["SessionID", this.sessionId()]], code, false, options);
-  }
-  /** Reads whether the current legacy context has administrator privileges. */
-  isAdmin(options?: RequestOptions): Promise<WsHcmResponse<XHttpResult>> {
-    return this.call("IsAdmin", [["SessionID", this.sessionId()]], undefined, false, options);
-  }
-  [LEGACY_QUIT](
-    sessionId: DecimalId,
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<XHttpResult>> {
-    if (typeof sessionId !== "string" || !/^\d+$/.test(sessionId))
-      throw new TypeError("sessionId: нужна строка из десятичных цифр.");
-    return this.call(
-      "QuitSession",
-      [["SessionID", decimal(sessionId, "sessionId")]],
-      undefined,
-      false,
-      options,
-    );
-  }
-}
-
-/** @internal */
-export async function quitLegacySession(
-  api: LegacyXHttpApi,
-  sessionId: DecimalId,
-  options?: RequestOptions,
-): Promise<void> {
-  await api[LEGACY_QUIT](sessionId, options);
 }
 
 /** One caller-selected part of the stock chunk uploader. offset and totalBytes count decoded bytes. */
@@ -1973,34 +1478,6 @@ export class WebPageApi {
   ) {
     if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
       throw new TypeError("maximumUploadBytes: нужно целое число больше нуля.");
-  }
-  /**
-   * Copies one server URL to another.
-   * @mutating
-   */
-  async copyUrl(
-    request: { srcUrl: string; destUrl: string },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<string>> {
-    // The page refuses a request without the page token of the web session ("Empty session token").
-    const token = this.uploadToken?.();
-    if (!token || !/^[!-~]{1,256}$/.test(token))
-      throw new WsHcmApiError(
-        "protocol",
-        "В веб-сессии нет действующего токена страницы для копирования файла.",
-        { operation: "copyUrl", requestSent: false },
-      );
-    return textResponse(
-      await this.transport.send(
-        query("/spxml_web/service/copy_url.htm", {
-          dest_url: request.destUrl,
-          session_token: token,
-          src_url: request.srcUrl,
-        }),
-        { method: "POST", body: "" },
-        options,
-      ),
-    );
   }
   /**
    * Asks the web create handler for unsaved document XML.
@@ -2124,26 +1601,6 @@ export class WebPageApi {
       options,
     );
     return binaryResponse(response, "get_url");
-  }
-  /**
-   * Writes a page-service URL body with optional base64/text hints.
-   * @mutating
-   */
-  async putUrl(
-    request: { url: string; isBase64?: boolean; isText?: boolean; body: BodyInit },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<string>> {
-    return textResponse(
-      await this.transport.send(
-        query("/spxml_web/service/put_url.htm", {
-          url: request.url,
-          is_base64: request.isBase64 ? 1 : undefined,
-          is_text: request.isText ? 1 : undefined,
-        }),
-        { method: "POST", body: request.body },
-        options,
-      ),
-    );
   }
 
   /**
@@ -2605,36 +2062,9 @@ export class WebExperimentalApi extends ExperimentalApi {
 export class NativeExperimentalApi extends ExperimentalApi {
   readonly spxml: NativeExperimentalSpXmlApi;
 
-  constructor(
-    transport: HttpTransport,
-    private readonly sessionId: () => DecimalId,
-  ) {
+  constructor(transport: HttpTransport) {
     super(transport);
     this.spxml = new NativeExperimentalSpXmlApi(transport);
-  }
-
-  /** Reads the schema-backed partial native directory operation; flag types remain intentionally lexical/raw. */
-  readDirectory(
-    request: {
-      url: string;
-      readFilesOnly?: string | RawXml;
-      readDirectoriesOnly?: string | RawXml;
-    },
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    return soapCall(
-      this.transport,
-      "native",
-      withRnd("/services/LdsService"),
-      "ReadDirectory",
-      [
-        ["Url", request.url],
-        ["ReadFilesOnly", request.readFilesOnly],
-        ["ReadDirectoriesOnly", request.readDirectoriesOnly],
-        ["SessionID", this.sessionId()],
-      ],
-      options,
-    );
   }
 }
 

@@ -8,7 +8,11 @@ import type { AgentRunData, ScriptData } from "./scripts.js";
 import type { ServerInfoInput, ServerInfoData, ServerDatabase } from "./server-info.js";
 export type { ServerInfoInput, ServerInfoData } from "./server-info.js";
 import type { FileExistsInput, FileExistsData, FileReadInput, FileReadData } from "./files.js";
+import type { FileWriteInput, FileWriteData, FileDeleteInput, FileDeleteData } from "./files.js";
+import type { FileListData } from "./files.js";
 export type { FileExistsInput, FileExistsData, FileReadInput, FileReadData } from "./files.js";
+export type { FileWriteInput, FileWriteData, FileDeleteInput, FileDeleteData } from "./files.js";
+export type { FileListData } from "./files.js";
 import type { SchemaInput, SchemaResult, SchemaTypesInput, SchemaTypesResult } from "./schema.js";
 export type { SchemaInput, SchemaResult, SchemaTypesInput, SchemaTypesResult } from "./schema.js";
 export type { SchemaField } from "./schema.js";
@@ -422,6 +426,15 @@ export class HcmClient {
   }
   readFile(input: FileReadInput): Promise<HcmResult<FileReadData>> {
     return this.call("files.read", { ...input });
+  }
+  listFiles(input: { url: string; search?: string }): Promise<HcmResult<FileListData>> {
+    return this.call("files.list", { ...input });
+  }
+  writeFile(input: FileWriteInput): Promise<HcmResult<FileWriteData>> {
+    return this.call("files.write", { ...input });
+  }
+  deleteFile(input: FileDeleteInput): Promise<HcmResult<FileDeleteData>> {
+    return this.call("files.delete", { ...input });
   }
   query<T = HcmData>(input: QueryInput): Promise<HcmResult<QueryData<T>>> {
     return this.call("runtime.query", { ...input });

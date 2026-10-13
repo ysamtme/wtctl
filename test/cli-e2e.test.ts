@@ -514,8 +514,8 @@ test(
       const path = join(f.directory, "binary.bin");
       await writeFile(path, bytes);
       const binary = await f.cli([
-        "file",
-        "put",
+        "files",
+        "write",
         "x-local://wtv/synthetic.bin",
         "--input-file",
         path,

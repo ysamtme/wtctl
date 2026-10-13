@@ -34,13 +34,8 @@ for (const variant of [
             ? new TextDecoder().decode(init.body)
             : "";
       const method = /<soap:Body><([A-Za-z0-9]+)/.exec(body)?.[1];
-      const action = /(?:^|\r\n)Action: ([^\r\n]+)/.exec(body)?.[1];
       const native = body.includes(nativeNamespace);
-      const operation = method
-        ? `${native ? "native" : "web"}.${method}`
-        : action
-          ? `legacy.${action}`
-          : `http:${url.pathname}`;
+      const operation = method ? `${native ? "native" : "web"}.${method}` : `http:${url.pathname}`;
       requests.push(operation);
       if (method === "CloseSession" && native) {
         const stream = new ReadableStream<Uint8Array>({
@@ -64,10 +59,6 @@ for (const variant of [
         url.pathname === "/loggedoff.html"
       )
         throw new TypeError("lost fallback response");
-      if (action)
-        return new Response("Result: ok\r\n\r\n", {
-          headers: { "set-cookie": "SessionID=fixture-legacy; Path=/" },
-        });
       if (method)
         return new Response(
           envelope(
@@ -90,14 +81,12 @@ for (const variant of [
       baseUrl: "http://fixture.invalid/",
       username: "fixture",
       password: "fixture",
-      installationId: "1234567890ABCDEF",
       timeoutMs: 1000,
       maxResponseBytes: 1024 * 1024,
       fetch,
     });
     const native = await gateway.native();
     const web = await gateway.web();
-    const legacy = await gateway.legacy();
     requests.length = 0;
     const closing = gateway.close();
     assert.equal(
@@ -150,19 +139,11 @@ for (const variant of [
         "web.CloseSession",
         "http:/spxml_web/logout.htm",
         "http:/spxml_web/logout2.htm",
-        "legacy.QuitSession",
-        "http:/loggedoff.html",
       ]);
     }
     const completedRequests = requests.length;
     await assert.rejects(native.lds.idle(), /closed/);
     await assert.rejects(web.rpc.call({ target: "tools.get_version", args: [] }), /closed/);
-    await assert.rejects(legacy.xhttp.idle(legacy.installationId));
-    assert.equal(
-      legacy.sessionId,
-      undefined,
-      "local disposal removes access, without proving server Quit",
-    );
     await assert.rejects(gateway.call("web.lds.idle", {}), /closed/);
     assert.equal(
       requests.length,

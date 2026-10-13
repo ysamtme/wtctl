@@ -25,7 +25,6 @@ function fixture() {
     baseUrl: "http://rpc-fixture.invalid/",
     username: "fixture",
     password: "synthetic",
-    installationId: "abcdef0123456789",
     runtimeDir: ".runtime",
     timeoutMs: 1000,
     maxResponseBytes: 1024 * 1024,

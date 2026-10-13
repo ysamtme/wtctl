@@ -170,7 +170,6 @@ const surfaces = [
   ["native", "experimental.spxml", "NativeExperimentalSpXmlApi", "experimental.spxml"],
   ["native", "spxml2", "NativeSpXml2Api", "spxml2"],
   ["web", "spxml2", "WebSpXml2Api", "spxml2"],
-  ["legacy", "xhttp", "LegacyXHttpApi", "xhttp"],
   ["web", "pages", "WebPageApi", "pages"],
   ["native", "resources", "ResourceApi", "resources"],
   ["web", "resources", "ResourceApi", "resources"],
@@ -178,12 +177,10 @@ const surfaces = [
   ["anonymous", "experimental", "ExperimentalApi", "experimental"],
   ["native", "experimental", "NativeExperimentalApi", "experimental"],
   ["web", "experimental", "WebExperimentalApi", "experimental"],
-  ["legacy", "experimental", "ExperimentalApi", "experimental"],
   ["web", "lifecycle", "WebLifecycleApi", "lifecycle"],
 ];
 const read = new Set([
   "xQuery",
-  "queryCatalogByKeys",
   "releaseCursor",
   "closeSession",
   "idle",
@@ -191,12 +188,10 @@ const read = new Set([
   "main",
   "logout",
   "logout2",
-  "isAdmin",
   "stdEncrypt",
   "xhttpInfo",
 ]);
 const execute = new Set([
-  "eval",
   "xQuery",
   "runMethod",
   "call",
@@ -228,16 +223,6 @@ for (const [profile, group, klass, member] of surfaces)
       };
     if (method.name === "putDoc" && group.includes("spxml") && input.properties)
       input.properties.document = xml;
-    if (method.name === "queryCatalogByKeys" && group === "xhttp" && input.properties) {
-      input.properties.catalog = {
-        type: "string",
-        pattern: "^[A-Za-z_][A-Za-z0-9_]*$",
-      };
-      input.properties.keyName = {
-        type: "string",
-        pattern: "^[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)*$",
-      };
-    }
     if (["call", "callMethod", "callMethodAsync"].includes(method.name) && input.properties?.target)
       input.properties.target = {
         type: "string",
@@ -334,8 +319,22 @@ for (const [profile, group, klass, member] of surfaces)
     source += `  { operation: decorateOperation(${JSON.stringify(op)}), invoke: async (gateway, args) => ${context}.${member}.${method.name}(${argument}) },\n`;
   }
 source += "];\n";
-mkdirSync(path.join(root, "src/native"), { recursive: true });
-writeFileSync(path.join(root, "src/native/generated.ts"), source);
-console.log(
-  `Generated ${source.split("operation: decorateOperation(").length - 1} explicit operation closures.`,
-);
+const target = path.join(root, "src/native/generated.ts");
+const count = source.split("operation: decorateOperation(").length - 1;
+if (process.argv.includes("--check")) {
+  let current = "";
+  try {
+    current = readFileSync(target, "utf8").replaceAll("\r\n", "\n");
+  } catch {}
+  if (current !== source) {
+    console.error(
+      "src/native/generated.ts does not match the protocol layer: run node scripts/generate-native-registry.mjs.",
+    );
+    process.exit(1);
+  }
+  console.log(`Native registry matches the protocol layer: ${count} operations.`);
+} else {
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, source);
+  console.log(`Generated ${count} explicit operation closures.`);
+}

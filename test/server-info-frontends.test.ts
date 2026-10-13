@@ -72,7 +72,7 @@ async function fixture() {
       const fieldEntries = Array.from(inner.matchAll(/<([A-Za-z]+)>([\s\S]*?)<\/\1>/g));
       const fields = Object.fromEntries(fieldEntries.map((match) => [match[1]!, match[2]!]));
       requests.push(method ?? url.pathname);
-      assert.ok(requests.length <= 14, "Unexpected retries or supplementary metadata probes");
+      assert.ok(requests.length <= 16, "Unexpected retries or supplementary metadata probes");
       if (url.pathname === prefix + "/spxml_web/main.htm") {
         assert.equal(request.method, "GET");
         assert.equal(body, "");
@@ -116,7 +116,10 @@ async function fixture() {
         assert.equal(request.headers.authorization, undefined);
         assert.deepEqual(Object.keys(fields), ["SessionID"]);
         assert.equal(fields.SessionID, context.id);
-        assert.equal(context.steps.at(-1), "CallMethod");
+        assert.equal(
+          context.steps.at(-1),
+          context.profile === "native" ? "get_app_info" : "CallMethod",
+        );
         context.steps.push("CloseSession");
         response.setHeader("content-type", "application/soap+xml");
         response.end(soap(context.profile, method));
@@ -128,6 +131,14 @@ async function fixture() {
         request.headers["x-spxml-client"],
         context.profile === "web" ? "SP-XML Web client 1.0" : undefined,
       );
+      // The native profile also asks for the folder lists; this server does not give them.
+      if (url.pathname === prefix + "/api/spxml2/get_app_info") {
+        assert.equal(context.profile, "native");
+        assert.equal(context.steps.at(-1), "CallMethod");
+        context.steps.push("get_app_info");
+        response.writeHead(500).end();
+        return;
+      }
       if (url.pathname === prefix + "/api/spxml/CallMethod") {
         assert.equal(request.method, "POST");
         assert.equal(url.search, "");
@@ -271,18 +282,19 @@ async function fixture() {
     assert.equal(contexts.length, 3);
     assert.equal(new Set(contexts.map((item) => item.cookie)).size, 3);
     assert.equal(new Set(contexts.map((item) => item.id)).size, 3);
+    const native = ["OpenSession", "CallMethod", "get_app_info", "CloseSession", "loggedoff"];
     assert.deepEqual(
       contexts.map((item) => ({ profile: item.profile, steps: item.steps })),
       [
-        { profile: "native", steps: ["OpenSession", "CallMethod", "CloseSession", "loggedoff"] },
+        { profile: "native", steps: native },
         {
           profile: "web",
           steps: ["main", "OpenSession", "CallMethod", "CloseSession", "logout", "logout2"],
         },
-        { profile: "native", steps: ["OpenSession", "CallMethod", "CloseSession", "loggedoff"] },
+        { profile: "native", steps: native },
       ],
     );
-    assert.equal(requests.length, 4 + 6 + 4);
+    assert.equal(requests.length, 5 + 6 + 5);
   }
   async function close() {
     server.closeAllConnections();

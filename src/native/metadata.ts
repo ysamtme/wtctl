@@ -7,12 +7,6 @@ const compatibilityDescriptions: Readonly<Record<string, string>> = {
     "Partial shipped browser JSON login shape requiring its own login-page token. Server 2025.1.1171 has no authenticate route in its built-in SPXML2 API; optional application hooks may differ. On the tested installation the stock login page returned HTTP 200 with a rendered error and no token, so no authenticate POST or managed-ticket revocation was exercised. Successful body and cookie semantics remain unverified.",
   "web.experimental.getUiTemplate":
     "Partial shipped browser UI-template route. Server 2025.1.1171 has no get_ui_template route in its built-in SPXML2 API; optional application hooks and other deployments may differ. A usable configured handler and its response semantics require independent verification.",
-  "native.experimental.readDirectory":
-    "Low-level directory wire adapter; flag types are lexical/raw. WebSoft HCM 2025.1.1171 does not know ReadDirectory: all three known-directory variants returned SOAP faults. Use logs.list and logs.read for remote server logs. Support on other builds requires verification.",
-  "native.lds.eval":
-    "Low-level native LDS Eval wire adapter; arbitrary code has execute effect. On WebSoft HCM 2025.1.1171 native and web LDS return Unknown method: Eval, including with ALLOW-SERVER-EVAL enabled. Use execute.script through the verified built-in RPC route. Support on other builds requires verification.",
-  "web.lds.eval":
-    "Low-level web LDS Eval wire adapter; arbitrary code has execute effect. On WebSoft HCM 2025.1.1171 native and web LDS return Unknown method: Eval, including with ALLOW-SERVER-EVAL enabled. Use execute.script through the verified built-in RPC route. Support on other builds requires verification.",
 };
 
 /** Replaces the generated description where the generic wording would mislead. */
@@ -36,16 +30,8 @@ export function getEffectiveNativeEffect(
   // Batch policy is evaluated before reference resolution. An unresolved lock
   // flag or argument object can turn this read into a lock mutation.
   if (
-    (operation.method === "loadDoc" ||
-      operation.method === "loadUrl" ||
-      operation.method === "getDoc") &&
+    (operation.method === "loadDoc" || operation.method === "getDoc") &&
     (deferredArgs || args.tryLock === true || isReference(args.tryLock))
-  )
-    return "write";
-  if (
-    operation.profile === "legacy" &&
-    operation.method === "getUrl" &&
-    (deferredArgs || args.lock === true || isReference(args.lock))
   )
     return "write";
   return operation.effect;

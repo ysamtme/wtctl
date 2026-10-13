@@ -4,9 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { HcmRuntime } from "../src/runtime.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
-import { WebPageApi } from "../src/protocol/api.js";
 import { errorInFrontendTerms } from "../src/frontend-names.js";
-import type { HttpTransport } from "../src/protocol/transport.js";
 
 function fixture(execute = true) {
   const runtime = new HcmRuntime({
@@ -164,34 +162,6 @@ test("a malformed function argument is named by its place in arguments", async (
   } finally {
     await runtime.close();
   }
-});
-
-test("copying a file sends the page token of the web session; without one nothing is sent", async () => {
-  const sent: string[] = [];
-  const transport = {
-    send: async (path: string) => {
-      sent.push(path);
-      return new Response("", { status: 200 });
-    },
-  } as unknown as HttpTransport;
-  await new WebPageApi(transport, () => "token-1").copyUrl({
-    srcUrl: "x-local://wt/a.txt",
-    destUrl: "x-local://wt/b.txt",
-  });
-  assert.equal(sent.length, 1);
-  const url = new URL(sent[0]!, "http://fixture.invalid");
-  assert.equal(url.pathname, "/spxml_web/service/copy_url.htm");
-  assert.equal(url.searchParams.get("session_token"), "token-1");
-  assert.equal(url.searchParams.get("src_url"), "x-local://wt/a.txt");
-  assert.equal(url.searchParams.get("dest_url"), "x-local://wt/b.txt");
-  await assert.rejects(
-    new WebPageApi(transport, () => undefined).copyUrl({
-      srcUrl: "x-local://a",
-      destUrl: "x-local://b",
-    }),
-    (error: unknown) => error instanceof WsHcmApiError && error.requestSent === false,
-  );
-  assert.equal(sent.length, 1);
 });
 
 test("a failed step inside a batch and the operation lists are named in the caller's terms", () => {

@@ -1,5 +1,6 @@
 import { HcmError } from "./errors.js";
 import { freezeRegistry } from "./immutable.js";
+import { prepareScript, type ScriptData } from "./scripts.js";
 
 /** One absolute platform URL; this predicate does not read its contents. */
 export interface FileExistsInput {
@@ -37,11 +38,7 @@ export function fileContent(response: unknown, encoding?: unknown): FileReadData
       ? (response as Record<string, unknown>).Data
       : undefined;
   if (typeof data !== "string" || /[^A-Za-z0-9+/=\s]/.test(data))
-    throw new HcmError(
-      "FILE_READ_RESPONSE",
-      "Сервер вернул файл в неожиданном виде.",
-      "Прочитать его можно операцией native.lds.loadUrl.",
-    );
+    throw new HcmError("FILE_READ_RESPONSE", "Сервер вернул файл в неожиданном виде.");
   const content = Buffer.from(data.replace(/\s+/g, ""), "base64");
   const binary = { base64: content.toString("base64"), bytes: content.length };
   if (encoding === "base64") return binary;
@@ -90,6 +87,188 @@ export function fileExistsUrl(value: unknown): string {
     else if (unit === 0xfffe || unit === 0xffff) throw invalid();
   }
   return value;
+}
+
+/** Exactly one of text (written in UTF-8) and base64. */
+export type FileWriteInput = {
+  readonly url: string;
+  readonly text?: string;
+  readonly base64?: string;
+};
+export type FileWriteData = { readonly bytes: number; readonly mutationOutcome: "confirmed" };
+export type FileDeleteInput = { readonly url: string };
+export type FileDeleteData = { readonly deleted: true; readonly mutationOutcome: "confirmed" };
+
+/** Folders of the server: data ones take files through LDS, code ones only code on the server. */
+export type FileFolders = { readonly data: readonly string[]; readonly code: readonly string[] };
+/** Only the two folder lists of the application info are read; undefined when the server gave none. */
+export function fileFolders(info: Record<string, unknown> | undefined): FileFolders | undefined {
+  const data = new Set<string>();
+  const design = new Set<string>();
+  const entries = Array.isArray(info?.config_entries) ? info.config_entries : [];
+  for (const entry of entries as { name?: unknown; value?: unknown }[]) {
+    const list =
+      entry?.name === "DATA-DB" ? data : entry?.name === "DESIGN-DB" ? design : undefined;
+    if (list && typeof entry.value === "string" && entry.value) list.add(entry.value);
+  }
+  if (!data.size && !design.size) return undefined;
+  return { data: [...data], code: [...design].filter((name) => !data.has(name)) };
+}
+
+/** The folder is the first part of the address and decides the route: no part may get around it. */
+export function fileTarget(value: unknown, listing = false): { url: string; folder: string } {
+  // A folder to list may end with a slash and have no path: x-local://share.
+  const text = listing && typeof value === "string" ? value.replace(/\/$/, "") : value;
+  const [folder = "", ...path] = typeof text === "string" ? text.slice(10).split("/") : [];
+  // The server takes % as a plain character; the encoded dot, slashes and control characters are
+  // refused all the same, so that no reading of the address leaves the folder.
+  const plain = (part: string) => !/^[. ]*$|%(?:2e|2f|5c|[01][0-9a-f]|7f)/i.test(part);
+  if (
+    typeof text !== "string" ||
+    !text.startsWith("x-local://") ||
+    /[\\?#\p{Cc}\p{Cs}]/u.test(text) ||
+    !/^[\w-]+$/.test(folder) ||
+    !(listing || path.length) ||
+    !path.every(plain)
+  )
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      listing
+        ? "url: нужен адрес x-local://папка или x-local://папка/путь."
+        : "url: нужен адрес x-local://папка/путь.",
+      `${listing ? "Без" : "Путь не пустой, без"} частей из одних точек и пробелов, без %2e, %2f, %5c, знаков \\ ? #. Например, x-local://share/report.txt.`,
+    );
+  return { url: text, folder };
+}
+
+/** The route is chosen before anything is sent; "unlisted": the server did not say which folders take files. */
+export function fileRoute(
+  operation: "write" | "delete",
+  folders: FileFolders | undefined,
+  folder: string,
+  canExecute: boolean,
+): "data" | "code" | "unlisted" {
+  if (!folders) return "unlisted";
+  // The server compares the folder name exactly: SHARE is not share.
+  if (folders.data.includes(folder)) return "data";
+  if (!folders.code.includes(folder))
+    throw new HcmError(
+      "FOLDER_NOT_WRITABLE",
+      `Папка ${folder} не принимает файлы.`,
+      `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`,
+    );
+  if (!canExecute)
+    throw new HcmError(
+      "EXECUTE_DISABLED",
+      `Папка ${folder} на этом сервере принимает ${operation === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
+      "Право execute включает владелец подключения в настройках подключения (permissions.execute).",
+    );
+  return "code";
+}
+
+/** The bytes to write: text in UTF-8, or base64 without line breaks. */
+export function fileWriteContent(args: Record<string, unknown>) {
+  const { text, base64 } = args;
+  const bytes =
+    typeof text === "string" && !/\p{Cs}/u.test(text)
+      ? Buffer.from(text)
+      : typeof base64 === "string"
+        ? Buffer.from(base64, "base64")
+        : undefined;
+  if (
+    (text === undefined) === (base64 === undefined) ||
+    !bytes ||
+    (text === undefined && bytes.toString("base64") !== base64)
+  )
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "Нужно ровно одно из text (без непарных суррогатов) и base64 (без переводов строк).",
+    );
+  return {
+    ...(typeof text === "string" ? { text } : {}),
+    base64: bytes.toString("base64"),
+    bytes: bytes.length,
+  };
+}
+
+/** Code for the server; a file that does not fit the script limit is refused with its size limits. */
+function fileScript(code: string, params: Record<string, string>) {
+  try {
+    return prepareScript(code, params);
+  } catch (error) {
+    if (!(error instanceof HcmError) || error.code !== "SCRIPT_TOO_LARGE") throw error;
+    throw new HcmError(
+      "FILE_TOO_LARGE",
+      "Файл не помещается в код для сервера.",
+      "В папку кода файл записывает код на сервере: текст — до 750 КБ (меньше, если в нём много переводов строк), двоичные данные — до 580 КБ.",
+    );
+  }
+}
+export function codeWrite(url: string, content: { base64: string; text?: string }) {
+  const text = content.text !== undefined;
+  return fileScript(
+    `PutUrlData(PARAMS.url, ${text ? "PARAMS.text" : "Base64Decode(PARAMS.base64)"});
+RESULT = [UrlFileSize(PARAMS.url)];`,
+    text ? { url, text: content.text! } : { url, base64: content.base64 },
+  );
+}
+export function codeDelete(url: string) {
+  return fileScript(
+    `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
+else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
+else { DeleteUrl(PARAMS.url); RESULT = ['deleted']; }`,
+    { url },
+  );
+}
+/** The code found a folder or nothing at the address and deleted nothing. */
+export function codeDeleteRefusal(data: ScriptData): HcmError | undefined {
+  if (data.result[0] === "directory")
+    return new HcmError("FILE_IS_FOLDER", "Адрес — папка: в папке кода удаляется только файл.");
+  if (data.result[0] === "absent")
+    return new HcmError("FILE_NOT_FOUND", "По адресу нет файла.", "Адрес проверяет files.exists.");
+  return undefined;
+}
+
+export interface FileListData {
+  /** By name; a file has its size in bytes, a folder has folder:true. */
+  readonly items: readonly ({ name: string; bytes: number } | { name: string; folder: true })[];
+  readonly total: number;
+}
+/** One level of a folder: the addresses ReadDirectory gives, which of them are folders, and the file sizes. */
+export function codeList(url: string) {
+  return fileScript(
+    `var rows = [];
+var item = '';
+var folder = false;
+var dir = false;
+try { dir = IsDirectory(PARAMS.url); } catch (e) { dir = false; }
+if (dir) { for (item in ReadDirectory(PARAMS.url)) { folder = IsDirectory(item); rows.push({ u: item, f: folder, b: folder ? 0 : UrlFileSize(item) }); } }
+RESULT = dir ? rows : ['none'];`,
+    { url },
+  );
+}
+export function fileList(data: ScriptData, folder: string, search = ""): FileListData {
+  if (data.result[0] === "none")
+    throw new HcmError(
+      "FOLDER_NOT_FOUND",
+      "По адресу нет папки.",
+      "Список показывает только папку; файл читает files.read, адрес проверяет files.exists.",
+    );
+  const rows = (data.result as { u?: unknown; f?: unknown; b?: unknown }[]).map((row) => {
+    // A row is an address one level inside the folder; anything else is not shown.
+    const name =
+      typeof row?.u === "string" && row.u.startsWith(`${folder}/`)
+        ? row.u.slice(folder.length + 1).replace(/\/$/, "")
+        : "";
+    const bytes = Number(row?.b);
+    if (!name || /[/\\]/.test(name) || (row.f !== "1" && !Number.isFinite(bytes)))
+      throw new HcmError("SCRIPT_RESPONSE", "Сервер вернул список папки в неожиданном виде.");
+    return row.f === "1" ? { name, folder: true as const } : { name, bytes };
+  });
+  const part = search.toLowerCase();
+  const items = rows.filter((item) => item.name.toLowerCase().includes(part));
+  items.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { items, total: items.length };
 }
 
 function object(value: unknown): Record<string, unknown> {

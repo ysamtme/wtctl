@@ -138,7 +138,7 @@ async function putData(
     bytes = await io.readBinaryStdin(MAX_INPUT_BYTES);
   else
     throw new CliInputError(
-      "Для file put/upload нужен двоичный источник через --input-file или --stdin.",
+      "Нужен двоичный источник через --input-file или --stdin.",
       "Адаптер ввода должен поддерживать точные байты; преобразование файла в текст не допускается.",
     );
   if (bytes.byteLength > MAX_INPUT_BYTES) throw new CliInputError("Ввод превышает 8 МиБ.");
@@ -464,10 +464,30 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       throw new CliInputError("Неизвестная команда object.");
     }
     case "files": {
-      if (action !== "exists" && action !== "read")
+      if (!["exists", "read", "list", "write", "delete"].includes(action ?? ""))
         throw new CliInputError("Неизвестная команда files.");
-      allowOptions(args, action === "read" ? ["base64"] : []);
+      allowOptions(
+        args,
+        action === "read"
+          ? ["base64"]
+          : action === "write"
+            ? ["input-file", "stdin"]
+            : action === "list"
+              ? ["search"]
+              : [],
+      );
       exactPositionals(args, 3);
+      if (action === "write" || action === "delete" || action === "list")
+        return {
+          operationId: `files.${action}`,
+          args: {
+            url: requirePositional(args, 2, "серверный URL"),
+            ...(action === "write"
+              ? { base64: ((await putData("file", args, io)).data as { base64: string }).base64 }
+              : {}),
+            ...optional("search", stringOption(args, "search")),
+          },
+        };
       if (action === "read")
         return {
           operationId: "files.read",
@@ -486,34 +506,33 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       }
       return { operationId: "files.exists", args: { url } };
     }
-    case "doc":
     case "file": {
-      if (command === "file" && action === "upload") {
-        allowOptions(args, ["input-file", "stdin", "content-type"]);
-        exactPositionals(args, 3);
-        return {
-          operationId: "web.pages.uploadFile",
-          args: {
-            filename: requirePositional(args, 2, "имя файла без пути"),
-            ...(await putData("file", args, io)),
-            ...optional("contentType", stringOption(args, "content-type")),
-          },
-        };
-      }
+      if (action !== "upload") throw new CliInputError("Неизвестная команда file.");
+      allowOptions(args, ["input-file", "stdin", "content-type"]);
+      exactPositionals(args, 3);
+      return {
+        operationId: "web.pages.uploadFile",
+        args: {
+          filename: requirePositional(args, 2, "имя файла без пути"),
+          ...(await putData("file", args, io)),
+          ...optional("contentType", stringOption(args, "content-type")),
+        },
+      };
+    }
+    case "doc": {
       if (!action || !["get", "put", "delete"].includes(action))
-        throw new CliInputError("Неизвестная команда документа/ресурса.");
+        throw new CliInputError("Неизвестная команда документа.");
       allowOptions(args, action === "put" ? INPUT : []);
       exactPositionals(args, 3);
       const url = requirePositional(args, 2, "серверный URL");
-      const native =
-        command === "doc"
-          ? { get: "native.lds.loadDoc", put: "native.lds.putDoc", delete: "native.lds.deleteDoc" }
-          : { get: "native.lds.loadUrl", put: "native.lds.putUrl", delete: "native.lds.deleteUrl" };
-      const operationId =
-        action === "get" ? native.get : action === "put" ? native.put : native.delete;
+      const native = {
+        get: "native.lds.loadDoc",
+        put: "native.lds.putDoc",
+        delete: "native.lds.deleteDoc",
+      };
       return {
-        operationId,
-        args: { ...(action === "put" ? await putData(command, args, io) : {}), url },
+        operationId: native[action as "get" | "put" | "delete"],
+        args: { ...(action === "put" ? await putData("doc", args, io) : {}), url },
       };
     }
     case "rpc": {

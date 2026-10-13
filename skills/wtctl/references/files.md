@@ -2,38 +2,38 @@
 
 Файл на сервере задаётся адресом `x-local://…` — путь от папки установки сервера. Примеры: `x-local://wt/web/default.html`, `x-local://share/uploaded_files/…`.
 
-Операции вызываются через `hcm_api_read` и `hcm_api_write` по ID. Аргументы одной операции показывает `hcm_api_describe {operationId:"…"}`.
+Операции вызываются по ID через `hcm_api_read`, `hcm_api_write` и `hcm_api_execute`. Аргументы одной операции показывает `hcm_api_describe {operationId:"…"}`.
 
 ## Файлы
 
 | Действие | Вызов |
 | --- | --- |
 | Есть ли файл или папка | `hcm_api_read {operationId:"files.exists", args:{url:"x-local://wt/web/default.html"}}` → `{"exists":true}` |
-| Прочитать | `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"…","bytes":48}`; если файл не текст в UTF-8 — `{"base64":"…","bytes":6}`. С `encoding:"base64"` в ответе всегда `base64` |
-| Записать текст в папку данных | `hcm_api_write {operationId:"native.lds.putUrl", args:{url:"…", data:"текст файла"}}` |
-| Записать двоичные данные | то же с `data:{base64:"AAECAwT/"}` |
-| Удалить из папки данных | `hcm_api_write {operationId:"native.lds.deleteUrl", args:{url:"…"}}` |
-| Скопировать | `hcm_api_write {operationId:"web.pages.copyUrl", args:{srcUrl:"…", destUrl:"…"}}`; оба адреса — `x-local://…` |
+| Прочитать | `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"…","bytes":48}`; если файл не текст в UTF-8 или в нём есть управляющие байты — `{"base64":"…","bytes":6}`. С `encoding:"base64"` в ответе всегда `base64` |
+| Список папки | `hcm_api_execute {operationId:"files.list", args:{url:"x-local://wt/web"}}` → `{"items":[{"name":"default.html","bytes":48},{"name":"img","folder":true}],"total":2}`. С `search:"default"` в ответе только имена с этой частью: так узнаётся и размер одного файла |
+| Записать текст | `hcm_api_write {operationId:"files.write", args:{url:"…", text:"текст файла"}}` → `{"bytes":21,"mutationOutcome":"confirmed"}` |
+| Записать двоичные данные | то же с `base64:"AAECAwT/"` вместо `text` |
+| Удалить | `hcm_api_write {operationId:"files.delete", args:{url:"…"}}` |
 
-Запись заменяет файл целиком, прежнее содержимое не сохраняется: чтобы дописать строку, прочитай файл и запиши его заново. Запись, копирование и удаление отвечают пустым значением; результат проверяй через `files.exists` и `files.read`. Чтение несуществующего файла даёт `PLATFORM_SOAP-FAULT` с HTTP 500: сначала проверь адрес через `files.exists`. Папку логов (`x-local://Logs/…`) сервер так не отдаёт: логи читают инструменты `hcm_log_*`.
+Текст записывается в UTF-8 как есть. Запись заменяет файл целиком, прежнее содержимое не сохраняется: чтобы дописать строку, прочитай файл и запиши его заново. Копия делается так же: прочитай файл и запиши по новому адресу. Вложенные папки сервер создаёт сам.
 
-`native.lds.putUrl` и `native.lds.deleteUrl` работают только в папках данных — тех, что стоят в настройке сервера `DATA-DB`: обычно это `share`, `source`, `wt_data`, `trash`. В папках кода (`wt`, `wtv`, `applications`, `custom` и других) сервер отвечает на них `PLATFORM_SOAP-FAULT` с HTTP 500 и файл не меняет. Читаются и те, и другие.
+Куда можно писать, зависит от папки — первой части адреса после `x-local://`. Способ записи операция выбирает сама:
 
-В папку кода файл кладёт и удаляет код на сервере, для него нужно право `execute`:
+- папки данных (обычно `share`, `source`, `wt_data`, `trash`): хватает права `write`; `files.delete` удаляет и пустую папку, на непустую сервер отвечает отказом;
+- папки кода (`wt`, `wtv`, `applications`, `custom` и другие): файл записывает и удаляет код на сервере, поэтому нужны оба права, `write` и `execute`; текст — до 750 КБ, двоичные данные — до 580 КБ; удаляется только файл, пустая папка остаётся;
+- остальные адреса, например `x-local://Logs/…`: операция отказывает до отправки и называет папки, которые запись принимают.
 
-- записать текст: `hcm_script {code:"PutUrlData(PARAMS.url, PARAMS.text); RESULT = [UrlFileSize(PARAMS.url)];", params:{url:"x-local://wt/web/my_page.html", text:"…"}}` → размер файла в байтах; текст пишется в UTF-8 как есть;
-- записать двоичные данные: то же с `PutUrlData(PARAMS.url, Base64Decode(PARAMS.base64))`;
-- удалить: `hcm_script {code:"DeleteUrl(PARAMS.url); RESULT = [];", params:{url:"…"}}`.
+Списки папок подключённого сервера: `hcm_api_read {operationId:"server.info"}` → `dataFolders`, `codeFolders`.
 
-Вложенные папки сервер создаёт сам. Код вместе с `params` ограничен 1 МиБ: это файл примерно до 500 КБ.
+`files.list` показывает один уровень папки и требует права `execute`: список даёт только код на сервере. Штатная функция `tools.read_directory_server` для этого не подходит: на версиях 2025.1.1171–2025.2.1535 она отвечает `Prohibited by security policy`.
 
-Списка папки среди операций нет, его тоже даёт код: `hcm_script {code:"RESULT = ReadDirectory(PARAMS.url);", params:{url:"x-local://wt/web"}}` → адреса файлов и папок одного уровня. Штатная функция `tools.read_directory_server` для этого не подходит: на версиях 2025.1.1171–2025.2.1535 она отвечает `Prohibited by security policy`.
+Чтение несуществующего файла даёт `PLATFORM_SOAP-FAULT` с HTTP 500: сначала проверь адрес через `files.exists`. Папку логов (`x-local://Logs/…`) сервер так не отдаёт: логи читают инструменты `hcm_log_*`.
 
 Большой файл читай командой: `wtctl files read АДРЕС --output ФАЙЛ.json` сохраняет ответ на диск и не тратит контекст.
 
 ## Загрузка файла
 
-`hcm_api_write {operationId:"web.pages.uploadFile", args:{filename:"report.txt", data:"…"}}` кладёт файл до 8 МБ в папку загрузок сервера. В ответе `url` — адрес файла (`x-local://share/uploaded_files/1244386602490721313/report.txt`), `folderUrl` — папка с номером, которую сервер создал для него. После удаления файла папку удаляют тем же `native.lds.deleteUrl`.
+`hcm_api_write {operationId:"web.pages.uploadFile", args:{filename:"report.txt", data:"…"}}` кладёт файл до 8 МБ в папку загрузок сервера. В ответе `url` — адрес файла (`x-local://share/uploaded_files/1244386602490721313/report.txt`), `folderUrl` — папка с номером, которую сервер создал для него. Вместе с файлом папка не исчезает: её удаляет отдельный вызов `files.delete` с адресом из `folderUrl`.
 
 `data` — текст файла или `{base64:"…"}`. Двоичный или большой файл с диска этого компьютера загружает команда: `wtctl file upload report.pdf --input-file ./report.pdf`.
 

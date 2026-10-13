@@ -189,6 +189,29 @@ no_such_var not defined
   }
 });
 
+test("a syntax error of the whole code is not_sent, one raised by eval() in running code is not", async () => {
+  const syntax = "JavaScript syntax error.\nUnknown source,   line 1";
+  for (const [text, expected] of [
+    [syntax, "not_sent"],
+    [`${syntax}\n(eval(),  Unknown source,   line 1)`, "indeterminate"],
+  ] as const) {
+    const fixtureValue = fixture(
+      fields
+        .replace('<error VALUE-TYPE="integer">0</error>', '<error VALUE-TYPE="integer">1</error>')
+        .replace(
+          '<error_text VALUE-TYPE="string"/>',
+          `<error_text VALUE-TYPE="string">${text}</error_text>`,
+        ),
+    );
+    try {
+      const result = await fixtureValue.runtime.call("execute.script", { code: "x = ;" });
+      assert.equal(result.error?.mutationOutcome, expected);
+    } finally {
+      await fixtureValue.runtime.close();
+    }
+  }
+});
+
 test("script policy and XML/byte limits reject locally while typed result validation detects semantic failures", async () => {
   for (const code of ["\0", "😀".repeat(300000)]) {
     const fixtureValue = fixture();

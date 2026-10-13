@@ -11,12 +11,7 @@ import { validate } from "../src/native/validation.js";
 import { HcmRuntime } from "../src/runtime.js";
 import { rawXml, parseXml, escapeXml, buildXml } from "../src/protocol/xml.js";
 import { parseSoapBody } from "../src/protocol/protocol.js";
-import {
-  LegacyXHttpApi,
-  quitLegacySession,
-  createNativeLdsApi,
-  WebSpXmlApi,
-} from "../src/protocol/api.js";
+import { createNativeLdsApi, WebSpXmlApi } from "../src/protocol/api.js";
 import { LogReader } from "../src/logs.js";
 
 const base = {
@@ -25,27 +20,7 @@ const base = {
   password: "fixture",
   timeoutMs: 1000,
   maxResponseBytes: 1024 * 1024,
-  installationId: "1234567890ABCDEF",
 };
-
-test("native discovery documents verified 1171 limitations and usable alternatives", () => {
-  const operations = getNativeOperations();
-  for (const id of ["native.lds.eval", "web.lds.eval"]) {
-    const operation = operations.find((item) => item.id === id);
-    assert.equal(operation?.status, "implemented");
-    assert.equal(operation?.effect, "execute");
-    assert.match(operation!.description, /2025\.1\.1171/);
-    assert.match(operation!.description, /Unknown method: Eval/);
-    assert.match(operation!.description, /execute\.script/);
-    assert.match(operation!.description, /other builds requires verification/);
-  }
-  const directory = operations.find((item) => item.id === "native.experimental.readDirectory");
-  assert.equal(directory?.status, "implemented");
-  assert.match(directory!.description, /2025\.1\.1171/);
-  assert.match(directory!.description, /does not know ReadDirectory/);
-  assert.match(directory!.description, /three known-directory variants returned SOAP faults/);
-  assert.match(directory!.description, /logs\.list and logs\.read/);
-});
 
 function soap(method: string, inner = ""): Response {
   return new Response(
@@ -83,13 +58,6 @@ function fixture() {
         );
       if (method === "CallMethodAsync") return soap(method, "<TrackingID>0x42</TrackingID>");
       return soap(method, "<Result>fixture</Result>");
-    }
-    if (url.pathname.endsWith("/xhttp")) {
-      const action = /^Action: (\w+)/.exec(body)?.[1];
-      return new Response(
-        `Result: ok\r\n${action === "Idle" ? "SessionID: 43\r\n" : ""}\r\nfixture`,
-        { headers: { "set-cookie": "SessionID=legacy-fixture; Path=/" } },
-      );
     }
     if (url.pathname.endsWith("/main.htm"))
       return new Response('<script>gFaApp.webSessionToken="fixture-upload-token";</script>', {
@@ -148,10 +116,8 @@ function sample(schema: Record<string, unknown>, key = ""): unknown {
   if (key === "document") return "<fixture/>";
   if (key === "documentXmlTemplate") return "<collaborator><id>{{objectId}}</id></collaborator>";
   if (key === "path") return "/raw-fixture";
-  if (key === "catalog" || key === "keyName") return "fixture";
   if (schema.pattern === "^x-db-obj://")
     return "x-db-obj://fixture/registered_type/0x0000000000000042.xml";
-  if (/installationId/i.test(key)) return "1234567890ABCDEF";
   if (typeof schema.pattern === "string" && schema.pattern.endsWith("\\.ico$"))
     return "x-local://app/pict/fixture.ico";
   if (/url/i.test(key)) return "x-local://wtv/fixture.xml";
@@ -199,33 +165,6 @@ for (const operation of ["web.lifecycle.logout", "web.lifecycle.logout2"])
       await gateway.close().catch(() => undefined);
     }
   });
-
-test("legacy optional Compress and WriteDocInfo flags preserve exact CRLF framing and binary payload", async () => {
-  const mock = fixture();
-  const transport = new HttpTransport({ ...base, fetch: mock.fetch });
-  const legacy = new LegacyXHttpApi(transport, () => "42");
-  for (const flag of [undefined, false, true]) {
-    const get = await legacy.getUrl({
-      url: "x-local://wtv/fixture",
-      ...(flag === undefined ? {} : { compress: flag }),
-    });
-    await get.body?.cancel();
-    const getBody = mock.calls.at(-1)!.body;
-    assert.equal(getBody.includes("Compress:"), flag !== undefined);
-    if (flag !== undefined) assert.match(getBody, new RegExp(`Compress: ${flag ? 1 : 0}\\r\\n`));
-    await legacy.putUrl({
-      url: "x-local://share/fixture",
-      body: "exact\r\nbytes",
-      ...(flag === undefined ? {} : { writeDocInfo: flag }),
-    });
-    const putBody = mock.calls.at(-1)!.body;
-    assert.equal(putBody.includes("WriteDocInfo:"), flag !== undefined);
-    if (flag !== undefined)
-      assert.match(putBody, new RegExp(`WriteDocInfo: ${flag ? 1 : 0}\\r\\n`));
-    assert.ok(putBody.endsWith("\r\n\r\nexact\r\nbytes"));
-  }
-  transport.dispose();
-});
 
 test("all LOB gateway schemas and direct vendor APIs reject classic document URLs before transport", async () => {
   const mock = fixture();
@@ -284,15 +223,29 @@ test("all LOB gateway schemas and direct vendor APIs reject classic document URL
   }
 });
 
+test("binary result carries only kind, bytes and contentType, never HTTP headers", async () => {
+  const mock = fixture();
+  const gateway = new NativeGateway({
+    ...base,
+    fetch: async (input, init) =>
+      String(input).includes("/get_url.htm")
+        ? new Response(Uint8Array.of(0, 255), { headers: { "x-private-fixture": "private" } })
+        : mock.fetch(input, init),
+  });
+  const result = await gateway.call("web.pages.getUrl", { url: "x-local://wtv/fixture.png" });
+  assert.deepEqual(Object.keys(result as object), ["kind", "bytes", "contentType"]);
+  await gateway.close();
+});
+
 test("operation registry has unique IDs and excludes reflective private dispatch", async () => {
   const operations = getNativeOperations();
   assert.equal(new Set(operations.map((item) => item.id)).size, operations.length);
-  assert.ok(operations.length > 90);
+  assert.ok(operations.length > 80);
   assert.equal(operations.find((item) => item.id === "native.lds.xQuery")?.effect, "execute");
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   await assert.rejects(
-    gateway.call("legacy.xhttp.call", { $args: ["DeleteUrl", []] }),
+    gateway.call("native.lds.constructor", { $args: [] }),
     /Unknown native operation/,
   );
   assert.equal(mock.calls.length, 0);
@@ -705,84 +658,13 @@ test("XML character references decode exactly once in text and attributes withou
   });
 });
 
-test("failed legacy bootstrap cleans its HTTP auth context without sending unconfirmed QuitSession", async () => {
-  const calls: string[] = [];
-  const client = new WsHcmClient({
-    ...base,
-    auth: { username: "fixture", password: "fixture" },
-    fetch: async (input, init) => {
-      calls.push(String(input));
-      if (String(input).includes("/xhttp?"))
-        return new Response("Result: denied\r\n\r\n", {
-          headers: { "set-cookie": "SessionID=43" },
-        });
-      assert.ok(!String(init?.body).includes("QuitSession"));
-      return new Response(null);
-    },
-  });
-  await assert.rejects(client.openLegacySession({ installationId: "1234567890ABCDEF" }), /denied/);
-  assert.ok(calls.some((url) => url.endsWith("/loggedoff.html")));
-  client.close();
-});
-
-test("legacy context uses one fresh positive 63-bit frame identity independently of its auth cookie", async () => {
-  const calls: Array<{ body: string; headers: Headers }> = [];
-  const client = new WsHcmClient({
-    ...base,
-    auth: { username: "fixture", password: "fixture" },
-    fetch: async (_input, init) => {
-      calls.push({
-        body: new TextDecoder().decode(init?.body as Uint8Array),
-        headers: new Headers(init?.headers),
-      });
-      return new Response("Result: ok\r\n\r\n", {
-        headers: { "set-cookie": "SessionID=auth-cookie-distinct" },
-      });
-    },
-  });
-  const first = await client.openLegacySession({ installationId: "1234567890ABCDEF" });
-  const second = await client.openLegacySession({ installationId: "1234567890ABCDEF" });
-  const firstId = first.sessionId!,
-    secondId = second.sessionId!;
-  assert.notEqual(firstId, secondId);
-  for (const id of [firstId, secondId])
-    assert.ok(BigInt(id) > 0n && BigInt(id) <= 0x7fffffffffffffffn);
-  assert.ok(calls[0]!.body.includes(`SessionID: ${firstId}\r\n`));
-  assert.ok(calls[0]!.body.includes("InstallationID: 1234567890ABCDEF\r\n"));
-  assert.match(calls[0]!.headers.get("authorization") ?? "", /^Basic /);
-  assert.equal(calls[0]!.headers.get("cookie"), null);
-  await first.xhttp.isAdmin();
-  assert.equal(calls[2]!.headers.get("authorization"), null);
-  assert.equal(calls[2]!.headers.get("cookie"), "SessionID=auth-cookie-distinct");
-  assert.ok(calls[2]!.body.includes(`SessionID: ${firstId}\r\n`));
-  await first.close();
-  await first.close();
-  await second.close();
-  assert.equal(calls.filter((call) => call.body.includes("Action: QuitSession")).length, 2);
-  assert.ok(calls[3]!.body.includes(`SessionID: ${firstId}\r\n`));
-  client.close();
-});
-
-test("legacy QuitSession rejects missing or invalid context IDs before transport", async () => {
-  const mock = fixture();
-  const transport = new HttpTransport({ ...base, fetch: mock.fetch });
-  const api = new LegacyXHttpApi(transport, () => undefined);
-  for (const invalid of [undefined, null, "", "not-a-session", "-1"])
-    await assert.rejects(quitLegacySession(api, invalid as never), /строка из десятичных цифр/);
-  assert.equal(mock.calls.length, 0);
-  transport.dispose();
-});
-
 test("unresolved batch references require write permission for conditional lock operations", () => {
-  for (const operation of getNativeOperations().filter(
-    (operation) =>
-      ["loadDoc", "loadUrl", "getDoc"].includes(operation.method) ||
-      (operation.profile === "legacy" && operation.method === "getUrl"),
+  for (const operation of getNativeOperations().filter((operation) =>
+    ["loadDoc", "loadUrl", "getDoc"].includes(operation.method),
   )) {
-    const flag = operation.profile === "legacy" ? "lock" : "tryLock";
-    assert.equal(getEffectiveNativeEffect(operation, { [flag]: true }), "write", operation.id);
+    assert.equal(getEffectiveNativeEffect(operation, { tryLock: true }), "write", operation.id);
     assert.equal(
-      getEffectiveNativeEffect(operation, { [flag]: { $ref: "policy.data.lock" } }),
+      getEffectiveNativeEffect(operation, { tryLock: { $ref: "policy.data.lock" } }),
       "write",
       operation.id,
     );
@@ -792,12 +674,12 @@ test("unresolved batch references require write permission for conditional lock 
       operation.id,
     );
     assert.equal(
-      getEffectiveNativeEffect(operation, { [flag]: false }),
+      getEffectiveNativeEffect(operation, { tryLock: false }),
       operation.effect,
       operation.id,
     );
     assert.equal(
-      getEffectiveNativeEffect(operation, { [flag]: { $ref: "policy.data.lock", extra: false } }),
+      getEffectiveNativeEffect(operation, { tryLock: { $ref: "policy.data.lock", extra: false } }),
       operation.effect,
       operation.id,
     );

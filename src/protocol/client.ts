@@ -1,8 +1,6 @@
-import { randomBytes } from "node:crypto";
 import {
   DiagnosticsApi,
   ExperimentalApi,
-  LegacyXHttpApi,
   NativeExperimentalApi,
   NativeSpXml2Api,
   ResourceApi,
@@ -15,7 +13,6 @@ import {
   createNativeLdsApi,
   createWebLdsApi,
   openLdsSession,
-  quitLegacySession,
   type NativeLdsApi,
   type WebLdsApi,
 } from "./api.js";
@@ -103,13 +100,13 @@ export class NativeSession {
     this.spxml = this.rpc;
     this.spxml2 = new NativeSpXml2Api(transport);
     this.resources = new ResourceApi(transport);
-    this.experimental = new NativeExperimentalApi(transport, () => this.sessionId);
+    this.experimental = new NativeExperimentalApi(transport);
   }
 
   static async open(defaults: ClientDefaults): Promise<NativeSession> {
     const http = transport(defaults);
     try {
-      const opened = await openLdsSession(http, "native", "", true);
+      const opened = await openLdsSession(http, "native", true);
       return new NativeSession(http, opened.sessionId);
     } catch (error) {
       try {
@@ -507,109 +504,6 @@ export class WebSession {
 }
 
 /**
- * Legacy `/xhttp` context with a fresh caller-owned decimal LDS identity.
- * InstallationID tracks the client installation; the separate cookie authenticates HTTP.
- */
-export class LegacySession {
-  readonly xhttp: LegacyXHttpApi;
-  readonly experimental: ExperimentalApi;
-  readonly installationId: string;
-  #sessionId: DecimalId | undefined;
-  #closed = false;
-
-  /** Caller-owned decimal legacy context ID, or `undefined` after close. */
-  get sessionId(): DecimalId | undefined {
-    return this.#sessionId;
-  }
-
-  private constructor(
-    private readonly transport: HttpTransport,
-    installationId: string,
-  ) {
-    this.installationId = installationId;
-    this.xhttp = new LegacyXHttpApi(transport, () => this.#sessionId);
-    this.experimental = new ExperimentalApi(transport);
-  }
-
-  static async open(defaults: ClientDefaults, installationId: string): Promise<LegacySession> {
-    const http = transport(defaults);
-    if (!/^[0-9A-Fa-f]{16}$/.test(installationId))
-      throw new TypeError("installationId: нужно 16 шестнадцатеричных цифр.");
-    const session = new LegacySession(http, installationId);
-    let ownedId: bigint;
-    do {
-      ownedId = BigInt(`0x${randomBytes(8).toString("hex")}`) & 0x7fffffffffffffffn;
-    } while (ownedId === 0n);
-    session.#sessionId = ownedId.toString(10);
-    try {
-      // Server 2025.1.1171 creates/looks up the LDS context by this frame ID.
-      // Idle emits no SessionID record; its successful Result confirms dispatch.
-      await session.xhttp.idle(installationId);
-      return session;
-    } catch (error) {
-      session.#sessionId = undefined;
-      try {
-        if (!isTransportFailure(error) && http.cookie.value !== undefined) {
-          const response = await http.send(
-            "/loggedoff.html",
-            {},
-            { allowStatuses: "any", redirect: "manual" },
-          );
-          await response.body?.cancel();
-        }
-      } catch (cleanup) {
-        attachCleanupError(error, cleanup);
-      } finally {
-        http.dispose();
-      }
-      throw error;
-    }
-  }
-
-  /** Drops local access/identity without claiming a server-side Quit acknowledgement. */
-  disposeLocal(): void {
-    this.#closed = true;
-    this.#sessionId = undefined;
-    this.transport.dispose();
-  }
-
-  /**
-   * Closes only the successfully bootstrapped caller-owned LDS context and clears local identity state.
-   * Failure is reported as `WsHcmApiError` with `kind: "cleanup"`.
-   */
-  async close(): Promise<void> {
-    if (this.#closed) return;
-    this.#closed = true;
-    const errors: unknown[] = [];
-    try {
-      if (this.#sessionId !== undefined) await quitLegacySession(this.xhttp, this.#sessionId);
-    } catch (cause) {
-      errors.push(cause);
-    }
-    try {
-      if (!errors.some(isTransportFailure) && this.transport.cookie.value !== undefined) {
-        const response = await this.transport.send(
-          "/loggedoff.html",
-          {},
-          { allowStatuses: "any", redirect: "manual" },
-        );
-        await response.body?.cancel();
-      }
-    } catch (cause) {
-      errors.push(cause);
-    } finally {
-      this.disposeLocal();
-    }
-    if (errors.length)
-      throw new WsHcmApiError("cleanup", "Legacy session cleanup failed", {
-        details: { errorCount: errors.length },
-        cause:
-          errors.length === 1 ? errors[0] : new AggregateError(errors, "Legacy cleanup failures"),
-      });
-  }
-}
-
-/**
  * Entry point for WebSoft HCM administrative APIs.
  *
  * Defaults: `http://localhost:8088/`, 30-second per-request timeout, built-in `fetch`. Each opened session receives
@@ -658,10 +552,6 @@ export class WsHcmClient {
   openWebSession(): Promise<WebSession> {
     return WebSession.open(this.#defaults);
   }
-  /** Opens an isolated legacy `/xhttp` session using a real caller-supplied 16-hex InstallationID. */
-  openLegacySession(options: { installationId: string }): Promise<LegacySession> {
-    return LegacySession.open(this.#defaults, options.installationId);
-  }
   /** Runs an action in a native session and closes it in `finally`, preserving operation error precedence. */
   async withNativeSession<T>(action: (session: NativeSession) => Promise<T>): Promise<T> {
     return withCleanup(await this.openNativeSession(), action);
@@ -669,12 +559,5 @@ export class WsHcmClient {
   /** Runs an action in a web session and closes it in `finally`, preserving operation error precedence. */
   async withWebSession<T>(action: (session: WebSession) => Promise<T>): Promise<T> {
     return withCleanup(await this.openWebSession(), action);
-  }
-  /** Runs an action in a legacy session and closes it in `finally`, preserving operation error precedence. */
-  async withLegacySession<T>(
-    action: (session: LegacySession) => Promise<T>,
-    options: { installationId: string },
-  ): Promise<T> {
-    return withCleanup(await this.openLegacySession(options), action);
   }
 }

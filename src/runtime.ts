@@ -37,7 +37,21 @@ import { agentRun, agentRunResult, prepareScript, rpcValue, scriptResult } from 
 import { parseServerInfo, type ServerInfoData, type ServerInfoProfile } from "./server-info.js";
 import { checkServer, type CheckData } from "./self-check.js";
 import { platformFailure } from "./platform-errors.js";
-import { FILE_EXISTS_TARGET, fileContent, fileExistsUrl, parseFileExists } from "./files.js";
+import {
+  FILE_EXISTS_TARGET,
+  codeDelete,
+  codeDeleteRefusal,
+  codeList,
+  codeWrite,
+  fileContent,
+  fileExistsUrl,
+  fileFolders,
+  fileList,
+  fileRoute,
+  fileTarget,
+  fileWriteContent,
+  parseFileExists,
+} from "./files.js";
 import type {
   BinaryResult,
   ConnectionConfig,
@@ -62,6 +76,8 @@ interface ExecutionState {
   objectId?: string;
   url?: string;
   executionId?: string;
+  /** The operation whose usual HTTP 500 cause the failure hint states, when not the called one. */
+  refusal?: string;
   batchRecovery?: BatchRecovery;
 }
 function scalar(value: unknown, label: string): string {
@@ -153,8 +169,6 @@ function plainAnswer(id: string, answer: unknown): unknown {
     const { Url: _, ...rest } = data;
     return { ...rest, url, folderUrl: url.slice(0, url.lastIndexOf("/")) };
   }
-  if (id === "native.lds.loadUrl" && typeof data.Data === "string")
-    return { ...data, Data: data.Data.replace(/\s+/g, "") };
   if (id === "web.spxml.getAsyncMethodStatus" && data.ResultData !== undefined)
     try {
       const decoded = rpcValue(data);
@@ -218,11 +232,7 @@ export class HcmRuntime {
   }
   constructor(readonly config: ConnectionConfig) {
     this.results = new ResultStore(config);
-    this.gateway = new NativeGateway({
-      ...config,
-      installationIdFile:
-        config.installationIdFile ?? join(this.results.directory, "..", "legacy-client.id"),
-    });
+    this.gateway = new NativeGateway(config);
     this.logs = new LogReader(this.gateway, config);
     this.rpcCatalog = new RpcCatalog(
       () => this.applicationInfo(),
@@ -518,7 +528,7 @@ export class HcmRuntime {
           : error instanceof WsHcmApiError
             ? {
                 code: `PLATFORM_${error.kind.toUpperCase()}`,
-                ...platformFailure(error, this.config.baseUrl, id),
+                ...platformFailure(error, this.config.baseUrl, state?.refusal ?? id),
                 retryable: false,
                 ...(error.status === undefined ? {} : { details: { status: error.status } }),
               }
@@ -976,8 +986,59 @@ export class HcmRuntime {
           await this.gateway.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
           args.encoding,
         );
-      case "server.info":
-        return this.serverInfo(args.profile === "web" ? "web" : "native");
+      case "files.list": {
+        const folder = fileTarget(args.url, true).url;
+        const search = args.search === undefined ? "" : requiredString(args.search, "search");
+        const { request, executionId } = codeList(folder);
+        const data = await this.runCode(request, executionId, state);
+        if (data.result[0] === "none") state.sent = false;
+        return fileList(data, folder, search);
+      }
+      case "files.write":
+      case "files.delete": {
+        const writing = id === "files.write";
+        const target = fileTarget(args.url);
+        const content = writing ? fileWriteContent(args) : undefined;
+        const route = fileRoute(
+          writing ? "write" : "delete",
+          fileFolders(await this.applicationInfo().catch(() => undefined)),
+          target.folder,
+          this.config.permissions.execute,
+        );
+        // The usual cause of a refused write (an unlisted code folder) is named only where the server did not list folders.
+        if (writing && route !== "unlisted") state.refusal = "files.write:listed";
+        if (route === "code") {
+          const { request, executionId } = content
+            ? codeWrite(target.url, content)
+            : codeDelete(target.url);
+          const data = await this.runCode(request, executionId, state);
+          if (content) return { bytes: Number(data.result[0]), mutationOutcome: "confirmed" };
+          const refusal = codeDeleteRefusal(data);
+          if (refusal) {
+            state.sent = false;
+            throw refusal;
+          }
+          return { deleted: true, mutationOutcome: "confirmed" };
+        }
+        state.sent = true;
+        if (content) {
+          await this.gateway.call("native.lds.putUrl", {
+            url: target.url,
+            data: { base64: content.base64 },
+          });
+          return { bytes: content.bytes, mutationOutcome: "confirmed" };
+        }
+        await this.gateway.call("native.lds.deleteUrl", { url: target.url });
+        return { deleted: true, mutationOutcome: "confirmed" };
+      }
+      case "server.info": {
+        const info = await this.serverInfo(args.profile === "web" ? "web" : "native");
+        const folders =
+          info.profile === "native"
+            ? fileFolders(await this.applicationInfo().catch(() => undefined))
+            : undefined;
+        return folders ? { ...info, dataFolders: folders.data, codeFolders: folders.code } : info;
+      }
       case "runtime.status": {
         const version = await this.gateway.call("native.rpc.call", {
           target: "tools.get_version",
@@ -1495,10 +1556,7 @@ export class HcmRuntime {
         const { request, executionId } = agent
           ? prepareScript(agent.code, agent.params)
           : prepareScript(args.code, args.params);
-        prepare(request, this.describe("web.rpc.call").inputSchema);
-        state.executionId = executionId;
-        state.sent = true;
-        const data = scriptResult(await this.gateway.call("web.rpc.call", request), executionId);
+        const data = await this.runCode(request, executionId, state);
         if (!agent) return data;
         // The agent has just written its lines: a log read that follows waits for the server.
         this.logs.serverWroteLog();
@@ -1514,6 +1572,23 @@ export class HcmRuntime {
           if (error instanceof WsHcmApiError && error.requestSent === false) state.sent = false;
           throw error;
         }
+    }
+  }
+  /** Code prepared by prepareScript, run on the server; the answer is checked for a caught error. */
+  private async runCode(
+    request: Record<string, unknown>,
+    executionId: string,
+    state: ExecutionState,
+  ) {
+    prepare(request, this.describe("web.rpc.call").inputSchema);
+    state.executionId = executionId;
+    state.sent = true;
+    try {
+      return scriptResult(await this.gateway.call("web.rpc.call", request), executionId);
+    } catch (error) {
+      // The server refused to read the code, so none of it ran.
+      if (error instanceof HcmError && error.mutationOutcome === "not_sent") state.sent = false;
+      throw error;
     }
   }
   private async batch(args: Record<string, unknown>, state: ExecutionState): Promise<unknown> {

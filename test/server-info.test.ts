@@ -273,7 +273,13 @@ for (const profile of ["native", "web"] as const)
     assert.deepEqual(
       calls.map((value) => value.method ?? value.path),
       profile === "native"
-        ? ["OpenSession", "CallMethod", "CloseSession", "/loggedoff.html"]
+        ? [
+            "OpenSession",
+            "CallMethod",
+            "/api/spxml2/get_app_info",
+            "CloseSession",
+            "/loggedoff.html",
+          ]
         : [
             "/spxml_web/main.htm",
             "OpenSession",

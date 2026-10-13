@@ -5,19 +5,17 @@
  *
  * @packageDocumentation
  */
-export { LegacySession, NativeSession, WebSession, WsHcmClient } from "./client.js";
+export { NativeSession, WebSession, WsHcmClient } from "./client.js";
 export { WsHcmApiError, type WsHcmErrorKind } from "./error.js";
 export { WebSocketHeartbeatError } from "./websocket.js";
 export {
   rpc,
-  XHttpBinaryResponse,
   type ClearUploadChunksRequest,
   type ClearUploadChunksResult,
   type CompoundResourceRequest,
   type GetLargeFieldRequest,
   type LoadLargeFieldRequest,
   type LoadRequest,
-  type LegacyCatalogKey,
   type NativeLdsApi,
   type PutLargeFieldFromUrlRequest,
   type PutLargeFieldRequest,
@@ -32,7 +30,6 @@ export {
   type UploadChunkRequest,
   type UploadChunkResult,
   type WebLdsApi,
-  type XHttpResult,
   type XQueryRequest,
 } from "./api.js";
 export {

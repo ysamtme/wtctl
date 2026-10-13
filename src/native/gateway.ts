@@ -1,18 +1,11 @@
 import type { NativeConfig, NativeOperation } from "../contracts.js";
-import {
-  WsHcmClient,
-  type NativeSession,
-  type WebSession,
-  type LegacySession,
-} from "../protocol/client.js";
+import { WsHcmClient, type NativeSession, type WebSession } from "../protocol/client.js";
 import { WsHcmBinaryResponse } from "../protocol/types.js";
-import { XHttpBinaryResponse } from "../protocol/api.js";
 import { WsHcmApiError, attachCleanupError, isTransportFailure } from "../protocol/error.js";
 import { rawXml } from "../protocol/xml.js";
 import { NATIVE_ENTRIES, type NativeEntry } from "./generated.js";
 import { validate, prepare } from "./validation.js";
 import { freezeRegistry } from "../immutable.js";
-import { loadOrCreateLegacyInstallationId } from "./identity.js";
 
 const empty = { type: "object", properties: {}, required: [], additionalProperties: false };
 const managed: NativeEntry[] = [];
@@ -53,7 +46,7 @@ managed.push({
     return (await gateway.web()).heartbeat(args);
   },
 });
-for (const profile of ["native", "web", "legacy"] as const) {
+for (const profile of ["native", "web"] as const) {
   for (const method of ["open", "close"] as const) {
     managed.push({
       operation: {
@@ -72,8 +65,7 @@ for (const profile of ["native", "web", "legacy"] as const) {
         method === "open"
           ? async (gateway) => {
               if (profile === "native") await gateway.native();
-              else if (profile === "web") await gateway.web();
-              else await gateway.legacy();
+              else await gateway.web();
               return { opened: true, profile };
             }
           : async (gateway) => {
@@ -194,8 +186,10 @@ managed.push({
 const entries = freezeRegistry([...NATIVE_ENTRIES, ...managed]);
 const byId = new Map(entries.map((entry) => [entry.operation.id, entry]));
 if (byId.size !== entries.length) throw new Error("Duplicate native operation ID");
+/** The runtime calls these itself (files.read, files.write, files.delete); callers never see them. */
+const INTERNAL = new Set(["native.lds.loadUrl", "native.lds.putUrl", "native.lds.deleteUrl"]);
 export function getNativeOperations(): readonly NativeOperation[] {
-  return entries.map((entry) => entry.operation);
+  return entries.map((entry) => entry.operation).filter((item) => !INTERNAL.has(item.id));
 }
 
 /** Every failure inside a cleanup error is the server's HTTP 401: it no longer knows the session. */
@@ -216,13 +210,12 @@ export class NativeGateway {
   readonly client: WsHcmClient;
   private nativeSession: Promise<NativeSession> | undefined;
   private webSession: Promise<WebSession> | undefined;
-  private legacySession: Promise<LegacySession> | undefined;
   private closed = false;
   private accepting = true;
   private queue: Promise<unknown> = Promise.resolve();
   private closePromise: Promise<void> | undefined;
 
-  constructor(private readonly config: NativeConfig) {
+  constructor(config: NativeConfig) {
     if ((config.username === undefined) !== (config.password === undefined))
       throw new TypeError("Имя пользователя и пароль задают вместе.");
     this.client = new WsHcmClient({
@@ -257,38 +250,13 @@ export class NativeGateway {
       throw error;
     }));
   }
-  legacy(): Promise<LegacySession> {
-    this.assertOpen();
-    if (this.config.installationId === undefined && this.config.installationIdFile === undefined)
-      throw new WsHcmApiError(
-        "protocol",
-        "Операциям старого клиента нужен installationId из 16 шестнадцатеричных цифр или файл installationIdFile, где он хранится.",
-        { requestSent: false },
-      );
-    return (this.legacySession ??= (async () => {
-      const installationId =
-        this.config.installationId ??
-        (await loadOrCreateLegacyInstallationId(this.config.installationIdFile!));
-      return this.client.openLegacySession({ installationId });
-    })().catch((error) => {
-      this.legacySession = undefined;
-      if (error instanceof Error) failedLogins.add(error);
-      throw error;
-    }));
-  }
-  private takeProfile(profile: "native" | "web" | "legacy") {
-    const session =
-      profile === "native"
-        ? this.nativeSession
-        : profile === "web"
-          ? this.webSession
-          : this.legacySession;
+  private takeProfile(profile: "native" | "web") {
+    const session = profile === "native" ? this.nativeSession : this.webSession;
     if (profile === "native") this.nativeSession = undefined;
-    else if (profile === "web") this.webSession = undefined;
-    else this.legacySession = undefined;
+    else this.webSession = undefined;
     return session;
   }
-  async closeProfile(profile: "native" | "web" | "legacy"): Promise<void> {
+  async closeProfile(profile: "native" | "web"): Promise<void> {
     const session = this.takeProfile(profile);
     if (session) await (await session).close();
   }
@@ -341,13 +309,7 @@ export class NativeGateway {
   private async invoke(entry: NativeEntry, args: Record<string, unknown>): Promise<unknown> {
     const profile = entry.operation.profile;
     const session =
-      profile === "native"
-        ? this.nativeSession
-        : profile === "web"
-          ? this.webSession
-          : profile === "legacy"
-            ? this.legacySession
-            : undefined;
+      profile === "native" ? this.nativeSession : profile === "web" ? this.webSession : undefined;
     try {
       return await entry.invoke(this, args);
     } catch (error) {
@@ -361,12 +323,7 @@ export class NativeGateway {
         /(?:^|[.])(?:session|lifecycle)[.]|[.](?:open|close)Session$/.test(entry.operation.id)
       )
         throw error;
-      const current =
-        profile === "native"
-          ? this.nativeSession
-          : profile === "web"
-            ? this.webSession
-            : this.legacySession;
+      const current = profile === "native" ? this.nativeSession : this.webSession;
       if (current === session) {
         this.takeProfile(profile);
         (await session).disposeLocal();
@@ -380,9 +337,6 @@ export class NativeGateway {
       const bytes = new Uint8Array(await new Response(result.body).arrayBuffer());
       return {
         kind: "binary",
-        // Framed lock/owner records are independent of successful payload bytes.
-        // Keep them first so stored JSON readers can inspect metadata before base64.
-        ...(result instanceof XHttpBinaryResponse ? { records: { ...result.records } } : {}),
         bytes,
         contentType: result.headers.get("content-type") ?? "application/octet-stream",
       };
@@ -411,7 +365,7 @@ export class NativeGateway {
     let transportLost = false;
     // One profile's complete teardown must settle before another can send.
     // This lets transport loss stop later cleanup without in-flight logout races.
-    for (const profile of ["native", "web", "legacy"] as const) {
+    for (const profile of ["native", "web"] as const) {
       try {
         if (transportLost) {
           const session = this.takeProfile(profile);

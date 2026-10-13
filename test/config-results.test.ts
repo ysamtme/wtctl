@@ -40,6 +40,18 @@ test("configuration accepts UTF-8 BOM and preserves Unicode profile values", asy
   }
 });
 
+test("keys of the removed legacy client in a connection file are ignored", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "hcm-config-leftover-"));
+  try {
+    const file = join(directory, "connections.json");
+    const dev = { baseUrl: "http://x.invalid/", installationId: "bad", installationIdFile: "x" };
+    await writeFile(file, JSON.stringify({ connections: { dev } }));
+    assert.equal(loadConfig({ configPath: file, connection: "dev" }).baseUrl, dev.baseUrl);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("configuration rejects malformed UTF-8 instead of replacing credential bytes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-config-invalid-utf8-"));
   try {
