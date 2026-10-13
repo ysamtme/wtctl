@@ -1,7 +1,6 @@
 import { HcmError } from "./errors.js";
-export interface LogGateway {
-    call(id: string, args: Record<string, unknown>): Promise<unknown>;
-}
+import type { ServerPort } from "./hcm-server.js";
+export type LogGateway = ServerPort;
 export interface LogFile {
     readonly name: string;
     readonly url: string;

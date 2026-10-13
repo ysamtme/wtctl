@@ -10945,6 +10945,12 @@ function boundedInteger(value, fallback, max, path) {
     );
   return value;
 }
+function scalar(value, label) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "#text" in value)
+    return String(value["#text"]);
+  throw new HcmError("PLATFORM_RESPONSE", `В ответе сервера нет ${label}.`);
+}
 
 // src/config.ts
 var MAX_CONFIG_BYTES = 1024 * 1024;
@@ -19194,6 +19200,10 @@ var INTERNAL = /* @__PURE__ */ new Set(["native.lds.loadUrl", "native.lds.putUrl
 function getNativeOperations() {
   return entries.map((entry2) => entry2.operation).filter((item) => !INTERNAL.has(item.id));
 }
+function nativeEffect(id, args) {
+  const entry2 = byId.get(id);
+  return entry2 && getEffectiveNativeEffect(entry2.operation, args);
+}
 function sessionGone(error2) {
   if (!(error2 instanceof WsHcmApiError) || error2.kind !== "cleanup") return false;
   const causes = error2.cause instanceof AggregateError ? error2.cause.errors : [error2.cause];
@@ -19728,6 +19738,79 @@ function parseFileExists(response) {
     );
   }
 }
+var ServerFiles = class {
+  constructor(server, permissions) {
+    this.server = server;
+    this.permissions = permissions;
+  }
+  async exists(args) {
+    return parseFileExists(
+      await this.server.read("native.rpc.call", {
+        target: FILE_EXISTS_TARGET,
+        args: [{ valueType: "string", lexicalValue: fileExistsUrl(args.url) }]
+      })
+    );
+  }
+  async read(args) {
+    return fileContent(
+      await this.server.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
+      args.encoding
+    );
+  }
+  async list(args, call) {
+    const folder = fileTarget(args.url, true).url;
+    const search = args.search === void 0 ? "" : requiredString(args.search, "search");
+    const data2 = await this.server.runCode(
+      codeList(folder),
+      call.outcome,
+      (answer) => answer.result[0] === "none"
+    );
+    return fileList(data2, folder, search);
+  }
+  async write(args, call) {
+    const target = fileTarget(args.url);
+    const content = fileWriteContent(args);
+    if (await this.route("write", target.folder, call) === "code") {
+      const data2 = await this.server.runCode(codeWrite(target.url, content), call.outcome);
+      return { bytes: Number(data2.result[0]), mutationOutcome: "confirmed" };
+    }
+    await this.server.call(
+      "native.lds.putUrl",
+      { url: target.url, data: { base64: content.base64 } },
+      call.outcome
+    );
+    return { bytes: content.bytes, mutationOutcome: "confirmed" };
+  }
+  async delete(args, call) {
+    const target = fileTarget(args.url);
+    assertFileDeletable(target.folder);
+    if (await this.route("delete", target.folder, call) === "code") {
+      const data2 = await this.server.runCode(
+        codeDelete(target.url),
+        call.outcome,
+        (answer) => !!codeDeleteRefusal(answer)
+      );
+      const refusal = codeDeleteRefusal(data2);
+      if (refusal) throw refusal;
+      if (data2.result[0] === "remains") throw fileRemains();
+      return { deleted: true, mutationOutcome: "confirmed" };
+    }
+    await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
+    if (target.url.length <= FILE_EXISTS_URL_MAX_LENGTH) {
+      if ((await this.exists({ url: target.url })).exists) throw fileRemains();
+    }
+    return { deleted: true, mutationOutcome: "confirmed" };
+  }
+  /** A failure to read the application info means the server gave no folder lists. */
+  async folders() {
+    return fileFolders(await this.server.applicationInfo().catch(() => void 0));
+  }
+  async route(operation, folder, call) {
+    const route = fileRoute(operation, await this.folders(), folder, this.permissions.execute);
+    if (operation === "write" && route !== "unlisted") call.refusal = "files.write:listed";
+    return route;
+  }
+};
 
 // src/operations.ts
 var string2 = { type: "string" };
@@ -20287,11 +20370,6 @@ function describeHcmOperation(id) {
   return operation;
 }
 
-// src/runtime.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
-import { mkdir as mkdir2, appendFile } from "node:fs/promises";
-import { join as join3 } from "node:path";
-
 // src/log-output.ts
 function summary(file) {
   return {
@@ -20370,9 +20448,6 @@ function logNews(data2, first, budgetBytes) {
     ...data2.resetReason === void 0 ? {} : { resetReason: data2.resetReason }
   };
 }
-
-// src/documents.ts
-import { createHash } from "node:crypto";
 
 // src/query.ts
 var IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -20656,8 +20731,12 @@ function queryPage(response, start, limit, fields3, rawQuery) {
     ...hints.length ? { hint: hints.join(" ") } : {}
   };
 }
+function hasStructure(data2) {
+  return Object.values(data2).some((value) => value !== null && typeof value === "object");
+}
 
 // src/documents.ts
+import { createHash } from "node:crypto";
 var parser2 = createPlatformXmlParser({
   preserveOrder: true,
   ignoreAttributes: false,
@@ -22407,130 +22486,6 @@ ${config2.username ?? "anonymous"}`).digest("hex").slice(0, 24);
   }
 };
 
-// src/verification.ts
-var shown = (value) => value === void 0 ? null : typeof value === "string" ? value.length > 200 ? `${value.slice(0, 200)}…` : value : Array.isArray(value) ? `[список: ${value.length}]` : value !== null && typeof value === "object" ? "{структура}" : value;
-function record2(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function bool2(value) {
-  if (value === true || value === "true" || value === "1" || value === 1) return true;
-  if (value === false || value === "false" || value === "0" || value === 0) return false;
-  return void 0;
-}
-var DATE = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:\d{2})?$/;
-function serverDate(value) {
-  const match = typeof value === "string" ? DATE.exec(value) : null;
-  return match ? `${match[1]}T${match[2] ?? "00:00"}:${match[3] ?? "00"}` : void 0;
-}
-function isServerDate(value) {
-  return DATE.test(value);
-}
-function equivalent(expected, actual, path, fields3, prior, inCollection = false, differences = []) {
-  const differ = () => {
-    if (differences.length < 5)
-      differences.push({ path, requested: shown(expected), actual: shown(actual) });
-    return false;
-  };
-  const field = fields3.get(path.replace(/\[\d+\]/g, ""));
-  const child = (key) => prior?.[key];
-  const hasAttrs = record2(prior) && Object.keys(prior).some((key) => key.startsWith("@_"));
-  const text4 = record2(prior) && /\S/.test(String(prior["#text"] ?? ""));
-  if (!hasAttrs && !text4 && record2(prior) && typeof expected === "string" && expected.trim() === "")
-    expected = "";
-  if (field?.multiple === true && !inCollection) {
-    const left = expected === void 0 || expected === "" ? [] : Array.isArray(expected) ? expected : [expected];
-    const right = actual === void 0 || actual === "" ? [] : Array.isArray(actual) ? actual : [actual];
-    if (left.length !== right.length) return differ();
-    return left.every(
-      (item, index) => equivalent(
-        item,
-        right[index],
-        `${path}[${index}]`,
-        fields3,
-        child(index) ?? prior,
-        true,
-        differences
-      )
-    );
-  }
-  if (Array.isArray(expected)) {
-    if (!Array.isArray(actual) || expected.length !== actual.length) return differ();
-    return expected.every(
-      (item, i) => equivalent(item, actual[i], `${path}[${i}]`, fields3, child(i), false, differences)
-    );
-  }
-  if (record2(expected)) {
-    const received = !hasAttrs && !text4 && (actual == null || actual === "") ? {} : actual;
-    if (!record2(received)) return differ();
-    return Object.entries(expected).every(
-      ([key, value]) => equivalent(value, received[key], `${path}.${key}`, fields3, child(key), false, differences)
-    );
-  }
-  if (expected === void 0 || expected === "" || expected === null)
-    return actual === void 0 || actual === "" || actual === null || differ();
-  if (actual !== null && typeof actual === "object") return differ();
-  if (field?.type === "bool")
-    return bool2(expected) !== void 0 && bool2(expected) === bool2(actual) || differ();
-  if (field?.type === "integer" && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(expected)) && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(actual)))
-    return BigInt(String(expected)) === BigInt(String(actual)) || differ();
-  const date4 = serverDate(expected);
-  if (date4 !== void 0 && date4 === serverDate(actual)) return true;
-  return String(expected) === String(actual) || differ();
-}
-function verifyFields(expected, actual, descriptors, names2 = Object.keys(expected), original) {
-  const reference = original ? Object.values(parseXml2(original))[0] : expected;
-  const fields3 = /* @__PURE__ */ new Map();
-  if (Array.isArray(descriptors)) {
-    for (const field of descriptors)
-      if (record2(field) && typeof field.path === "string") fields3.set(field.path, field);
-  }
-  const differences = [];
-  const mismatches = [...new Set(names2)].filter(
-    (name3) => !equivalent(expected[name3], actual[name3], name3, fields3, reference[name3], false, differences)
-  );
-  if (mismatches.length)
-    throw new HcmError(
-      "READ_BACK_MISMATCH",
-      "Документ сохранён, но поля из details.fields не приняли запрошенные значения.",
-      "Что не совпало — в details.differences. Остальные поля запроса сохранены: заново объект не создавать. Обычная причина: сервер переписывает значение или внутри структуры нет такого поля; поля показывает schema.get.",
-      { fields: mismatches, differences },
-      "indeterminate"
-    );
-}
-function verifyRemovals(expected, actual, changes, descriptors) {
-  const at = (data2, path) => {
-    let value = data2;
-    let fieldPath = "";
-    for (const match of patchSegments(path)) {
-      fieldPath += `${fieldPath ? "." : ""}${match[1]}`;
-      value = record2(value) ? value[match[1]] : void 0;
-      if (match[3] !== void 0) {
-        const keyPath = `${fieldPath}.${match[3]}`;
-        const field = Array.isArray(descriptors) ? descriptors.find((field2) => record2(field2) && field2.path === keyPath) : void 0;
-        value = (Array.isArray(value) ? value : [value]).find(
-          (item) => record2(item) && equivalent(match[4], item[match[3]], keyPath, /* @__PURE__ */ new Map([[keyPath, field]]))
-        );
-      } else if (match[2] !== void 0)
-        value = Array.isArray(value) ? value[Number(match[2])] : Number(match[2]) === 0 ? value : void 0;
-    }
-    return value;
-  };
-  for (const raw of changes) {
-    if (!record2(raw) || raw.op !== "remove" || typeof raw.path !== "string" || patchSegments(raw.path).at(-1)[2] !== void 0)
-      continue;
-    if (at(expected, raw.path) !== void 0) continue;
-    const value = at(actual, raw.path);
-    if (value !== void 0 && value !== "" && value !== null)
-      throw new HcmError(
-        "READ_BACK_MISMATCH",
-        "Поле, которое нужно было удалить, осталось в документе.",
-        "До повтора проверить, не задаёт ли форма этому полю значение по умолчанию.",
-        { fields: [raw.path] },
-        "indeterminate"
-      );
-  }
-}
-
 // src/logs.ts
 import { createHash as createHash3 } from "node:crypto";
 var LogReadUnavailableError = class extends HcmError {
@@ -24000,75 +23955,138 @@ async function checkServer(config2, invoke) {
   return report;
 }
 
-// src/runtime.ts
-function scalar(value, label) {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object" && "#text" in value)
-    return String(value["#text"]);
-  throw new HcmError("PLATFORM_RESPONSE", `В ответе сервера нет ${label}.`);
+// src/objects.ts
+import { randomUUID as randomUUID3 } from "node:crypto";
+import { mkdir as mkdir2, appendFile } from "node:fs/promises";
+import { join as join3 } from "node:path";
+
+// src/verification.ts
+var shown = (value) => value === void 0 ? null : typeof value === "string" ? value.length > 200 ? `${value.slice(0, 200)}…` : value : Array.isArray(value) ? `[список: ${value.length}]` : value !== null && typeof value === "object" ? "{структура}" : value;
+function record2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+function bool2(value) {
+  if (value === true || value === "true" || value === "1" || value === 1) return true;
+  if (value === false || value === "false" || value === "0" || value === 0) return false;
+  return void 0;
+}
+var DATE = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:\d{2})?$/;
+function serverDate(value) {
+  const match = typeof value === "string" ? DATE.exec(value) : null;
+  return match ? `${match[1]}T${match[2] ?? "00:00"}:${match[3] ?? "00"}` : void 0;
+}
+function isServerDate(value) {
+  return DATE.test(value);
+}
+function equivalent(expected, actual, path, fields3, prior, inCollection = false, differences = []) {
+  const differ = () => {
+    if (differences.length < 5)
+      differences.push({ path, requested: shown(expected), actual: shown(actual) });
+    return false;
+  };
+  const field = fields3.get(path.replace(/\[\d+\]/g, ""));
+  const child = (key) => prior?.[key];
+  const hasAttrs = record2(prior) && Object.keys(prior).some((key) => key.startsWith("@_"));
+  const text4 = record2(prior) && /\S/.test(String(prior["#text"] ?? ""));
+  if (!hasAttrs && !text4 && record2(prior) && typeof expected === "string" && expected.trim() === "")
+    expected = "";
+  if (field?.multiple === true && !inCollection) {
+    const left = expected === void 0 || expected === "" ? [] : Array.isArray(expected) ? expected : [expected];
+    const right = actual === void 0 || actual === "" ? [] : Array.isArray(actual) ? actual : [actual];
+    if (left.length !== right.length) return differ();
+    return left.every(
+      (item, index) => equivalent(
+        item,
+        right[index],
+        `${path}[${index}]`,
+        fields3,
+        child(index) ?? prior,
+        true,
+        differences
+      )
+    );
+  }
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || expected.length !== actual.length) return differ();
+    return expected.every(
+      (item, i) => equivalent(item, actual[i], `${path}[${i}]`, fields3, child(i), false, differences)
+    );
+  }
+  if (record2(expected)) {
+    const received = !hasAttrs && !text4 && (actual == null || actual === "") ? {} : actual;
+    if (!record2(received)) return differ();
+    return Object.entries(expected).every(
+      ([key, value]) => equivalent(value, received[key], `${path}.${key}`, fields3, child(key), false, differences)
+    );
+  }
+  if (expected === void 0 || expected === "" || expected === null)
+    return actual === void 0 || actual === "" || actual === null || differ();
+  if (actual !== null && typeof actual === "object") return differ();
+  if (field?.type === "bool")
+    return bool2(expected) !== void 0 && bool2(expected) === bool2(actual) || differ();
+  if (field?.type === "integer" && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(expected)) && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(actual)))
+    return BigInt(String(expected)) === BigInt(String(actual)) || differ();
+  const date4 = serverDate(expected);
+  if (date4 !== void 0 && date4 === serverDate(actual)) return true;
+  return String(expected) === String(actual) || differ();
+}
+function verifyFields(expected, actual, descriptors, names2 = Object.keys(expected), original) {
+  const reference = original ? Object.values(parseXml2(original))[0] : expected;
+  const fields3 = /* @__PURE__ */ new Map();
+  if (Array.isArray(descriptors)) {
+    for (const field of descriptors)
+      if (record2(field) && typeof field.path === "string") fields3.set(field.path, field);
+  }
+  const differences = [];
+  const mismatches = [...new Set(names2)].filter(
+    (name3) => !equivalent(expected[name3], actual[name3], name3, fields3, reference[name3], false, differences)
+  );
+  if (mismatches.length)
+    throw new HcmError(
+      "READ_BACK_MISMATCH",
+      "Документ сохранён, но поля из details.fields не приняли запрошенные значения.",
+      "Что не совпало — в details.differences. Остальные поля запроса сохранены: заново объект не создавать. Обычная причина: сервер переписывает значение или внутри структуры нет такого поля; поля показывает schema.get.",
+      { fields: mismatches, differences },
+      "indeterminate"
+    );
+}
+function verifyRemovals(expected, actual, changes, descriptors) {
+  const at = (data2, path) => {
+    let value = data2;
+    let fieldPath = "";
+    for (const match of patchSegments(path)) {
+      fieldPath += `${fieldPath ? "." : ""}${match[1]}`;
+      value = record2(value) ? value[match[1]] : void 0;
+      if (match[3] !== void 0) {
+        const keyPath = `${fieldPath}.${match[3]}`;
+        const field = Array.isArray(descriptors) ? descriptors.find((field2) => record2(field2) && field2.path === keyPath) : void 0;
+        value = (Array.isArray(value) ? value : [value]).find(
+          (item) => record2(item) && equivalent(match[4], item[match[3]], keyPath, /* @__PURE__ */ new Map([[keyPath, field]]))
+        );
+      } else if (match[2] !== void 0)
+        value = Array.isArray(value) ? value[Number(match[2])] : Number(match[2]) === 0 ? value : void 0;
+    }
+    return value;
+  };
+  for (const raw of changes) {
+    if (!record2(raw) || raw.op !== "remove" || typeof raw.path !== "string" || patchSegments(raw.path).at(-1)[2] !== void 0)
+      continue;
+    if (at(expected, raw.path) !== void 0) continue;
+    const value = at(actual, raw.path);
+    if (value !== void 0 && value !== "" && value !== null)
+      throw new HcmError(
+        "READ_BACK_MISMATCH",
+        "Поле, которое нужно было удалить, осталось в документе.",
+        "До повтора проверить, не задаёт ли форма этому полю значение по умолчанию.",
+        { fields: [raw.path] },
+        "indeterminate"
+      );
+  }
+}
+
+// src/objects.ts
 function isBinary(value) {
   return !!value && typeof value === "object" && "kind" in value && value.kind === "binary" && "bytes" in value && value.bytes instanceof Uint8Array;
-}
-function jsonSafe(value) {
-  if (typeof value === "bigint") return value.toString();
-  if (value instanceof Uint8Array)
-    return { base64: Buffer.from(value).toString("base64"), bytes: value.length };
-  if (Array.isArray(value)) return value.map(jsonSafe);
-  if (value && typeof value === "object")
-    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
-  return value;
-}
-function hasStructure(data2) {
-  return Object.values(data2).some((value) => value !== null && typeof value === "object");
-}
-function beginning(data2) {
-  const cut = (value) => Array.isArray(value) ? value.slice(0, 3) : typeof value === "string" ? value.slice(0, 1e3) : value;
-  if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return cut(data2);
-  return Object.fromEntries(Object.entries(data2).map(([key, value]) => [key, cut(value)]));
-}
-function stepSummary(step) {
-  const { as, ok, data: data2, error: error2 } = step;
-  return {
-    ...as === void 0 ? {} : { as },
-    ok,
-    ...error2?.code ? { code: error2.code } : {},
-    ...typeof data2?.total === "number" ? { total: data2.total } : {},
-    ...Array.isArray(data2?.items) ? { rows: data2.items.length } : {},
-    ...data2?.incomplete ? { incomplete: true } : {}
-  };
-}
-function withoutXmlFormatting(value) {
-  if (Array.isArray(value)) return value.map(withoutXmlFormatting);
-  if (!value || typeof value !== "object" || value instanceof Uint8Array) return value;
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      ([key, child]) => key !== "@_xmlns" && !(key === "#text" && typeof child === "string" && child.trim() === "")
-    ).map(([key, child]) => [
-      key,
-      // A line break and the indentation of the closing tag are formatting of an empty element.
-      typeof child === "string" && /^\s*\n[ \t]+$/.test(child) ? "" : withoutXmlFormatting(child)
-    ])
-  );
-}
-function plainAnswer(id, answer) {
-  if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return answer;
-  const data2 = answer;
-  if (id === "web.pages.uploadFile" && typeof data2.Url === "string" && data2.Url) {
-    const url = `x-local://share/uploaded_files/${data2.Url}`;
-    const { Url: _, ...rest } = data2;
-    return { ...rest, url, folderUrl: url.slice(0, url.lastIndexOf("/")) };
-  }
-  if (id === "web.spxml.getAsyncMethodStatus" && data2.ResultData !== void 0)
-    try {
-      const decoded = rpcValue(data2);
-      if (decoded !== data2) {
-        const { ResultData: _typed, ...state } = data2;
-        return { ...state, ...decoded };
-      }
-    } catch {
-    }
-  return answer;
 }
 function oneEditApart(a, b) {
   if (Math.abs(a.length - b.length) > 1) return false;
@@ -24098,198 +24116,608 @@ function patchInput(patch, remove, resave = false) {
   }));
   return [...set, ...remove.map((path) => ({ op: "remove", path }))];
 }
-var HcmRuntime = class {
-  constructor(config2) {
-    this.config = config2;
-    this.results = new ResultStore(config2);
-    this.gateway = new NativeGateway(config2);
-    this.logs = new LogReader(this.gateway, config2);
-    this.rpcCatalog = new RpcCatalog(
-      () => this.applicationInfo(),
-      (url) => this.gateway.call("native.lds.loadUrl", { url })
-    );
-    this.schemaReader = new SchemaReader(
-      () => this.applicationInfo(),
-      async (url) => requiredString(await this.gateway.call("native.spxml2.getForm", { url }), "ответ с формой"),
-      async (url) => (await this.load({ url })).document.snapshot().data
+var ServerObjects = class {
+  constructor(server, schema2, journalDirectory) {
+    this.server = server;
+    this.schema = schema2;
+    this.journalDirectory = journalDirectory;
+  }
+  /** One object by id or url, as objects.get answers. */
+  async get(args) {
+    const loaded = await this.load(args);
+    const snapshot = loaded.document.snapshot();
+    const data2 = withoutFalseOffset(projectFields(snapshot.data, args.fields));
+    const absent = Array.isArray(args.fields) ? args.fields.filter((field) => !Object.hasOwn(data2, field)) : [];
+    const shape = absent.length || hasStructure(data2) ? await this.schema.documentShape(snapshot.type, snapshot.formUrl).catch(() => void 0) : void 0;
+    const row = await this.catalogRow(snapshot.type, loaded.url, loaded.id, absent);
+    const unknownFields = shape?.fields.size ? absent.filter((field) => !shape.fields.has(field) && !row.known.has(field)) : [];
+    const emptyFields = shape?.fields.size ? absent.filter(
+      (field) => !unknownFields.includes(field) && !Object.hasOwn(row.values, field)
+    ) : [];
+    return {
+      ...loaded.id === void 0 ? {} : { id: loaded.id },
+      type: snapshot.type,
+      url: loaded.url,
+      data: shape ? withRepeated(data2, shape.repeated) : data2,
+      ...Object.keys(row.values).length ? { fromCatalog: row.values } : {},
+      ...emptyFields.length ? { emptyFields } : {},
+      ...unknownFields.length ? { unknownFields } : {},
+      fingerprint: snapshot.fingerprint,
+      ...snapshot.formUrl === void 0 ? {} : { formUrl: snapshot.formUrl }
+    };
+  }
+  async load(args) {
+    const url = args.url === void 0 ? resolvePhysicalDocumentLocation(requiredString(args.id, "id")).url : requiredString(args.url, "url");
+    const response = await this.server.call("native.lds.loadDoc", {
+      url,
+      useBinaryResponse: true
+    });
+    const source = isBinary(response) ? new TextDecoder("utf-8", { fatal: true }).decode(response.bytes) : buildXml(findXmlNode(response, "Data"));
+    let document;
+    try {
+      document = XmlDocument.parse(source);
+    } catch (error2) {
+      if (args.url === void 0 || !(error2 instanceof HcmError)) throw error2;
+      throw new HcmError(
+        error2.code,
+        error2.message,
+        "Если по адресу не документ объекта: файл читает files.read, поля формы — schema.get с url."
+      );
+    }
+    const snapshot = document.snapshot();
+    const documentId = typeof snapshot.data.id === "string" && snapshot.data.id !== "" ? snapshot.data.id : void 0;
+    const requested = args.id === void 0 ? void 0 : resolvePhysicalDocumentLocation(requiredString(args.id, "id")).objectId;
+    if (requested !== void 0 && documentId !== void 0 && BigInt(resolvePhysicalDocumentLocation(documentId).objectId) !== BigInt(requested))
+      throw new HcmError(
+        "TARGET_MISMATCH",
+        "ID в прочитанном документе не совпадает с запрошенным.",
+        "Нужно передать id и url одного объекта или что-то одно. Запись не отправлена.",
+        void 0,
+        "not_sent"
+      );
+    if (args.type !== void 0 && snapshot.type !== identifier(args.type, "type"))
+      throw new HcmError(
+        "TYPE_MISMATCH",
+        `Тип объекта — ${snapshot.type}, а не ${String(args.type)}.`,
+        void 0,
+        { actualType: snapshot.type }
+      );
+    return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
+  }
+  async journal(entry2) {
+    await mkdir2(this.journalDirectory, { recursive: true });
+    await appendFile(
+      join3(this.journalDirectory, "mutations.jsonl"),
+      `${JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), ...entry2 })}
+`,
+      { encoding: "utf8", mode: 384 }
     );
   }
-  gateway;
-  results;
-  logs;
-  schemaReader;
-  rpcCatalog;
-  queue = Promise.resolve();
-  closed = false;
-  closePromise;
+  async resolveCatalog(type, documentUrl) {
+    const info = await this.server.applicationInfo();
+    let dbName = typeof info.default_db_name === "string" ? info.default_db_name : void 0;
+    if (documentUrl) {
+      const url = new URL(documentUrl);
+      if (url.protocol === "x-local:") dbName = url.hostname;
+    }
+    if (dbName === void 0 || !Array.isArray(info.databases)) return void 0;
+    const db = info.databases.find(
+      (value) => value && typeof value === "object" && "id" in value && value.id === dbName
+    );
+    if (!db || typeof db !== "object" || !("catalogs" in db) || !Array.isArray(db.catalogs))
+      return void 0;
+    const named = (value, objectType2, id) => !!value && typeof value === "object" && "object_type" in value && value.object_type === objectType2 && "id" in value && typeof value.id === "string" && (id === void 0 || value.id === id);
+    let matches2 = db.catalogs.filter((value) => named(value, type));
+    if (!matches2.length)
+      matches2 = db.catalogs.filter((value) => named(value, "", `${type}s`));
+    return matches2.length === 1 ? identifier(inputObject(matches2[0]).id, "catalog") : void 0;
+  }
+  /**
+   * Values of the named fields in the catalog row of an object. `known` holds the names that are
+   * fields of the catalog, whether the row has a value for them or not.
+   */
+  async catalogRow(type, url, id, names2) {
+    const none = { values: {}, known: /* @__PURE__ */ new Set() };
+    if (!names2.length || id === void 0) return none;
+    try {
+      const catalog = await this.resolveCatalog(type, url);
+      if (!catalog) return none;
+      const shape = await this.schema.catalogShape({ catalog });
+      const known2 = new Set(names2.filter((name3) => shape?.fields.has(name3)));
+      if (!known2.size) return none;
+      const response = await this.server.read("native.lds.xQuery", {
+        query: `for $elem in ${catalog} where $elem/id = ${resolvePhysicalDocumentLocation(id).objectId} return $elem`,
+        maxCount: 1,
+        expectToReadAll: false,
+        keepCursor: false
+      });
+      const [item] = queryPage(response, 0, 1, [...known2], false).items;
+      const values = Object.fromEntries(
+        Object.entries(withoutFalseOffset(item ?? {})).filter(
+          ([name3]) => known2.has(name3)
+        )
+      );
+      return { values, known: known2 };
+    } catch {
+      return none;
+    }
+  }
+  async catalogHasId(catalog, id) {
+    const lexicalId = resolvePhysicalDocumentLocation(id).objectId;
+    const response = await this.server.read("native.lds.xQuery", {
+      query: `for $elem in ${catalog} where $elem/id = ${lexicalId} return $elem`,
+      maxCount: 2,
+      expectToReadAll: false,
+      keepCursor: false
+    });
+    const data2 = cleanXmlValue(findXmlNode(response, "Data"));
+    return data2 !== null && typeof data2 === "object" && Object.values(data2).some((value) => Array.isArray(value) ? value.length > 0 : value !== "");
+  }
+  /**
+   * What the server would not keep is refused before the write: a field the type does not have is
+   * dropped from the saved document, as is a value for a field the server computes, and a date the
+   * server cannot read is stored as another value.
+   */
+  async requireFields(type, formUrl, data2, names2) {
+    const shape = await this.schema.documentShape(type, formUrl).catch(() => void 0);
+    if (!shape) return;
+    const written = [...new Set(names2)];
+    const unknown2 = shape.fields.size && !shape.partial ? written.filter((name3) => !shape.fields.has(name3)) : [];
+    if (unknown2.length) {
+      const near = [...shape.fields].filter(
+        (field) => unknown2.some(
+          (name3) => name3.length > 3 && field.includes(name3) || field.length > 3 && name3.includes(field) || oneEditApart(field, name3)
+        )
+      ).slice(0, 5);
+      throw new HcmError(
+        "UNKNOWN_FIELD",
+        `У типа ${type} нет поля: ${unknown2.join(", ")}.`,
+        `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Поля типа показывает schema.get.`,
+        { fields: unknown2 }
+      );
+    }
+    const computed = written.filter((name3) => shape.computed?.has(name3));
+    if (computed.length)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        `${computed.join(", ")}: значение вычисляет сервер, записать его нельзя.`,
+        "Менять нужно поля, из которых сервер его складывает. Вычисляемые поля в schema.get помечены computed:true.",
+        { fields: computed }
+      );
+    const wrong = written.filter((name3) => {
+      const value = data2[name3];
+      return shape.dates.has(name3) && typeof value === "string" && value && !isServerDate(value);
+    });
+    if (wrong.length)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        `${wrong.join(", ")}: дата записана не так, как её читает сервер.`,
+        'Писать нужно "2026-12-05" или "2026-12-05T09:30:00". Время — местное время сервера: смещение в значении сервер не учитывает.',
+        { fields: wrong }
+      );
+  }
+  async create(args, out) {
+    const type = identifier(args.type, "type");
+    const data2 = inputObject(args.data, "data");
+    if (data2.id !== void 0)
+      throw new HcmError(
+        "IMMUTABLE_ID",
+        "ID новому объекту выдаёт сервер: нужно убрать id из data."
+      );
+    if (!Object.keys(data2).length)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        "data: нет ни одного поля.",
+        "Нужно передать поля нового объекта, например {name: '…'}; значения по умолчанию сервер подставит сам."
+      );
+    XmlDocument.create(type, data2).snapshot();
+    if (args.formUrl === void 0) await this.schema.requireType(type);
+    const formUrl = args.formUrl === void 0 ? `x-local://wtv/wtv_${type}.xmd` : requiredString(args.formUrl, "formUrl");
+    const form = await this.schema.documentForm(formUrl);
+    if (!Array.isArray(form.roots) || !form.roots.includes(type))
+      throw new HcmError("FORM_TYPE_MISMATCH", "В форме нет запрошенного типа объекта.");
+    await this.requireFields(type, formUrl, data2, Object.keys(data2));
+    const dbName = args.dbName === void 0 ? "wt_data" : identifier(args.dbName, "dbName");
+    const mutationId = randomUUID3();
+    out.note({ mutationId });
+    await this.journal({ mutationId, operation: "objects.create", stage: "allocating", type });
+    const allocated = await this.server.call("native.lds.getNewObjectId", { dbName }, out);
+    const location = resolvePhysicalDocumentLocation(
+      scalar(findXmlNode(allocated, "ObjectID"), "ObjectID"),
+      dbName
+    );
+    out.note({ objectId: location.objectId, url: location.url });
+    const snapshot = XmlDocument.create(
+      type,
+      { id: location.objectId, ...data2 },
+      formUrl
+    ).snapshot();
+    await this.journal({
+      mutationId,
+      operation: "objects.create",
+      stage: "prepared",
+      objectId: location.objectId
+    });
+    await this.server.call(
+      "native.lds.putDoc",
+      { url: location.url, data: snapshot.xml, writeDocInfo: true, neverSaved: true },
+      out
+    );
+    const loaded = await this.load({ url: location.url, type });
+    const result = loaded.document.snapshot();
+    if (BigInt(requiredString(loaded.id, "ID при проверочном чтении")) !== BigInt(location.objectId))
+      throw new HcmError(
+        "READ_BACK_MISMATCH",
+        "При проверочном чтении ID созданного объекта не совпал с выданным.",
+        void 0,
+        { mutationId },
+        "indeterminate"
+      );
+    verifyFields(snapshot.data, result.data, form.fields, Object.keys(data2));
+    await this.journal({
+      mutationId,
+      operation: "objects.create",
+      stage: "verified",
+      objectId: location.objectId
+    });
+    return {
+      id: location.objectId,
+      url: location.url,
+      type,
+      fingerprint: result.fingerprint,
+      mutationId,
+      mutationOutcome: "confirmed"
+    };
+  }
+  async patch(args, out) {
+    const loaded = await this.load(args);
+    const changes = loaded.document.patch(
+      patchInput(args.patch, args.remove, args.resave === true)
+    );
+    if (args.expectedFingerprint !== void 0 && args.expectedFingerprint !== changes.before.fingerprint)
+      throw new HcmError(
+        "CONFLICT",
+        "Объект изменился после чтения: его fingerprint не равен expectedFingerprint.",
+        "Прочитать объект заново и составить изменение по его текущему состоянию.",
+        void 0,
+        "not_sent"
+      );
+    await this.requireFields(
+      changes.before.type,
+      changes.before.formUrl,
+      changes.after.data,
+      changes.changes.filter((change) => inputObject(change).op === "set").map((change) => patchSegments(String(inputObject(change).path))[0][1])
+    );
+    const noop = changes.before.fingerprint === changes.after.fingerprint;
+    if (args.preview === true || noop && args.resave !== true)
+      return {
+        preview: args.preview === true,
+        noop: noop && args.resave !== true,
+        changes: changes.changes,
+        fingerprint: changes.before.fingerprint
+      };
+    const current = await this.load(args);
+    if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
+      throw new HcmError(
+        "CONFLICT",
+        "Объект изменился, пока готовилась запись.",
+        void 0,
+        void 0,
+        "not_sent"
+      );
+    const form = await this.schema.documentForm(
+      changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`
+    );
+    const branches = changes.changes.map(
+      (change) => patchSegments(String(inputObject(change).path))[0][1]
+    );
+    const mutationId = randomUUID3();
+    await this.journal({
+      mutationId,
+      operation: "objects.patch",
+      stage: "prepared",
+      fingerprint: changes.before.fingerprint
+    });
+    out.note({
+      mutationId,
+      url: loaded.url,
+      ...loaded.id === void 0 ? {} : { objectId: loaded.id }
+    });
+    await this.server.call(
+      "native.lds.putDoc",
+      { url: loaded.url, data: changes.after.xml, writeDocInfo: true },
+      out
+    );
+    const verified = await this.load(args);
+    const snapshot = verified.document.snapshot();
+    verifyFields(changes.after.data, snapshot.data, form.fields, branches, changes.before.xml);
+    verifyRemovals(changes.after.data, snapshot.data, changes.changes, form.fields);
+    await this.journal({
+      mutationId,
+      operation: "objects.patch",
+      stage: "verified",
+      fingerprint: snapshot.fingerprint
+    });
+    const serverChanged = Object.keys({ ...changes.after.data, ...snapshot.data }).filter(
+      (key) => key !== "doc_info" && !branches.includes(key) && JSON.stringify(changes.after.data[key]) !== JSON.stringify(snapshot.data[key])
+    );
+    return {
+      ...verified.id === void 0 ? {} : { id: verified.id },
+      type: snapshot.type,
+      url: loaded.url,
+      fingerprint: snapshot.fingerprint,
+      changes: changes.changes,
+      ...serverChanged.length ? { serverChanged: serverChanged.slice(0, 20) } : {},
+      mutationId,
+      mutationOutcome: "confirmed"
+    };
+  }
+  async delete(args, out) {
+    if (args.permanent !== true)
+      throw new HcmError(
+        "DELETE_MODE_REQUIRED",
+        "Объект удаляется безвозвратно: для этого нужен permanent:true.",
+        "Корзины у этой операции нет.",
+        void 0,
+        "not_sent"
+      );
+    const loaded = await this.load(args);
+    const snapshot = loaded.document.snapshot();
+    const objectId = requiredString(loaded.id, "ID объекта");
+    const catalog = args.catalog === void 0 ? await this.resolveCatalog(snapshot.type, loaded.url) : identifier(args.catalog, "catalog");
+    if (catalog !== void 0 && !await this.catalogHasId(catalog, objectId))
+      throw new HcmError(
+        "CATALOG_MISMATCH",
+        "Объекта нет в каталоге, по которому проверяется удаление.",
+        "Нужно указать каталог, в котором объект есть. Запрос на удаление не отправлен.",
+        void 0,
+        "not_sent"
+      );
+    const mutationId = randomUUID3();
+    await this.journal({ mutationId, operation: "objects.delete", stage: "prepared", objectId });
+    out.note({ mutationId, objectId, url: loaded.url });
+    await this.server.call("native.lds.deleteDoc", { url: loaded.url, strictDelete: true }, out);
+    if (catalog !== void 0 && await this.catalogHasId(catalog, objectId))
+      throw new HcmError(
+        "READ_BACK_MISMATCH",
+        "После удаления объект всё ещё есть в каталоге.",
+        "Перед повтором удаления прочитать объект. Причину сервер пишет в лог spxml_unibridge.",
+        void 0,
+        "indeterminate"
+      );
+    await this.journal({
+      mutationId,
+      operation: "objects.delete",
+      stage: catalog === void 0 ? "acknowledged" : "verified-absence",
+      objectId
+    });
+    return {
+      id: objectId,
+      mutationId,
+      mutationOutcome: "confirmed",
+      verification: catalog === void 0 ? "server acknowledgement" : "catalog absence",
+      ...catalog === void 0 ? {} : { catalog }
+    };
+  }
+};
+
+// src/write-outcome.ts
+function refusedAtDoor(error2) {
+  return error2 instanceof WsHcmApiError && error2.status === 401 || loginFailed(error2);
+}
+var WriteOutcome = class {
+  marks = 0;
+  ids = {};
+  /** Before a request that may change the server; returns the withdrawal of this one mark. */
+  sending() {
+    this.marks++;
+    let withdrawn = false;
+    return () => {
+      if (!withdrawn) this.marks--;
+      withdrawn = true;
+    };
+  }
+  note(ids) {
+    for (const [key, value] of Object.entries(ids))
+      if (value !== void 0) this.ids[key] = value;
+  }
+  /** The first line that fits: no error, a read, a refusal at the door, a mark not withdrawn, otherwise not sent. */
+  verdict(effect, error2) {
+    const { mutationId, objectId, executionId } = this.ids;
+    const exactIds = {
+      ...mutationId !== void 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId) ? { mutationId } : {},
+      ...objectId !== void 0 && /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(objectId) && BigInt(objectId) <= 0xffffffffffffffffn ? { objectId } : {},
+      ...executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(executionId) ? { executionId } : {}
+    };
+    const sent = effect !== "read" && this.marks > 0;
+    const verdict = { sent, ids: { ...this.ids }, exactIds };
+    if (error2 === void 0) return verdict;
+    const turnedAway = error2 instanceof HcmError && (error2.code === "RPC_SERVER_ONLY" || error2.code === "UNKNOWN_RPC_TARGET");
+    const mutationOutcome = effect === "read" ? error2 instanceof HcmError ? error2.mutationOutcome : void 0 : sent && !turnedAway ? "indeterminate" : "not_sent";
+    if (mutationOutcome === void 0) return verdict;
+    const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error2);
+    return { ...verdict, mutationOutcome, ...refusedAfterSend && { refusedAfterSend } };
+  }
+};
+
+// src/hcm-server.ts
+function refuseUnowned(id, args, refused) {
+  const effect = nativeEffect(id, args);
+  if (effect !== void 0 && refused(effect))
+    throw new Error(`${id}: запрос, который может изменить сервер, без владельца исхода записи`);
+}
+var HcmServer = class {
+  constructor(port) {
+    this.port = port;
+  }
   appInfo;
+  /** A request of an operation the registry calls a read. Anything else must say what it is. */
+  async call(id, args, outcome) {
+    if (!outcome) {
+      refuseUnowned(id, args, (effect) => effect !== "read");
+      return this.port.call(id, args);
+    }
+    const withdraw = outcome.sending();
+    try {
+      return await this.port.call(id, args);
+    } catch (error2) {
+      if (error2 instanceof WsHcmApiError && error2.requestSent === false || refusedAtDoor(error2))
+        withdraw();
+      throw error2;
+    }
+  }
+  /** A request that only reads here though its operation can do more (xQuery, rpc.call); a registry write is refused. */
+  async read(id, args) {
+    refuseUnowned(id, args, (effect) => effect === "write");
+    return this.port.call(id, args);
+  }
+  /** Application info, kept for 30 seconds; a refused request is not kept. */
+  async applicationInfo() {
+    if (!this.appInfo || this.appInfo.expires < Date.now()) {
+      const value = this.call("native.spxml2.getAppInfo", { fastStart: true });
+      this.appInfo = { expires: Date.now() + 3e4, value };
+      value.catch(() => {
+        if (this.appInfo?.value === value) this.appInfo = void 0;
+      });
+    }
+    return inputObject(await this.appInfo.value, "сведения о приложении");
+  }
+  /**
+   * Code prepared by prepareScript, run on the server; the answer is checked for a caught error.
+   * `idle` tells from the answer that the code did nothing: the mark is withdrawn.
+   */
+  async runCode(script, outcome, idle) {
+    prepare(script.request, describeHcmOperation("web.rpc.call").inputSchema);
+    outcome.note({ executionId: script.executionId });
+    const withdraw = outcome.sending();
+    try {
+      const data2 = scriptResult(
+        await this.port.call("web.rpc.call", script.request),
+        script.executionId
+      );
+      if (idle?.(data2)) withdraw();
+      return data2;
+    } catch (error2) {
+      if (error2 instanceof HcmError && error2.mutationOutcome === "not_sent" || refusedAtDoor(error2))
+        withdraw();
+      throw error2;
+    }
+  }
+};
+
+// src/reply.ts
+function jsonSafe(value) {
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Uint8Array)
+    return { base64: Buffer.from(value).toString("base64"), bytes: value.length };
+  if (Array.isArray(value)) return value.map(jsonSafe);
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
+  return value;
+}
+function beginning(data2) {
+  const cut = (value) => Array.isArray(value) ? value.slice(0, 3) : typeof value === "string" ? value.slice(0, 1e3) : value;
+  if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return cut(data2);
+  return Object.fromEntries(Object.entries(data2).map(([key, value]) => [key, cut(value)]));
+}
+function stepSummary(step) {
+  const { as, ok, data: data2, error: error2 } = step;
+  return {
+    ...as === void 0 ? {} : { as },
+    ok,
+    ...error2?.code ? { code: error2.code } : {},
+    ...typeof data2?.total === "number" ? { total: data2.total } : {},
+    ...Array.isArray(data2?.items) ? { rows: data2.items.length } : {},
+    ...data2?.incomplete ? { incomplete: true } : {}
+  };
+}
+var ReplyPacker = class {
+  constructor(config2, results) {
+    this.config = config2;
+    this.results = results;
+  }
   /** Room for the payload of one reply; the rest of the output limit is left to its other fields. */
   get pageBytes() {
     return Math.floor(this.config.outputLimitBytes * 0.6);
   }
-  listOperations(filter = {}) {
-    return listHcmOperations(filter);
-  }
-  describe(id) {
-    return describeHcmOperation(id);
-  }
-  /** Resolve conditional side effects for the actual arguments; frontends must use this before routing. */
-  getOperationEffect(id, args = {}) {
-    return this.effect(this.describe(id), args);
-  }
-  call(id, args = {}) {
-    const start = performance.now();
-    if (this.closed)
-      return Promise.resolve(
-        this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто."))
-      );
-    let snapshot;
-    try {
-      snapshot = inputObject(structuredClone(args));
-    } catch {
-      return Promise.resolve(
-        this.failure(
-          id,
-          start,
-          new HcmError(
-            "INVALID_ARGUMENT",
-            "Аргументы операции — не объект, или в них есть значение, которое нельзя скопировать.",
-            "Нужно передать значения, совместимые с JSON; двоичные данные — как {base64: …}, XML — как {xml: …}."
-          ),
-          { sent: false, effect: operationDefinition(id)?.effect ?? "unknown" }
-        )
-      );
-    }
-    const run = this.queue.then(() => this.perform(id, snapshot, start));
-    this.queue = run.catch(() => void 0);
-    return run;
-  }
-  effect(operation, args) {
-    if (operation.id === "runtime.query") {
-      const deferredArguments = Object.keys(args).length === 1 && typeof args.$ref === "string";
-      return deferredArguments || args.query !== void 0 ? "execute" : "read";
-    }
-    if (operation.id === "objects.patch" && args.preview === true) return "read";
-    if (operation.id === "runtime.batch") {
-      const steps = args.steps;
-      if (!Array.isArray(steps)) return "unknown";
-      const effects = steps.map((raw) => {
-        const step = inputObject(raw, "step");
-        const id = requiredString(step.id, "step.id");
-        if (id === "runtime.batch")
-          throw new HcmError("NESTED_BATCH", "Пакет внутри пакета не поддерживается.");
-        return this.effect(
-          this.describe(id),
-          step.args === void 0 ? {} : inputObject(step.args)
-        );
-      });
-      if (effects.includes("unknown") || effects.includes("write") && effects.includes("execute"))
-        return "unknown";
-      return effects.includes("execute") ? "execute" : effects.includes("write") ? "write" : "read";
-    }
-    return operation.profile === void 0 ? operation.effect : getEffectiveNativeEffect(operation, args);
-  }
-  authorize(effect) {
-    if ((effect === "write" || effect === "unknown") && !this.config.permissions.write)
-      throw new HcmError(
-        "WRITE_DISABLED",
-        "Подключение не разрешает запись.",
-        "Нужно право write: его включает владелец подключения в настройках подключения (permissions.write).",
-        void 0,
-        "not_sent"
-      );
-    if ((effect === "execute" || effect === "unknown") && !this.config.permissions.execute)
-      throw new HcmError(
-        "EXECUTE_DISABLED",
-        "Подключение не разрешает выполнять код, функции и запросы XQuery на сервере.",
-        "Нужно право execute: его включает владелец подключения в настройках подключения (permissions.execute).",
-        void 0,
-        "not_sent"
-      );
-  }
-  async perform(id, args, start, boundOutput = true, state = { sent: false, effect: "read" }) {
-    try {
-      const operation = this.describe(id);
-      state.effect = operation.effect;
-      validate2(args, operation.inputSchema);
-      state.effect = this.effect(operation, args);
-      this.authorize(state.effect);
-      if (operation.profile !== void 0) prepare(args, operation.inputSchema);
-      const data2 = jsonSafe(await this.dispatch(id, args, state));
-      const serialised = JSON.stringify(data2);
-      const failedBatch = id === "runtime.batch" && data2 !== null && typeof data2 === "object" && "ok" in data2 && data2.ok === false;
-      const failedCheck = id === "runtime.check" && data2.summary.failed > 0;
-      const batch = data2;
-      const failedSteps = failedBatch ? batch.results.flatMap(
-        (result, index) => result.ok ? [] : [{ index, id: result.meta.operationId, code: result.error?.code ?? "UNKNOWN" }]
-      ) : [];
-      const outcome = failedBatch || failedCheck ? {
-        ok: false,
-        error: {
-          code: failedCheck ? "CHECK_FAILED" : "BATCH_FAILED",
-          message: failedCheck ? `Проверка подключения не пройдена: ${data2.checks.filter((check2) => check2.result === "failed").map((check2) => check2.name).join(", ")}.` : `Отказало шагов пакета: ${failedSteps.length} из ${batch.requested}${batch.requested > batch.completed ? `; после отказа не запускались: ${batch.requested - batch.completed}` : ""}. До повтора нужно посмотреть исход каждого шага.`,
-          hint: failedCheck ? data2.checks.find((check2) => check2.result === "failed")?.reason ?? "Причины — в data.checks." : "Номера и коды отказавших шагов — в error.details.failed, ответы шагов — в data.results.",
-          retryable: false,
-          ...failedBatch ? {
-            details: {
-              failed: failedSteps.slice(0, 20),
-              ...failedSteps.length > 20 ? { failedTotal: failedSteps.length } : {}
-            }
-          } : {}
-        }
-      } : { ok: true };
-      if (boundOutput && Buffer.byteLength(serialised ?? "null") > this.config.outputLimitBytes && id !== "results.read" && id !== "runtime.check") {
-        const stored = await this.results.put(data2);
-        let preview = beginning(data2);
-        if (Buffer.byteLength(JSON.stringify(preview)) > this.config.outputLimitBytes / 2)
-          preview = {
-            kind: "stored-result",
-            ...data2 !== null && typeof data2 === "object" && !Array.isArray(data2) ? Object.fromEntries(
-              Object.entries(data2).slice(0, 40).map(([key, value]) => [
-                key,
-                Array.isArray(value) ? id === "runtime.batch" && key === "results" ? value.map(stepSummary) : `[список: ${value.length}]` : value !== null && typeof value === "object" ? "{структура}" : typeof value === "string" && value.length > 120 ? `${value.slice(0, 120)}…` : value
-              ])
-            ) : {}
-          };
-        return {
-          ...outcome,
-          ...failedBatch && "error" in outcome ? {
-            error: {
-              ...outcome.error,
-              hint: "Номера и коды отказавших шагов — в error.details.failed; ответы шагов сохранены, их читает results.read."
-            }
-          } : {},
-          data: {
-            preview,
-            resultId: stored.resultId,
-            hint: `Ответ не поместился и сохранён целиком: results.read читает ${stored.list === void 0 ? "его частями" : `список ${stored.list} по элементам`}, results.export сохраняет в файл.`
-          },
-          meta: {
-            operationId: id,
-            connection: this.config.name,
-            durationMs: Math.round(performance.now() - start),
-            truncated: true,
-            resultId: stored.resultId,
-            resultBytes: stored.bytes
+  /** What the operation returned; an answer over the limit is stored whole and replaced by its beginning. */
+  async success(id, start, value, bound) {
+    const data2 = jsonSafe(value);
+    const serialised = JSON.stringify(data2);
+    const failedBatch = id === "runtime.batch" && data2 !== null && typeof data2 === "object" && "ok" in data2 && data2.ok === false;
+    const failedCheck = id === "runtime.check" && data2.summary.failed > 0;
+    const batch = data2;
+    const failedSteps = failedBatch ? batch.results.flatMap(
+      (result, index) => result.ok ? [] : [{ index, id: result.meta.operationId, code: result.error?.code ?? "UNKNOWN" }]
+    ) : [];
+    const outcome = failedBatch || failedCheck ? {
+      ok: false,
+      error: {
+        code: failedCheck ? "CHECK_FAILED" : "BATCH_FAILED",
+        message: failedCheck ? `Проверка подключения не пройдена: ${data2.checks.filter((check2) => check2.result === "failed").map((check2) => check2.name).join(", ")}.` : `Отказало шагов пакета: ${failedSteps.length} из ${batch.requested}${batch.requested > batch.completed ? `; после отказа не запускались: ${batch.requested - batch.completed}` : ""}. До повтора нужно посмотреть исход каждого шага.`,
+        hint: failedCheck ? data2.checks.find((check2) => check2.result === "failed")?.reason ?? "Причины — в data.checks." : "Номера и коды отказавших шагов — в error.details.failed, ответы шагов — в data.results.",
+        retryable: false,
+        ...failedBatch ? {
+          details: {
+            failed: failedSteps.slice(0, 20),
+            ...failedSteps.length > 20 ? { failedTotal: failedSteps.length } : {}
           }
-        };
+        } : {}
       }
-      const kept = boundOutput && (id === "logs.read" || id === "files.read") ? await this.results.put(data2).catch(() => void 0) : void 0;
+    } : { ok: true };
+    if (bound && Buffer.byteLength(serialised ?? "null") > this.config.outputLimitBytes && id !== "results.read" && id !== "runtime.check") {
+      const stored = await this.results.put(data2);
+      let preview = beginning(data2);
+      if (Buffer.byteLength(JSON.stringify(preview)) > this.config.outputLimitBytes / 2)
+        preview = {
+          kind: "stored-result",
+          ...data2 !== null && typeof data2 === "object" && !Array.isArray(data2) ? Object.fromEntries(
+            Object.entries(data2).slice(0, 40).map(([key, value2]) => [
+              key,
+              Array.isArray(value2) ? id === "runtime.batch" && key === "results" ? value2.map(stepSummary) : `[список: ${value2.length}]` : value2 !== null && typeof value2 === "object" ? "{структура}" : typeof value2 === "string" && value2.length > 120 ? `${value2.slice(0, 120)}…` : value2
+            ])
+          ) : {}
+        };
       return {
         ...outcome,
-        data: data2,
+        ...failedBatch && "error" in outcome ? {
+          error: {
+            ...outcome.error,
+            hint: "Номера и коды отказавших шагов — в error.details.failed; ответы шагов сохранены, их читает results.read."
+          }
+        } : {},
+        data: {
+          preview,
+          resultId: stored.resultId,
+          hint: `Ответ не поместился и сохранён целиком: results.read читает ${stored.list === void 0 ? "его частями" : `список ${stored.list} по элементам`}, results.export сохраняет в файл.`
+        },
         meta: {
           operationId: id,
           connection: this.config.name,
           durationMs: Math.round(performance.now() - start),
-          ...kept ? { resultId: kept.resultId } : {}
+          truncated: true,
+          resultId: stored.resultId,
+          resultBytes: stored.bytes
         }
       };
-    } catch (error2) {
-      const failure2 = this.failure(id, start, error2, state);
-      if (!state.batchRecovery) return failure2;
-      return { ...failure2, data: this.batchRecoveryData(state.batchRecovery) };
     }
+    const kept = bound && (id === "logs.read" || id === "files.read") ? await this.results.put(data2).catch(() => void 0) : void 0;
+    return {
+      ...outcome,
+      data: data2,
+      meta: {
+        operationId: id,
+        connection: this.config.name,
+        durationMs: Math.round(performance.now() - start),
+        ...kept ? { resultId: kept.resultId } : {}
+      }
+    };
+  }
+  /** What the operation threw: worded by the class of the error, without secrets, within the limit. */
+  failure(id, start, error2, verdict, extra = {}) {
+    const failure2 = this.pack(id, start, error2, verdict, extra.refusal);
+    if (!extra.batchRecovery) return failure2;
+    return { ...failure2, data: this.batchRecoveryData(extra.batchRecovery) };
   }
   /** Local storage failure cannot erase already executed steps or label a sent batch not_sent. */
   batchRecoveryData(recovery) {
@@ -24317,7 +24745,7 @@ var HcmRuntime = class {
     }
     return data2;
   }
-  failure(id, start, error2, state) {
+  pack(id, start, error2, verdict, refusal) {
     const redact = (message, limit = 500) => {
       let safe = message;
       for (const secret of [
@@ -24327,14 +24755,15 @@ var HcmRuntime = class {
         if (secret) safe = safe.replaceAll(secret, "[redacted]");
       return safe.replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]").replace(/(?:SessionID|Authorization|Cookie)\s*[:=]\s*[^\s,;]+/gi, "[redacted]").slice(0, limit);
     };
-    const normal = error2 instanceof HcmError ? error2.toJSON() : error2 instanceof WebSocketHeartbeatError ? {
+    const { mutationOutcome, refusedAfterSend, ids, exactIds } = verdict;
+    const { mutationOutcome: _own, ...normal } = error2 instanceof HcmError ? error2.toJSON() : error2 instanceof WebSocketHeartbeatError ? {
       code: error2.errorCode,
       message: "Служба WebSocket не ответила на проверку.",
       hint: error2.hint,
       retryable: false
     } : error2 instanceof WsHcmApiError ? {
       code: `PLATFORM_${error2.kind.toUpperCase()}`,
-      ...platformFailure(error2, this.config.baseUrl, state?.refusal ?? id),
+      ...platformFailure(error2, this.config.baseUrl, refusal ?? id),
       retryable: false,
       ...error2.status === void 0 ? {} : { details: { status: error2.status } }
     } : error2 instanceof TypeError ? {
@@ -24348,10 +24777,8 @@ var HcmRuntime = class {
       hint: "Проверить аргументы по api.describe. Если ошибка повторяется при верных аргументах, это дефект клиента.",
       retryable: false
     };
-    if (error2 instanceof WsHcmApiError && error2.status === 500 || error2 instanceof HcmError && error2.code === "SCRIPT_FAILED")
-      this.logs.serverWroteLog();
-    const turnedAway = error2 instanceof WsHcmApiError && error2.status === 401 || loginFailed(error2) || error2 instanceof HcmError && (error2.code === "RPC_SERVER_ONLY" || error2.code === "UNKNOWN_RPC_TARGET");
-    const mutationOutcome = state && state.effect !== "read" ? state.sent && !turnedAway ? "indeterminate" : "not_sent" : void 0;
+    if (refusedAfterSend)
+      normal.hint = `${normal.hint ?? ""} До этого отказа запрос на запись уже ушёл: после восстановления входа проверить, прошла ли запись, прежде чем повторять.`.trim();
     const trim = (value, depth = 0, limit = 256) => {
       if (typeof value === "string") {
         const text4 = redact(value, limit + 1);
@@ -24368,25 +24795,20 @@ var HcmRuntime = class {
         );
       return value;
     };
-    const trustedIds = {
-      ...state?.mutationId !== void 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(state.mutationId) ? { mutationId: state.mutationId } : {},
-      ...state?.objectId !== void 0 && /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(state.objectId) && BigInt(state.objectId) <= 0xffffffffffffffffn ? { objectId: state.objectId } : {},
-      ...state?.executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(state.executionId) ? { executionId: state.executionId } : {}
-    };
     let details = {
       ...trim({
         ...normal.details,
-        ...state?.mutationId === void 0 ? {} : { mutationId: state.mutationId },
-        ...state?.objectId === void 0 ? {} : { objectId: state.objectId },
-        ...state?.url === void 0 ? {} : { url: state.url },
-        ...state?.executionId === void 0 ? {} : { executionId: state.executionId }
+        ...ids.mutationId === void 0 ? {} : { mutationId: ids.mutationId },
+        ...ids.objectId === void 0 ? {} : { objectId: ids.objectId },
+        ...ids.url === void 0 ? {} : { url: ids.url },
+        ...ids.executionId === void 0 ? {} : { executionId: ids.executionId }
       }),
-      ...trustedIds
+      ...exactIds
     };
     if (Buffer.byteLength(JSON.stringify(details)) > this.config.outputLimitBytes / 4)
       details = {
         omitted: true,
-        ...trustedIds
+        ...exactIds
       };
     const omitOversizedConnection = (value) => {
       const bytes = Buffer.byteLength(JSON.stringify(value));
@@ -24454,155 +24876,186 @@ var HcmRuntime = class {
     }
     return result;
   }
-  /** One object by id or url, as objects.get answers. */
-  async readObject(args) {
-    const loaded = await this.load(args);
-    const snapshot = loaded.document.snapshot();
-    const data2 = withoutFalseOffset(projectFields(snapshot.data, args.fields));
-    const absent = Array.isArray(args.fields) ? args.fields.filter((field) => !Object.hasOwn(data2, field)) : [];
-    const shape = absent.length || hasStructure(data2) ? await this.schemaReader.documentShape(snapshot.type, snapshot.formUrl).catch(() => void 0) : void 0;
-    const row = await this.catalogRow(snapshot.type, loaded.url, loaded.id, absent);
-    const unknownFields = shape?.fields.size ? absent.filter((field) => !shape.fields.has(field) && !row.known.has(field)) : [];
-    const emptyFields = shape?.fields.size ? absent.filter(
-      (field) => !unknownFields.includes(field) && !Object.hasOwn(row.values, field)
-    ) : [];
-    return {
-      ...loaded.id === void 0 ? {} : { id: loaded.id },
-      type: snapshot.type,
-      url: loaded.url,
-      data: shape ? withRepeated(data2, shape.repeated) : data2,
-      ...Object.keys(row.values).length ? { fromCatalog: row.values } : {},
-      ...emptyFields.length ? { emptyFields } : {},
-      ...unknownFields.length ? { unknownFields } : {},
-      fingerprint: snapshot.fingerprint,
-      ...snapshot.formUrl === void 0 ? {} : { formUrl: snapshot.formUrl }
-    };
+};
+
+// src/runtime.ts
+function withoutXmlFormatting(value) {
+  if (Array.isArray(value)) return value.map(withoutXmlFormatting);
+  if (!value || typeof value !== "object" || value instanceof Uint8Array) return value;
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key, child]) => key !== "@_xmlns" && !(key === "#text" && typeof child === "string" && child.trim() === "")
+    ).map(([key, child]) => [
+      key,
+      // A line break and the indentation of the closing tag are formatting of an empty element.
+      typeof child === "string" && /^\s*\n[ \t]+$/.test(child) ? "" : withoutXmlFormatting(child)
+    ])
+  );
+}
+function plainAnswer(id, answer) {
+  if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return answer;
+  const data2 = answer;
+  if (id === "web.pages.uploadFile" && typeof data2.Url === "string" && data2.Url) {
+    const url = `x-local://share/uploaded_files/${data2.Url}`;
+    const { Url: _, ...rest } = data2;
+    return { ...rest, url, folderUrl: url.slice(0, url.lastIndexOf("/")) };
   }
-  async load(args) {
-    const url = args.url === void 0 ? resolvePhysicalDocumentLocation(requiredString(args.id, "id")).url : requiredString(args.url, "url");
-    const response = await this.gateway.call("native.lds.loadDoc", {
-      url,
-      useBinaryResponse: true
-    });
-    const source = isBinary(response) ? new TextDecoder("utf-8", { fatal: true }).decode(response.bytes) : buildXml(findXmlNode(response, "Data"));
-    let document;
+  if (id === "web.spxml.getAsyncMethodStatus" && data2.ResultData !== void 0)
     try {
-      document = XmlDocument.parse(source);
-    } catch (error2) {
-      if (args.url === void 0 || !(error2 instanceof HcmError)) throw error2;
-      throw new HcmError(
-        error2.code,
-        error2.message,
-        "Если по адресу не документ объекта: файл читает files.read, поля формы — schema.get с url."
+      const decoded = rpcValue(data2);
+      if (decoded !== data2) {
+        const { ResultData: _typed, ...state } = data2;
+        return { ...state, ...decoded };
+      }
+    } catch {
+    }
+  return answer;
+}
+var HcmRuntime = class {
+  constructor(config2, port) {
+    this.config = config2;
+    this.results = new ResultStore(config2);
+    this.replies = new ReplyPacker(config2, this.results);
+    this.gateway = new NativeGateway(config2);
+    this.server = new HcmServer(port ?? this.gateway);
+    this.logs = new LogReader({ call: (id, args) => this.server.read(id, args) }, config2);
+    this.files = new ServerFiles(this.server, config2.permissions);
+    this.rpcCatalog = new RpcCatalog(
+      () => this.server.applicationInfo(),
+      (url) => this.server.call("native.lds.loadUrl", { url })
+    );
+    this.schemaReader = new SchemaReader(
+      () => this.server.applicationInfo(),
+      async (url) => requiredString(await this.server.call("native.spxml2.getForm", { url }), "ответ с формой"),
+      async (url) => (await this.objects.load({ url })).document.snapshot().data
+    );
+    this.objects = new ServerObjects(this.server, this.schemaReader, this.results.directory);
+  }
+  gateway;
+  results;
+  logs;
+  replies;
+  server;
+  schemaReader;
+  files;
+  objects;
+  rpcCatalog;
+  queue = Promise.resolve();
+  closed = false;
+  closePromise;
+  listOperations(filter = {}) {
+    return listHcmOperations(filter);
+  }
+  describe(id) {
+    return describeHcmOperation(id);
+  }
+  /** Resolve conditional side effects for the actual arguments; frontends must use this before routing. */
+  getOperationEffect(id, args = {}) {
+    return this.effect(this.describe(id), args);
+  }
+  call(id, args = {}) {
+    const start = performance.now();
+    if (this.closed)
+      return Promise.resolve(
+        this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто."))
+      );
+    let snapshot;
+    try {
+      snapshot = inputObject(structuredClone(args));
+    } catch {
+      return Promise.resolve(
+        this.failure(
+          id,
+          start,
+          new HcmError(
+            "INVALID_ARGUMENT",
+            "Аргументы операции — не объект, или в них есть значение, которое нельзя скопировать.",
+            "Нужно передать значения, совместимые с JSON; двоичные данные — как {base64: …}, XML — как {xml: …}."
+          ),
+          { outcome: new WriteOutcome(), effect: operationDefinition(id)?.effect ?? "unknown" }
+        )
       );
     }
-    const snapshot = document.snapshot();
-    const documentId = typeof snapshot.data.id === "string" && snapshot.data.id !== "" ? snapshot.data.id : void 0;
-    const requested = args.id === void 0 ? void 0 : resolvePhysicalDocumentLocation(requiredString(args.id, "id")).objectId;
-    if (requested !== void 0 && documentId !== void 0 && BigInt(resolvePhysicalDocumentLocation(documentId).objectId) !== BigInt(requested))
+    const run = this.queue.then(() => this.perform(id, snapshot, start));
+    this.queue = run.catch(() => void 0);
+    return run;
+  }
+  effect(operation, args) {
+    if (operation.id === "runtime.query") {
+      const deferredArguments = Object.keys(args).length === 1 && typeof args.$ref === "string";
+      return deferredArguments || args.query !== void 0 ? "execute" : "read";
+    }
+    if (operation.id === "objects.patch" && args.preview === true) return "read";
+    if (operation.id === "runtime.batch") {
+      const steps = args.steps;
+      if (!Array.isArray(steps)) return "unknown";
+      const effects = steps.map((raw) => {
+        const step = inputObject(raw, "step");
+        const id = requiredString(step.id, "step.id");
+        if (id === "runtime.batch")
+          throw new HcmError("NESTED_BATCH", "Пакет внутри пакета не поддерживается.");
+        return this.effect(
+          this.describe(id),
+          step.args === void 0 ? {} : inputObject(step.args)
+        );
+      });
+      if (effects.includes("unknown") || effects.includes("write") && effects.includes("execute"))
+        return "unknown";
+      return effects.includes("execute") ? "execute" : effects.includes("write") ? "write" : "read";
+    }
+    return operation.profile === void 0 ? operation.effect : getEffectiveNativeEffect(operation, args);
+  }
+  authorize(effect) {
+    if ((effect === "write" || effect === "unknown") && !this.config.permissions.write)
       throw new HcmError(
-        "TARGET_MISMATCH",
-        "ID в прочитанном документе не совпадает с запрошенным.",
-        "Нужно передать id и url одного объекта или что-то одно. Запись не отправлена.",
+        "WRITE_DISABLED",
+        "Подключение не разрешает запись.",
+        "Нужно право write: его включает владелец подключения в настройках подключения (permissions.write).",
         void 0,
         "not_sent"
       );
-    if (args.type !== void 0 && snapshot.type !== identifier(args.type, "type"))
+    if ((effect === "execute" || effect === "unknown") && !this.config.permissions.execute)
       throw new HcmError(
-        "TYPE_MISMATCH",
-        `Тип объекта — ${snapshot.type}, а не ${String(args.type)}.`,
+        "EXECUTE_DISABLED",
+        "Подключение не разрешает выполнять код, функции и запросы XQuery на сервере.",
+        "Нужно право execute: его включает владелец подключения в настройках подключения (permissions.execute).",
         void 0,
-        { actualType: snapshot.type }
+        "not_sent"
       );
-    return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
   }
-  async journal(entry2) {
-    await mkdir2(this.results.directory, { recursive: true });
-    await appendFile(
-      join3(this.results.directory, "mutations.jsonl"),
-      `${JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), ...entry2 })}
-`,
-      { encoding: "utf8", mode: 384 }
+  async perform(id, args, start, boundOutput = true, state = { outcome: new WriteOutcome(), effect: "read" }) {
+    try {
+      const operation = this.describe(id);
+      state.effect = operation.effect;
+      validate2(args, operation.inputSchema);
+      state.effect = this.effect(operation, args);
+      this.authorize(state.effect);
+      if (operation.profile !== void 0) prepare(args, operation.inputSchema);
+      const value = await this.dispatch(id, args, state);
+      return await this.replies.success(id, start, value, boundOutput);
+    } catch (error2) {
+      return this.failure(id, start, error2, state);
+    }
+  }
+  failure(id, start, error2, state = { outcome: new WriteOutcome(), effect: "read" }) {
+    if (error2 instanceof WsHcmApiError && error2.status === 500 || error2 instanceof HcmError && error2.code === "SCRIPT_FAILED")
+      this.logs.serverWroteLog();
+    return this.replies.failure(
+      id,
+      start,
+      error2,
+      state.outcome.verdict(state.effect, error2),
+      state
     );
   }
   async serverInfo(profile) {
     return parseServerInfo(
-      await this.gateway.call(`${profile}.rpc.call`, {
+      await this.server.read(`${profile}.rpc.call`, {
         target: "ms_tools.get_admin_init_server_data",
         args: []
       }),
       profile
     );
-  }
-  async applicationInfo() {
-    if (!this.appInfo || this.appInfo.expires < Date.now()) {
-      const value = this.gateway.call("native.spxml2.getAppInfo", { fastStart: true });
-      this.appInfo = { expires: Date.now() + 3e4, value };
-      value.catch(() => {
-        if (this.appInfo?.value === value) this.appInfo = void 0;
-      });
-    }
-    return inputObject(await this.appInfo.value, "сведения о приложении");
-  }
-  async resolveCatalog(type, documentUrl) {
-    const info = await this.applicationInfo();
-    let dbName = typeof info.default_db_name === "string" ? info.default_db_name : void 0;
-    if (documentUrl) {
-      const url = new URL(documentUrl);
-      if (url.protocol === "x-local:") dbName = url.hostname;
-    }
-    if (dbName === void 0 || !Array.isArray(info.databases)) return void 0;
-    const db = info.databases.find(
-      (value) => value && typeof value === "object" && "id" in value && value.id === dbName
-    );
-    if (!db || typeof db !== "object" || !("catalogs" in db) || !Array.isArray(db.catalogs))
-      return void 0;
-    const named = (value, objectType2, id) => !!value && typeof value === "object" && "object_type" in value && value.object_type === objectType2 && "id" in value && typeof value.id === "string" && (id === void 0 || value.id === id);
-    let matches2 = db.catalogs.filter((value) => named(value, type));
-    if (!matches2.length)
-      matches2 = db.catalogs.filter((value) => named(value, "", `${type}s`));
-    return matches2.length === 1 ? identifier(inputObject(matches2[0]).id, "catalog") : void 0;
-  }
-  /**
-   * Values of the named fields in the catalog row of an object. `known` holds the names that are
-   * fields of the catalog, whether the row has a value for them or not.
-   */
-  async catalogRow(type, url, id, names2) {
-    const none = { values: {}, known: /* @__PURE__ */ new Set() };
-    if (!names2.length || id === void 0) return none;
-    try {
-      const catalog = await this.resolveCatalog(type, url);
-      if (!catalog) return none;
-      const shape = await this.schemaReader.catalogShape({ catalog });
-      const known2 = new Set(names2.filter((name3) => shape?.fields.has(name3)));
-      if (!known2.size) return none;
-      const response = await this.gateway.call("native.lds.xQuery", {
-        query: `for $elem in ${catalog} where $elem/id = ${resolvePhysicalDocumentLocation(id).objectId} return $elem`,
-        maxCount: 1,
-        expectToReadAll: false,
-        keepCursor: false
-      });
-      const [item] = queryPage(response, 0, 1, [...known2], false).items;
-      const values = Object.fromEntries(
-        Object.entries(withoutFalseOffset(item ?? {})).filter(
-          ([name3]) => known2.has(name3)
-        )
-      );
-      return { values, known: known2 };
-    } catch {
-      return none;
-    }
-  }
-  async catalogHasId(catalog, id) {
-    const lexicalId = resolvePhysicalDocumentLocation(id).objectId;
-    const response = await this.gateway.call("native.lds.xQuery", {
-      query: `for $elem in ${catalog} where $elem/id = ${lexicalId} return $elem`,
-      maxCount: 2,
-      expectToReadAll: false,
-      keepCursor: false
-    });
-    const data2 = cleanXmlValue(findXmlNode(response, "Data"));
-    return data2 !== null && typeof data2 === "object" && Object.values(data2).some((value) => Array.isArray(value) ? value.length > 0 : value !== "");
   }
   /**
    * Date and integer fields of the catalog, read only when a condition holds a value written as a
@@ -24619,130 +25072,34 @@ var HcmRuntime = class {
     const shape = await this.schemaReader.catalogShape({ catalog }).catch(() => void 0);
     return { dates: shape?.dates ?? none.dates, integers: shape?.integers ?? none.integers };
   }
-  /**
-   * What the server would not keep is refused before the write: a field the type does not have is
-   * dropped from the saved document, as is a value for a field the server computes, and a date the
-   * server cannot read is stored as another value.
-   */
-  async requireFields(type, formUrl, data2, names2) {
-    const shape = await this.schemaReader.documentShape(type, formUrl).catch(() => void 0);
-    if (!shape) return;
-    const written = [...new Set(names2)];
-    const unknown2 = shape.fields.size && !shape.partial ? written.filter((name3) => !shape.fields.has(name3)) : [];
-    if (unknown2.length) {
-      const near = [...shape.fields].filter(
-        (field) => unknown2.some(
-          (name3) => name3.length > 3 && field.includes(name3) || field.length > 3 && name3.includes(field) || oneEditApart(field, name3)
-        )
-      ).slice(0, 5);
-      throw new HcmError(
-        "UNKNOWN_FIELD",
-        `У типа ${type} нет поля: ${unknown2.join(", ")}.`,
-        `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Поля типа показывает schema.get.`,
-        { fields: unknown2 }
-      );
-    }
-    const computed = written.filter((name3) => shape.computed?.has(name3));
-    if (computed.length)
-      throw new HcmError(
-        "INVALID_ARGUMENT",
-        `${computed.join(", ")}: значение вычисляет сервер, записать его нельзя.`,
-        "Менять нужно поля, из которых сервер его складывает. Вычисляемые поля в schema.get помечены computed:true.",
-        { fields: computed }
-      );
-    const wrong = written.filter((name3) => {
-      const value = data2[name3];
-      return shape.dates.has(name3) && typeof value === "string" && value && !isServerDate(value);
-    });
-    if (wrong.length)
-      throw new HcmError(
-        "INVALID_ARGUMENT",
-        `${wrong.join(", ")}: дата записана не так, как её читает сервер.`,
-        'Писать нужно "2026-12-05" или "2026-12-05T09:30:00". Время — местное время сервера: смещение в значении сервер не учитывает.',
-        { fields: wrong }
-      );
-  }
   async dispatch(id, args, state) {
     switch (id) {
       case "runtime.check":
         return checkServer(
           this.config,
-          (operation, input2) => this.dispatch(operation, input2, { sent: false, effect: "read" })
+          (operation, input2) => this.dispatch(operation, input2, { outcome: new WriteOutcome(), effect: "read" })
         );
-      case "files.exists": {
-        const request = {
-          target: FILE_EXISTS_TARGET,
-          args: [{ valueType: "string", lexicalValue: fileExistsUrl(args.url) }]
-        };
-        prepare(request, this.describe("native.rpc.call").inputSchema);
-        state.sent = true;
-        return parseFileExists(await this.gateway.call("native.rpc.call", request));
-      }
+      case "files.exists":
+        return this.files.exists(args);
       case "files.read":
-        return fileContent(
-          await this.gateway.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
-          args.encoding
-        );
-      case "files.list": {
-        const folder = fileTarget(args.url, true).url;
-        const search = args.search === void 0 ? "" : requiredString(args.search, "search");
-        const { request, executionId } = codeList(folder);
-        const data2 = await this.runCode(request, executionId, state);
-        if (data2.result[0] === "none") state.sent = false;
-        return fileList(data2, folder, search);
-      }
+        return this.files.read(args);
+      case "files.list":
+        return this.files.list(args, state);
       case "files.write":
-      case "files.delete": {
-        const writing = id === "files.write";
-        const target = fileTarget(args.url);
-        if (!writing) assertFileDeletable(target.folder);
-        const content = writing ? fileWriteContent(args) : void 0;
-        const route = fileRoute(
-          writing ? "write" : "delete",
-          fileFolders(await this.applicationInfo().catch(() => void 0)),
-          target.folder,
-          this.config.permissions.execute
-        );
-        if (writing && route !== "unlisted") state.refusal = "files.write:listed";
-        if (route === "code") {
-          const { request, executionId } = content ? codeWrite(target.url, content) : codeDelete(target.url);
-          const data2 = await this.runCode(request, executionId, state);
-          if (content) return { bytes: Number(data2.result[0]), mutationOutcome: "confirmed" };
-          const refusal = codeDeleteRefusal(data2);
-          if (refusal) {
-            state.sent = false;
-            throw refusal;
-          }
-          if (data2.result[0] === "remains") throw fileRemains();
-          return { deleted: true, mutationOutcome: "confirmed" };
-        }
-        state.sent = true;
-        if (content) {
-          await this.gateway.call("native.lds.putUrl", {
-            url: target.url,
-            data: { base64: content.base64 }
-          });
-          return { bytes: content.bytes, mutationOutcome: "confirmed" };
-        }
-        await this.gateway.call("native.lds.deleteUrl", { url: target.url });
-        const { url } = target;
-        if (url.length <= FILE_EXISTS_URL_MAX_LENGTH) {
-          if ((await this.dispatch("files.exists", { url }, state)).exists)
-            throw fileRemains();
-        }
-        return { deleted: true, mutationOutcome: "confirmed" };
-      }
+        return this.files.write(args, state);
+      case "files.delete":
+        return this.files.delete(args, state);
       case "server.info": {
         const info = await this.serverInfo(args.profile === "web" ? "web" : "native");
-        const folders = info.profile === "native" ? fileFolders(await this.applicationInfo().catch(() => void 0)) : void 0;
+        const folders = info.profile === "native" ? await this.files.folders() : void 0;
         return folders ? { ...info, dataFolders: folders.data, codeFolders: folders.code } : info;
       }
       case "runtime.status": {
-        const version2 = await this.gateway.call("native.rpc.call", {
+        const version2 = await this.server.read("native.rpc.call", {
           target: "tools.get_version",
           args: [{ valueType: "string", lexicalValue: "wtv" }]
         });
-        const info = await this.applicationInfo().catch(() => void 0);
+        const info = await this.server.applicationInfo().catch(() => void 0);
         const userId = typeof info?.auth_object_url === "string" ? parsePhysicalDocumentId(info.auth_object_url) : void 0;
         const database2 = (await this.serverInfo("native").catch(() => void 0))?.database;
         return {
@@ -24787,19 +25144,18 @@ var HcmRuntime = class {
         if (limit === 0)
           throw new HcmError("INVALID_ARGUMENT", "limit: нужно целое число от 1 до 1000.");
         const startPos = boundedInteger(args.startPosition, 0, 1e6, "startPosition");
-        if (args.query !== void 0) {
-          if (/^\s*sql\s*:/i.test(query2)) state.sent = true;
-          else state.effect = "read";
-        }
+        const sql = args.query !== void 0 && /^\s*sql\s*:/i.test(query2);
+        if (args.query !== void 0 && !sql) state.effect = "read";
         let response;
         try {
-          response = await this.gateway.call("native.lds.xQuery", {
+          const request = {
             query: query2,
             startPos,
             maxCount: limit,
             expectToReadAll: false,
             keepCursor: false
-          });
+          };
+          response = await (sql ? this.server.call("native.lds.xQuery", request, state.outcome) : this.server.read("native.lds.xQuery", request));
         } catch (error2) {
           const refused = error2 instanceof WsHcmApiError && error2.kind === "soap-fault";
           let reason;
@@ -24857,7 +25213,7 @@ var HcmRuntime = class {
         };
       }
       case "objects.get": {
-        if (args.ids === void 0) return this.readObject(args);
+        if (args.ids === void 0) return this.objects.get(args);
         const ids = args.ids;
         if (args.id !== void 0 || args.url !== void 0)
           throw new HcmError("INVALID_ARGUMENT", "ids: вместе с id или url не задаётся.");
@@ -24867,7 +25223,7 @@ var HcmRuntime = class {
         let failed = 0;
         for (const id2 of ids) {
           try {
-            items.push(await this.readObject({ type: args.type, fields: args.fields, id: id2 }));
+            items.push(await this.objects.get({ type: args.type, fields: args.fields, id: id2 }));
           } catch (error2) {
             const refusal = this.failure("objects.get", performance.now(), error2).error;
             if (/^PLATFORM_(?!SOAP-FAULT)/.test(refusal.code)) throw error2;
@@ -24881,216 +25237,12 @@ var HcmRuntime = class {
           ...failed ? { failed, hint: "PLATFORM_SOAP-FAULT у элемента: обычно объекта с таким ID нет." } : {}
         };
       }
-      case "objects.create": {
-        const type = identifier(args.type, "type");
-        const data2 = inputObject(args.data, "data");
-        if (data2.id !== void 0)
-          throw new HcmError(
-            "IMMUTABLE_ID",
-            "ID новому объекту выдаёт сервер: нужно убрать id из data."
-          );
-        if (!Object.keys(data2).length)
-          throw new HcmError(
-            "INVALID_ARGUMENT",
-            "data: нет ни одного поля.",
-            "Нужно передать поля нового объекта, например {name: '…'}; значения по умолчанию сервер подставит сам."
-          );
-        XmlDocument.create(type, data2).snapshot();
-        if (args.formUrl === void 0) await this.schemaReader.requireType(type);
-        const formUrl = args.formUrl === void 0 ? `x-local://wtv/wtv_${type}.xmd` : requiredString(args.formUrl, "formUrl");
-        const form = await this.schemaReader.documentForm(formUrl);
-        if (!Array.isArray(form.roots) || !form.roots.includes(type))
-          throw new HcmError("FORM_TYPE_MISMATCH", "В форме нет запрошенного типа объекта.");
-        await this.requireFields(type, formUrl, data2, Object.keys(data2));
-        const dbName = args.dbName === void 0 ? "wt_data" : identifier(args.dbName, "dbName");
-        const mutationId = randomUUID3();
-        state.mutationId = mutationId;
-        await this.journal({ mutationId, operation: id, stage: "allocating", type });
-        state.sent = true;
-        const allocated = await this.gateway.call("native.lds.getNewObjectId", { dbName });
-        const location = resolvePhysicalDocumentLocation(
-          scalar(findXmlNode(allocated, "ObjectID"), "ObjectID"),
-          dbName
-        );
-        state.objectId = location.objectId;
-        state.url = location.url;
-        const snapshot = XmlDocument.create(
-          type,
-          { id: location.objectId, ...data2 },
-          formUrl
-        ).snapshot();
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: "prepared",
-          objectId: location.objectId
-        });
-        state.sent = true;
-        state.mutationId = mutationId;
-        await this.gateway.call("native.lds.putDoc", {
-          url: location.url,
-          data: snapshot.xml,
-          writeDocInfo: true,
-          neverSaved: true
-        });
-        const loaded = await this.load({ url: location.url, type });
-        const result = loaded.document.snapshot();
-        if (BigInt(requiredString(loaded.id, "ID при проверочном чтении")) !== BigInt(location.objectId))
-          throw new HcmError(
-            "READ_BACK_MISMATCH",
-            "При проверочном чтении ID созданного объекта не совпал с выданным.",
-            void 0,
-            { mutationId },
-            "indeterminate"
-          );
-        verifyFields(snapshot.data, result.data, form.fields, Object.keys(data2));
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: "verified",
-          objectId: location.objectId
-        });
-        return {
-          id: location.objectId,
-          url: location.url,
-          type,
-          fingerprint: result.fingerprint,
-          mutationId,
-          mutationOutcome: "confirmed"
-        };
-      }
-      case "objects.patch": {
-        const loaded = await this.load(args);
-        const changes = loaded.document.patch(
-          patchInput(args.patch, args.remove, args.resave === true)
-        );
-        if (args.expectedFingerprint !== void 0 && args.expectedFingerprint !== changes.before.fingerprint)
-          throw new HcmError(
-            "CONFLICT",
-            "Объект изменился после чтения: его fingerprint не равен expectedFingerprint.",
-            "Прочитать объект заново и составить изменение по его текущему состоянию.",
-            void 0,
-            "not_sent"
-          );
-        await this.requireFields(
-          changes.before.type,
-          changes.before.formUrl,
-          changes.after.data,
-          changes.changes.filter((change) => inputObject(change).op === "set").map((change) => patchSegments(String(inputObject(change).path))[0][1])
-        );
-        const noop = changes.before.fingerprint === changes.after.fingerprint;
-        if (args.preview === true || noop && args.resave !== true)
-          return {
-            preview: args.preview === true,
-            noop: noop && args.resave !== true,
-            changes: changes.changes,
-            fingerprint: changes.before.fingerprint
-          };
-        const current = await this.load(args);
-        if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
-          throw new HcmError(
-            "CONFLICT",
-            "Объект изменился, пока готовилась запись.",
-            void 0,
-            void 0,
-            "not_sent"
-          );
-        const form = await this.schemaReader.documentForm(
-          changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`
-        );
-        const branches = changes.changes.map(
-          (change) => patchSegments(String(inputObject(change).path))[0][1]
-        );
-        const mutationId = randomUUID3();
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: "prepared",
-          fingerprint: changes.before.fingerprint
-        });
-        state.sent = true;
-        state.mutationId = mutationId;
-        state.url = loaded.url;
-        if (loaded.id !== void 0) state.objectId = loaded.id;
-        await this.gateway.call("native.lds.putDoc", {
-          url: loaded.url,
-          data: changes.after.xml,
-          writeDocInfo: true
-        });
-        const verified = await this.load(args);
-        const snapshot = verified.document.snapshot();
-        verifyFields(changes.after.data, snapshot.data, form.fields, branches, changes.before.xml);
-        verifyRemovals(changes.after.data, snapshot.data, changes.changes, form.fields);
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: "verified",
-          fingerprint: snapshot.fingerprint
-        });
-        const serverChanged = Object.keys({ ...changes.after.data, ...snapshot.data }).filter(
-          (key) => key !== "doc_info" && !branches.includes(key) && JSON.stringify(changes.after.data[key]) !== JSON.stringify(snapshot.data[key])
-        );
-        return {
-          ...verified.id === void 0 ? {} : { id: verified.id },
-          type: snapshot.type,
-          url: loaded.url,
-          fingerprint: snapshot.fingerprint,
-          changes: changes.changes,
-          ...serverChanged.length ? { serverChanged: serverChanged.slice(0, 20) } : {},
-          mutationId,
-          mutationOutcome: "confirmed"
-        };
-      }
-      case "objects.delete": {
-        if (args.permanent !== true)
-          throw new HcmError(
-            "DELETE_MODE_REQUIRED",
-            "Объект удаляется безвозвратно: для этого нужен permanent:true.",
-            "Корзины у этой операции нет.",
-            void 0,
-            "not_sent"
-          );
-        const loaded = await this.load(args);
-        const snapshot = loaded.document.snapshot();
-        const objectId = requiredString(loaded.id, "ID объекта");
-        const catalog = args.catalog === void 0 ? await this.resolveCatalog(snapshot.type, loaded.url) : identifier(args.catalog, "catalog");
-        if (catalog !== void 0 && !await this.catalogHasId(catalog, objectId))
-          throw new HcmError(
-            "CATALOG_MISMATCH",
-            "Объекта нет в каталоге, по которому проверяется удаление.",
-            "Нужно указать каталог, в котором объект есть. Запрос на удаление не отправлен.",
-            void 0,
-            "not_sent"
-          );
-        const mutationId = randomUUID3();
-        await this.journal({ mutationId, operation: id, stage: "prepared", objectId });
-        state.sent = true;
-        state.mutationId = mutationId;
-        state.objectId = objectId;
-        state.url = loaded.url;
-        await this.gateway.call("native.lds.deleteDoc", { url: loaded.url, strictDelete: true });
-        if (catalog !== void 0 && await this.catalogHasId(catalog, objectId))
-          throw new HcmError(
-            "READ_BACK_MISMATCH",
-            "После удаления объект всё ещё есть в каталоге.",
-            "Перед повтором удаления прочитать объект. Причину сервер пишет в лог spxml_unibridge.",
-            void 0,
-            "indeterminate"
-          );
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: catalog === void 0 ? "acknowledged" : "verified-absence",
-          objectId
-        });
-        return {
-          id: objectId,
-          mutationId,
-          mutationOutcome: "confirmed",
-          verification: catalog === void 0 ? "server acknowledgement" : "catalog absence",
-          ...catalog === void 0 ? {} : { catalog }
-        };
-      }
+      case "objects.create":
+        return this.objects.create(args, state.outcome);
+      case "objects.patch":
+        return this.objects.patch(args, state.outcome);
+      case "objects.delete":
+        return this.objects.delete(args, state.outcome);
       case "schema.get":
         return this.schemaReader.get(args);
       case "schema.types":
@@ -25098,19 +25250,19 @@ var HcmRuntime = class {
       case "logs.list":
         return logFiles(await this.logs.list(args));
       case "logs.read": {
-        const input2 = args.tailBytes === void 0 && args.full !== true ? { ...args, tailBytes: this.pageBytes } : args;
+        const input2 = args.tailBytes === void 0 && args.full !== true ? { ...args, tailBytes: this.replies.pageBytes } : args;
         return logText(await this.logs.read(input2));
       }
       case "logs.search":
         return logMatches(
           await this.logs.search(args),
-          this.pageBytes
+          this.replies.pageBytes
         );
       case "logs.follow":
         return logNews(
           await this.logs.follow(args),
           args.cursor === void 0,
-          this.pageBytes
+          this.replies.pageBytes
         );
       case "results.read":
         return this.results.read(
@@ -25159,10 +25311,9 @@ var HcmRuntime = class {
         }
         for (const argument of encoded)
           if (typeof argument.lexicalValue === "string") escapeXml(argument.lexicalValue);
-        state.sent = true;
         let response;
         try {
-          response = await this.gateway.call(operationId, nativeArgs);
+          response = await this.server.call(operationId, nativeArgs, state.outcome);
         } catch (error2) {
           if (error2 instanceof WsHcmApiError && error2.status === 500) {
             this.logs.serverWroteLog();
@@ -25177,7 +25328,7 @@ var HcmRuntime = class {
       case "agents.run": {
         const agent = id === "agents.run" ? agentRun(args) : void 0;
         const { request, executionId } = agent ? prepareScript(agent.code, agent.params) : prepareScript(args.code, args.params);
-        const data2 = await this.runCode(request, executionId, state);
+        const data2 = await this.server.runCode({ request, executionId }, state.outcome);
         if (!agent) return data2;
         this.logs.serverWroteLog();
         return agentRunResult(data2);
@@ -25185,25 +25336,12 @@ var HcmRuntime = class {
       case "runtime.batch":
         return this.batch(args, state);
       default:
-        state.sent = state.effect !== "read";
-        try {
-          return plainAnswer(id, withoutXmlFormatting(await this.gateway.call(id, args)));
-        } catch (error2) {
-          if (error2 instanceof WsHcmApiError && error2.requestSent === false) state.sent = false;
-          throw error2;
-        }
-    }
-  }
-  /** Code prepared by prepareScript, run on the server; the answer is checked for a caught error. */
-  async runCode(request, executionId, state) {
-    prepare(request, this.describe("web.rpc.call").inputSchema);
-    state.executionId = executionId;
-    state.sent = true;
-    try {
-      return scriptResult(await this.gateway.call("web.rpc.call", request), executionId);
-    } catch (error2) {
-      if (error2 instanceof HcmError && error2.mutationOutcome === "not_sent") state.sent = false;
-      throw error2;
+        return plainAnswer(
+          id,
+          withoutXmlFormatting(
+            await this.server.call(id, args, state.effect === "read" ? void 0 : state.outcome)
+          )
+        );
     }
   }
   async batch(args, state) {
@@ -25272,15 +25410,16 @@ var HcmRuntime = class {
       const step = inputObject(raw, "step");
       const stepId = requiredString(step.id, "step.id");
       let result;
-      const childState = { sent: false, effect: "read" };
+      const childState = { outcome: new WriteOutcome(), effect: "read" };
       try {
         const resolved = step.args === void 0 ? {} : inputObject(resolveRefs(step.args), "step.args");
         result = await this.perform(stepId, resolved, performance.now(), false, childState);
       } catch (error2) {
         result = this.failure(stepId, performance.now(), error2);
       }
-      if (childState.sent && childState.effect !== "read") {
-        state.sent = true;
+      const written = childState.outcome.verdict(childState.effect);
+      if (written.sent) {
+        state.outcome.sending();
         recovery.sentMutationSteps++;
       }
       results.push(
@@ -25297,10 +25436,10 @@ var HcmRuntime = class {
           ...result.error.mutationOutcome === void 0 ? {} : { mutationOutcome: result.error.mutationOutcome }
         },
         ...returned?.mutationOutcome === "confirmed" ? { mutationOutcome: "confirmed" } : {},
-        ...childState.mutationId === void 0 ? {} : { mutationId: childState.mutationId },
-        ...childState.objectId === void 0 ? {} : { objectId: childState.objectId },
-        ...childState.executionId === void 0 ? {} : { executionId: childState.executionId },
-        ...childState.url === void 0 ? {} : { url: childState.url }
+        ...written.ids.mutationId === void 0 ? {} : { mutationId: written.ids.mutationId },
+        ...written.ids.objectId === void 0 ? {} : { objectId: written.ids.objectId },
+        ...written.ids.executionId === void 0 ? {} : { executionId: written.ids.executionId },
+        ...written.ids.url === void 0 ? {} : { url: written.ids.url }
       });
       if (step.as !== void 0) named.set(identifier(step.as, "step.as"), result);
       if (!result.ok && args.stopOnError !== false) break;
@@ -36461,7 +36600,7 @@ var Server = class extends Protocol {
 // src/mcp/server.ts
 import { readFile as readFile2 } from "node:fs/promises";
 
-// src/cli/discovery.ts
+// src/operation-help.ts
 function concise(value, maximum) {
   const line = value.replace(/\s+/g, " ").trim();
   return line.length <= maximum ? line : line.slice(0, maximum - 1) + "…";
@@ -36603,7 +36742,7 @@ var GUIDE_PAGES = [
   { topic: "logs", title: "Логи сервера, поиск причины отказа", text: '# Логи сервера\n\nЛоги читаются через API сервера, доступ к его диску не нужен. Права `write` и `execute` не требуются.\n\n## Найти причину отказа\n\nСервер на отказ отвечает HTTP 500 без объяснения. Строку об отказе он пишет в главный лог — `xhttp_ГГГГ-ММ-ДД.log` за сегодняшнюю дату сервера.\n\n1. `hcm_logs_list {type:"xhttp"}` — взять имя файла; новые файлы идут первыми.\n2. `hcm_log_follow {file:"xhttp_2026-10-01.log"}` — последние 10 событий. Строка об отказе — среди них.\n3. Старые события ищет `hcm_logs_search {file:"xhttp_2026-10-01.log", level:"error", limit:5}` или поиск по тексту: `text:"XQUERY FAILED"`.\n\nСтрока бывает подробной, а бывает короткой и без имени объекта:\n\n```\nXQUERY FAILED: for $elem in webinar_systems … - \'webinar_systems\' not defined\nunibridge error: Недопустимое имя объекта "dbo.no_such_catalog"\nError evaluating collection \'hcm_inline_…\'  — ошибка кода из hcm_script, имя совпадает с executionId\nUnknown method: no_such_method\nЭлемент не найден          — объекта или файла по этому адресу нет\nНеизвестная ошибка\n```\n\nНасколько подробна строка, зависит от версии сервера. Ошибка в тексте запроса XQuery может не оставить в логе `xhttp` ничего: тогда проверь сам запрос, см. тему `queries`.\n\nУ одного запроса метка `context` в логах `xhttp` и `spxml_unibridge` одна. Если в `xhttp` только короткая строка («Неизвестная ошибка»), возьми её `context` и найди подробности: `hcm_logs_search {file:"spxml_unibridge_2026-10-01.log", context:"…"}`. Так же после `UNKNOWN_CATALOG`.\n\nЗапрос, который отвергла база данных (ответ `hcm_query` или `hcm_xquery` пуст и с `incomplete:true`), записан в логе `spxml_unibridge_ГГГГ-ММ-ДД.log`. Сразу после запроса вызови `hcm_log_follow {file:"spxml_unibridge_2026-10-01.log"}`: среди последних событий будет ошибка базы, а под ней строки `XQuery:` с текстом запроса и `SQL:` с тем, что из него получилось.\n\n```\nError: Ошибка при преобразовании типа данных varchar к bigint.          — MS SQL: ID в кавычках\nError: 42883: оператор не существует: timestamp without time zone >= character varying   — PostgreSQL: дата в кавычках\n```\n\n## Инструменты\n\n| Инструмент | Что делает |\n| --- | --- |\n| `hcm_logs_list` | файлы: имя, тип, дата, размер; сначала новые, 30 на странице. Тип — имя файла без даты: `xhttp`, `xhttp_middleware`, `agent`. Фильтры: `type`, `nameContains`, `startDate`, `endDate` |\n| `hcm_log_read` | текст: по умолчанию конец файла, сколько помещается в ответ. `tailBytes` — взять больше, `full:true` — весь файл |\n| `hcm_logs_search` | события по `text`, `level`, `context`; многострочное событие (со стеком) приходит целиком. `newestFirst:true` — сначала последние |\n| `hcm_log_follow` | что появилось с прошлого вызова |\n\nПоиск идёт по концу файла (512 КБ). Чтобы искать по всему файлу, добавь `full:true`. `totalEvents` в ответе — сколько событий в прочитанной части; `tailOnly:true` — прочитан только конец файла, и счёт идёт не по всему файлу; `tailOnly:false` — файл прочитан целиком.\n\nЧто в каком логе:\n\n| Лог | Что в нём |\n| --- | --- |\n| `xhttp` | главный: отказы сервера, ошибки кода из `hcm_script`, строки, которые код пишет через `alert`. Запрос, который сервер выполнил, строки не оставляет |\n| `spxml_unibridge` | ошибки базы данных с текстом запроса XQuery и SQL; файлы `spxml_unibridge_none_<номер>_<дата>` — тот же лог отдельных процессов сервера, все вместе показывает `hcm_logs_list {nameContains:"spxml_unibridge"}` |\n| `agent` | запуски агентов сервера и их ошибки |\n| `auth-events` | входы и выходы пользователей: `login LDS user1 <адрес>`. Строка об удалении (`delete_user LDS user1 wt_data`) называет пользователя и базу, но не объект: что именно удалено, логи не скажут |\n| `email` | отправка уведомлений |\n| `xhttp_middleware`, `dotnetcore`, `components`, `package_manager` (на 2025.1 — `pakage_manager`), `licensing`, `lucene` | запуск сервера и его частей. Последний запуск — последняя строка `Starting in Normal Mode` в `dotnetcore`: файл за день запуска, поиск с `full:true` и `newestFirst:true` |\n\nНабор логов зависит от версии и настроек сервера: точные имена показывает `hcm_logs_list`.\n\nПрочитанный текст сохраняется локально, в ответе `meta.resultId`; от текста, который не поместился (`tailBytes`, `full:true`), в ответе только начало. `hcm_result_read {resultId}` читает его частями как текст, `hcm_result_export {resultId, path, format:"text"}` сохраняет в файл. Весь лог в файл: `hcm_log_read {file:"…", full:true}` и экспорт по его `meta.resultId`. Текст сохраняется в UTF-8 со знаком BOM и концами строк LF: размер файла меньше `sizeBytes` на сервере на число строк; `fingerprint` считается по этому тексту.\n\nОтвет поиска: `events` (у каждого `time`, `context`, `level`, `text`), `matches` — сколько совпадений всего. В файле строка записана как `время [context] текст`; `text` — она же без времени и метки: для цитаты читать файл заново не нужно. Пока есть `nextOffset`, совпадения не кончились: повтори вызов с `offset: nextOffset` и `expectedFingerprint: fingerprint` из ответа. `cutBySize:true` значит, что на странице меньше событий, чем просил `limit`: больше не поместилось в один ответ (событие со стеком бывает длинным). `LOG_CHANGED` значит, что лог за это время дописан: начни поиск заново.\n\n`level` определяется по словам в тексте события, русским и английским, приблизительно. Счёт по `level:"error"` может быть занижен; если ошибок по нему нет, ищи по тексту.\n\nВремя в логе — время сервера. Сколько на сервере сейчас: `hcm_script {code:"RESULT = [StrDate(Date())];"}`.\n\nПосле каждой записи в лог сервер несколько секунд не отдаёт этот файл. Клиент сам пережидает это время, поэтому чтение лога сразу после отказа может занять около шести секунд. Повторять вызов в цикле не нужно: отказ в чтении сервер тоже пишет в лог, и ожидание начинается заново.\n\n## Своя строка в логе\n\nКод на сервере пишет в лог сам. Так проверяют, что код дошёл до нужного места:\n\n- `alert(\'текст\')` и `LogEvent(\'\', \'текст\')` — строка в `xhttp`;\n- первый аргумент `LogEvent` — имя лога, а не уровень. `LogEvent(\'info\', \'текст\')` пишет в лог `info`, которого нет: строка пропадает без ошибки;\n- свой лог сначала включают: `EnableLog(\'my_log\', true); LogEvent(\'my_log\', \'текст\');` — на сервере появится файл `my_log_ГГГГ-ММ-ДД.log`.\n\n## Следить за логом\n\n1. Первый вызов `hcm_log_follow {file:"…"}` отдаёт последние 10 событий и `cursor`.\n2. Выполни действие, которое проверяешь.\n3. `hcm_log_follow {file:"…", cursor:"…"}` отдаёт то, что появилось. Возьми новый `cursor` из ответа.\n\nПоследнее событие может прийти повторно, если его дописали. `omitted:N` — столько новых событий не поместилось в ответ, прочитай их поиском. `gapPossible:true` — часть событий могла быть пропущена: прочитай конец файла через `hcm_log_read`.\n\nКаждый день сервер начинает новый файл. Для нового файла начни без `cursor`.\n\n## Ошибки\n\n| Код | Что случилось | Что делать |\n| --- | --- | --- |\n| `LOG_READ_UNAVAILABLE` | сервер не отдал текст файла и со второй попытки: в лог всё время пишут | повторить через десять секунд или взять лог за прошлую дату; обходить через код не нужно |\n| `LOG_NOT_FOUND` | файла с таким именем в списке нет | взять имя из `hcm_logs_list` |\n| `LOG_CHANGED` | файл изменился между страницами | начать чтение заново |\n| `INVALID_LOG_CURSOR` | курсор от другого файла или испорчен | начать без `cursor` |' },
   { topic: "files", title: "Файлы сервера, документ как XML", text: '# Файлы сервера и документ как XML\n\nФайл на сервере задаётся адресом `x-local://…` — путь от папки установки сервера. Примеры: `x-local://wt/web/default.html`, `x-local://share/uploaded_files/…`.\n\nОперации вызываются по ID через `hcm_api_read`, `hcm_api_write` и `hcm_api_execute`. Аргументы одной операции показывает `hcm_api_describe {operationId:"…"}`.\n\n## Файлы\n\n| Действие | Вызов |\n| --- | --- |\n| Есть ли файл или папка | `hcm_api_read {operationId:"files.exists", args:{url:"x-local://wt/web/default.html"}}` → `{"exists":true}` |\n| Прочитать | `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"…","bytes":48}`; если файл не текст в UTF-8 или в нём есть управляющие байты — `{"base64":"…","bytes":6}`. С `encoding:"base64"` в ответе всегда `base64` |\n| Список папки | `hcm_api_execute {operationId:"files.list", args:{url:"x-local://wt/web"}}` → `{"items":[{"name":"default.html","bytes":48},{"name":"img","folder":true}],"total":2}`. С `search:"default"` в ответе только имена с этой частью: так узнаётся и размер одного файла |\n| Записать текст | `hcm_api_write {operationId:"files.write", args:{url:"…", text:"текст файла"}}` → `{"bytes":21,"mutationOutcome":"confirmed"}` |\n| Записать двоичные данные | то же с `base64:"AAECAwT/"` вместо `text` |\n| Удалить | `hcm_api_write {operationId:"files.delete", args:{url:"…"}}` |\n\nТекст записывается в UTF-8 как есть. Запись заменяет файл целиком, прежнее содержимое не сохраняется: чтобы дописать строку, прочитай файл и запиши его заново. Копия делается так же: прочитай файл и запиши по новому адресу. Вложенные папки сервер создаёт сам.\n\nКуда можно писать, зависит от папки — первой части адреса после `x-local://`. Способ записи операция выбирает сама:\n\n- папки данных (обычно `share`, `source`): хватает права `write`; `files.delete` удаляет и пустую папку, на непустую сервер отвечает отказом. `wt_data` и `trash` — папки базы сервера, сервер читает их через память: `files.delete` там отказывает до отправки (`FILE_NOT_DELETABLE`), после перезаписи файла `files.read` может отдать прежнее содержимое; документы объектов меняй через `hcm_object_*`;\n- папки кода (`wt`, `wtv`, `applications`, `custom` и другие): файл записывает и удаляет код на сервере, поэтому нужны оба права, `write` и `execute`; текст — до 750 КБ, двоичные данные — до 580 КБ; удаляется только файл, пустая папка остаётся;\n- остальные адреса, например `x-local://Logs/…`: операция отказывает до отправки и называет папки, которые запись принимают.\n\nСписки папок подключённого сервера: `hcm_api_read {operationId:"server.info"}` → `dataFolders`, `codeFolders`.\n\n`files.list` показывает один уровень папки и требует права `execute`: список даёт только код на сервере. Штатная функция `tools.read_directory_server` для этого не подходит: на версиях 2025.1.1171–2025.2.1535 она отвечает `Prohibited by security policy`.\n\nЧтение несуществующего файла даёт `PLATFORM_SOAP-FAULT` с HTTP 500: сначала проверь адрес через `files.exists`. Папку логов (`x-local://Logs/…`) сервер так не отдаёт: логи читают инструменты `hcm_log_*`.\n\nБольшой файл читай командой: `wtctl files read АДРЕС --output ФАЙЛ.json` сохраняет ответ на диск и не тратит контекст.\n\n## Загрузка файла\n\n`hcm_api_write {operationId:"web.pages.uploadFile", args:{filename:"report.txt", data:"…"}}` кладёт файл до 8 МБ в папку загрузок сервера. В ответе `url` — адрес файла (`x-local://share/uploaded_files/1244386602490721313/report.txt`), `folderUrl` — папка с номером, которую сервер создал для него. Вместе с файлом папка не исчезает: её удаляет отдельный вызов `files.delete` с адресом из `folderUrl`.\n\n`data` — текст файла или `{base64:"…"}`. Двоичный или большой файл с диска этого компьютера загружает команда: `wtctl file upload report.pdf --input-file ./report.pdf`.\n\n## Документ как XML\n\nОбычно документ читают и правят через `hcm_object_get` и `hcm_object_patch`. Операции ниже нужны, когда нужен документ целиком в исходном виде.\n\n- Адрес документа — поле `url` в ответе `hcm_object_get`, например `x-local://wt_data/objects/607999B973FFE0/44.xml`. Адрес существующего документа бери оттуда; как составить адрес для нового ID, см. тему `objects`, раздел «Создание».\n- Прочитать текст XML: `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"<group SPXML-FORM=\\"x-local://wtv/wtv_group.xmd\\"><id>…</id>…</group>"}`. Как записаны значения в тексте, зависит от базы данных сервера: логическое поле бывает `false` и `0`, отступы и заголовок `<?xml …?>` есть не везде.\n- Прочитать разобранным в JSON: `hcm_api_read {operationId:"native.lds.loadDoc", args:{url:"…"}}`. Документ приходит в `data.Data.<тип>`. Повторяемый элемент из одного элемента здесь объект, а не список. Даты здесь и в тексте XML записаны со смещением `+00:00`: это местное время сервера.\n- Сохранить: `hcm_api_write {operationId:"native.lds.putDoc", args:{url:"…", data:"<group>…</group>"}}`. `data` — текст XML всего документа: он заменяет документ целиком. `neverSaved:true` — документ записывается впервые. С `writeDocInfo:true` сервер обновляет дату и автора изменения; без него они остаются как в тексте, и поиск по `modification_date` правку не видит. Чужую правку операция не замечает: `fingerprint` из `hcm_object_get` сверяй до записи сами. Чтобы изменить несколько полей, используй `hcm_object_patch`.\n- Создать из готового XML: `native.physicalDocuments.createFromXml`. Удалить: `native.lds.deleteDoc`.' },
   { topic: "cli-sdk", title: "Команда `wtctl`, SDK, несколько операций одним вызовом", text: '# Команда `wtctl`, SDK, несколько операций одним вызовом\n\n## Как запустить\n\nЕсли `wtctl` есть в `PATH`, вызывай `wtctl`. Если нет, команду для этого компьютера называет гайд сервера: `hcm_guide {topic:"cli-sdk"}`, раздел «На этом компьютере» в конце.\n\nПодключение команда и SDK берут из файла подключений (какой файл — показывает `wtctl config path`) или из переменных `WTCTL_URL`, `WTCTL_USERNAME`, `WTCTL_PASSWORD` своей оболочки. Переменные, заданные в записи MCP-сервера, им не видны. `--connection ИМЯ` выбирает подключение из файла; без него берётся подключение по умолчанию.\n\n`wtctl help` показывает команды, `wtctl help КОМАНДА` — аргументы и примеры одной команды. Сначала читай справку нужной команды, флаги не угадывай.\n\n## Соответствие инструментам MCP\n\n| Инструмент | Команда |\n| --- | --- |\n| `hcm_status`, `hcm_check` | `wtctl status`, `wtctl check` |\n| `hcm_types`, `hcm_schema` | `wtctl types --search сотрудник`, `wtctl schema collaborator --search логин` |\n| `hcm_query` | `wtctl query --catalog collaborators --input-file where.json --fields id,fullname --order "fullname, hire_date desc"`; в файле условия: `{"is_dismiss":false}` |\n| `hcm_xquery` | `wtctl query \'for $e in collaborators order by $e/fullname return $e\' --fields id,fullname` |\n| `hcm_object_get` | `wtctl object get collaborator 0x5555555555555501 --fields login,lastname`; несколько объектов — `wtctl object get --ids 0x…,0x… --fields login` |\n| `hcm_object_create`, `_patch`, `_delete` | `wtctl object create ТИП --input-file object.json`, `object patch ТИП ID --input-file patch.json --preview` (`--resave` — сохранить и без правок), `object delete ТИП ID --permanent`; вместо `ТИП ID` годится `--url АДРЕС` |\n| `hcm_script` | `wtctl exec --input-file script.js`; параметры кода — `--params-file params.json` или `--params \'{\\"id\\":\\"0x…\\"}\'` |\n| `hcm_logs_list`, `hcm_logs_search`, `hcm_log_read`, `hcm_log_follow` | `wtctl logs list`, `logs search ФАЙЛ --level error --newest-first`, `logs read ФАЙЛ`, `logs follow ФАЙЛ` |\n| `hcm_api_list`, `hcm_api_describe` | `wtctl api list`, `wtctl api describe ОПЕРАЦИЯ` |\n| `hcm_api_read`, `_write`, `_execute` | `wtctl api call ОПЕРАЦИЯ --input-file args.json` |\n| `hcm_result_read`, `hcm_result_export` | `wtctl result read ID`, `wtctl result export ID --to ФАЙЛ` |\n| `hcm_guide` | `wtctl guide`, `wtctl guide ТЕМА` |\n\n## Ввод и вывод\n\n- JSON и код передавай файлом (`--input-file`) или через stdin (`--stdin`). `--args \'…\'` и `--where \'…\'` годятся для короткого JSON. Оболочки по-разному обрабатывают кавычки внутри аргумента; запись `\\"` команда понимает в любой из них: `--where \'{\\"is_dismiss\\":false}\'`. В cmd весь JSON берут в двойные кавычки.\n- Файл для `query` без `--catalog`: объект JSON — это все аргументы сразу (`{"catalog":"…","where":{…},"fields":[…],"order":[…],"limit":20,"startPosition":0}` или `{"query":"…","fields":[…],"limit":20,"startPosition":0}`), иначе — текст запроса XQuery. `--limit`, `--start-position`, `--fields` и `--order` в командной строке сильнее значений из файла.\n- Ответ — одна строка JSON в stdout: `{"ok":true,"data":…,"meta":…}` или `{"ok":false,"error":{"code","message","hint"},"meta":…}`. `help` и `guide` печатают текст; с `--json` — такой же ответ JSON.\n- Код выхода: 0 — успех, 1 — операция не выполнена, 2 — неверные аргументы команды.\n- `--output ФАЙЛ.json` сохраняет полный ответ в файл, какого бы размера он ни был; в stdout остаётся короткая сводка (у записи в ней `id` и `mutationOutcome`). Табличных форматов (CSV) команда не пишет. Используй для больших ответов. Если операция не выполнена, код выхода 1, в сводке есть `error`, в файле — полный ответ с `"ok":false`. Ошибка аргументов (код 2) и ошибка настроек подключения (код 1) печатаются в stderr; файл не создаётся, а файл от прошлого запуска остаётся как был. Сначала проверяй код выхода.\n- Без `--output` ответ больше лимита обрезается: `meta.truncated` и `meta.resultId`, в `data.preview` — начало. Дочитать: `wtctl result read ID` (список ответа читается по элементам) или `wtctl result export ID --to ФАЙЛ` (`--format jsonl` — по строке на элемент списка). Сохранённый текст лога или файла выгружается текстом: `--format text`. Страница короче запрошенной помечена `cutBySize`.\n\n## Несколько операций одним вызовом\n\n`wtctl run --input-file batch.json`:\n\n```json\n{\n  "steps": [\n    { "id": "runtime.query", "as": "found", "args": { "catalog": "groups", "fields": ["id", "name"], "limit": 1 } },\n    { "id": "objects.get", "args": { "id": { "$ref": "found.data.items.0.id" }, "fields": ["name"] } }\n  ]\n}\n```\n\n- `id` — ID операции. ID основных операций: `runtime.query`, `objects.get`, `objects.create`, `objects.patch`, `objects.delete`, `schema.get`, `schema.types`, `execute.script`, `rpc.call`; остальные показывает `wtctl api list`.\n- `as` даёт шагу имя: латинские буквы, цифры и `_`, первой не цифра. `{"$ref":"имя.data.путь"}` подставляет значение из ответа этого шага; элемент массива — по номеру (`items.0.id`).\n- Ответ: `results` — ответы шагов по порядку (у шага с именем оно повторено в `as`), `completed` — сколько шагов выполнено.\n- Это не транзакция: первый отказ останавливает остальные шаги, выполненные не откатываются. `stopOnError:false` выполняет все шаги.\n- Если отказал хоть один шаг, ответ всего вызова — `BATCH_FAILED`, а ответы шагов остаются в `data.results`. Какие шаги отказали, сказано в `error.details.failed`. Большой ответ пакета сохраняется: шаги читает `hcm_result_read` по `meta.resultId`.\n- Права проверяются для каждого шага.\n\nВ MCP тот же вызов идёт через инструмент по самому сильному шагу: только чтение — `hcm_api_read {operationId:"runtime.batch", args:{steps:[…]}}`, есть запись — `hcm_api_write`, есть код или вызов функции — `hcm_api_execute`. При ошибке выбора ответ называет нужный инструмент.\n\n## SDK\n\nSDK нужен, когда задачу удобнее решить скриптом: цикл по сотням объектов, своя обработка данных. Скрипт на JavaScript (Node.js 22.16 или новее):\n\n```javascript\n// script.mjs\nimport { loadConfig, withHcmClient, unwrap } from "wtctl";\n\nawait withHcmClient(loadConfig(), async (client) => {\n  const page = unwrap(\n    await client.query({ catalog: "collaborators", where: { is_dismiss: false }, fields: ["id", "fullname"] }),\n  );\n  for (const row of page.items) console.log(row.id, row.fullname);\n});\n```\n\nТак пишут в проекте, где пакет установлен. Без установки SDK импортируют по адресу из гайда сервера: `hcm_guide {topic:"cli-sdk"}`, раздел «На этом компьютере». `loadConfig()` без аргументов берёт то же подключение, что и команда.\n\n- `withHcmClient` открывает подключение и закрывает его после функции.\n- Каждый метод возвращает тот же ответ `{ok, data, meta}` или `{ok:false, error}`. `unwrap` достаёт `data` или бросает ошибку с полями `code`, `hint`, `mutationOutcome`.\n- Методы: `status`, `check`, `types`, `schema`, `query`, `get`, `create`, `patch`, `delete`, `execute` (код), `runAgent`, `rpc`, `listRpc`, `describeRpc`, `batch`, `listLogs`, `searchLogs`, `readLog`, `followLog`, `readFile`, `fileExists`, `listFiles`, `writeFile`, `deleteFile`, `uploadFile`, `readResult`, `exportResult`. Любая операция по ID: `client.call("native.lds.loadDoc", { url })`.\n- Аргументы методов те же, что у инструментов MCP: `client.patch({ id, patch: { name: "…" }, preview: true })`; код принимается и строкой, параметры кода — вторым аргументом: `client.execute("RESULT = [PARAMS.n];", { n: 1 })`. Код из файла: `client.execute(await readFile("check.js", "utf8"), params)`. Запустить агента и дождаться конца: `client.runAgent({ id })`. Запрос XQuery — тот же `query`: `client.query({ query: "for $e in … return $e", fields: ["id"] })`.\n- В цикле по страницам проверяй `page.incomplete`: пустая страница с `incomplete:true` — отвергнутый запрос, а не конец данных.\n- Ответ больше 24 КБ сохраняется на диск, и `unwrap` бросает ошибку `RESULT_STORED`. В скрипте подними предел: `withHcmClient({ ...loadConfig(), outputLimitBytes: 1024 * 1024 }, …)`, задавай `fields` и читай страницами: `startPosition: page.nextStartPosition`, пока оно есть.\n- `loadConfig({ connection: "имя" })` выбирает подключение, `configPath` — другой файл подключений. Права `write` и `execute` заданы в подключении, скрипт их не расширяет.' },
-  { topic: "errors", title: "Коды ошибок и что с ними делать", text: '# Ошибки\n\nОшибка приходит так:\n\n```json\n{ "ok": false, "error": { "code": "UNKNOWN_FIELD", "message": "…", "hint": "…", "details": { "fields": ["…"] }, "mutationOutcome": "not_sent" } }\n```\n\nСначала читай `hint`: там сказано, что делать. `details` и `mutationOutcome` есть не у каждой ошибки. `mutationOutcome` есть у операций записи и выполнения кода; у запроса XQuery, который сервер отверг, его нет — такой запрос ничего не менял:\n\n| Значение | Что значит | Что делать |\n| --- | --- | --- |\n| `not_sent` | запрос на сервер не ушёл | исправить и повторить можно |\n| `confirmed` | запись прошла и проверена | повторять не нужно |\n| `indeterminate` | запрос ушёл; ответа нет или проверка после записи не сошлась | прочитать объект и только потом решать, повторять ли |\n\n## Запреты\n\n| Код | Что делать |\n| --- | --- |\n| `WRITE_DISABLED`, `EXECUTE_DISABLED` | подключению не дано это право. Остановиться и сказать пользователю; другой способ сделать то же самое не искать |\n| `PLATFORM_AUTH`, `PLATFORM_PERMISSION` | сервер не принял логин или не дал доступ. Сказать пользователю. Сессию, которую сервер закрыл за время простоя, клиент открывает заново сам: эта ошибка значит отказ в самом входе |\n\n## Отказ сервера\n\n`PLATFORM_SOAP-FAULT` или `PLATFORM_HTTP` с `details.status: 500` — сервер отказал и причину в ответе не назвал. Обычную причину подсказывает `hint`. Строка об отказе бывает в логе: `hcm_log_follow {file:"xhttp_ГГГГ-ММ-ДД.log"}`, см. тему `logs`. Она может быть короткой («Элемент не найден»), а после ошибки в тексте запроса её может не быть вовсе.\n\nЧастые причины: объекта с таким ID нет; файла по адресу нет; ошибка в тексте XQuery; имени каталога нет на сервере.\n\n`PLATFORM_HTTP` без статуса или `PLATFORM_PROTOCOL` — нет связи с сервером или ответ не разобран. Проверь `hcm_status`, затем `hcm_check`: он показывает, какой шаг не проходит.\n\n## Неверный вызов\n\n| Код | Что делать |\n| --- | --- |\n| `mcp.invalid_arguments` | аргументы не подходят инструменту MCP; какие — в `details.validation` |\n| `mcp.effect_mismatch` | операция вызвана не тем инструментом из `hcm_api_read`, `_write`, `_execute`: нужный назван в `hint` |\n| `cli.invalid_input` | неверные аргументы команды: `wtctl help КОМАНДА` |\n| `INVALID_ARGUMENT` | в `message` назван аргумент. Сверить с описанием инструмента или `hcm_api_describe` |\n| `INVALID_IDENTIFIER`, `DUPLICATE_STEP` | имя каталога, поля или шага пакета (`as`): латинские буквы, цифры и `_`, первой не цифра; имена шагов не повторяются |\n| `UNKNOWN_TYPE`, `UNKNOWN_CATALOG` | взять имя из `hcm_types` |\n| `UNKNOWN_CATALOG_FIELD` | поля нет в каталоге: взять поле с `query:true` из `hcm_schema` или читать документ через `hcm_object_get` |\n| `UNKNOWN_OPERATION`, `UNKNOWN_TOPIC` | взять ID из `hcm_api_list` |\n| `UNKNOWN_RPC_TARGET` | такой функции или библиотеки на сервере нет: в `hint` — похожие имена; искать через `rpc.list` с `query` и `all:true` |\n| `RPC_SERVER_ONLY` | функция вызывается только из кода на сервере: `hcm_script`, см. тему `scripts` |\n| `INVALID_FILTER_OPERATOR`, `INVALID_FILTER_VALUE` | см. тему `queries` |\n| `INVALID_PATCH_PATH`, `PATCH_PATH_MISSING`, `PATCH_INDEX_MISSING`, `AMBIGUOUS_PATCH` | путь в `patch` или `remove` неверен, см. тему `objects` |\n| `INVALID_RPC_ARGUMENT` | аргумент функции задан неверно, см. тему `scripts` |\n\n## Запись\n\n| Код | Что случилось | Что делать |\n| --- | --- | --- |\n| `CONFLICT` | объект изменился после чтения; ничего не записано | прочитать заново и повторить |\n| `UNKNOWN_FIELD` | у типа нет поля с таким именем; ничего не записано | взять имя из `hint` или из `hcm_schema` |\n| `READ_BACK_MISMATCH` | документ сохранён, но поля из `details.fields` не приняли значение; что не совпало — в `details.differences` | проверить поля в `hcm_schema`, прочитать объект; заново не создавать. При удалении — объект остался в каталоге, см. тему `objects` |\n| `IMMUTABLE_ID` | попытка изменить `id` | ID не меняется |\n| `TYPE_MISMATCH`, `TARGET_MISMATCH` | объект другого типа, чем указан | настоящий тип — в `details.actualType`; проверить `type` и ID |\n| `DELETE_MODE_REQUIRED` | удаление без `permanent:true`; в MCP это `mcp.invalid_arguments` с `permanent` в `details.validation` | добавить `permanent:true`: корзины нет |\n| `BATCH_FAILED` | шаг пакета не выполнен | номера и коды отказавших шагов — в `error.details.failed`, ответы всех шагов — в `data.results` (большой ответ сохранён, его читает `hcm_result_read`); выполненные шаги не откатываются |\n\n## Код и запросы\n\n| Код | Что делать |\n| --- | --- |\n| `SCRIPT_FAILED` | текст ошибки кода — в `details.scriptError`, см. тему `scripts` |\n| `SCRIPT_RESPONSE` | код не присвоил `RESULT` массив или вернул то, что не передаётся (документ, структуру) |\n| `QUERY_REPRESENTATION` | запрос XQuery вернул не строки каталога: закончить на `return $e` |\n\n## Логи и результаты\n\n| Код | Что делать |\n| --- | --- |\n| `LOG_READ_UNAVAILABLE` | сервер не отдал этот файл и со второй попытки: повторить через десять секунд или взять лог за прошлую дату |\n| `LOG_NOT_FOUND` | взять имя файла из `hcm_logs_list` |\n| `LOG_CHANGED` | лог дописан между страницами: начать заново |\n| `INVALID_LOG_CURSOR` | начать `hcm_log_follow` без `cursor` |\n| `RESULT_NOT_FOUND`, `INVALID_RESULT_ID` | сохранённого результата с таким ID нет: взять `meta.resultId` из ответа или повторить исходный вызов |\n| `INVALID_RESULT_FORMAT` | у результата нет такой формы: `text` — для текста (лог, файл), `jsonl` — для списка, `json` подходит любому |\n\nНеизвестный код: действуй по `hint`. Если запись могла пройти (`indeterminate`), сначала проверь состояние на сервере.' }
+  { topic: "errors", title: "Коды ошибок и что с ними делать", text: '# Ошибки\n\nОшибка приходит так:\n\n```json\n{ "ok": false, "error": { "code": "UNKNOWN_FIELD", "message": "…", "hint": "…", "details": { "fields": ["…"] }, "mutationOutcome": "not_sent" } }\n```\n\nСначала читай `hint`: там сказано, что делать. `details` и `mutationOutcome` есть не у каждой ошибки. `mutationOutcome` есть у операций записи и выполнения кода; у запроса XQuery, который сервер отверг, его нет — такой запрос ничего не менял:\n\n| Значение | Что значит | Что делать |\n| --- | --- | --- |\n| `not_sent` | запрос на сервер не ушёл | исправить и повторить можно |\n| `confirmed` | запись прошла и проверена | повторять не нужно |\n| `indeterminate` | запрос ушёл; ответа нет, проверка после записи не сошлась или не состоялась | прочитать объект и только потом решать, повторять ли |\n\n## Запреты\n\n| Код | Что делать |\n| --- | --- |\n| `WRITE_DISABLED`, `EXECUTE_DISABLED` | подключению не дано это право. Остановиться и сказать пользователю; другой способ сделать то же самое не искать |\n| `PLATFORM_AUTH`, `PLATFORM_PERMISSION` | сервер не принял логин или не дал доступ. Сказать пользователю. Сессию, которую сервер закрыл за время простоя, клиент открывает заново сам: эта ошибка значит отказ в самом входе |\n\n## Отказ сервера\n\n`PLATFORM_SOAP-FAULT` или `PLATFORM_HTTP` с `details.status: 500` — сервер отказал и причину в ответе не назвал. Обычную причину подсказывает `hint`. Строка об отказе бывает в логе: `hcm_log_follow {file:"xhttp_ГГГГ-ММ-ДД.log"}`, см. тему `logs`. Она может быть короткой («Элемент не найден»), а после ошибки в тексте запроса её может не быть вовсе.\n\nЧастые причины: объекта с таким ID нет; файла по адресу нет; ошибка в тексте XQuery; имени каталога нет на сервере.\n\n`PLATFORM_HTTP` без статуса или `PLATFORM_PROTOCOL` — нет связи с сервером или ответ не разобран. Проверь `hcm_status`, затем `hcm_check`: он показывает, какой шаг не проходит.\n\n## Неверный вызов\n\n| Код | Что делать |\n| --- | --- |\n| `mcp.invalid_arguments` | аргументы не подходят инструменту MCP; какие — в `details.validation` |\n| `mcp.effect_mismatch` | операция вызвана не тем инструментом из `hcm_api_read`, `_write`, `_execute`: нужный назван в `hint` |\n| `cli.invalid_input` | неверные аргументы команды: `wtctl help КОМАНДА` |\n| `INVALID_ARGUMENT` | в `message` назван аргумент. Сверить с описанием инструмента или `hcm_api_describe` |\n| `INVALID_IDENTIFIER`, `DUPLICATE_STEP` | имя каталога, поля или шага пакета (`as`): латинские буквы, цифры и `_`, первой не цифра; имена шагов не повторяются |\n| `UNKNOWN_TYPE`, `UNKNOWN_CATALOG` | взять имя из `hcm_types` |\n| `UNKNOWN_CATALOG_FIELD` | поля нет в каталоге: взять поле с `query:true` из `hcm_schema` или читать документ через `hcm_object_get` |\n| `UNKNOWN_OPERATION`, `UNKNOWN_TOPIC` | взять ID из `hcm_api_list` |\n| `UNKNOWN_RPC_TARGET` | такой функции или библиотеки на сервере нет: в `hint` — похожие имена; искать через `rpc.list` с `query` и `all:true` |\n| `RPC_SERVER_ONLY` | функция вызывается только из кода на сервере: `hcm_script`, см. тему `scripts` |\n| `INVALID_FILTER_OPERATOR`, `INVALID_FILTER_VALUE` | см. тему `queries` |\n| `INVALID_PATCH_PATH`, `PATCH_PATH_MISSING`, `PATCH_INDEX_MISSING`, `AMBIGUOUS_PATCH` | путь в `patch` или `remove` неверен, см. тему `objects` |\n| `INVALID_RPC_ARGUMENT` | аргумент функции задан неверно, см. тему `scripts` |\n\n## Запись\n\n| Код | Что случилось | Что делать |\n| --- | --- | --- |\n| `CONFLICT` | объект изменился после чтения; ничего не записано | прочитать заново и повторить |\n| `UNKNOWN_FIELD` | у типа нет поля с таким именем; ничего не записано | взять имя из `hint` или из `hcm_schema` |\n| `READ_BACK_MISMATCH` | документ сохранён, но поля из `details.fields` не приняли значение; что не совпало — в `details.differences` | проверить поля в `hcm_schema`, прочитать объект; заново не создавать. При удалении — объект остался в каталоге, см. тему `objects` |\n| `IMMUTABLE_ID` | попытка изменить `id` | ID не меняется |\n| `TYPE_MISMATCH`, `TARGET_MISMATCH` | объект другого типа, чем указан | настоящий тип — в `details.actualType`; проверить `type` и ID |\n| `DELETE_MODE_REQUIRED` | удаление без `permanent:true`; в MCP это `mcp.invalid_arguments` с `permanent` в `details.validation` | добавить `permanent:true`: корзины нет |\n| `BATCH_FAILED` | шаг пакета не выполнен | номера и коды отказавших шагов — в `error.details.failed`, ответы всех шагов — в `data.results` (большой ответ сохранён, его читает `hcm_result_read`); выполненные шаги не откатываются |\n\n## Код и запросы\n\n| Код | Что делать |\n| --- | --- |\n| `SCRIPT_FAILED` | текст ошибки кода — в `details.scriptError`, см. тему `scripts` |\n| `SCRIPT_RESPONSE` | код не присвоил `RESULT` массив или вернул то, что не передаётся (документ, структуру) |\n| `QUERY_REPRESENTATION` | запрос XQuery вернул не строки каталога: закончить на `return $e` |\n\n## Логи и результаты\n\n| Код | Что делать |\n| --- | --- |\n| `LOG_READ_UNAVAILABLE` | сервер не отдал этот файл и со второй попытки: повторить через десять секунд или взять лог за прошлую дату |\n| `LOG_NOT_FOUND` | взять имя файла из `hcm_logs_list` |\n| `LOG_CHANGED` | лог дописан между страницами: начать заново |\n| `INVALID_LOG_CURSOR` | начать `hcm_log_follow` без `cursor` |\n| `RESULT_NOT_FOUND`, `INVALID_RESULT_ID` | сохранённого результата с таким ID нет: взять `meta.resultId` из ответа или повторить исходный вызов |\n| `INVALID_RESULT_FORMAT` | у результата нет такой формы: `text` — для текста (лог, файл), `jsonl` — для списка, `json` подходит любому |\n\nНеизвестный код: действуй по `hint`. Если запись могла пройти (`indeterminate`), сначала проверь состояние на сервере.' }
 ];
 
 // src/guide.ts
@@ -36663,7 +36802,7 @@ ${onThisComputer(local2)}` } : page;
 }
 
 // src/version.ts
-var VERSION = "0.3.0";
+var VERSION = "0.3.1";
 
 // src/mcp/server.ts
 function text3(description, required2 = false, maximum = 2048) {

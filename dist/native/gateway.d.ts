@@ -1,6 +1,8 @@
 import type { NativeConfig, NativeOperation } from "../contracts.js";
 import { WsHcmClient, type NativeSession, type WebSession } from "../protocol/client.js";
 export declare function getNativeOperations(): readonly NativeOperation[];
+/** The effect of a registry operation for these arguments, internal operations included; undefined for an unknown ID. */
+export declare function nativeEffect(id: string, args: Record<string, unknown>): NativeOperation["effect"] | undefined;
 /** The failure happened while opening the session: the operation itself was not sent. */
 export declare function loginFailed(error: unknown): boolean;
 /** Stateful owner shared by SDK, MCP and CLI. Calls are serialized to protect session/cursor identity. */

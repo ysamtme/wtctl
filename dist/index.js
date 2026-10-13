@@ -6,9 +6,10 @@ import {
   getEffectiveNativeEffect,
   getNativeOperations,
   loginFailed,
+  nativeEffect,
   prepare,
   validate
-} from "./chunks/chunk-QK6ETZGE.js";
+} from "./chunks/chunk-7INSH2T3.js";
 import {
   WebSocketHeartbeatError,
   WsHcmApiError,
@@ -77,6 +78,12 @@ function boundedInteger(value, fallback, max, path) {
       { path }
     );
   return value;
+}
+function scalar(value, label) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "#text" in value)
+    return String(value["#text"]);
+  throw new HcmError("PLATFORM_RESPONSE", `В ответе сервера нет ${label}.`);
 }
 
 // src/scripts.ts
@@ -446,6 +453,79 @@ function parseFileExists(response) {
     );
   }
 }
+var ServerFiles = class {
+  constructor(server, permissions) {
+    this.server = server;
+    this.permissions = permissions;
+  }
+  async exists(args) {
+    return parseFileExists(
+      await this.server.read("native.rpc.call", {
+        target: FILE_EXISTS_TARGET,
+        args: [{ valueType: "string", lexicalValue: fileExistsUrl(args.url) }]
+      })
+    );
+  }
+  async read(args) {
+    return fileContent(
+      await this.server.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
+      args.encoding
+    );
+  }
+  async list(args, call) {
+    const folder = fileTarget(args.url, true).url;
+    const search = args.search === void 0 ? "" : requiredString(args.search, "search");
+    const data2 = await this.server.runCode(
+      codeList(folder),
+      call.outcome,
+      (answer) => answer.result[0] === "none"
+    );
+    return fileList(data2, folder, search);
+  }
+  async write(args, call) {
+    const target = fileTarget(args.url);
+    const content = fileWriteContent(args);
+    if (await this.route("write", target.folder, call) === "code") {
+      const data2 = await this.server.runCode(codeWrite(target.url, content), call.outcome);
+      return { bytes: Number(data2.result[0]), mutationOutcome: "confirmed" };
+    }
+    await this.server.call(
+      "native.lds.putUrl",
+      { url: target.url, data: { base64: content.base64 } },
+      call.outcome
+    );
+    return { bytes: content.bytes, mutationOutcome: "confirmed" };
+  }
+  async delete(args, call) {
+    const target = fileTarget(args.url);
+    assertFileDeletable(target.folder);
+    if (await this.route("delete", target.folder, call) === "code") {
+      const data2 = await this.server.runCode(
+        codeDelete(target.url),
+        call.outcome,
+        (answer) => !!codeDeleteRefusal(answer)
+      );
+      const refusal = codeDeleteRefusal(data2);
+      if (refusal) throw refusal;
+      if (data2.result[0] === "remains") throw fileRemains();
+      return { deleted: true, mutationOutcome: "confirmed" };
+    }
+    await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
+    if (target.url.length <= FILE_EXISTS_URL_MAX_LENGTH) {
+      if ((await this.exists({ url: target.url })).exists) throw fileRemains();
+    }
+    return { deleted: true, mutationOutcome: "confirmed" };
+  }
+  /** A failure to read the application info means the server gave no folder lists. */
+  async folders() {
+    return fileFolders(await this.server.applicationInfo().catch(() => void 0));
+  }
+  async route(operation, folder, call) {
+    const route = fileRoute(operation, await this.folders(), folder, this.permissions.execute);
+    if (operation === "write" && route !== "unlisted") call.refusal = "files.write:listed";
+    return route;
+  }
+};
 
 // src/operations.ts
 var string = { type: "string" };
@@ -961,11 +1041,6 @@ function describeHcmOperation(id) {
   return operation;
 }
 
-// src/runtime.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
-import { mkdir as mkdir2, appendFile } from "node:fs/promises";
-import { join as join2 } from "node:path";
-
 // src/log-output.ts
 function summary(file) {
   return {
@@ -1044,9 +1119,6 @@ function logNews(data2, first, budgetBytes) {
     ...data2.resetReason === void 0 ? {} : { resetReason: data2.resetReason }
   };
 }
-
-// src/documents.ts
-import { createHash } from "node:crypto";
 
 // src/query.ts
 var IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -1330,8 +1402,12 @@ function queryPage(response, start, limit, fields3, rawQuery) {
     ...hints.length ? { hint: hints.join(" ") } : {}
   };
 }
+function hasStructure(data2) {
+  return Object.values(data2).some((value) => value !== null && typeof value === "object");
+}
 
 // src/documents.ts
+import { createHash } from "node:crypto";
 var parser = createPlatformXmlParser({
   preserveOrder: true,
   ignoreAttributes: false,
@@ -3081,130 +3157,6 @@ ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
   }
 };
 
-// src/verification.ts
-var shown = (value) => value === void 0 ? null : typeof value === "string" ? value.length > 200 ? `${value.slice(0, 200)}…` : value : Array.isArray(value) ? `[список: ${value.length}]` : value !== null && typeof value === "object" ? "{структура}" : value;
-function record2(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function bool(value) {
-  if (value === true || value === "true" || value === "1" || value === 1) return true;
-  if (value === false || value === "false" || value === "0" || value === 0) return false;
-  return void 0;
-}
-var DATE = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:\d{2})?$/;
-function serverDate(value) {
-  const match = typeof value === "string" ? DATE.exec(value) : null;
-  return match ? `${match[1]}T${match[2] ?? "00:00"}:${match[3] ?? "00"}` : void 0;
-}
-function isServerDate(value) {
-  return DATE.test(value);
-}
-function equivalent(expected, actual, path, fields3, prior, inCollection = false, differences = []) {
-  const differ = () => {
-    if (differences.length < 5)
-      differences.push({ path, requested: shown(expected), actual: shown(actual) });
-    return false;
-  };
-  const field = fields3.get(path.replace(/\[\d+\]/g, ""));
-  const child = (key) => prior?.[key];
-  const hasAttrs = record2(prior) && Object.keys(prior).some((key) => key.startsWith("@_"));
-  const text3 = record2(prior) && /\S/.test(String(prior["#text"] ?? ""));
-  if (!hasAttrs && !text3 && record2(prior) && typeof expected === "string" && expected.trim() === "")
-    expected = "";
-  if (field?.multiple === true && !inCollection) {
-    const left = expected === void 0 || expected === "" ? [] : Array.isArray(expected) ? expected : [expected];
-    const right = actual === void 0 || actual === "" ? [] : Array.isArray(actual) ? actual : [actual];
-    if (left.length !== right.length) return differ();
-    return left.every(
-      (item, index) => equivalent(
-        item,
-        right[index],
-        `${path}[${index}]`,
-        fields3,
-        child(index) ?? prior,
-        true,
-        differences
-      )
-    );
-  }
-  if (Array.isArray(expected)) {
-    if (!Array.isArray(actual) || expected.length !== actual.length) return differ();
-    return expected.every(
-      (item, i) => equivalent(item, actual[i], `${path}[${i}]`, fields3, child(i), false, differences)
-    );
-  }
-  if (record2(expected)) {
-    const received = !hasAttrs && !text3 && (actual == null || actual === "") ? {} : actual;
-    if (!record2(received)) return differ();
-    return Object.entries(expected).every(
-      ([key, value]) => equivalent(value, received[key], `${path}.${key}`, fields3, child(key), false, differences)
-    );
-  }
-  if (expected === void 0 || expected === "" || expected === null)
-    return actual === void 0 || actual === "" || actual === null || differ();
-  if (actual !== null && typeof actual === "object") return differ();
-  if (field?.type === "bool")
-    return bool(expected) !== void 0 && bool(expected) === bool(actual) || differ();
-  if (field?.type === "integer" && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(expected)) && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(actual)))
-    return BigInt(String(expected)) === BigInt(String(actual)) || differ();
-  const date2 = serverDate(expected);
-  if (date2 !== void 0 && date2 === serverDate(actual)) return true;
-  return String(expected) === String(actual) || differ();
-}
-function verifyFields(expected, actual, descriptors, names = Object.keys(expected), original) {
-  const reference = original ? Object.values(parseXml(original))[0] : expected;
-  const fields3 = /* @__PURE__ */ new Map();
-  if (Array.isArray(descriptors)) {
-    for (const field of descriptors)
-      if (record2(field) && typeof field.path === "string") fields3.set(field.path, field);
-  }
-  const differences = [];
-  const mismatches = [...new Set(names)].filter(
-    (name3) => !equivalent(expected[name3], actual[name3], name3, fields3, reference[name3], false, differences)
-  );
-  if (mismatches.length)
-    throw new HcmError(
-      "READ_BACK_MISMATCH",
-      "Документ сохранён, но поля из details.fields не приняли запрошенные значения.",
-      "Что не совпало — в details.differences. Остальные поля запроса сохранены: заново объект не создавать. Обычная причина: сервер переписывает значение или внутри структуры нет такого поля; поля показывает schema.get.",
-      { fields: mismatches, differences },
-      "indeterminate"
-    );
-}
-function verifyRemovals(expected, actual, changes, descriptors) {
-  const at = (data2, path) => {
-    let value = data2;
-    let fieldPath = "";
-    for (const match of patchSegments(path)) {
-      fieldPath += `${fieldPath ? "." : ""}${match[1]}`;
-      value = record2(value) ? value[match[1]] : void 0;
-      if (match[3] !== void 0) {
-        const keyPath = `${fieldPath}.${match[3]}`;
-        const field = Array.isArray(descriptors) ? descriptors.find((field2) => record2(field2) && field2.path === keyPath) : void 0;
-        value = (Array.isArray(value) ? value : [value]).find(
-          (item) => record2(item) && equivalent(match[4], item[match[3]], keyPath, /* @__PURE__ */ new Map([[keyPath, field]]))
-        );
-      } else if (match[2] !== void 0)
-        value = Array.isArray(value) ? value[Number(match[2])] : Number(match[2]) === 0 ? value : void 0;
-    }
-    return value;
-  };
-  for (const raw of changes) {
-    if (!record2(raw) || raw.op !== "remove" || typeof raw.path !== "string" || patchSegments(raw.path).at(-1)[2] !== void 0)
-      continue;
-    if (at(expected, raw.path) !== void 0) continue;
-    const value = at(actual, raw.path);
-    if (value !== void 0 && value !== "" && value !== null)
-      throw new HcmError(
-        "READ_BACK_MISMATCH",
-        "Поле, которое нужно было удалить, осталось в документе.",
-        "До повтора проверить, не задаёт ли форма этому полю значение по умолчанию.",
-        { fields: [raw.path] },
-        "indeterminate"
-      );
-  }
-}
-
 // src/logs.ts
 import { createHash as createHash3 } from "node:crypto";
 var LogReadUnavailableError = class extends HcmError {
@@ -4674,75 +4626,138 @@ async function checkServer(config, invoke) {
   return report;
 }
 
-// src/runtime.ts
-function scalar(value, label) {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object" && "#text" in value)
-    return String(value["#text"]);
-  throw new HcmError("PLATFORM_RESPONSE", `В ответе сервера нет ${label}.`);
+// src/objects.ts
+import { randomUUID as randomUUID3 } from "node:crypto";
+import { mkdir as mkdir2, appendFile } from "node:fs/promises";
+import { join as join2 } from "node:path";
+
+// src/verification.ts
+var shown = (value) => value === void 0 ? null : typeof value === "string" ? value.length > 200 ? `${value.slice(0, 200)}…` : value : Array.isArray(value) ? `[список: ${value.length}]` : value !== null && typeof value === "object" ? "{структура}" : value;
+function record2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+function bool(value) {
+  if (value === true || value === "true" || value === "1" || value === 1) return true;
+  if (value === false || value === "false" || value === "0" || value === 0) return false;
+  return void 0;
+}
+var DATE = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:\d{2})?$/;
+function serverDate(value) {
+  const match = typeof value === "string" ? DATE.exec(value) : null;
+  return match ? `${match[1]}T${match[2] ?? "00:00"}:${match[3] ?? "00"}` : void 0;
+}
+function isServerDate(value) {
+  return DATE.test(value);
+}
+function equivalent(expected, actual, path, fields3, prior, inCollection = false, differences = []) {
+  const differ = () => {
+    if (differences.length < 5)
+      differences.push({ path, requested: shown(expected), actual: shown(actual) });
+    return false;
+  };
+  const field = fields3.get(path.replace(/\[\d+\]/g, ""));
+  const child = (key) => prior?.[key];
+  const hasAttrs = record2(prior) && Object.keys(prior).some((key) => key.startsWith("@_"));
+  const text3 = record2(prior) && /\S/.test(String(prior["#text"] ?? ""));
+  if (!hasAttrs && !text3 && record2(prior) && typeof expected === "string" && expected.trim() === "")
+    expected = "";
+  if (field?.multiple === true && !inCollection) {
+    const left = expected === void 0 || expected === "" ? [] : Array.isArray(expected) ? expected : [expected];
+    const right = actual === void 0 || actual === "" ? [] : Array.isArray(actual) ? actual : [actual];
+    if (left.length !== right.length) return differ();
+    return left.every(
+      (item, index) => equivalent(
+        item,
+        right[index],
+        `${path}[${index}]`,
+        fields3,
+        child(index) ?? prior,
+        true,
+        differences
+      )
+    );
+  }
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || expected.length !== actual.length) return differ();
+    return expected.every(
+      (item, i) => equivalent(item, actual[i], `${path}[${i}]`, fields3, child(i), false, differences)
+    );
+  }
+  if (record2(expected)) {
+    const received = !hasAttrs && !text3 && (actual == null || actual === "") ? {} : actual;
+    if (!record2(received)) return differ();
+    return Object.entries(expected).every(
+      ([key, value]) => equivalent(value, received[key], `${path}.${key}`, fields3, child(key), false, differences)
+    );
+  }
+  if (expected === void 0 || expected === "" || expected === null)
+    return actual === void 0 || actual === "" || actual === null || differ();
+  if (actual !== null && typeof actual === "object") return differ();
+  if (field?.type === "bool")
+    return bool(expected) !== void 0 && bool(expected) === bool(actual) || differ();
+  if (field?.type === "integer" && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(expected)) && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(actual)))
+    return BigInt(String(expected)) === BigInt(String(actual)) || differ();
+  const date2 = serverDate(expected);
+  if (date2 !== void 0 && date2 === serverDate(actual)) return true;
+  return String(expected) === String(actual) || differ();
+}
+function verifyFields(expected, actual, descriptors, names = Object.keys(expected), original) {
+  const reference = original ? Object.values(parseXml(original))[0] : expected;
+  const fields3 = /* @__PURE__ */ new Map();
+  if (Array.isArray(descriptors)) {
+    for (const field of descriptors)
+      if (record2(field) && typeof field.path === "string") fields3.set(field.path, field);
+  }
+  const differences = [];
+  const mismatches = [...new Set(names)].filter(
+    (name3) => !equivalent(expected[name3], actual[name3], name3, fields3, reference[name3], false, differences)
+  );
+  if (mismatches.length)
+    throw new HcmError(
+      "READ_BACK_MISMATCH",
+      "Документ сохранён, но поля из details.fields не приняли запрошенные значения.",
+      "Что не совпало — в details.differences. Остальные поля запроса сохранены: заново объект не создавать. Обычная причина: сервер переписывает значение или внутри структуры нет такого поля; поля показывает schema.get.",
+      { fields: mismatches, differences },
+      "indeterminate"
+    );
+}
+function verifyRemovals(expected, actual, changes, descriptors) {
+  const at = (data2, path) => {
+    let value = data2;
+    let fieldPath = "";
+    for (const match of patchSegments(path)) {
+      fieldPath += `${fieldPath ? "." : ""}${match[1]}`;
+      value = record2(value) ? value[match[1]] : void 0;
+      if (match[3] !== void 0) {
+        const keyPath = `${fieldPath}.${match[3]}`;
+        const field = Array.isArray(descriptors) ? descriptors.find((field2) => record2(field2) && field2.path === keyPath) : void 0;
+        value = (Array.isArray(value) ? value : [value]).find(
+          (item) => record2(item) && equivalent(match[4], item[match[3]], keyPath, /* @__PURE__ */ new Map([[keyPath, field]]))
+        );
+      } else if (match[2] !== void 0)
+        value = Array.isArray(value) ? value[Number(match[2])] : Number(match[2]) === 0 ? value : void 0;
+    }
+    return value;
+  };
+  for (const raw of changes) {
+    if (!record2(raw) || raw.op !== "remove" || typeof raw.path !== "string" || patchSegments(raw.path).at(-1)[2] !== void 0)
+      continue;
+    if (at(expected, raw.path) !== void 0) continue;
+    const value = at(actual, raw.path);
+    if (value !== void 0 && value !== "" && value !== null)
+      throw new HcmError(
+        "READ_BACK_MISMATCH",
+        "Поле, которое нужно было удалить, осталось в документе.",
+        "До повтора проверить, не задаёт ли форма этому полю значение по умолчанию.",
+        { fields: [raw.path] },
+        "indeterminate"
+      );
+  }
+}
+
+// src/objects.ts
 function isBinary(value) {
   return !!value && typeof value === "object" && "kind" in value && value.kind === "binary" && "bytes" in value && value.bytes instanceof Uint8Array;
-}
-function jsonSafe(value) {
-  if (typeof value === "bigint") return value.toString();
-  if (value instanceof Uint8Array)
-    return { base64: Buffer.from(value).toString("base64"), bytes: value.length };
-  if (Array.isArray(value)) return value.map(jsonSafe);
-  if (value && typeof value === "object")
-    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
-  return value;
-}
-function hasStructure(data2) {
-  return Object.values(data2).some((value) => value !== null && typeof value === "object");
-}
-function beginning(data2) {
-  const cut = (value) => Array.isArray(value) ? value.slice(0, 3) : typeof value === "string" ? value.slice(0, 1e3) : value;
-  if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return cut(data2);
-  return Object.fromEntries(Object.entries(data2).map(([key, value]) => [key, cut(value)]));
-}
-function stepSummary(step) {
-  const { as, ok, data: data2, error } = step;
-  return {
-    ...as === void 0 ? {} : { as },
-    ok,
-    ...error?.code ? { code: error.code } : {},
-    ...typeof data2?.total === "number" ? { total: data2.total } : {},
-    ...Array.isArray(data2?.items) ? { rows: data2.items.length } : {},
-    ...data2?.incomplete ? { incomplete: true } : {}
-  };
-}
-function withoutXmlFormatting(value) {
-  if (Array.isArray(value)) return value.map(withoutXmlFormatting);
-  if (!value || typeof value !== "object" || value instanceof Uint8Array) return value;
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      ([key, child]) => key !== "@_xmlns" && !(key === "#text" && typeof child === "string" && child.trim() === "")
-    ).map(([key, child]) => [
-      key,
-      // A line break and the indentation of the closing tag are formatting of an empty element.
-      typeof child === "string" && /^\s*\n[ \t]+$/.test(child) ? "" : withoutXmlFormatting(child)
-    ])
-  );
-}
-function plainAnswer(id, answer) {
-  if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return answer;
-  const data2 = answer;
-  if (id === "web.pages.uploadFile" && typeof data2.Url === "string" && data2.Url) {
-    const url = `x-local://share/uploaded_files/${data2.Url}`;
-    const { Url: _, ...rest } = data2;
-    return { ...rest, url, folderUrl: url.slice(0, url.lastIndexOf("/")) };
-  }
-  if (id === "web.spxml.getAsyncMethodStatus" && data2.ResultData !== void 0)
-    try {
-      const decoded = rpcValue(data2);
-      if (decoded !== data2) {
-        const { ResultData: _typed, ...state } = data2;
-        return { ...state, ...decoded };
-      }
-    } catch {
-    }
-  return answer;
 }
 function oneEditApart(a, b) {
   if (Math.abs(a.length - b.length) > 1) return false;
@@ -4772,198 +4787,608 @@ function patchInput(patch, remove, resave = false) {
   }));
   return [...set, ...remove.map((path) => ({ op: "remove", path }))];
 }
-var HcmRuntime = class {
-  constructor(config) {
-    this.config = config;
-    this.results = new ResultStore(config);
-    this.gateway = new NativeGateway(config);
-    this.logs = new LogReader(this.gateway, config);
-    this.rpcCatalog = new RpcCatalog(
-      () => this.applicationInfo(),
-      (url) => this.gateway.call("native.lds.loadUrl", { url })
-    );
-    this.schemaReader = new SchemaReader(
-      () => this.applicationInfo(),
-      async (url) => requiredString(await this.gateway.call("native.spxml2.getForm", { url }), "ответ с формой"),
-      async (url) => (await this.load({ url })).document.snapshot().data
+var ServerObjects = class {
+  constructor(server, schema2, journalDirectory) {
+    this.server = server;
+    this.schema = schema2;
+    this.journalDirectory = journalDirectory;
+  }
+  /** One object by id or url, as objects.get answers. */
+  async get(args) {
+    const loaded = await this.load(args);
+    const snapshot = loaded.document.snapshot();
+    const data2 = withoutFalseOffset(projectFields(snapshot.data, args.fields));
+    const absent = Array.isArray(args.fields) ? args.fields.filter((field) => !Object.hasOwn(data2, field)) : [];
+    const shape = absent.length || hasStructure(data2) ? await this.schema.documentShape(snapshot.type, snapshot.formUrl).catch(() => void 0) : void 0;
+    const row = await this.catalogRow(snapshot.type, loaded.url, loaded.id, absent);
+    const unknownFields = shape?.fields.size ? absent.filter((field) => !shape.fields.has(field) && !row.known.has(field)) : [];
+    const emptyFields = shape?.fields.size ? absent.filter(
+      (field) => !unknownFields.includes(field) && !Object.hasOwn(row.values, field)
+    ) : [];
+    return {
+      ...loaded.id === void 0 ? {} : { id: loaded.id },
+      type: snapshot.type,
+      url: loaded.url,
+      data: shape ? withRepeated(data2, shape.repeated) : data2,
+      ...Object.keys(row.values).length ? { fromCatalog: row.values } : {},
+      ...emptyFields.length ? { emptyFields } : {},
+      ...unknownFields.length ? { unknownFields } : {},
+      fingerprint: snapshot.fingerprint,
+      ...snapshot.formUrl === void 0 ? {} : { formUrl: snapshot.formUrl }
+    };
+  }
+  async load(args) {
+    const url = args.url === void 0 ? resolvePhysicalDocumentLocation(requiredString(args.id, "id")).url : requiredString(args.url, "url");
+    const response = await this.server.call("native.lds.loadDoc", {
+      url,
+      useBinaryResponse: true
+    });
+    const source = isBinary(response) ? new TextDecoder("utf-8", { fatal: true }).decode(response.bytes) : buildXml(findXmlNode(response, "Data"));
+    let document;
+    try {
+      document = XmlDocument.parse(source);
+    } catch (error) {
+      if (args.url === void 0 || !(error instanceof HcmError)) throw error;
+      throw new HcmError(
+        error.code,
+        error.message,
+        "Если по адресу не документ объекта: файл читает files.read, поля формы — schema.get с url."
+      );
+    }
+    const snapshot = document.snapshot();
+    const documentId = typeof snapshot.data.id === "string" && snapshot.data.id !== "" ? snapshot.data.id : void 0;
+    const requested = args.id === void 0 ? void 0 : resolvePhysicalDocumentLocation(requiredString(args.id, "id")).objectId;
+    if (requested !== void 0 && documentId !== void 0 && BigInt(resolvePhysicalDocumentLocation(documentId).objectId) !== BigInt(requested))
+      throw new HcmError(
+        "TARGET_MISMATCH",
+        "ID в прочитанном документе не совпадает с запрошенным.",
+        "Нужно передать id и url одного объекта или что-то одно. Запись не отправлена.",
+        void 0,
+        "not_sent"
+      );
+    if (args.type !== void 0 && snapshot.type !== identifier(args.type, "type"))
+      throw new HcmError(
+        "TYPE_MISMATCH",
+        `Тип объекта — ${snapshot.type}, а не ${String(args.type)}.`,
+        void 0,
+        { actualType: snapshot.type }
+      );
+    return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
+  }
+  async journal(entry2) {
+    await mkdir2(this.journalDirectory, { recursive: true });
+    await appendFile(
+      join2(this.journalDirectory, "mutations.jsonl"),
+      `${JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), ...entry2 })}
+`,
+      { encoding: "utf8", mode: 384 }
     );
   }
-  gateway;
-  results;
-  logs;
-  schemaReader;
-  rpcCatalog;
-  queue = Promise.resolve();
-  closed = false;
-  closePromise;
+  async resolveCatalog(type, documentUrl) {
+    const info = await this.server.applicationInfo();
+    let dbName = typeof info.default_db_name === "string" ? info.default_db_name : void 0;
+    if (documentUrl) {
+      const url = new URL(documentUrl);
+      if (url.protocol === "x-local:") dbName = url.hostname;
+    }
+    if (dbName === void 0 || !Array.isArray(info.databases)) return void 0;
+    const db = info.databases.find(
+      (value) => value && typeof value === "object" && "id" in value && value.id === dbName
+    );
+    if (!db || typeof db !== "object" || !("catalogs" in db) || !Array.isArray(db.catalogs))
+      return void 0;
+    const named = (value, objectType, id) => !!value && typeof value === "object" && "object_type" in value && value.object_type === objectType && "id" in value && typeof value.id === "string" && (id === void 0 || value.id === id);
+    let matches2 = db.catalogs.filter((value) => named(value, type));
+    if (!matches2.length)
+      matches2 = db.catalogs.filter((value) => named(value, "", `${type}s`));
+    return matches2.length === 1 ? identifier(inputObject(matches2[0]).id, "catalog") : void 0;
+  }
+  /**
+   * Values of the named fields in the catalog row of an object. `known` holds the names that are
+   * fields of the catalog, whether the row has a value for them or not.
+   */
+  async catalogRow(type, url, id, names) {
+    const none = { values: {}, known: /* @__PURE__ */ new Set() };
+    if (!names.length || id === void 0) return none;
+    try {
+      const catalog = await this.resolveCatalog(type, url);
+      if (!catalog) return none;
+      const shape = await this.schema.catalogShape({ catalog });
+      const known = new Set(names.filter((name3) => shape?.fields.has(name3)));
+      if (!known.size) return none;
+      const response = await this.server.read("native.lds.xQuery", {
+        query: `for $elem in ${catalog} where $elem/id = ${resolvePhysicalDocumentLocation(id).objectId} return $elem`,
+        maxCount: 1,
+        expectToReadAll: false,
+        keepCursor: false
+      });
+      const [item] = queryPage(response, 0, 1, [...known], false).items;
+      const values = Object.fromEntries(
+        Object.entries(withoutFalseOffset(item ?? {})).filter(
+          ([name3]) => known.has(name3)
+        )
+      );
+      return { values, known };
+    } catch {
+      return none;
+    }
+  }
+  async catalogHasId(catalog, id) {
+    const lexicalId = resolvePhysicalDocumentLocation(id).objectId;
+    const response = await this.server.read("native.lds.xQuery", {
+      query: `for $elem in ${catalog} where $elem/id = ${lexicalId} return $elem`,
+      maxCount: 2,
+      expectToReadAll: false,
+      keepCursor: false
+    });
+    const data2 = cleanXmlValue(findXmlNode(response, "Data"));
+    return data2 !== null && typeof data2 === "object" && Object.values(data2).some((value) => Array.isArray(value) ? value.length > 0 : value !== "");
+  }
+  /**
+   * What the server would not keep is refused before the write: a field the type does not have is
+   * dropped from the saved document, as is a value for a field the server computes, and a date the
+   * server cannot read is stored as another value.
+   */
+  async requireFields(type, formUrl, data2, names) {
+    const shape = await this.schema.documentShape(type, formUrl).catch(() => void 0);
+    if (!shape) return;
+    const written = [...new Set(names)];
+    const unknown = shape.fields.size && !shape.partial ? written.filter((name3) => !shape.fields.has(name3)) : [];
+    if (unknown.length) {
+      const near = [...shape.fields].filter(
+        (field) => unknown.some(
+          (name3) => name3.length > 3 && field.includes(name3) || field.length > 3 && name3.includes(field) || oneEditApart(field, name3)
+        )
+      ).slice(0, 5);
+      throw new HcmError(
+        "UNKNOWN_FIELD",
+        `У типа ${type} нет поля: ${unknown.join(", ")}.`,
+        `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Поля типа показывает schema.get.`,
+        { fields: unknown }
+      );
+    }
+    const computed = written.filter((name3) => shape.computed?.has(name3));
+    if (computed.length)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        `${computed.join(", ")}: значение вычисляет сервер, записать его нельзя.`,
+        "Менять нужно поля, из которых сервер его складывает. Вычисляемые поля в schema.get помечены computed:true.",
+        { fields: computed }
+      );
+    const wrong = written.filter((name3) => {
+      const value = data2[name3];
+      return shape.dates.has(name3) && typeof value === "string" && value && !isServerDate(value);
+    });
+    if (wrong.length)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        `${wrong.join(", ")}: дата записана не так, как её читает сервер.`,
+        'Писать нужно "2026-12-05" или "2026-12-05T09:30:00". Время — местное время сервера: смещение в значении сервер не учитывает.',
+        { fields: wrong }
+      );
+  }
+  async create(args, out) {
+    const type = identifier(args.type, "type");
+    const data2 = inputObject(args.data, "data");
+    if (data2.id !== void 0)
+      throw new HcmError(
+        "IMMUTABLE_ID",
+        "ID новому объекту выдаёт сервер: нужно убрать id из data."
+      );
+    if (!Object.keys(data2).length)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        "data: нет ни одного поля.",
+        "Нужно передать поля нового объекта, например {name: '…'}; значения по умолчанию сервер подставит сам."
+      );
+    XmlDocument.create(type, data2).snapshot();
+    if (args.formUrl === void 0) await this.schema.requireType(type);
+    const formUrl = args.formUrl === void 0 ? `x-local://wtv/wtv_${type}.xmd` : requiredString(args.formUrl, "formUrl");
+    const form = await this.schema.documentForm(formUrl);
+    if (!Array.isArray(form.roots) || !form.roots.includes(type))
+      throw new HcmError("FORM_TYPE_MISMATCH", "В форме нет запрошенного типа объекта.");
+    await this.requireFields(type, formUrl, data2, Object.keys(data2));
+    const dbName = args.dbName === void 0 ? "wt_data" : identifier(args.dbName, "dbName");
+    const mutationId = randomUUID3();
+    out.note({ mutationId });
+    await this.journal({ mutationId, operation: "objects.create", stage: "allocating", type });
+    const allocated = await this.server.call("native.lds.getNewObjectId", { dbName }, out);
+    const location = resolvePhysicalDocumentLocation(
+      scalar(findXmlNode(allocated, "ObjectID"), "ObjectID"),
+      dbName
+    );
+    out.note({ objectId: location.objectId, url: location.url });
+    const snapshot = XmlDocument.create(
+      type,
+      { id: location.objectId, ...data2 },
+      formUrl
+    ).snapshot();
+    await this.journal({
+      mutationId,
+      operation: "objects.create",
+      stage: "prepared",
+      objectId: location.objectId
+    });
+    await this.server.call(
+      "native.lds.putDoc",
+      { url: location.url, data: snapshot.xml, writeDocInfo: true, neverSaved: true },
+      out
+    );
+    const loaded = await this.load({ url: location.url, type });
+    const result = loaded.document.snapshot();
+    if (BigInt(requiredString(loaded.id, "ID при проверочном чтении")) !== BigInt(location.objectId))
+      throw new HcmError(
+        "READ_BACK_MISMATCH",
+        "При проверочном чтении ID созданного объекта не совпал с выданным.",
+        void 0,
+        { mutationId },
+        "indeterminate"
+      );
+    verifyFields(snapshot.data, result.data, form.fields, Object.keys(data2));
+    await this.journal({
+      mutationId,
+      operation: "objects.create",
+      stage: "verified",
+      objectId: location.objectId
+    });
+    return {
+      id: location.objectId,
+      url: location.url,
+      type,
+      fingerprint: result.fingerprint,
+      mutationId,
+      mutationOutcome: "confirmed"
+    };
+  }
+  async patch(args, out) {
+    const loaded = await this.load(args);
+    const changes = loaded.document.patch(
+      patchInput(args.patch, args.remove, args.resave === true)
+    );
+    if (args.expectedFingerprint !== void 0 && args.expectedFingerprint !== changes.before.fingerprint)
+      throw new HcmError(
+        "CONFLICT",
+        "Объект изменился после чтения: его fingerprint не равен expectedFingerprint.",
+        "Прочитать объект заново и составить изменение по его текущему состоянию.",
+        void 0,
+        "not_sent"
+      );
+    await this.requireFields(
+      changes.before.type,
+      changes.before.formUrl,
+      changes.after.data,
+      changes.changes.filter((change) => inputObject(change).op === "set").map((change) => patchSegments(String(inputObject(change).path))[0][1])
+    );
+    const noop = changes.before.fingerprint === changes.after.fingerprint;
+    if (args.preview === true || noop && args.resave !== true)
+      return {
+        preview: args.preview === true,
+        noop: noop && args.resave !== true,
+        changes: changes.changes,
+        fingerprint: changes.before.fingerprint
+      };
+    const current = await this.load(args);
+    if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
+      throw new HcmError(
+        "CONFLICT",
+        "Объект изменился, пока готовилась запись.",
+        void 0,
+        void 0,
+        "not_sent"
+      );
+    const form = await this.schema.documentForm(
+      changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`
+    );
+    const branches = changes.changes.map(
+      (change) => patchSegments(String(inputObject(change).path))[0][1]
+    );
+    const mutationId = randomUUID3();
+    await this.journal({
+      mutationId,
+      operation: "objects.patch",
+      stage: "prepared",
+      fingerprint: changes.before.fingerprint
+    });
+    out.note({
+      mutationId,
+      url: loaded.url,
+      ...loaded.id === void 0 ? {} : { objectId: loaded.id }
+    });
+    await this.server.call(
+      "native.lds.putDoc",
+      { url: loaded.url, data: changes.after.xml, writeDocInfo: true },
+      out
+    );
+    const verified = await this.load(args);
+    const snapshot = verified.document.snapshot();
+    verifyFields(changes.after.data, snapshot.data, form.fields, branches, changes.before.xml);
+    verifyRemovals(changes.after.data, snapshot.data, changes.changes, form.fields);
+    await this.journal({
+      mutationId,
+      operation: "objects.patch",
+      stage: "verified",
+      fingerprint: snapshot.fingerprint
+    });
+    const serverChanged = Object.keys({ ...changes.after.data, ...snapshot.data }).filter(
+      (key) => key !== "doc_info" && !branches.includes(key) && JSON.stringify(changes.after.data[key]) !== JSON.stringify(snapshot.data[key])
+    );
+    return {
+      ...verified.id === void 0 ? {} : { id: verified.id },
+      type: snapshot.type,
+      url: loaded.url,
+      fingerprint: snapshot.fingerprint,
+      changes: changes.changes,
+      ...serverChanged.length ? { serverChanged: serverChanged.slice(0, 20) } : {},
+      mutationId,
+      mutationOutcome: "confirmed"
+    };
+  }
+  async delete(args, out) {
+    if (args.permanent !== true)
+      throw new HcmError(
+        "DELETE_MODE_REQUIRED",
+        "Объект удаляется безвозвратно: для этого нужен permanent:true.",
+        "Корзины у этой операции нет.",
+        void 0,
+        "not_sent"
+      );
+    const loaded = await this.load(args);
+    const snapshot = loaded.document.snapshot();
+    const objectId = requiredString(loaded.id, "ID объекта");
+    const catalog = args.catalog === void 0 ? await this.resolveCatalog(snapshot.type, loaded.url) : identifier(args.catalog, "catalog");
+    if (catalog !== void 0 && !await this.catalogHasId(catalog, objectId))
+      throw new HcmError(
+        "CATALOG_MISMATCH",
+        "Объекта нет в каталоге, по которому проверяется удаление.",
+        "Нужно указать каталог, в котором объект есть. Запрос на удаление не отправлен.",
+        void 0,
+        "not_sent"
+      );
+    const mutationId = randomUUID3();
+    await this.journal({ mutationId, operation: "objects.delete", stage: "prepared", objectId });
+    out.note({ mutationId, objectId, url: loaded.url });
+    await this.server.call("native.lds.deleteDoc", { url: loaded.url, strictDelete: true }, out);
+    if (catalog !== void 0 && await this.catalogHasId(catalog, objectId))
+      throw new HcmError(
+        "READ_BACK_MISMATCH",
+        "После удаления объект всё ещё есть в каталоге.",
+        "Перед повтором удаления прочитать объект. Причину сервер пишет в лог spxml_unibridge.",
+        void 0,
+        "indeterminate"
+      );
+    await this.journal({
+      mutationId,
+      operation: "objects.delete",
+      stage: catalog === void 0 ? "acknowledged" : "verified-absence",
+      objectId
+    });
+    return {
+      id: objectId,
+      mutationId,
+      mutationOutcome: "confirmed",
+      verification: catalog === void 0 ? "server acknowledgement" : "catalog absence",
+      ...catalog === void 0 ? {} : { catalog }
+    };
+  }
+};
+
+// src/write-outcome.ts
+function refusedAtDoor(error) {
+  return error instanceof WsHcmApiError && error.status === 401 || loginFailed(error);
+}
+var WriteOutcome = class {
+  marks = 0;
+  ids = {};
+  /** Before a request that may change the server; returns the withdrawal of this one mark. */
+  sending() {
+    this.marks++;
+    let withdrawn = false;
+    return () => {
+      if (!withdrawn) this.marks--;
+      withdrawn = true;
+    };
+  }
+  note(ids) {
+    for (const [key, value] of Object.entries(ids))
+      if (value !== void 0) this.ids[key] = value;
+  }
+  /** The first line that fits: no error, a read, a refusal at the door, a mark not withdrawn, otherwise not sent. */
+  verdict(effect, error) {
+    const { mutationId, objectId, executionId } = this.ids;
+    const exactIds = {
+      ...mutationId !== void 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId) ? { mutationId } : {},
+      ...objectId !== void 0 && /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(objectId) && BigInt(objectId) <= 0xffffffffffffffffn ? { objectId } : {},
+      ...executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(executionId) ? { executionId } : {}
+    };
+    const sent = effect !== "read" && this.marks > 0;
+    const verdict = { sent, ids: { ...this.ids }, exactIds };
+    if (error === void 0) return verdict;
+    const turnedAway = error instanceof HcmError && (error.code === "RPC_SERVER_ONLY" || error.code === "UNKNOWN_RPC_TARGET");
+    const mutationOutcome = effect === "read" ? error instanceof HcmError ? error.mutationOutcome : void 0 : sent && !turnedAway ? "indeterminate" : "not_sent";
+    if (mutationOutcome === void 0) return verdict;
+    const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error);
+    return { ...verdict, mutationOutcome, ...refusedAfterSend && { refusedAfterSend } };
+  }
+};
+
+// src/hcm-server.ts
+function refuseUnowned(id, args, refused) {
+  const effect = nativeEffect(id, args);
+  if (effect !== void 0 && refused(effect))
+    throw new Error(`${id}: запрос, который может изменить сервер, без владельца исхода записи`);
+}
+var HcmServer = class {
+  constructor(port) {
+    this.port = port;
+  }
   appInfo;
+  /** A request of an operation the registry calls a read. Anything else must say what it is. */
+  async call(id, args, outcome) {
+    if (!outcome) {
+      refuseUnowned(id, args, (effect) => effect !== "read");
+      return this.port.call(id, args);
+    }
+    const withdraw = outcome.sending();
+    try {
+      return await this.port.call(id, args);
+    } catch (error) {
+      if (error instanceof WsHcmApiError && error.requestSent === false || refusedAtDoor(error))
+        withdraw();
+      throw error;
+    }
+  }
+  /** A request that only reads here though its operation can do more (xQuery, rpc.call); a registry write is refused. */
+  async read(id, args) {
+    refuseUnowned(id, args, (effect) => effect === "write");
+    return this.port.call(id, args);
+  }
+  /** Application info, kept for 30 seconds; a refused request is not kept. */
+  async applicationInfo() {
+    if (!this.appInfo || this.appInfo.expires < Date.now()) {
+      const value = this.call("native.spxml2.getAppInfo", { fastStart: true });
+      this.appInfo = { expires: Date.now() + 3e4, value };
+      value.catch(() => {
+        if (this.appInfo?.value === value) this.appInfo = void 0;
+      });
+    }
+    return inputObject(await this.appInfo.value, "сведения о приложении");
+  }
+  /**
+   * Code prepared by prepareScript, run on the server; the answer is checked for a caught error.
+   * `idle` tells from the answer that the code did nothing: the mark is withdrawn.
+   */
+  async runCode(script, outcome, idle) {
+    prepare(script.request, describeHcmOperation("web.rpc.call").inputSchema);
+    outcome.note({ executionId: script.executionId });
+    const withdraw = outcome.sending();
+    try {
+      const data2 = scriptResult(
+        await this.port.call("web.rpc.call", script.request),
+        script.executionId
+      );
+      if (idle?.(data2)) withdraw();
+      return data2;
+    } catch (error) {
+      if (error instanceof HcmError && error.mutationOutcome === "not_sent" || refusedAtDoor(error))
+        withdraw();
+      throw error;
+    }
+  }
+};
+
+// src/reply.ts
+function jsonSafe(value) {
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Uint8Array)
+    return { base64: Buffer.from(value).toString("base64"), bytes: value.length };
+  if (Array.isArray(value)) return value.map(jsonSafe);
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
+  return value;
+}
+function beginning(data2) {
+  const cut = (value) => Array.isArray(value) ? value.slice(0, 3) : typeof value === "string" ? value.slice(0, 1e3) : value;
+  if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return cut(data2);
+  return Object.fromEntries(Object.entries(data2).map(([key, value]) => [key, cut(value)]));
+}
+function stepSummary(step) {
+  const { as, ok, data: data2, error } = step;
+  return {
+    ...as === void 0 ? {} : { as },
+    ok,
+    ...error?.code ? { code: error.code } : {},
+    ...typeof data2?.total === "number" ? { total: data2.total } : {},
+    ...Array.isArray(data2?.items) ? { rows: data2.items.length } : {},
+    ...data2?.incomplete ? { incomplete: true } : {}
+  };
+}
+var ReplyPacker = class {
+  constructor(config, results) {
+    this.config = config;
+    this.results = results;
+  }
   /** Room for the payload of one reply; the rest of the output limit is left to its other fields. */
   get pageBytes() {
     return Math.floor(this.config.outputLimitBytes * 0.6);
   }
-  listOperations(filter = {}) {
-    return listHcmOperations(filter);
-  }
-  describe(id) {
-    return describeHcmOperation(id);
-  }
-  /** Resolve conditional side effects for the actual arguments; frontends must use this before routing. */
-  getOperationEffect(id, args = {}) {
-    return this.effect(this.describe(id), args);
-  }
-  call(id, args = {}) {
-    const start = performance.now();
-    if (this.closed)
-      return Promise.resolve(
-        this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто."))
-      );
-    let snapshot;
-    try {
-      snapshot = inputObject(structuredClone(args));
-    } catch {
-      return Promise.resolve(
-        this.failure(
-          id,
-          start,
-          new HcmError(
-            "INVALID_ARGUMENT",
-            "Аргументы операции — не объект, или в них есть значение, которое нельзя скопировать.",
-            "Нужно передать значения, совместимые с JSON; двоичные данные — как {base64: …}, XML — как {xml: …}."
-          ),
-          { sent: false, effect: operationDefinition(id)?.effect ?? "unknown" }
-        )
-      );
-    }
-    const run = this.queue.then(() => this.perform(id, snapshot, start));
-    this.queue = run.catch(() => void 0);
-    return run;
-  }
-  effect(operation, args) {
-    if (operation.id === "runtime.query") {
-      const deferredArguments = Object.keys(args).length === 1 && typeof args.$ref === "string";
-      return deferredArguments || args.query !== void 0 ? "execute" : "read";
-    }
-    if (operation.id === "objects.patch" && args.preview === true) return "read";
-    if (operation.id === "runtime.batch") {
-      const steps = args.steps;
-      if (!Array.isArray(steps)) return "unknown";
-      const effects = steps.map((raw) => {
-        const step = inputObject(raw, "step");
-        const id = requiredString(step.id, "step.id");
-        if (id === "runtime.batch")
-          throw new HcmError("NESTED_BATCH", "Пакет внутри пакета не поддерживается.");
-        return this.effect(
-          this.describe(id),
-          step.args === void 0 ? {} : inputObject(step.args)
-        );
-      });
-      if (effects.includes("unknown") || effects.includes("write") && effects.includes("execute"))
-        return "unknown";
-      return effects.includes("execute") ? "execute" : effects.includes("write") ? "write" : "read";
-    }
-    return operation.profile === void 0 ? operation.effect : getEffectiveNativeEffect(operation, args);
-  }
-  authorize(effect) {
-    if ((effect === "write" || effect === "unknown") && !this.config.permissions.write)
-      throw new HcmError(
-        "WRITE_DISABLED",
-        "Подключение не разрешает запись.",
-        "Нужно право write: его включает владелец подключения в настройках подключения (permissions.write).",
-        void 0,
-        "not_sent"
-      );
-    if ((effect === "execute" || effect === "unknown") && !this.config.permissions.execute)
-      throw new HcmError(
-        "EXECUTE_DISABLED",
-        "Подключение не разрешает выполнять код, функции и запросы XQuery на сервере.",
-        "Нужно право execute: его включает владелец подключения в настройках подключения (permissions.execute).",
-        void 0,
-        "not_sent"
-      );
-  }
-  async perform(id, args, start, boundOutput = true, state = { sent: false, effect: "read" }) {
-    try {
-      const operation = this.describe(id);
-      state.effect = operation.effect;
-      validate(args, operation.inputSchema);
-      state.effect = this.effect(operation, args);
-      this.authorize(state.effect);
-      if (operation.profile !== void 0) prepare(args, operation.inputSchema);
-      const data2 = jsonSafe(await this.dispatch(id, args, state));
-      const serialised = JSON.stringify(data2);
-      const failedBatch = id === "runtime.batch" && data2 !== null && typeof data2 === "object" && "ok" in data2 && data2.ok === false;
-      const failedCheck = id === "runtime.check" && data2.summary.failed > 0;
-      const batch = data2;
-      const failedSteps = failedBatch ? batch.results.flatMap(
-        (result, index) => result.ok ? [] : [{ index, id: result.meta.operationId, code: result.error?.code ?? "UNKNOWN" }]
-      ) : [];
-      const outcome = failedBatch || failedCheck ? {
-        ok: false,
-        error: {
-          code: failedCheck ? "CHECK_FAILED" : "BATCH_FAILED",
-          message: failedCheck ? `Проверка подключения не пройдена: ${data2.checks.filter((check) => check.result === "failed").map((check) => check.name).join(", ")}.` : `Отказало шагов пакета: ${failedSteps.length} из ${batch.requested}${batch.requested > batch.completed ? `; после отказа не запускались: ${batch.requested - batch.completed}` : ""}. До повтора нужно посмотреть исход каждого шага.`,
-          hint: failedCheck ? data2.checks.find((check) => check.result === "failed")?.reason ?? "Причины — в data.checks." : "Номера и коды отказавших шагов — в error.details.failed, ответы шагов — в data.results.",
-          retryable: false,
-          ...failedBatch ? {
-            details: {
-              failed: failedSteps.slice(0, 20),
-              ...failedSteps.length > 20 ? { failedTotal: failedSteps.length } : {}
-            }
-          } : {}
-        }
-      } : { ok: true };
-      if (boundOutput && Buffer.byteLength(serialised ?? "null") > this.config.outputLimitBytes && id !== "results.read" && id !== "runtime.check") {
-        const stored = await this.results.put(data2);
-        let preview = beginning(data2);
-        if (Buffer.byteLength(JSON.stringify(preview)) > this.config.outputLimitBytes / 2)
-          preview = {
-            kind: "stored-result",
-            ...data2 !== null && typeof data2 === "object" && !Array.isArray(data2) ? Object.fromEntries(
-              Object.entries(data2).slice(0, 40).map(([key, value]) => [
-                key,
-                Array.isArray(value) ? id === "runtime.batch" && key === "results" ? value.map(stepSummary) : `[список: ${value.length}]` : value !== null && typeof value === "object" ? "{структура}" : typeof value === "string" && value.length > 120 ? `${value.slice(0, 120)}…` : value
-              ])
-            ) : {}
-          };
-        return {
-          ...outcome,
-          ...failedBatch && "error" in outcome ? {
-            error: {
-              ...outcome.error,
-              hint: "Номера и коды отказавших шагов — в error.details.failed; ответы шагов сохранены, их читает results.read."
-            }
-          } : {},
-          data: {
-            preview,
-            resultId: stored.resultId,
-            hint: `Ответ не поместился и сохранён целиком: results.read читает ${stored.list === void 0 ? "его частями" : `список ${stored.list} по элементам`}, results.export сохраняет в файл.`
-          },
-          meta: {
-            operationId: id,
-            connection: this.config.name,
-            durationMs: Math.round(performance.now() - start),
-            truncated: true,
-            resultId: stored.resultId,
-            resultBytes: stored.bytes
+  /** What the operation returned; an answer over the limit is stored whole and replaced by its beginning. */
+  async success(id, start, value, bound) {
+    const data2 = jsonSafe(value);
+    const serialised = JSON.stringify(data2);
+    const failedBatch = id === "runtime.batch" && data2 !== null && typeof data2 === "object" && "ok" in data2 && data2.ok === false;
+    const failedCheck = id === "runtime.check" && data2.summary.failed > 0;
+    const batch = data2;
+    const failedSteps = failedBatch ? batch.results.flatMap(
+      (result, index) => result.ok ? [] : [{ index, id: result.meta.operationId, code: result.error?.code ?? "UNKNOWN" }]
+    ) : [];
+    const outcome = failedBatch || failedCheck ? {
+      ok: false,
+      error: {
+        code: failedCheck ? "CHECK_FAILED" : "BATCH_FAILED",
+        message: failedCheck ? `Проверка подключения не пройдена: ${data2.checks.filter((check) => check.result === "failed").map((check) => check.name).join(", ")}.` : `Отказало шагов пакета: ${failedSteps.length} из ${batch.requested}${batch.requested > batch.completed ? `; после отказа не запускались: ${batch.requested - batch.completed}` : ""}. До повтора нужно посмотреть исход каждого шага.`,
+        hint: failedCheck ? data2.checks.find((check) => check.result === "failed")?.reason ?? "Причины — в data.checks." : "Номера и коды отказавших шагов — в error.details.failed, ответы шагов — в data.results.",
+        retryable: false,
+        ...failedBatch ? {
+          details: {
+            failed: failedSteps.slice(0, 20),
+            ...failedSteps.length > 20 ? { failedTotal: failedSteps.length } : {}
           }
-        };
+        } : {}
       }
-      const kept = boundOutput && (id === "logs.read" || id === "files.read") ? await this.results.put(data2).catch(() => void 0) : void 0;
+    } : { ok: true };
+    if (bound && Buffer.byteLength(serialised ?? "null") > this.config.outputLimitBytes && id !== "results.read" && id !== "runtime.check") {
+      const stored = await this.results.put(data2);
+      let preview = beginning(data2);
+      if (Buffer.byteLength(JSON.stringify(preview)) > this.config.outputLimitBytes / 2)
+        preview = {
+          kind: "stored-result",
+          ...data2 !== null && typeof data2 === "object" && !Array.isArray(data2) ? Object.fromEntries(
+            Object.entries(data2).slice(0, 40).map(([key, value2]) => [
+              key,
+              Array.isArray(value2) ? id === "runtime.batch" && key === "results" ? value2.map(stepSummary) : `[список: ${value2.length}]` : value2 !== null && typeof value2 === "object" ? "{структура}" : typeof value2 === "string" && value2.length > 120 ? `${value2.slice(0, 120)}…` : value2
+            ])
+          ) : {}
+        };
       return {
         ...outcome,
-        data: data2,
+        ...failedBatch && "error" in outcome ? {
+          error: {
+            ...outcome.error,
+            hint: "Номера и коды отказавших шагов — в error.details.failed; ответы шагов сохранены, их читает results.read."
+          }
+        } : {},
+        data: {
+          preview,
+          resultId: stored.resultId,
+          hint: `Ответ не поместился и сохранён целиком: results.read читает ${stored.list === void 0 ? "его частями" : `список ${stored.list} по элементам`}, results.export сохраняет в файл.`
+        },
         meta: {
           operationId: id,
           connection: this.config.name,
           durationMs: Math.round(performance.now() - start),
-          ...kept ? { resultId: kept.resultId } : {}
+          truncated: true,
+          resultId: stored.resultId,
+          resultBytes: stored.bytes
         }
       };
-    } catch (error) {
-      const failure = this.failure(id, start, error, state);
-      if (!state.batchRecovery) return failure;
-      return { ...failure, data: this.batchRecoveryData(state.batchRecovery) };
     }
+    const kept = bound && (id === "logs.read" || id === "files.read") ? await this.results.put(data2).catch(() => void 0) : void 0;
+    return {
+      ...outcome,
+      data: data2,
+      meta: {
+        operationId: id,
+        connection: this.config.name,
+        durationMs: Math.round(performance.now() - start),
+        ...kept ? { resultId: kept.resultId } : {}
+      }
+    };
+  }
+  /** What the operation threw: worded by the class of the error, without secrets, within the limit. */
+  failure(id, start, error, verdict, extra = {}) {
+    const failure = this.pack(id, start, error, verdict, extra.refusal);
+    if (!extra.batchRecovery) return failure;
+    return { ...failure, data: this.batchRecoveryData(extra.batchRecovery) };
   }
   /** Local storage failure cannot erase already executed steps or label a sent batch not_sent. */
   batchRecoveryData(recovery) {
@@ -4991,7 +5416,7 @@ var HcmRuntime = class {
     }
     return data2;
   }
-  failure(id, start, error, state) {
+  pack(id, start, error, verdict, refusal) {
     const redact = (message, limit = 500) => {
       let safe = message;
       for (const secret of [
@@ -5001,14 +5426,15 @@ var HcmRuntime = class {
         if (secret) safe = safe.replaceAll(secret, "[redacted]");
       return safe.replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]").replace(/(?:SessionID|Authorization|Cookie)\s*[:=]\s*[^\s,;]+/gi, "[redacted]").slice(0, limit);
     };
-    const normal = error instanceof HcmError ? error.toJSON() : error instanceof WebSocketHeartbeatError ? {
+    const { mutationOutcome, refusedAfterSend, ids, exactIds } = verdict;
+    const { mutationOutcome: _own, ...normal } = error instanceof HcmError ? error.toJSON() : error instanceof WebSocketHeartbeatError ? {
       code: error.errorCode,
       message: "Служба WebSocket не ответила на проверку.",
       hint: error.hint,
       retryable: false
     } : error instanceof WsHcmApiError ? {
       code: `PLATFORM_${error.kind.toUpperCase()}`,
-      ...platformFailure(error, this.config.baseUrl, state?.refusal ?? id),
+      ...platformFailure(error, this.config.baseUrl, refusal ?? id),
       retryable: false,
       ...error.status === void 0 ? {} : { details: { status: error.status } }
     } : error instanceof TypeError ? {
@@ -5022,10 +5448,8 @@ var HcmRuntime = class {
       hint: "Проверить аргументы по api.describe. Если ошибка повторяется при верных аргументах, это дефект клиента.",
       retryable: false
     };
-    if (error instanceof WsHcmApiError && error.status === 500 || error instanceof HcmError && error.code === "SCRIPT_FAILED")
-      this.logs.serverWroteLog();
-    const turnedAway = error instanceof WsHcmApiError && error.status === 401 || loginFailed(error) || error instanceof HcmError && (error.code === "RPC_SERVER_ONLY" || error.code === "UNKNOWN_RPC_TARGET");
-    const mutationOutcome = state && state.effect !== "read" ? state.sent && !turnedAway ? "indeterminate" : "not_sent" : void 0;
+    if (refusedAfterSend)
+      normal.hint = `${normal.hint ?? ""} До этого отказа запрос на запись уже ушёл: после восстановления входа проверить, прошла ли запись, прежде чем повторять.`.trim();
     const trim = (value, depth = 0, limit = 256) => {
       if (typeof value === "string") {
         const text3 = redact(value, limit + 1);
@@ -5042,25 +5466,20 @@ var HcmRuntime = class {
         );
       return value;
     };
-    const trustedIds = {
-      ...state?.mutationId !== void 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(state.mutationId) ? { mutationId: state.mutationId } : {},
-      ...state?.objectId !== void 0 && /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(state.objectId) && BigInt(state.objectId) <= 0xffffffffffffffffn ? { objectId: state.objectId } : {},
-      ...state?.executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(state.executionId) ? { executionId: state.executionId } : {}
-    };
     let details = {
       ...trim({
         ...normal.details,
-        ...state?.mutationId === void 0 ? {} : { mutationId: state.mutationId },
-        ...state?.objectId === void 0 ? {} : { objectId: state.objectId },
-        ...state?.url === void 0 ? {} : { url: state.url },
-        ...state?.executionId === void 0 ? {} : { executionId: state.executionId }
+        ...ids.mutationId === void 0 ? {} : { mutationId: ids.mutationId },
+        ...ids.objectId === void 0 ? {} : { objectId: ids.objectId },
+        ...ids.url === void 0 ? {} : { url: ids.url },
+        ...ids.executionId === void 0 ? {} : { executionId: ids.executionId }
       }),
-      ...trustedIds
+      ...exactIds
     };
     if (Buffer.byteLength(JSON.stringify(details)) > this.config.outputLimitBytes / 4)
       details = {
         omitted: true,
-        ...trustedIds
+        ...exactIds
       };
     const omitOversizedConnection = (value) => {
       const bytes = Buffer.byteLength(JSON.stringify(value));
@@ -5128,155 +5547,186 @@ var HcmRuntime = class {
     }
     return result;
   }
-  /** One object by id or url, as objects.get answers. */
-  async readObject(args) {
-    const loaded = await this.load(args);
-    const snapshot = loaded.document.snapshot();
-    const data2 = withoutFalseOffset(projectFields(snapshot.data, args.fields));
-    const absent = Array.isArray(args.fields) ? args.fields.filter((field) => !Object.hasOwn(data2, field)) : [];
-    const shape = absent.length || hasStructure(data2) ? await this.schemaReader.documentShape(snapshot.type, snapshot.formUrl).catch(() => void 0) : void 0;
-    const row = await this.catalogRow(snapshot.type, loaded.url, loaded.id, absent);
-    const unknownFields = shape?.fields.size ? absent.filter((field) => !shape.fields.has(field) && !row.known.has(field)) : [];
-    const emptyFields = shape?.fields.size ? absent.filter(
-      (field) => !unknownFields.includes(field) && !Object.hasOwn(row.values, field)
-    ) : [];
-    return {
-      ...loaded.id === void 0 ? {} : { id: loaded.id },
-      type: snapshot.type,
-      url: loaded.url,
-      data: shape ? withRepeated(data2, shape.repeated) : data2,
-      ...Object.keys(row.values).length ? { fromCatalog: row.values } : {},
-      ...emptyFields.length ? { emptyFields } : {},
-      ...unknownFields.length ? { unknownFields } : {},
-      fingerprint: snapshot.fingerprint,
-      ...snapshot.formUrl === void 0 ? {} : { formUrl: snapshot.formUrl }
-    };
+};
+
+// src/runtime.ts
+function withoutXmlFormatting(value) {
+  if (Array.isArray(value)) return value.map(withoutXmlFormatting);
+  if (!value || typeof value !== "object" || value instanceof Uint8Array) return value;
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key, child]) => key !== "@_xmlns" && !(key === "#text" && typeof child === "string" && child.trim() === "")
+    ).map(([key, child]) => [
+      key,
+      // A line break and the indentation of the closing tag are formatting of an empty element.
+      typeof child === "string" && /^\s*\n[ \t]+$/.test(child) ? "" : withoutXmlFormatting(child)
+    ])
+  );
+}
+function plainAnswer(id, answer) {
+  if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return answer;
+  const data2 = answer;
+  if (id === "web.pages.uploadFile" && typeof data2.Url === "string" && data2.Url) {
+    const url = `x-local://share/uploaded_files/${data2.Url}`;
+    const { Url: _, ...rest } = data2;
+    return { ...rest, url, folderUrl: url.slice(0, url.lastIndexOf("/")) };
   }
-  async load(args) {
-    const url = args.url === void 0 ? resolvePhysicalDocumentLocation(requiredString(args.id, "id")).url : requiredString(args.url, "url");
-    const response = await this.gateway.call("native.lds.loadDoc", {
-      url,
-      useBinaryResponse: true
-    });
-    const source = isBinary(response) ? new TextDecoder("utf-8", { fatal: true }).decode(response.bytes) : buildXml(findXmlNode(response, "Data"));
-    let document;
+  if (id === "web.spxml.getAsyncMethodStatus" && data2.ResultData !== void 0)
     try {
-      document = XmlDocument.parse(source);
-    } catch (error) {
-      if (args.url === void 0 || !(error instanceof HcmError)) throw error;
-      throw new HcmError(
-        error.code,
-        error.message,
-        "Если по адресу не документ объекта: файл читает files.read, поля формы — schema.get с url."
+      const decoded = rpcValue(data2);
+      if (decoded !== data2) {
+        const { ResultData: _typed, ...state } = data2;
+        return { ...state, ...decoded };
+      }
+    } catch {
+    }
+  return answer;
+}
+var HcmRuntime = class {
+  constructor(config, port) {
+    this.config = config;
+    this.results = new ResultStore(config);
+    this.replies = new ReplyPacker(config, this.results);
+    this.gateway = new NativeGateway(config);
+    this.server = new HcmServer(port ?? this.gateway);
+    this.logs = new LogReader({ call: (id, args) => this.server.read(id, args) }, config);
+    this.files = new ServerFiles(this.server, config.permissions);
+    this.rpcCatalog = new RpcCatalog(
+      () => this.server.applicationInfo(),
+      (url) => this.server.call("native.lds.loadUrl", { url })
+    );
+    this.schemaReader = new SchemaReader(
+      () => this.server.applicationInfo(),
+      async (url) => requiredString(await this.server.call("native.spxml2.getForm", { url }), "ответ с формой"),
+      async (url) => (await this.objects.load({ url })).document.snapshot().data
+    );
+    this.objects = new ServerObjects(this.server, this.schemaReader, this.results.directory);
+  }
+  gateway;
+  results;
+  logs;
+  replies;
+  server;
+  schemaReader;
+  files;
+  objects;
+  rpcCatalog;
+  queue = Promise.resolve();
+  closed = false;
+  closePromise;
+  listOperations(filter = {}) {
+    return listHcmOperations(filter);
+  }
+  describe(id) {
+    return describeHcmOperation(id);
+  }
+  /** Resolve conditional side effects for the actual arguments; frontends must use this before routing. */
+  getOperationEffect(id, args = {}) {
+    return this.effect(this.describe(id), args);
+  }
+  call(id, args = {}) {
+    const start = performance.now();
+    if (this.closed)
+      return Promise.resolve(
+        this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто."))
+      );
+    let snapshot;
+    try {
+      snapshot = inputObject(structuredClone(args));
+    } catch {
+      return Promise.resolve(
+        this.failure(
+          id,
+          start,
+          new HcmError(
+            "INVALID_ARGUMENT",
+            "Аргументы операции — не объект, или в них есть значение, которое нельзя скопировать.",
+            "Нужно передать значения, совместимые с JSON; двоичные данные — как {base64: …}, XML — как {xml: …}."
+          ),
+          { outcome: new WriteOutcome(), effect: operationDefinition(id)?.effect ?? "unknown" }
+        )
       );
     }
-    const snapshot = document.snapshot();
-    const documentId = typeof snapshot.data.id === "string" && snapshot.data.id !== "" ? snapshot.data.id : void 0;
-    const requested = args.id === void 0 ? void 0 : resolvePhysicalDocumentLocation(requiredString(args.id, "id")).objectId;
-    if (requested !== void 0 && documentId !== void 0 && BigInt(resolvePhysicalDocumentLocation(documentId).objectId) !== BigInt(requested))
+    const run = this.queue.then(() => this.perform(id, snapshot, start));
+    this.queue = run.catch(() => void 0);
+    return run;
+  }
+  effect(operation, args) {
+    if (operation.id === "runtime.query") {
+      const deferredArguments = Object.keys(args).length === 1 && typeof args.$ref === "string";
+      return deferredArguments || args.query !== void 0 ? "execute" : "read";
+    }
+    if (operation.id === "objects.patch" && args.preview === true) return "read";
+    if (operation.id === "runtime.batch") {
+      const steps = args.steps;
+      if (!Array.isArray(steps)) return "unknown";
+      const effects = steps.map((raw) => {
+        const step = inputObject(raw, "step");
+        const id = requiredString(step.id, "step.id");
+        if (id === "runtime.batch")
+          throw new HcmError("NESTED_BATCH", "Пакет внутри пакета не поддерживается.");
+        return this.effect(
+          this.describe(id),
+          step.args === void 0 ? {} : inputObject(step.args)
+        );
+      });
+      if (effects.includes("unknown") || effects.includes("write") && effects.includes("execute"))
+        return "unknown";
+      return effects.includes("execute") ? "execute" : effects.includes("write") ? "write" : "read";
+    }
+    return operation.profile === void 0 ? operation.effect : getEffectiveNativeEffect(operation, args);
+  }
+  authorize(effect) {
+    if ((effect === "write" || effect === "unknown") && !this.config.permissions.write)
       throw new HcmError(
-        "TARGET_MISMATCH",
-        "ID в прочитанном документе не совпадает с запрошенным.",
-        "Нужно передать id и url одного объекта или что-то одно. Запись не отправлена.",
+        "WRITE_DISABLED",
+        "Подключение не разрешает запись.",
+        "Нужно право write: его включает владелец подключения в настройках подключения (permissions.write).",
         void 0,
         "not_sent"
       );
-    if (args.type !== void 0 && snapshot.type !== identifier(args.type, "type"))
+    if ((effect === "execute" || effect === "unknown") && !this.config.permissions.execute)
       throw new HcmError(
-        "TYPE_MISMATCH",
-        `Тип объекта — ${snapshot.type}, а не ${String(args.type)}.`,
+        "EXECUTE_DISABLED",
+        "Подключение не разрешает выполнять код, функции и запросы XQuery на сервере.",
+        "Нужно право execute: его включает владелец подключения в настройках подключения (permissions.execute).",
         void 0,
-        { actualType: snapshot.type }
+        "not_sent"
       );
-    return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
   }
-  async journal(entry2) {
-    await mkdir2(this.results.directory, { recursive: true });
-    await appendFile(
-      join2(this.results.directory, "mutations.jsonl"),
-      `${JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), ...entry2 })}
-`,
-      { encoding: "utf8", mode: 384 }
+  async perform(id, args, start, boundOutput = true, state = { outcome: new WriteOutcome(), effect: "read" }) {
+    try {
+      const operation = this.describe(id);
+      state.effect = operation.effect;
+      validate(args, operation.inputSchema);
+      state.effect = this.effect(operation, args);
+      this.authorize(state.effect);
+      if (operation.profile !== void 0) prepare(args, operation.inputSchema);
+      const value = await this.dispatch(id, args, state);
+      return await this.replies.success(id, start, value, boundOutput);
+    } catch (error) {
+      return this.failure(id, start, error, state);
+    }
+  }
+  failure(id, start, error, state = { outcome: new WriteOutcome(), effect: "read" }) {
+    if (error instanceof WsHcmApiError && error.status === 500 || error instanceof HcmError && error.code === "SCRIPT_FAILED")
+      this.logs.serverWroteLog();
+    return this.replies.failure(
+      id,
+      start,
+      error,
+      state.outcome.verdict(state.effect, error),
+      state
     );
   }
   async serverInfo(profile) {
     return parseServerInfo(
-      await this.gateway.call(`${profile}.rpc.call`, {
+      await this.server.read(`${profile}.rpc.call`, {
         target: "ms_tools.get_admin_init_server_data",
         args: []
       }),
       profile
     );
-  }
-  async applicationInfo() {
-    if (!this.appInfo || this.appInfo.expires < Date.now()) {
-      const value = this.gateway.call("native.spxml2.getAppInfo", { fastStart: true });
-      this.appInfo = { expires: Date.now() + 3e4, value };
-      value.catch(() => {
-        if (this.appInfo?.value === value) this.appInfo = void 0;
-      });
-    }
-    return inputObject(await this.appInfo.value, "сведения о приложении");
-  }
-  async resolveCatalog(type, documentUrl) {
-    const info = await this.applicationInfo();
-    let dbName = typeof info.default_db_name === "string" ? info.default_db_name : void 0;
-    if (documentUrl) {
-      const url = new URL(documentUrl);
-      if (url.protocol === "x-local:") dbName = url.hostname;
-    }
-    if (dbName === void 0 || !Array.isArray(info.databases)) return void 0;
-    const db = info.databases.find(
-      (value) => value && typeof value === "object" && "id" in value && value.id === dbName
-    );
-    if (!db || typeof db !== "object" || !("catalogs" in db) || !Array.isArray(db.catalogs))
-      return void 0;
-    const named = (value, objectType, id) => !!value && typeof value === "object" && "object_type" in value && value.object_type === objectType && "id" in value && typeof value.id === "string" && (id === void 0 || value.id === id);
-    let matches2 = db.catalogs.filter((value) => named(value, type));
-    if (!matches2.length)
-      matches2 = db.catalogs.filter((value) => named(value, "", `${type}s`));
-    return matches2.length === 1 ? identifier(inputObject(matches2[0]).id, "catalog") : void 0;
-  }
-  /**
-   * Values of the named fields in the catalog row of an object. `known` holds the names that are
-   * fields of the catalog, whether the row has a value for them or not.
-   */
-  async catalogRow(type, url, id, names) {
-    const none = { values: {}, known: /* @__PURE__ */ new Set() };
-    if (!names.length || id === void 0) return none;
-    try {
-      const catalog = await this.resolveCatalog(type, url);
-      if (!catalog) return none;
-      const shape = await this.schemaReader.catalogShape({ catalog });
-      const known = new Set(names.filter((name3) => shape?.fields.has(name3)));
-      if (!known.size) return none;
-      const response = await this.gateway.call("native.lds.xQuery", {
-        query: `for $elem in ${catalog} where $elem/id = ${resolvePhysicalDocumentLocation(id).objectId} return $elem`,
-        maxCount: 1,
-        expectToReadAll: false,
-        keepCursor: false
-      });
-      const [item] = queryPage(response, 0, 1, [...known], false).items;
-      const values = Object.fromEntries(
-        Object.entries(withoutFalseOffset(item ?? {})).filter(
-          ([name3]) => known.has(name3)
-        )
-      );
-      return { values, known };
-    } catch {
-      return none;
-    }
-  }
-  async catalogHasId(catalog, id) {
-    const lexicalId = resolvePhysicalDocumentLocation(id).objectId;
-    const response = await this.gateway.call("native.lds.xQuery", {
-      query: `for $elem in ${catalog} where $elem/id = ${lexicalId} return $elem`,
-      maxCount: 2,
-      expectToReadAll: false,
-      keepCursor: false
-    });
-    const data2 = cleanXmlValue(findXmlNode(response, "Data"));
-    return data2 !== null && typeof data2 === "object" && Object.values(data2).some((value) => Array.isArray(value) ? value.length > 0 : value !== "");
   }
   /**
    * Date and integer fields of the catalog, read only when a condition holds a value written as a
@@ -5293,130 +5743,34 @@ var HcmRuntime = class {
     const shape = await this.schemaReader.catalogShape({ catalog }).catch(() => void 0);
     return { dates: shape?.dates ?? none.dates, integers: shape?.integers ?? none.integers };
   }
-  /**
-   * What the server would not keep is refused before the write: a field the type does not have is
-   * dropped from the saved document, as is a value for a field the server computes, and a date the
-   * server cannot read is stored as another value.
-   */
-  async requireFields(type, formUrl, data2, names) {
-    const shape = await this.schemaReader.documentShape(type, formUrl).catch(() => void 0);
-    if (!shape) return;
-    const written = [...new Set(names)];
-    const unknown = shape.fields.size && !shape.partial ? written.filter((name3) => !shape.fields.has(name3)) : [];
-    if (unknown.length) {
-      const near = [...shape.fields].filter(
-        (field) => unknown.some(
-          (name3) => name3.length > 3 && field.includes(name3) || field.length > 3 && name3.includes(field) || oneEditApart(field, name3)
-        )
-      ).slice(0, 5);
-      throw new HcmError(
-        "UNKNOWN_FIELD",
-        `У типа ${type} нет поля: ${unknown.join(", ")}.`,
-        `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Поля типа показывает schema.get.`,
-        { fields: unknown }
-      );
-    }
-    const computed = written.filter((name3) => shape.computed?.has(name3));
-    if (computed.length)
-      throw new HcmError(
-        "INVALID_ARGUMENT",
-        `${computed.join(", ")}: значение вычисляет сервер, записать его нельзя.`,
-        "Менять нужно поля, из которых сервер его складывает. Вычисляемые поля в schema.get помечены computed:true.",
-        { fields: computed }
-      );
-    const wrong = written.filter((name3) => {
-      const value = data2[name3];
-      return shape.dates.has(name3) && typeof value === "string" && value && !isServerDate(value);
-    });
-    if (wrong.length)
-      throw new HcmError(
-        "INVALID_ARGUMENT",
-        `${wrong.join(", ")}: дата записана не так, как её читает сервер.`,
-        'Писать нужно "2026-12-05" или "2026-12-05T09:30:00". Время — местное время сервера: смещение в значении сервер не учитывает.',
-        { fields: wrong }
-      );
-  }
   async dispatch(id, args, state) {
     switch (id) {
       case "runtime.check":
         return checkServer(
           this.config,
-          (operation, input2) => this.dispatch(operation, input2, { sent: false, effect: "read" })
+          (operation, input2) => this.dispatch(operation, input2, { outcome: new WriteOutcome(), effect: "read" })
         );
-      case "files.exists": {
-        const request = {
-          target: FILE_EXISTS_TARGET,
-          args: [{ valueType: "string", lexicalValue: fileExistsUrl(args.url) }]
-        };
-        prepare(request, this.describe("native.rpc.call").inputSchema);
-        state.sent = true;
-        return parseFileExists(await this.gateway.call("native.rpc.call", request));
-      }
+      case "files.exists":
+        return this.files.exists(args);
       case "files.read":
-        return fileContent(
-          await this.gateway.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
-          args.encoding
-        );
-      case "files.list": {
-        const folder = fileTarget(args.url, true).url;
-        const search = args.search === void 0 ? "" : requiredString(args.search, "search");
-        const { request, executionId } = codeList(folder);
-        const data2 = await this.runCode(request, executionId, state);
-        if (data2.result[0] === "none") state.sent = false;
-        return fileList(data2, folder, search);
-      }
+        return this.files.read(args);
+      case "files.list":
+        return this.files.list(args, state);
       case "files.write":
-      case "files.delete": {
-        const writing = id === "files.write";
-        const target = fileTarget(args.url);
-        if (!writing) assertFileDeletable(target.folder);
-        const content = writing ? fileWriteContent(args) : void 0;
-        const route = fileRoute(
-          writing ? "write" : "delete",
-          fileFolders(await this.applicationInfo().catch(() => void 0)),
-          target.folder,
-          this.config.permissions.execute
-        );
-        if (writing && route !== "unlisted") state.refusal = "files.write:listed";
-        if (route === "code") {
-          const { request, executionId } = content ? codeWrite(target.url, content) : codeDelete(target.url);
-          const data2 = await this.runCode(request, executionId, state);
-          if (content) return { bytes: Number(data2.result[0]), mutationOutcome: "confirmed" };
-          const refusal = codeDeleteRefusal(data2);
-          if (refusal) {
-            state.sent = false;
-            throw refusal;
-          }
-          if (data2.result[0] === "remains") throw fileRemains();
-          return { deleted: true, mutationOutcome: "confirmed" };
-        }
-        state.sent = true;
-        if (content) {
-          await this.gateway.call("native.lds.putUrl", {
-            url: target.url,
-            data: { base64: content.base64 }
-          });
-          return { bytes: content.bytes, mutationOutcome: "confirmed" };
-        }
-        await this.gateway.call("native.lds.deleteUrl", { url: target.url });
-        const { url } = target;
-        if (url.length <= FILE_EXISTS_URL_MAX_LENGTH) {
-          if ((await this.dispatch("files.exists", { url }, state)).exists)
-            throw fileRemains();
-        }
-        return { deleted: true, mutationOutcome: "confirmed" };
-      }
+        return this.files.write(args, state);
+      case "files.delete":
+        return this.files.delete(args, state);
       case "server.info": {
         const info = await this.serverInfo(args.profile === "web" ? "web" : "native");
-        const folders = info.profile === "native" ? fileFolders(await this.applicationInfo().catch(() => void 0)) : void 0;
+        const folders = info.profile === "native" ? await this.files.folders() : void 0;
         return folders ? { ...info, dataFolders: folders.data, codeFolders: folders.code } : info;
       }
       case "runtime.status": {
-        const version = await this.gateway.call("native.rpc.call", {
+        const version = await this.server.read("native.rpc.call", {
           target: "tools.get_version",
           args: [{ valueType: "string", lexicalValue: "wtv" }]
         });
-        const info = await this.applicationInfo().catch(() => void 0);
+        const info = await this.server.applicationInfo().catch(() => void 0);
         const userId = typeof info?.auth_object_url === "string" ? parsePhysicalDocumentId(info.auth_object_url) : void 0;
         const database2 = (await this.serverInfo("native").catch(() => void 0))?.database;
         return {
@@ -5461,19 +5815,18 @@ var HcmRuntime = class {
         if (limit === 0)
           throw new HcmError("INVALID_ARGUMENT", "limit: нужно целое число от 1 до 1000.");
         const startPos = boundedInteger(args.startPosition, 0, 1e6, "startPosition");
-        if (args.query !== void 0) {
-          if (/^\s*sql\s*:/i.test(query)) state.sent = true;
-          else state.effect = "read";
-        }
+        const sql = args.query !== void 0 && /^\s*sql\s*:/i.test(query);
+        if (args.query !== void 0 && !sql) state.effect = "read";
         let response;
         try {
-          response = await this.gateway.call("native.lds.xQuery", {
+          const request = {
             query,
             startPos,
             maxCount: limit,
             expectToReadAll: false,
             keepCursor: false
-          });
+          };
+          response = await (sql ? this.server.call("native.lds.xQuery", request, state.outcome) : this.server.read("native.lds.xQuery", request));
         } catch (error) {
           const refused = error instanceof WsHcmApiError && error.kind === "soap-fault";
           let reason;
@@ -5531,7 +5884,7 @@ var HcmRuntime = class {
         };
       }
       case "objects.get": {
-        if (args.ids === void 0) return this.readObject(args);
+        if (args.ids === void 0) return this.objects.get(args);
         const ids = args.ids;
         if (args.id !== void 0 || args.url !== void 0)
           throw new HcmError("INVALID_ARGUMENT", "ids: вместе с id или url не задаётся.");
@@ -5541,7 +5894,7 @@ var HcmRuntime = class {
         let failed = 0;
         for (const id2 of ids) {
           try {
-            items.push(await this.readObject({ type: args.type, fields: args.fields, id: id2 }));
+            items.push(await this.objects.get({ type: args.type, fields: args.fields, id: id2 }));
           } catch (error) {
             const refusal = this.failure("objects.get", performance.now(), error).error;
             if (/^PLATFORM_(?!SOAP-FAULT)/.test(refusal.code)) throw error;
@@ -5555,216 +5908,12 @@ var HcmRuntime = class {
           ...failed ? { failed, hint: "PLATFORM_SOAP-FAULT у элемента: обычно объекта с таким ID нет." } : {}
         };
       }
-      case "objects.create": {
-        const type = identifier(args.type, "type");
-        const data2 = inputObject(args.data, "data");
-        if (data2.id !== void 0)
-          throw new HcmError(
-            "IMMUTABLE_ID",
-            "ID новому объекту выдаёт сервер: нужно убрать id из data."
-          );
-        if (!Object.keys(data2).length)
-          throw new HcmError(
-            "INVALID_ARGUMENT",
-            "data: нет ни одного поля.",
-            "Нужно передать поля нового объекта, например {name: '…'}; значения по умолчанию сервер подставит сам."
-          );
-        XmlDocument.create(type, data2).snapshot();
-        if (args.formUrl === void 0) await this.schemaReader.requireType(type);
-        const formUrl = args.formUrl === void 0 ? `x-local://wtv/wtv_${type}.xmd` : requiredString(args.formUrl, "formUrl");
-        const form = await this.schemaReader.documentForm(formUrl);
-        if (!Array.isArray(form.roots) || !form.roots.includes(type))
-          throw new HcmError("FORM_TYPE_MISMATCH", "В форме нет запрошенного типа объекта.");
-        await this.requireFields(type, formUrl, data2, Object.keys(data2));
-        const dbName = args.dbName === void 0 ? "wt_data" : identifier(args.dbName, "dbName");
-        const mutationId = randomUUID3();
-        state.mutationId = mutationId;
-        await this.journal({ mutationId, operation: id, stage: "allocating", type });
-        state.sent = true;
-        const allocated = await this.gateway.call("native.lds.getNewObjectId", { dbName });
-        const location = resolvePhysicalDocumentLocation(
-          scalar(findXmlNode(allocated, "ObjectID"), "ObjectID"),
-          dbName
-        );
-        state.objectId = location.objectId;
-        state.url = location.url;
-        const snapshot = XmlDocument.create(
-          type,
-          { id: location.objectId, ...data2 },
-          formUrl
-        ).snapshot();
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: "prepared",
-          objectId: location.objectId
-        });
-        state.sent = true;
-        state.mutationId = mutationId;
-        await this.gateway.call("native.lds.putDoc", {
-          url: location.url,
-          data: snapshot.xml,
-          writeDocInfo: true,
-          neverSaved: true
-        });
-        const loaded = await this.load({ url: location.url, type });
-        const result = loaded.document.snapshot();
-        if (BigInt(requiredString(loaded.id, "ID при проверочном чтении")) !== BigInt(location.objectId))
-          throw new HcmError(
-            "READ_BACK_MISMATCH",
-            "При проверочном чтении ID созданного объекта не совпал с выданным.",
-            void 0,
-            { mutationId },
-            "indeterminate"
-          );
-        verifyFields(snapshot.data, result.data, form.fields, Object.keys(data2));
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: "verified",
-          objectId: location.objectId
-        });
-        return {
-          id: location.objectId,
-          url: location.url,
-          type,
-          fingerprint: result.fingerprint,
-          mutationId,
-          mutationOutcome: "confirmed"
-        };
-      }
-      case "objects.patch": {
-        const loaded = await this.load(args);
-        const changes = loaded.document.patch(
-          patchInput(args.patch, args.remove, args.resave === true)
-        );
-        if (args.expectedFingerprint !== void 0 && args.expectedFingerprint !== changes.before.fingerprint)
-          throw new HcmError(
-            "CONFLICT",
-            "Объект изменился после чтения: его fingerprint не равен expectedFingerprint.",
-            "Прочитать объект заново и составить изменение по его текущему состоянию.",
-            void 0,
-            "not_sent"
-          );
-        await this.requireFields(
-          changes.before.type,
-          changes.before.formUrl,
-          changes.after.data,
-          changes.changes.filter((change) => inputObject(change).op === "set").map((change) => patchSegments(String(inputObject(change).path))[0][1])
-        );
-        const noop = changes.before.fingerprint === changes.after.fingerprint;
-        if (args.preview === true || noop && args.resave !== true)
-          return {
-            preview: args.preview === true,
-            noop: noop && args.resave !== true,
-            changes: changes.changes,
-            fingerprint: changes.before.fingerprint
-          };
-        const current = await this.load(args);
-        if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
-          throw new HcmError(
-            "CONFLICT",
-            "Объект изменился, пока готовилась запись.",
-            void 0,
-            void 0,
-            "not_sent"
-          );
-        const form = await this.schemaReader.documentForm(
-          changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`
-        );
-        const branches = changes.changes.map(
-          (change) => patchSegments(String(inputObject(change).path))[0][1]
-        );
-        const mutationId = randomUUID3();
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: "prepared",
-          fingerprint: changes.before.fingerprint
-        });
-        state.sent = true;
-        state.mutationId = mutationId;
-        state.url = loaded.url;
-        if (loaded.id !== void 0) state.objectId = loaded.id;
-        await this.gateway.call("native.lds.putDoc", {
-          url: loaded.url,
-          data: changes.after.xml,
-          writeDocInfo: true
-        });
-        const verified = await this.load(args);
-        const snapshot = verified.document.snapshot();
-        verifyFields(changes.after.data, snapshot.data, form.fields, branches, changes.before.xml);
-        verifyRemovals(changes.after.data, snapshot.data, changes.changes, form.fields);
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: "verified",
-          fingerprint: snapshot.fingerprint
-        });
-        const serverChanged = Object.keys({ ...changes.after.data, ...snapshot.data }).filter(
-          (key) => key !== "doc_info" && !branches.includes(key) && JSON.stringify(changes.after.data[key]) !== JSON.stringify(snapshot.data[key])
-        );
-        return {
-          ...verified.id === void 0 ? {} : { id: verified.id },
-          type: snapshot.type,
-          url: loaded.url,
-          fingerprint: snapshot.fingerprint,
-          changes: changes.changes,
-          ...serverChanged.length ? { serverChanged: serverChanged.slice(0, 20) } : {},
-          mutationId,
-          mutationOutcome: "confirmed"
-        };
-      }
-      case "objects.delete": {
-        if (args.permanent !== true)
-          throw new HcmError(
-            "DELETE_MODE_REQUIRED",
-            "Объект удаляется безвозвратно: для этого нужен permanent:true.",
-            "Корзины у этой операции нет.",
-            void 0,
-            "not_sent"
-          );
-        const loaded = await this.load(args);
-        const snapshot = loaded.document.snapshot();
-        const objectId = requiredString(loaded.id, "ID объекта");
-        const catalog = args.catalog === void 0 ? await this.resolveCatalog(snapshot.type, loaded.url) : identifier(args.catalog, "catalog");
-        if (catalog !== void 0 && !await this.catalogHasId(catalog, objectId))
-          throw new HcmError(
-            "CATALOG_MISMATCH",
-            "Объекта нет в каталоге, по которому проверяется удаление.",
-            "Нужно указать каталог, в котором объект есть. Запрос на удаление не отправлен.",
-            void 0,
-            "not_sent"
-          );
-        const mutationId = randomUUID3();
-        await this.journal({ mutationId, operation: id, stage: "prepared", objectId });
-        state.sent = true;
-        state.mutationId = mutationId;
-        state.objectId = objectId;
-        state.url = loaded.url;
-        await this.gateway.call("native.lds.deleteDoc", { url: loaded.url, strictDelete: true });
-        if (catalog !== void 0 && await this.catalogHasId(catalog, objectId))
-          throw new HcmError(
-            "READ_BACK_MISMATCH",
-            "После удаления объект всё ещё есть в каталоге.",
-            "Перед повтором удаления прочитать объект. Причину сервер пишет в лог spxml_unibridge.",
-            void 0,
-            "indeterminate"
-          );
-        await this.journal({
-          mutationId,
-          operation: id,
-          stage: catalog === void 0 ? "acknowledged" : "verified-absence",
-          objectId
-        });
-        return {
-          id: objectId,
-          mutationId,
-          mutationOutcome: "confirmed",
-          verification: catalog === void 0 ? "server acknowledgement" : "catalog absence",
-          ...catalog === void 0 ? {} : { catalog }
-        };
-      }
+      case "objects.create":
+        return this.objects.create(args, state.outcome);
+      case "objects.patch":
+        return this.objects.patch(args, state.outcome);
+      case "objects.delete":
+        return this.objects.delete(args, state.outcome);
       case "schema.get":
         return this.schemaReader.get(args);
       case "schema.types":
@@ -5772,19 +5921,19 @@ var HcmRuntime = class {
       case "logs.list":
         return logFiles(await this.logs.list(args));
       case "logs.read": {
-        const input2 = args.tailBytes === void 0 && args.full !== true ? { ...args, tailBytes: this.pageBytes } : args;
+        const input2 = args.tailBytes === void 0 && args.full !== true ? { ...args, tailBytes: this.replies.pageBytes } : args;
         return logText(await this.logs.read(input2));
       }
       case "logs.search":
         return logMatches(
           await this.logs.search(args),
-          this.pageBytes
+          this.replies.pageBytes
         );
       case "logs.follow":
         return logNews(
           await this.logs.follow(args),
           args.cursor === void 0,
-          this.pageBytes
+          this.replies.pageBytes
         );
       case "results.read":
         return this.results.read(
@@ -5833,10 +5982,9 @@ var HcmRuntime = class {
         }
         for (const argument of encoded)
           if (typeof argument.lexicalValue === "string") escapeXml(argument.lexicalValue);
-        state.sent = true;
         let response;
         try {
-          response = await this.gateway.call(operationId, nativeArgs);
+          response = await this.server.call(operationId, nativeArgs, state.outcome);
         } catch (error) {
           if (error instanceof WsHcmApiError && error.status === 500) {
             this.logs.serverWroteLog();
@@ -5851,7 +5999,7 @@ var HcmRuntime = class {
       case "agents.run": {
         const agent = id === "agents.run" ? agentRun(args) : void 0;
         const { request, executionId } = agent ? prepareScript(agent.code, agent.params) : prepareScript(args.code, args.params);
-        const data2 = await this.runCode(request, executionId, state);
+        const data2 = await this.server.runCode({ request, executionId }, state.outcome);
         if (!agent) return data2;
         this.logs.serverWroteLog();
         return agentRunResult(data2);
@@ -5859,25 +6007,12 @@ var HcmRuntime = class {
       case "runtime.batch":
         return this.batch(args, state);
       default:
-        state.sent = state.effect !== "read";
-        try {
-          return plainAnswer(id, withoutXmlFormatting(await this.gateway.call(id, args)));
-        } catch (error) {
-          if (error instanceof WsHcmApiError && error.requestSent === false) state.sent = false;
-          throw error;
-        }
-    }
-  }
-  /** Code prepared by prepareScript, run on the server; the answer is checked for a caught error. */
-  async runCode(request, executionId, state) {
-    prepare(request, this.describe("web.rpc.call").inputSchema);
-    state.executionId = executionId;
-    state.sent = true;
-    try {
-      return scriptResult(await this.gateway.call("web.rpc.call", request), executionId);
-    } catch (error) {
-      if (error instanceof HcmError && error.mutationOutcome === "not_sent") state.sent = false;
-      throw error;
+        return plainAnswer(
+          id,
+          withoutXmlFormatting(
+            await this.server.call(id, args, state.effect === "read" ? void 0 : state.outcome)
+          )
+        );
     }
   }
   async batch(args, state) {
@@ -5946,15 +6081,16 @@ var HcmRuntime = class {
       const step = inputObject(raw, "step");
       const stepId = requiredString(step.id, "step.id");
       let result;
-      const childState = { sent: false, effect: "read" };
+      const childState = { outcome: new WriteOutcome(), effect: "read" };
       try {
         const resolved = step.args === void 0 ? {} : inputObject(resolveRefs(step.args), "step.args");
         result = await this.perform(stepId, resolved, performance.now(), false, childState);
       } catch (error) {
         result = this.failure(stepId, performance.now(), error);
       }
-      if (childState.sent && childState.effect !== "read") {
-        state.sent = true;
+      const written = childState.outcome.verdict(childState.effect);
+      if (written.sent) {
+        state.outcome.sending();
         recovery.sentMutationSteps++;
       }
       results.push(
@@ -5971,10 +6107,10 @@ var HcmRuntime = class {
           ...result.error.mutationOutcome === void 0 ? {} : { mutationOutcome: result.error.mutationOutcome }
         },
         ...returned?.mutationOutcome === "confirmed" ? { mutationOutcome: "confirmed" } : {},
-        ...childState.mutationId === void 0 ? {} : { mutationId: childState.mutationId },
-        ...childState.objectId === void 0 ? {} : { objectId: childState.objectId },
-        ...childState.executionId === void 0 ? {} : { executionId: childState.executionId },
-        ...childState.url === void 0 ? {} : { url: childState.url }
+        ...written.ids.mutationId === void 0 ? {} : { mutationId: written.ids.mutationId },
+        ...written.ids.objectId === void 0 ? {} : { objectId: written.ids.objectId },
+        ...written.ids.executionId === void 0 ? {} : { executionId: written.ids.executionId },
+        ...written.ids.url === void 0 ? {} : { url: written.ids.url }
       });
       if (step.as !== void 0) named.set(identifier(step.as, "step.as"), result);
       if (!result.ok && args.stopOnError !== false) break;

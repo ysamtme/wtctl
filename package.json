@@ -1,6 +1,6 @@
 {
   "name": "wtctl",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Unofficial client for WebSoft HCM (WebTutor): administration through the server's own APIs as an MCP server, a CLI and an SDK",
   "license": "MIT",
   "author": "ysamtme",

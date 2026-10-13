@@ -397,6 +397,10 @@ var INTERNAL = /* @__PURE__ */ new Set(["native.lds.loadUrl", "native.lds.putUrl
 function getNativeOperations() {
   return entries.map((entry) => entry.operation).filter((item) => !INTERNAL.has(item.id));
 }
+function nativeEffect(id, args) {
+  const entry = byId.get(id);
+  return entry && getEffectiveNativeEffect(entry.operation, args);
+}
 function sessionGone(error) {
   if (!(error instanceof WsHcmApiError) || error.kind !== "cleanup") return false;
   const causes = error.cause instanceof AggregateError ? error.cause.errors : [error.cause];
@@ -570,6 +574,7 @@ export {
   getEffectiveNativeEffect,
   freezeRegistry,
   getNativeOperations,
+  nativeEffect,
   loginFailed,
   NativeGateway
 };

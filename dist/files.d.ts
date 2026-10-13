@@ -1,5 +1,5 @@
-import { HcmError } from "./errors.js";
-import { type ScriptData } from "./scripts.js";
+import type { HcmServer } from "./hcm-server.js";
+import type { WriteOutcome } from "./write-outcome.js";
 /** One absolute platform URL; this predicate does not read its contents. */
 export interface FileExistsInput {
     readonly url: string;
@@ -23,7 +23,6 @@ export interface FileReadData {
 }
 /** The loader answers with base64 broken into lines; a caller wants the file itself. */
 export declare function fileContent(response: unknown, encoding?: unknown): FileReadData;
-export declare const FILE_EXISTS_TARGET = "tools.file_url_exists_server";
 export declare const FILE_EXISTS_URL_MAX_LENGTH = 256;
 /** Validate without normalizing the URL passed to the stock predicate. */
 export declare function fileExistsUrl(value: unknown): string;
@@ -49,37 +48,6 @@ export type FileFolders = {
     readonly data: readonly string[];
     readonly code: readonly string[];
 };
-/** Only the two folder lists of the application info are read; undefined when the server gave none. */
-export declare function fileFolders(info: Record<string, unknown> | undefined): FileFolders | undefined;
-/** The folder is the first part of the address and decides the route: no part may get around it. */
-export declare function fileTarget(value: unknown, listing?: boolean): {
-    url: string;
-    folder: string;
-};
-/** Folders of the server database delete by address with no error and remove nothing (2025.1.1333 - 2025.2.1535); refused before any request. */
-export declare function assertFileDeletable(folder: string): void;
-/** The route is chosen before anything is sent; "unlisted": the server did not say which folders take files. */
-export declare function fileRoute(operation: "write" | "delete", folders: FileFolders | undefined, folder: string, canExecute: boolean): "data" | "code" | "unlisted";
-/** The bytes to write: text in UTF-8, or base64 without line breaks. */
-export declare function fileWriteContent(args: Record<string, unknown>): {
-    base64: string;
-    bytes: number;
-    text?: string;
-};
-export declare function codeWrite(url: string, content: {
-    base64: string;
-    text?: string;
-}): {
-    request: Record<string, unknown>;
-    executionId: string;
-};
-export declare function codeDelete(url: string): {
-    request: Record<string, unknown>;
-    executionId: string;
-};
-export declare function fileRemains(): HcmError;
-/** The code found a folder or nothing at the address and deleted nothing. */
-export declare function codeDeleteRefusal(data: ScriptData): HcmError | undefined;
 export interface FileListData {
     /** By name; a file has its size in bytes, a folder has folder:true. */
     readonly items: readonly ({
@@ -91,11 +59,26 @@ export interface FileListData {
     })[];
     readonly total: number;
 }
-/** One level of a folder: the addresses ReadDirectory gives, which of them are folders, and the file sizes. */
-export declare function codeList(url: string): {
-    request: Record<string, unknown>;
-    executionId: string;
-};
-export declare function fileList(data: ScriptData, folder: string, search?: string): FileListData;
 /** Decode only the fixed stock predicate's direct ResultData/Result boolean. */
 export declare function parseFileExists(response: unknown): FileExistsData;
+/** What an operation tells the runtime about one call: the outcome and the failure hint are built from it. */
+export interface FileCall {
+    outcome: WriteOutcome;
+    refusal?: string;
+}
+/** The file operations: a method is the whole sequence of one, from the address check to the check after the answer. */
+export declare class ServerFiles {
+    private readonly server;
+    private readonly permissions;
+    constructor(server: Pick<HcmServer, "call" | "read" | "runCode" | "applicationInfo">, permissions: {
+        readonly execute: boolean;
+    });
+    exists(args: Record<string, unknown>): Promise<FileExistsData>;
+    read(args: Record<string, unknown>): Promise<FileReadData>;
+    list(args: Record<string, unknown>, call: FileCall): Promise<FileListData>;
+    write(args: Record<string, unknown>, call: FileCall): Promise<FileWriteData>;
+    delete(args: Record<string, unknown>, call: FileCall): Promise<FileDeleteData>;
+    /** A failure to read the application info means the server gave no folder lists. */
+    folders(): Promise<FileFolders | undefined>;
+    private route;
+}
