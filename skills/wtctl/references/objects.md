@@ -47,7 +47,7 @@
 
 Когда ID нужен до создания, документ записывают сами (проверено на 2025.1 и 2025.2 с PostgreSQL):
 
-1. `hcm_api_read {operationId:"native.lds.getNewObjectId", args:{dbName:"wt_data"}}` → `{"ObjectID":"7336568271880514489"}`. Это десятичная запись; тот же ID — `0x65D0B9F8F3D6EBB9`.
+1. `hcm_api_write {operationId:"native.lds.getNewObjectId", args:{dbName:"wt_data"}}` → `{"ObjectID":"7336568271880514489"}`. Это десятичная запись; тот же ID — `0x65D0B9F8F3D6EBB9`.
 2. Адрес нового документа складывается из записи `0x…`: первые 14 цифр — папка, последние две — файл: `x-local://wt_data/objects/65D0B9F8F3D6EB/B9.xml`.
 3. `hcm_api_write {operationId:"native.lds.putDoc", args:{url:"…", data:"<group SPXML-FORM=\"x-local://wtv/wtv_group.xmd\"><id>7336568271880514489</id><code>sales</code><name>Отдел продаж</name></group>", neverSaved:true, writeDocInfo:true}}`. В `<id>` — десятичная запись, адрес формы — `formUrl` из чтения объекта того же типа.
 4. Проверить: `hcm_object_get {id:"0x65D0B9F8F3D6EBB9"}`.

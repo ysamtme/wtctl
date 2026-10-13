@@ -2,6 +2,24 @@
 
 Пока версия ниже 1.0, имена инструментов, команд и аргументов могут меняться. Такие изменения идут в описании версии первыми, в разделе «Несовместимые изменения».
 
+## 0.3.0 — 2026-10-13
+
+Чистка операций по итогам прогона на проверенных серверах и уточнение прав.
+
+Несовместимые изменения:
+
+- Убраны шесть операций, которые отказывали на всех проверенных серверах: `native.lds.getModDeletedObjects`, `native.lds.createDoc`, `web.pages.createDoc`, `web.pages.getIcon`, `web.experimental.getUiTemplate`, `web.lifecycle.logout2`.
+- Убраны операции больших полей: `native.lds.loadLargeField`, `native.lds.putLargeField`, `native.lds.deleteLargeField`, `web.spxml.putLargeField`, `web.spxml.putLargeFieldFromUrl`. На проверенных серверах полей с адресом `x-db-obj://` нет, и ни одна из этих операций ни разу не отработала.
+- Убрана группа `native.experimental.spxml` (восемь операций): она повторяла `web.spxml.*`. Вместо неё — `web.spxml.callMethodAsync`, `getAsyncMethodStatus`, `killAsyncMethod`, `getBackgroundTasksByName`, `getDoc`, `putDoc`.
+- `native.lds.getNewObjectId` требует права `write` и вызывается через `hcm_api_write`: каждый вызов расходует ID.
+- `files.delete` в папках `wt_data` и `trash` отказывает до отправки (`FILE_NOT_DELETABLE`): сервер там файлы и папки по адресу не удаляет. В 0.2.2 запрос уходил, и операция отвечала `READ_BACK_MISMATCH`.
+- `wtctl/protocol`: убраны методы и типы ушедших операций и класс `NativeExperimentalSpXmlApi`.
+
+Изменения:
+
+- `rawRequest` с методом GET или HEAD считается чтением и не требует прав `write` и `execute`; признак `unsafe: true` нужен по-прежнему.
+- MCP SDK обновлён до 1.31.0.
+
 ## 0.2.2 — 2026-10-13
 
 Исправления:

@@ -56,6 +56,8 @@ export declare function fileTarget(value: unknown, listing?: boolean): {
     url: string;
     folder: string;
 };
+/** Folders of the server database delete by address with no error and remove nothing (2025.1.1333 - 2025.2.1535); refused before any request. */
+export declare function assertFileDeletable(folder: string): void;
 /** The route is chosen before anything is sent; "unlisted": the server did not say which folders take files. */
 export declare function fileRoute(operation: "write" | "delete", folders: FileFolders | undefined, folder: string, canExecute: boolean): "data" | "code" | "unlisted";
 /** The bytes to write: text in UTF-8, or base64 without line breaks. */

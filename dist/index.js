@@ -8,7 +8,7 @@ import {
   loginFailed,
   prepare,
   validate
-} from "./chunks/chunk-532Q4JB2.js";
+} from "./chunks/chunk-QK6ETZGE.js";
 import {
   WebSocketHeartbeatError,
   WsHcmApiError,
@@ -25,7 +25,7 @@ import {
   parseXml,
   resolvePhysicalDocumentLocation,
   validatePlatformXmlSource
-} from "./chunks/chunk-OSTP4QP2.js";
+} from "./chunks/chunk-PGLJGJ37.js";
 
 // src/errors.ts
 var HcmError = class extends Error {
@@ -300,6 +300,14 @@ function fileTarget(value, listing = false) {
     );
   return { url: text3, folder };
 }
+function assertFileDeletable(folder) {
+  if (folder === "wt_data" || folder === "trash")
+    throw new HcmError(
+      "FILE_NOT_DELETABLE",
+      `В папке ${folder} сервер не удаляет файлы и папки по адресу.`,
+      "Это папка базы сервера. Документ объекта удаляет objects.delete; обычный файл клиент здесь не удаляет."
+    );
+}
 function fileRoute(operation, folders, folder, canExecute) {
   if (!folders) return "unlisted";
   if (folders.data.includes(folder)) return "data";
@@ -363,7 +371,7 @@ function fileRemains() {
   return new HcmError(
     "READ_BACK_MISMATCH",
     "Сервер ответил на удаление без ошибки, но файл или папка по адресу остались.",
-    "В папках базы сервера (wt_data, trash) удаление по адресу не выполняется.",
+    "Адрес нужно проверить через files.exists перед повтором.",
     void 0,
     "indeterminate"
   );
@@ -824,17 +832,13 @@ var TOPICS = [
   },
   {
     id: "documents",
-    title: "Документ объекта как XML: заготовка, чтение, сохранение, удаление, большие поля",
+    title: "Документ объекта как XML: чтение, сохранение, удаление",
     operations: {
       "native.lds.loadDoc": "Прочитать документ по адресу; приходит разобранным в JSON.",
       "native.lds.putDoc": "Сохранить документ по адресу из текста XML.",
       "native.lds.deleteDoc": "Удалить документ по адресу.",
-      "native.lds.createDoc": "Заготовка нового документа типа без сохранения.",
-      "native.lds.getNewObjectId": "Получить новый ID объекта.",
-      "native.physicalDocuments.createFromXml": "Создать документ из готового XML; новый ID подставляется вместо {{objectId}}.",
-      "native.lds.loadLargeField": "Прочитать большое поле объекта (файл, длинный текст).",
-      "native.lds.putLargeField": "Записать большое поле объекта.",
-      "native.lds.deleteLargeField": "Удалить большое поле объекта."
+      "native.lds.getNewObjectId": "Выделить новый ID объекта; каждый вызов расходует ID.",
+      "native.physicalDocuments.createFromXml": "Создать документ из готового XML; новый ID подставляется вместо {{objectId}}."
     }
   },
   {
@@ -842,7 +846,6 @@ var TOPICS = [
     title: "Учёт изменений самим сервером: на 2025.1–2025.2 отвечает пусто, см. описания операций",
     operations: {
       "native.lds.getModObjects": "Объекты, изменённые после даты minModDate; на 2025.1–2025.2 ответ пуст и при изменениях.",
-      "native.lds.getModDeletedObjects": "Объекты, удалённые после даты; на 2025.1–2025.2 отвечает отказом.",
       "native.lds.getCatalogsStat": "Число записей по каталогам из кэша сервера; пустой ответ не значит, что записей нет."
     }
   },
@@ -1586,7 +1589,7 @@ var XmlDocument = class _XmlDocument {
           throw new HcmError(
             "EXTERNAL_FIELD_REQUIRES_API",
             "Поле хранится отдельно от документа как большое поле.",
-            "Большое поле записывает native.lds.putLargeField, удаляет native.lds.deleteLargeField; обычное изменение документа сведения о таком поле не переписывает.",
+            "Клиент большие поля не меняет; обычное изменение документа сведения о таком поле не переписывает.",
             { path },
             "not_sent"
           );
@@ -4475,9 +4478,7 @@ var USUAL_CAUSES = {
   "files.read": "по этому адресу ничего нет",
   "files.write": "сервер не сообщил, какие папки принимают запись; в папку кода файл записывает код на сервере",
   "files.delete": "по адресу нет файла или в папке есть файлы; если сервер не сообщил, какие папки принимают запись, это может быть папка кода, где файл удаляет код на сервере",
-  "native.lds.loadDoc": "по этому адресу ничего нет",
-  "native.lds.createDoc": "для этого типа объекта сервер заготовку не даёт",
-  "native.lds.getModDeletedObjects": "на проверенных серверах эта операция не работает"
+  "native.lds.loadDoc": "по этому адресу ничего нет"
 };
 function refusalHint(operation) {
   const cause = USUAL_CAUSES[operation];
@@ -5368,6 +5369,7 @@ var HcmRuntime = class {
       case "files.delete": {
         const writing = id === "files.write";
         const target = fileTarget(args.url);
+        if (!writing) assertFileDeletable(target.folder);
         const content = writing ? fileWriteContent(args) : void 0;
         const route = fileRoute(
           writing ? "write" : "delete",

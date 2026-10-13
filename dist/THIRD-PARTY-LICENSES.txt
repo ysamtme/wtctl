@@ -1,7 +1,7 @@
 This distribution includes the following third-party packages, bundled into its JavaScript files.
 
 ==============================================================================
-@modelcontextprotocol/sdk 1.29.0 — MIT
+@modelcontextprotocol/sdk 1.31.0 — MIT
 ==============================================================================
 
 MIT License

@@ -46,8 +46,8 @@ export declare class WebLifecycleApi {
     main(options?: RequestOptions): Promise<WsHcmResponse<string>>;
     /** Runs both logout legs; observed transport loss stops further requests. */
     logout(options?: RequestOptions): Promise<void>;
-    /** Executes the second web logout leg directly. Normally called by `logout()`. */
-    logout2(options?: RequestOptions): Promise<void>;
+    /** Executes the second web logout leg; `logout()` calls it. */
+    private logout2;
 }
 /**
  * Authenticated web Administrator context with an isolated cookie store and web LDS session ID.
