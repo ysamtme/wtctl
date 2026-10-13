@@ -75,6 +75,7 @@ export declare function codeDelete(url: string): {
     request: Record<string, unknown>;
     executionId: string;
 };
+export declare function fileRemains(): HcmError;
 /** The code found a folder or nothing at the address and deleted nothing. */
 export declare function codeDeleteRefusal(data: ScriptData): HcmError | undefined;
 export interface FileListData {

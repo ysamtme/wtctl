@@ -355,8 +355,17 @@ function codeDelete(url) {
   return fileScript(
     `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
 else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
-else { DeleteUrl(PARAMS.url); RESULT = ['deleted']; }`,
+else { DeleteUrl(PARAMS.url); if (UrlExists(PARAMS.url)) RESULT = ['remains']; else RESULT = ['deleted']; }`,
     { url }
+  );
+}
+function fileRemains() {
+  return new HcmError(
+    "READ_BACK_MISMATCH",
+    "Сервер ответил на удаление без ошибки, но файл или папка по адресу остались.",
+    "В папках базы сервера (wt_data, trash) удаление по адресу не выполняется.",
+    void 0,
+    "indeterminate"
   );
 }
 function codeDeleteRefusal(data2) {
@@ -5376,6 +5385,7 @@ var HcmRuntime = class {
             state.sent = false;
             throw refusal;
           }
+          if (data2.result[0] === "remains") throw fileRemains();
           return { deleted: true, mutationOutcome: "confirmed" };
         }
         state.sent = true;
@@ -5387,6 +5397,11 @@ var HcmRuntime = class {
           return { bytes: content.bytes, mutationOutcome: "confirmed" };
         }
         await this.gateway.call("native.lds.deleteUrl", { url: target.url });
+        const { url } = target;
+        if (url.length <= FILE_EXISTS_URL_MAX_LENGTH) {
+          if ((await this.dispatch("files.exists", { url }, state)).exists)
+            throw fileRemains();
+        }
         return { deleted: true, mutationOutcome: "confirmed" };
       }
       case "server.info": {
