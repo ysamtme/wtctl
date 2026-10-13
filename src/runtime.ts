@@ -39,6 +39,7 @@ import { checkServer, type CheckData } from "./self-check.js";
 import { platformFailure } from "./platform-errors.js";
 import {
   FILE_EXISTS_TARGET,
+  FILE_EXISTS_URL_MAX_LENGTH,
   codeDelete,
   codeDeleteRefusal,
   codeList,
@@ -47,6 +48,7 @@ import {
   fileExistsUrl,
   fileFolders,
   fileList,
+  fileRemains,
   fileRoute,
   fileTarget,
   fileWriteContent,
@@ -1018,6 +1020,7 @@ export class HcmRuntime {
             state.sent = false;
             throw refusal;
           }
+          if (data.result[0] === "remains") throw fileRemains();
           return { deleted: true, mutationOutcome: "confirmed" };
         }
         state.sent = true;
@@ -1029,6 +1032,11 @@ export class HcmRuntime {
           return { bytes: content.bytes, mutationOutcome: "confirmed" };
         }
         await this.gateway.call("native.lds.deleteUrl", { url: target.url });
+        // An address the existence check does not accept (over 256 characters) is not checked.
+        const { url } = target;
+        if (url.length <= FILE_EXISTS_URL_MAX_LENGTH)
+          if (((await this.dispatch("files.exists", { url }, state)) as { exists: boolean }).exists)
+            throw fileRemains();
         return { deleted: true, mutationOutcome: "confirmed" };
       }
       case "server.info": {

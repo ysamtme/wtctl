@@ -37,6 +37,12 @@ function fixture(options: { execute?: boolean; lists?: boolean; refuse?: boolean
   runtime.gateway.call = async (id, args = {}) => {
     if (id === "native.spxml2.getAppInfo")
       return options.lists === false ? {} : { config_entries: entries };
+    if (id === "native.rpc.call" && args.target === "tools.file_url_exists_server") {
+      // The existence check finds only the addresses that name "stays".
+      const found = String(+JSON.stringify(args).includes("stays"));
+      const xml = `<ResultData><Result VALUE-TYPE="bool">${found}</Result></ResultData>`;
+      return { valueType: "bool", lexicalValue: found, xml: parseXml(xml) };
+    }
     if (id === "native.rpc.call")
       return {
         valueType: "Object",
@@ -171,6 +177,25 @@ test("a file is deleted by code in a code folder; the address of a folder is ref
   const absent = await runtime.call("files.delete", { url: "x-local://wt/none.txt" });
   assert.equal(absent.error?.code, "FILE_NOT_FOUND");
   assert.equal(absent.error?.mutationOutcome, "not_sent");
+  await runtime.close();
+});
+
+test("a deletion after which the address is still there is indeterminate, on both routes", async () => {
+  const { runtime, state } = fixture();
+  const data = await runtime.call("files.delete", { url: "x-local://share/stays.txt" });
+  assert.equal(data.error?.code, "READ_BACK_MISMATCH");
+  assert.equal(data.error?.mutationOutcome, "indeterminate");
+  assert.deepEqual(ids(state), ["native.lds.deleteUrl"]);
+  // An address too long for the existence check is not checked.
+  const long = `x-local://share/stays${"a".repeat(250)}`;
+  assert.equal((await runtime.call("files.delete", { url: long })).ok, true);
+  // In a code folder the code itself looks at the address: the client asks nothing more.
+  state.answer = "deleted";
+  assert.equal((await runtime.call("files.delete", { url: "x-local://wt/stays.txt" })).ok, true);
+  state.answer = "remains";
+  const code = await runtime.call("files.delete", { url: "x-local://wt/a.txt" });
+  assert.equal(code.error?.code, "READ_BACK_MISMATCH");
+  assert.equal(code.error?.mutationOutcome, "indeterminate");
   await runtime.close();
 });
 

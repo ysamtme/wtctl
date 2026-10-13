@@ -216,8 +216,17 @@ export function codeDelete(url: string) {
   return fileScript(
     `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
 else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
-else { DeleteUrl(PARAMS.url); RESULT = ['deleted']; }`,
+else { DeleteUrl(PARAMS.url); if (UrlExists(PARAMS.url)) RESULT = ['remains']; else RESULT = ['deleted']; }`,
     { url },
+  );
+}
+export function fileRemains(): HcmError {
+  return new HcmError(
+    "READ_BACK_MISMATCH",
+    "Сервер ответил на удаление без ошибки, но файл или папка по адресу остались.",
+    "В папках базы сервера (wt_data, trash) удаление по адресу не выполняется.",
+    undefined,
+    "indeterminate",
   );
 }
 /** The code found a folder or nothing at the address and deleted nothing. */
