@@ -13,7 +13,7 @@ import {
   rawXml,
   resolvePhysicalDocumentLocation,
   rpc
-} from "../chunks/chunk-GFRYG5E3.js";
+} from "../chunks/chunk-OSTP4QP2.js";
 export {
   NativePhysicalDocumentsApi,
   NativeSession,

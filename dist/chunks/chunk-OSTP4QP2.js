@@ -9980,23 +9980,6 @@ var WebSpXmlApi = class {
       )
     );
   }
-  /** Streams a web SPXML large field for a registered x-db-obj object type; consume or cancel the body. */
-  async getLargeField(request, options) {
-    assertLargeFieldDocumentUrl(request.docUrl);
-    const response = await this.transport.send(
-      query("/api/spxml/GetLargeField", {
-        DocUrl: request.docUrl,
-        FieldID: decimal(request.fieldId, "fieldId"),
-        Size: decimal(request.size, "size"),
-        ContentType: request.contentType,
-        PrepareHtmlImages: request.prepareHtmlImages ? 1 : void 0,
-        FileName: request.fileName
-      }),
-      {},
-      options
-    );
-    return binaryResponse(response, "GetLargeField");
-  }
   /**
    * Uploads a web SPXML large-field body without implicit buffering.
    * Requires an x-db-obj document URL backed by a registered object-type provider.
@@ -10123,10 +10106,6 @@ var NativeExperimentalSpXmlApi = class {
   /** Reads document XML through the partial native SPXML route. */
   getDoc(...args) {
     return this.#data.getDoc(...args);
-  }
-  /** Streams a large field through the partial native SPXML route. */
-  getLargeField(...args) {
-    return this.#data.getLargeField(...args);
   }
   /**
    * Persists document XML through the partial native SPXML route.

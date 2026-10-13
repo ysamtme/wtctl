@@ -8,7 +8,7 @@ import {
   loginFailed,
   prepare,
   validate
-} from "./chunks/chunk-3CSO6E2L.js";
+} from "./chunks/chunk-532Q4JB2.js";
 import {
   WebSocketHeartbeatError,
   WsHcmApiError,
@@ -25,7 +25,7 @@ import {
   parseXml,
   resolvePhysicalDocumentLocation,
   validatePlatformXmlSource
-} from "./chunks/chunk-GFRYG5E3.js";
+} from "./chunks/chunk-OSTP4QP2.js";
 
 // src/errors.ts
 var HcmError = class extends Error {
