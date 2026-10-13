@@ -112,9 +112,10 @@ test("the URL operations of LDS are unknown from outside and still work inside f
   assert.equal(sent[0]!.id, "native.lds.loadUrl");
 });
 
-test("the large-field read operations are unknown from outside", async () => {
+test("the removed operations are unknown from outside", async () => {
   const { runtime, sent } = fixture([]);
-  for (const id of ["web.spxml.getLargeField", "native.experimental.spxml.getLargeField"]) {
+  const removed = `native.lds.getModDeletedObjects native.lds.createDoc native.lds.loadLargeField native.lds.putLargeField native.lds.deleteLargeField web.spxml.putLargeField web.spxml.getLargeField web.spxml.putLargeFieldFromUrl web.pages.createDoc web.pages.getIcon web.lifecycle.logout2 web.experimental.getUiTemplate native.experimental.spxml.getLargeField native.experimental.spxml.putLargeField native.experimental.spxml.putLargeFieldFromUrl native.experimental.spxml.callMethodAsync native.experimental.spxml.getBackgroundTasksByName native.experimental.spxml.getAsyncMethodStatus native.experimental.spxml.killAsyncMethod native.experimental.spxml.getDoc native.experimental.spxml.putDoc`;
+  for (const id of removed.split(" ")) {
     assert.throws(() => runtime.describe(id), { code: "UNKNOWN_OPERATION" }, id);
     assert.equal((await runtime.call(id, {})).error?.code, "UNKNOWN_OPERATION");
     assert.equal(

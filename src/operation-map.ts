@@ -63,18 +63,14 @@ const TOPICS: readonly Topic[] = [
   },
   {
     id: "documents",
-    title: "Документ объекта как XML: заготовка, чтение, сохранение, удаление, большие поля",
+    title: "Документ объекта как XML: чтение, сохранение, удаление",
     operations: {
       "native.lds.loadDoc": "Прочитать документ по адресу; приходит разобранным в JSON.",
       "native.lds.putDoc": "Сохранить документ по адресу из текста XML.",
       "native.lds.deleteDoc": "Удалить документ по адресу.",
-      "native.lds.createDoc": "Заготовка нового документа типа без сохранения.",
-      "native.lds.getNewObjectId": "Получить новый ID объекта.",
+      "native.lds.getNewObjectId": "Выделить новый ID объекта; каждый вызов расходует ID.",
       "native.physicalDocuments.createFromXml":
         "Создать документ из готового XML; новый ID подставляется вместо {{objectId}}.",
-      "native.lds.loadLargeField": "Прочитать большое поле объекта (файл, длинный текст).",
-      "native.lds.putLargeField": "Записать большое поле объекта.",
-      "native.lds.deleteLargeField": "Удалить большое поле объекта.",
     },
   },
   {
@@ -83,8 +79,6 @@ const TOPICS: readonly Topic[] = [
     operations: {
       "native.lds.getModObjects":
         "Объекты, изменённые после даты minModDate; на 2025.1–2025.2 ответ пуст и при изменениях.",
-      "native.lds.getModDeletedObjects":
-        "Объекты, удалённые после даты; на 2025.1–2025.2 отвечает отказом.",
       "native.lds.getCatalogsStat":
         "Число записей по каталогам из кэша сервера; пустой ответ не значит, что записей нет.",
     },
@@ -144,22 +138,12 @@ const NOTES: Readonly<Record<string, string>> = {
   "native.lds.putDoc":
     "data — текст XML всего документа; он заменяет документ целиком. writeDocInfo:true — сервер обновляет дату и автора изменения; без него они остаются как в тексте, и поиск по modification_date правку не видит. neverSaved:true — документ записывается впервые (так пишет новый объект objects.create). skipActions:true отключает обработку, которую сервер выполняет перед сохранением. Чужую правку операция не замечает: fingerprint из objects.get нужно сверять до записи самому.",
   "native.lds.deleteDoc": "strictDelete:true требует, чтобы документ существовал.",
-  "native.lds.createDoc":
-    "Сервер отдаёт заготовку не для каждого типа объекта: на остальные отвечает HTTP 500, в логе xhttp — Unregistered object type.",
   "native.lds.getNewObjectId":
     "ObjectID — новый ID десятичной записью; остальные операции принимают его и так, и в записи 0x….",
   "native.physicalDocuments.createFromXml":
     "documentXmlTemplate — текст XML документа с {{objectId}} на месте ID. После записи документ перечитывается, и его ID сверяется. Обработчики, которые админка выполняет при создании, не запускаются.",
-  "native.lds.loadLargeField":
-    "docUrl — адрес документа вида x-db-obj://…; из адреса x-local его не составляют.",
-  "native.lds.putLargeField":
-    "docUrl — адрес документа вида x-db-obj://…; из адреса x-local его не составляют.",
-  "native.lds.deleteLargeField":
-    "docUrl — адрес документа вида x-db-obj://…; из адреса x-local его не составляют.",
   "native.lds.getModObjects":
     "На проверенных серверах ответ пуст и при свежих изменениях. Изменённые объекты находит runtime.query по modification_date в нужном каталоге. compress передавать нельзя: сжатый ответ клиент не разбирает.",
-  "native.lds.getModDeletedObjects":
-    "Работает не на каждом сервере: отказ HTTP 500 значит, что этот сервер списка удалённых не даёт, лог причины не покажет. compress передавать нельзя.",
   "native.lds.getCatalogsStat":
     "Числа — из кэша сервера, а не свежий подсчёт. Каталога в ответе может не быть; пустой ответ тоже возможен.",
   "web.spxml.callMethodAsync":

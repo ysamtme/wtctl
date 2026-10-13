@@ -354,8 +354,8 @@ export class WebLifecycleApi {
     if (logoutError !== undefined) throw logoutError;
   }
 
-  /** Executes the second web logout leg directly. Normally called by `logout()`. */
-  async logout2(options?: RequestOptions): Promise<void> {
+  /** Executes the second web logout leg; `logout()` calls it. */
+  private async logout2(options?: RequestOptions): Promise<void> {
     this.onMain?.(undefined);
     const second = await this.transport.send(
       "/spxml_web/logout2.htm",

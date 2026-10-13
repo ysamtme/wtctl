@@ -100,7 +100,7 @@ for $e in collaborators, $s in subdivisions where $e/position_parent_id = $s/id 
 - По всем типам сразу: каталоги взять из `hcm_types {limit:1000}`, запросы слать пакетами по 100 шагов (`runtime.batch`, `stopOnError:false`). Каталог без `modification_date` ответит `UNKNOWN_CATALOG_FIELD` — пропусти его; шаг с `incomplete:true` — отвергнутый запрос, а не «изменений нет».
 - Число записей: `total` в ответе `hcm_query` с `limit:1`.
 - Удалённых объектов в каталоге нет, поиском их не найти.
-- Операции `native.lds.getModObjects`, `getModDeletedObjects` и `getCatalogsStat` из `hcm_api_list` на проверенных серверах отвечают пусто или отказом. Рассчитывать на них нельзя.
+- Операции `native.lds.getModObjects` и `getCatalogsStat` из `hcm_api_list` на проверенных серверах отвечают пусто. Рассчитывать на них нельзя.
 
 ## Ошибки
 

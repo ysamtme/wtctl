@@ -40,6 +40,7 @@ import { platformFailure } from "./platform-errors.js";
 import {
   FILE_EXISTS_TARGET,
   FILE_EXISTS_URL_MAX_LENGTH,
+  assertFileDeletable,
   codeDelete,
   codeDeleteRefusal,
   codeList,
@@ -1000,6 +1001,7 @@ export class HcmRuntime {
       case "files.delete": {
         const writing = id === "files.write";
         const target = fileTarget(args.url);
+        if (!writing) assertFileDeletable(target.folder);
         const content = writing ? fileWriteContent(args) : undefined;
         const route = fileRoute(
           writing ? "write" : "delete",

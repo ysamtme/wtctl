@@ -22,8 +22,6 @@ const USUAL_CAUSES: Readonly<Record<string, string>> = {
   "files.delete":
     "по адресу нет файла или в папке есть файлы; если сервер не сообщил, какие папки принимают запись, это может быть папка кода, где файл удаляет код на сервере",
   "native.lds.loadDoc": "по этому адресу ничего нет",
-  "native.lds.createDoc": "для этого типа объекта сервер заготовку не даёт",
-  "native.lds.getModDeletedObjects": "на проверенных серверах эта операция не работает",
 };
 function refusalHint(operation: string): string {
   const cause = USUAL_CAUSES[operation];

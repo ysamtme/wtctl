@@ -332,7 +332,7 @@ export class XmlDocument {
           throw new HcmError(
             "EXTERNAL_FIELD_REQUIRES_API",
             "Поле хранится отдельно от документа как большое поле.",
-            "Большое поле записывает native.lds.putLargeField, удаляет native.lds.deleteLargeField; обычное изменение документа сведения о таком поле не переписывает.",
+            "Клиент большие поля не меняет; обычное изменение документа сведения о таком поле не переписывает.",
             { path },
             "not_sent",
           );

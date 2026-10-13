@@ -141,6 +141,16 @@ export function fileTarget(value: unknown, listing = false): { url: string; fold
   return { url: text, folder };
 }
 
+/** Folders of the server database delete by address with no error and remove nothing (2025.1.1333 - 2025.2.1535); refused before any request. */
+export function assertFileDeletable(folder: string): void {
+  if (folder === "wt_data" || folder === "trash")
+    throw new HcmError(
+      "FILE_NOT_DELETABLE",
+      `В папке ${folder} сервер не удаляет файлы и папки по адресу.`,
+      "Это папка базы сервера. Документ объекта удаляет objects.delete; обычный файл клиент здесь не удаляет.",
+    );
+}
+
 /** The route is chosen before anything is sent; "unlisted": the server did not say which folders take files. */
 export function fileRoute(
   operation: "write" | "delete",
@@ -224,7 +234,7 @@ export function fileRemains(): HcmError {
   return new HcmError(
     "READ_BACK_MISMATCH",
     "Сервер ответил на удаление без ошибки, но файл или папка по адресу остались.",
-    "В папках базы сервера (wt_data, trash) удаление по адресу не выполняется.",
+    "Адрес нужно проверить через files.exists перед повтором.",
     undefined,
     "indeterminate",
   );

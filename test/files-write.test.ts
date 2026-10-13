@@ -33,8 +33,9 @@ function fixture(options: { execute?: boolean; lists?: boolean; refuse?: boolean
     permissions: { write: true, execute: options.execute ?? true },
   });
   runtime.gateway.close = async () => undefined;
-  const state = { sent: [] as { id: string; args: Record<string, any> }[], answer: "0" };
+  const state = { sent: [] as { id: string; args: Record<string, any> }[], answer: "0", calls: 0 };
   runtime.gateway.call = async (id, args = {}) => {
+    state.calls++;
     if (id === "native.spxml2.getAppInfo")
       return options.lists === false ? {} : { config_entries: entries };
     if (id === "native.rpc.call" && args.target === "tools.file_url_exists_server") {
@@ -102,6 +103,17 @@ test("a folder that takes no files, or a code folder without execute, is refused
     );
     assert.equal(refused.error?.mutationOutcome, "not_sent");
   }
+  // The server database folders do not delete by address: refused whatever the lists say.
+  for (const lists of [true, false])
+    for (const folder of ["wt_data", "trash"]) {
+      const f = fixture({ lists });
+      const gone = await f.runtime.call("files.delete", { url: `x-local://${folder}/a/b.txt` });
+      assert.equal(gone.error?.code, "FILE_NOT_DELETABLE");
+      assert.equal(gone.error?.mutationOutcome, "not_sent");
+      assert.match(gone.error!.message, new RegExp(`^В папке ${folder} сервер не удаляет`));
+      assert.equal(f.state.calls, 0);
+      await f.runtime.close();
+    }
   assert.deepEqual(ids(state), []);
   // The data folder needs no execute.
   assert.equal(

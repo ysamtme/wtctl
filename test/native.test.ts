@@ -82,17 +82,9 @@ function fixture() {
       });
     if (url.pathname.endsWith("/admin"))
       return new Response(null, { status: 301, headers: { location: "/hcm/spxml_web/main.htm" } });
-    if (
-      url.pathname.endsWith("/GetDoc") ||
-      url.pathname.endsWith("/create_doc.htm") ||
-      url.pathname.endsWith("/get_ui_text.htm")
-    )
+    if (url.pathname.endsWith("/GetDoc") || url.pathname.endsWith("/get_ui_text.htm"))
       return new Response("<collaborator><id>41</id></collaborator>");
-    if (
-      /(?:PutDoc|PutLargeField|PutLargeFieldFromUrl|get_app_info|std_encrypt|authenticate)$/.test(
-        url.pathname,
-      )
-    )
+    if (/(?:PutDoc|get_app_info|std_encrypt|authenticate)$/.test(url.pathname))
       return Response.json({ ok: true });
     return new Response("fixture");
   };
@@ -116,10 +108,6 @@ function sample(schema: Record<string, unknown>, key = ""): unknown {
   if (key === "document") return "<fixture/>";
   if (key === "documentXmlTemplate") return "<collaborator><id>{{objectId}}</id></collaborator>";
   if (key === "path") return "/raw-fixture";
-  if (schema.pattern === "^x-db-obj://")
-    return "x-db-obj://fixture/registered_type/0x0000000000000042.xml";
-  if (typeof schema.pattern === "string" && schema.pattern.endsWith("\\.ico$"))
-    return "x-local://app/pict/fixture.ico";
   if (/url/i.test(key)) return "x-local://wtv/fixture.xml";
   if (schema.pattern) return "42";
   return "fixture";
@@ -140,85 +128,27 @@ function operationSample(id: string, schema: Record<string, unknown>): Record<st
   return sample(schema) as Record<string, unknown>;
 }
 
-for (const operation of ["web.lifecycle.logout", "web.lifecycle.logout2"])
-  test(`failed ${operation} disposes the old context and the next call bootstraps again`, async () => {
-    const mock = fixture();
-    const gateway = new NativeGateway({
-      ...base,
-      fetch: async (input, init) => {
-        const url = new URL(String(input));
-        if (url.pathname.endsWith(operation.endsWith("logout2") ? "/logout2.htm" : "/logout.htm"))
-          return new Response("failed logout", { status: 500 });
-        return mock.fetch(input, init);
-      },
-    });
-    const previous = await gateway.web();
-    try {
-      await assert.rejects(
-        gateway.call(operation, {}),
-        (error) => error instanceof Error && (error as { status?: number }).status === 500,
-      );
-      await assert.rejects(previous.lds.xQuery({ query: "1" }), /disposed|closed/);
-      await gateway.call("web.lds.xQuery", { query: "1" });
-      assert.equal(mock.calls.filter((call) => call.url.pathname.endsWith("/main.htm")).length, 2);
-    } finally {
-      await gateway.close().catch(() => undefined);
-    }
-  });
-
-test("all LOB gateway schemas and direct vendor APIs reject classic document URLs before transport", async () => {
+test("failed web.lifecycle.logout disposes the old context and the next call bootstraps again", async () => {
   const mock = fixture();
-  const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
+  const gateway = new NativeGateway({
+    ...base,
+    fetch: async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith("/logout.htm"))
+        return new Response("failed logout", { status: 500 });
+      return mock.fetch(input, init);
+    },
+  });
+  const previous = await gateway.web();
   try {
-    const operations = getNativeOperations().filter((operation) =>
-      /LargeField/.test(operation.method),
+    await assert.rejects(
+      gateway.call("web.lifecycle.logout", {}),
+      (error) => error instanceof Error && (error as { status?: number }).status === 500,
     );
-    assert.equal(operations.length, 7);
-    for (const operation of operations) {
-      assert.equal(
-        (operation.inputSchema.properties as Record<string, Record<string, unknown>>).docUrl!
-          .pattern,
-        "^x-db-obj://",
-      );
-      await assert.rejects(
-        gateway.call(operation.id, {
-          ...operationSample(operation.id, operation.inputSchema),
-          docUrl: "x-local://wt_data/objects/own.xml",
-        }),
-        /значение записано неверно/,
-      );
-    }
-    const transport = new HttpTransport({ ...base, fetch: mock.fetch });
-    const native = createNativeLdsApi(transport, () => "42");
-    const web = new WebSpXmlApi(transport);
-    const args = {
-      docUrl: "x-local://wt_data/objects/own.xml",
-      fieldId: "42",
-      fieldPathname: "data",
-      contentType: "application/octet-stream",
-      size: "4",
-      data: new Uint8Array(4),
-      body: new Uint8Array(4),
-      srcUrl: "x-local://share/own.bin",
-    };
-    for (const action of [
-      () => native.loadLargeField(args),
-      () => native.putLargeField(args),
-      () => native.deleteLargeField(args),
-      () => web.putLargeField(args),
-      () => web.putLargeFieldFromUrl(args),
-    ])
-      await assert.rejects(
-        Promise.resolve().then((): Promise<unknown> => action()),
-        (error) =>
-          error instanceof Error &&
-          /зарегистрированного типа/.test(error.message) &&
-          (error as { requestSent?: boolean }).requestSent === false,
-      );
-    transport.dispose();
-    assert.equal(mock.calls.length, 0);
+    await assert.rejects(previous.lds.xQuery({ query: "1" }), /disposed|closed/);
+    await gateway.call("web.lds.xQuery", { query: "1" });
+    assert.equal(mock.calls.filter((call) => call.url.pathname.endsWith("/main.htm")).length, 2);
   } finally {
-    await gateway.close();
+    await gateway.close().catch(() => undefined);
   }
 });
 
@@ -239,7 +169,6 @@ test("binary result carries only kind, bytes and contentType, never HTTP headers
 test("operation registry has unique IDs and excludes reflective private dispatch", async () => {
   const operations = getNativeOperations();
   assert.equal(new Set(operations.map((item) => item.id)).size, operations.length);
-  assert.ok(operations.length > 80);
   assert.equal(operations.find((item) => item.id === "native.lds.xQuery")?.effect, "execute");
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
@@ -397,19 +326,17 @@ test("partial web bootstrap logs out and disposed sessions refuse reuse", async 
   assert.equal(mock.calls.length, count);
 });
 
-test("web and native SPXML GetDoc omit a false TryLock rather than enabling a presence flag", async () => {
-  for (const id of ["web.spxml.getDoc", "native.experimental.spxml.getDoc"]) {
-    const mock = fixture();
-    const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
-    await gateway.call(id, { docUrl: "x-local://wtv/fixture.xml", tryLock: false });
-    assert.equal(
-      mock.calls
-        .find((call) => call.url.pathname.endsWith("/GetDoc"))
-        ?.url.searchParams.get("TryLock"),
-      null,
-    );
-    await gateway.close();
-  }
+test("web SPXML GetDoc omits a false TryLock rather than enabling a presence flag", async () => {
+  const mock = fixture();
+  const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
+  await gateway.call("web.spxml.getDoc", { docUrl: "x-local://wtv/fixture.xml", tryLock: false });
+  assert.equal(
+    mock.calls
+      .find((call) => call.url.pathname.endsWith("/GetDoc"))
+      ?.url.searchParams.get("TryLock"),
+    null,
+  );
+  await gateway.close();
 });
 
 test("concurrent close calls await the same cleanup and drain accepted queued operations", async () => {
@@ -458,16 +385,13 @@ test("queued native calls snapshot reused URLs and nested binary/XML boxes at ac
   await gateway.close();
 });
 
-test("native registry describes 1171 async terminal result consumption for both SOAP profiles", () => {
-  for (const id of [
-    "web.spxml.getAsyncMethodStatus",
-    "native.experimental.spxml.getAsyncMethodStatus",
-  ]) {
-    const description = getNativeOperations().find((operation) => operation.id === id)!.description;
-    assert.match(description, /1171/);
-    assert.match(description, /terminal response consumes/);
-    assert.match(description, /lost HTTP/);
-  }
+test("native registry describes 1171 async terminal result consumption", () => {
+  const description = getNativeOperations().find(
+    (operation) => operation.id === "web.spxml.getAsyncMethodStatus",
+  )!.description;
+  assert.match(description, /1171/);
+  assert.match(description, /terminal response consumes/);
+  assert.match(description, /lost HTTP/);
 });
 
 test("dynamic RPC preserves explicitly boxed XML arguments without forcing an upstream target allowlist", async () => {

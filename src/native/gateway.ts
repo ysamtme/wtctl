@@ -283,7 +283,7 @@ export class NativeGateway {
         operationError = error;
         throw error;
       } finally {
-        if (id === "web.lifecycle.logout" || id === "web.lifecycle.logout2") {
+        if (id === "web.lifecycle.logout") {
           const session = this.webSession;
           this.webSession = undefined;
           if (session) {

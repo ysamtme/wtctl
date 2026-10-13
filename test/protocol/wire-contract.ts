@@ -11,25 +11,11 @@ export const WIRE_CONTRACT = [
     operationName: "CloseSession",
   },
   {
-    id: "native-lds-create-doc",
-    transportId: "http-soap",
-    httpMethod: "POST",
-    pathTemplate: "/services/LdsService?rnd={number}",
-    operationName: "CreateDoc",
-  },
-  {
     id: "native-lds-delete-doc",
     transportId: "http-soap",
     httpMethod: "POST",
     pathTemplate: "/services/LdsService?rnd={number}",
     operationName: "DeleteDoc",
-  },
-  {
-    id: "native-lds-delete-large-field",
-    transportId: "http-soap",
-    httpMethod: "POST",
-    pathTemplate: "/services/LdsService?rnd={number}",
-    operationName: "DeleteLargeField",
   },
   {
     id: "native-lds-delete-url",
@@ -44,13 +30,6 @@ export const WIRE_CONTRACT = [
     httpMethod: "POST",
     pathTemplate: "/services/LdsService?rnd={number}",
     operationName: "GetCatalogsStat",
-  },
-  {
-    id: "native-lds-get-mod-deleted-objects",
-    transportId: "http-soap",
-    httpMethod: "POST",
-    pathTemplate: "/services/LdsService?rnd={number}",
-    operationName: "GetModDeletedObjects",
   },
   {
     id: "native-lds-get-mod-objects",
@@ -81,13 +60,6 @@ export const WIRE_CONTRACT = [
     operationName: "LoadDoc",
   },
   {
-    id: "native-lds-load-large-field",
-    transportId: "http-soap",
-    httpMethod: "POST",
-    pathTemplate: "/services/LdsService?rnd={number}",
-    operationName: "LoadLargeField",
-  },
-  {
     id: "native-lds-load-url",
     transportId: "http-soap",
     httpMethod: "POST",
@@ -107,13 +79,6 @@ export const WIRE_CONTRACT = [
     httpMethod: "POST",
     pathTemplate: "/services/LdsService?rnd={number}",
     operationName: "PutDoc",
-  },
-  {
-    id: "native-lds-put-large-field",
-    transportId: "http-soap",
-    httpMethod: "POST",
-    pathTemplate: "/services/LdsService?rnd={number}",
-    operationName: "PutLargeField",
   },
   {
     id: "native-lds-put-url",
@@ -235,13 +200,6 @@ export const WIRE_CONTRACT = [
     operationName: "main-page",
   },
   {
-    id: "web-page-create-doc-htm",
-    transportId: "http-page",
-    httpMethod: "POST",
-    pathTemplate: "/spxml_web/service/create_doc.htm",
-    operationName: "create_doc.htm",
-  },
-  {
     id: "web-page-file-preview-pdf-htm",
     transportId: "http-page",
     httpMethod: "GET",
@@ -324,20 +282,6 @@ export const WIRE_CONTRACT = [
     httpMethod: "POST",
     pathTemplate: "/api/spxml/PutDoc",
     operationName: "PutDoc",
-  },
-  {
-    id: "web-spxml-put-large-field",
-    transportId: "http-data",
-    httpMethod: "POST",
-    pathTemplate: "/api/spxml/PutLargeField",
-    operationName: "PutLargeField",
-  },
-  {
-    id: "web-spxml-put-large-field-from-url",
-    transportId: "http-data",
-    httpMethod: "POST",
-    pathTemplate: "/api/spxml/PutLargeFieldFromUrl",
-    operationName: "PutLargeFieldFromUrl",
   },
   {
     id: "web-spxml2-get-app-info",

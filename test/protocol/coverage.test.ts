@@ -44,17 +44,11 @@ function responseFor(url: URL, init: RequestInit, operationId?: WireOperationId)
   if (url.pathname === "/spxml_web/logout.htm")
     return new Response(null, { status: 302, headers: { location: "/spxml_web/logout2.htm" } });
   if (url.pathname === "/spxml_web/logout2.htm") return new Response("", { status: 401 });
-  if (
-    url.pathname === "/api/spxml/GetDoc" ||
-    url.pathname.endsWith("create_doc.htm") ||
-    url.pathname.endsWith("get_ui_text.htm")
-  ) {
+  if (url.pathname === "/api/spxml/GetDoc" || url.pathname.endsWith("get_ui_text.htm")) {
     return new Response("<root/>", { status: 200, headers: { "content-type": "text/xml" } });
   }
   if (
     url.pathname === "/api/spxml/PutDoc" ||
-    url.pathname === "/api/spxml/PutLargeField" ||
-    url.pathname === "/api/spxml/PutLargeFieldFromUrl" ||
     url.pathname === "/api/spxml2/get_app_info" ||
     url.pathname === "/api/spxml2/std_encrypt"
   ) {
@@ -73,7 +67,7 @@ async function cancel(response: WsHcmBinaryResponse): Promise<void> {
   await response.body?.cancel();
 }
 
-test("all 53 supported operation units construct a request through a public method", async () => {
+test("all 45 supported operation units construct a request through a public method", async () => {
   const pending: WireOperationId[] = [];
   const covered = new Set<WireOperationId>();
   const fetch: typeof globalThis.fetch = async (input, init = {}) => {
@@ -130,9 +124,6 @@ test("all 53 supported operation units construct a request through a public meth
   await cover("native-lds-get-mod-objects", () =>
     native.lds.getModObjects({ minModDate: "2025-01-01" }),
   );
-  await cover("native-lds-get-mod-deleted-objects", () =>
-    native.lds.getModDeletedObjects({ minModDate: "2025-01-01" }),
-  );
   await cover("native-lds-load-url", () =>
     native.lds.loadUrl({ url: "x-local://wt/web/webtutor.wtv" }),
   );
@@ -142,9 +133,6 @@ test("all 53 supported operation units construct a request through a public meth
   await cover("native-lds-delete-url", () =>
     native.lds.deleteUrl({ url: "x-local://wt/test.xml" }),
   );
-  await cover("native-lds-create-doc", () =>
-    native.lds.createDoc({ objectTypeId: "collaborator" }),
-  );
   await cover("native-lds-load-doc", () =>
     native.lds.loadDoc({ url: "x-local://wt/web/webtutor.wtv" }),
   );
@@ -153,21 +141,6 @@ test("all 53 supported operation units construct a request through a public meth
   );
   await cover("native-lds-delete-doc", () =>
     native.lds.deleteDoc({ url: "x-local://wt/test.xml" }),
-  );
-  await cancel(
-    await cover("native-lds-load-large-field", () =>
-      native.lds.loadLargeField({ docUrl: "x-db-obj://wt/fixture/1.xml", fieldId: "1" }),
-    ),
-  );
-  await cover("native-lds-put-large-field", () =>
-    native.lds.putLargeField({
-      docUrl: "x-db-obj://wt/fixture/1.xml",
-      fieldId: "1",
-      data: fragment,
-    }),
-  );
-  await cover("native-lds-delete-large-field", () =>
-    native.lds.deleteLargeField({ docUrl: "x-db-obj://wt/fixture/1.xml", fieldId: "1" }),
   );
   await cover("native-lds-get-new-object-id", () => native.lds.getNewObjectId({ dbName: "main" }));
   await cover("native-lds-xquery", () =>
@@ -209,23 +182,6 @@ test("all 53 supported operation units construct a request through a public meth
   await cover("web-spxml-put-doc", () =>
     web.spxml.putDoc({ docUrl: "x-local://wt/test.xml", document: "<doc/>" }),
   );
-  await cover("web-spxml-put-large-field", () =>
-    web.spxml.putLargeField({
-      docUrl: "x-db-obj://wt/fixture/1.xml",
-      fieldId: "1",
-      fieldPathname: "body",
-      contentType: "text/plain",
-      body: "data",
-    }),
-  );
-  await cover("web-spxml-put-large-field-from-url", () =>
-    web.spxml.putLargeFieldFromUrl({
-      docUrl: "x-db-obj://wt/fixture/1.xml",
-      fieldId: "1",
-      fieldPathname: "body",
-      srcUrl: "x-local://wt/source.txt",
-    }),
-  );
   await cover("web-spxml2-get-app-info", () => web.spxml2.getAppInfo({ fastStart: true }));
   await cover("web-spxml2-get-form", () => web.spxml2.getForm({ url: "x-app://wt/form.xml" }));
   await cancel(
@@ -235,9 +191,6 @@ test("all 53 supported operation units construct a request through a public meth
   );
   await cover("web-spxml2-get-preloaded-design-files", () => web.spxml2.getPreloadedDesignFiles());
   await cover("web-spxml2-std-encrypt", () => web.spxml2.stdEncrypt("value"));
-  await cover("web-page-create-doc-htm", () =>
-    web.pages.createDoc({ objectTypeId: "collaborator" }),
-  );
   await cover("web-page-file-preview-pdf-htm", () => web.pages.filePreviewPdf());
   await cover("web-page-get-form-htm", () => web.pages.getForm({ url: "x-app://wt/form.xml" }));
   await cover("web-page-get-screen-form-htm", () =>
@@ -255,6 +208,5 @@ test("all 53 supported operation units construct a request through a public meth
   await cover(["web-logout-page", "web-logout2-page"], () => web.lifecycle.logout());
   await web.close();
 
-  assert.equal(covered.size, 53);
   assert.deepEqual([...covered].sort(), WIRE_CONTRACT.map(({ id }) => id).sort());
 });

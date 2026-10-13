@@ -148,9 +148,7 @@ function methods(className) {
     )
       continue;
     const name = node.name.getText();
-    let parameter = node.parameters.find((p) => p.name.getText() !== "options");
-    if (parameter?.dotDotDotToken && className === "NativeExperimentalSpXmlApi")
-      parameter = methods("WebSpXmlApi").find((m) => m.name === name)?.parameter;
+    const parameter = node.parameters.find((p) => p.name.getText() !== "options");
     const docs = ts
       .getJSDocCommentsAndTags(node)
       .map((x) => (typeof x.comment === "string" ? x.comment : ""))
@@ -167,7 +165,6 @@ const surfaces = [
   ["web", "rpc", "RpcApi", "rpc"],
   ["native", "spxml", "RpcApi", "spxml"],
   ["web", "spxml", "WebSpXmlApi", "spxml"],
-  ["native", "experimental.spxml", "NativeExperimentalSpXmlApi", "experimental.spxml"],
   ["native", "spxml2", "NativeSpXml2Api", "spxml2"],
   ["web", "spxml2", "WebSpXml2Api", "spxml2"],
   ["web", "pages", "WebPageApi", "pages"],
@@ -187,7 +184,6 @@ const read = new Set([
   "admin",
   "main",
   "logout",
-  "logout2",
   "stdEncrypt",
   "xhttpInfo",
 ]);
@@ -237,13 +233,6 @@ for (const [profile, group, klass, member] of surfaces)
           minimum: Number.MIN_SAFE_INTEGER,
           maximum: Number.MAX_SAFE_INTEGER,
         };
-    if (/LargeField/.test(method.name) && input.properties?.docUrl)
-      input.properties.docUrl = {
-        type: "string",
-        pattern: "^x-db-obj://",
-        description:
-          "Requires a registered object-type storage provider. Classic x-local document URLs cannot be converted by guessing the object type.",
-      };
     if (
       ["uploadFile", "uploadChunk"].includes(method.name) &&
       group === "pages" &&
@@ -284,20 +273,14 @@ for (const [profile, group, klass, member] of surfaces)
         input.properties.offset = { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER };
       }
     }
-    if (method.name === "getIcon" && group === "pages" && input.properties)
-      input.properties.url = {
-        type: "string",
-        pattern: "^(?:x-local|x-app)://[^?#\\x00-\\x1f\\x7f]+\\.ico$",
-      };
     const effect = execute.has(method.name)
       ? "execute"
       : method.name === "rawRequest"
         ? "unknown"
-        : method.name === "getIcon"
-          ? "write"
-          : read.has(method.name) || /^(?:get|load|filePreview)/.test(method.name)
-            ? "read"
-            : "write";
+        : method.name !== "getNewObjectId" &&
+            (read.has(method.name) || /^(?:get|load|filePreview)/.test(method.name))
+          ? "read"
+          : "write";
     const op = {
       id: `${profile}.${group}.${method.name}`,
       profile,

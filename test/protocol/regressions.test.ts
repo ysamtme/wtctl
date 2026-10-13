@@ -127,44 +127,6 @@ test("RPC distinguishes an existing empty typed string from a missing Result", a
   }
 });
 
-test("native CreateDoc uses exact SOAP 1.2 contract without LDS SessionID", async () => {
-  const expectedAssign = ["true", "false", undefined] as const;
-  let calls = 0;
-  const client = new WsHcmClient({
-    baseUrl: "http://wt.test/",
-    auth: { username: "user", password: "secret" },
-    fetch: nativeLifecycle((url, init) => {
-      const body = bodyText(init);
-      if (url.pathname !== "/services/LdsService" || !body.includes("<CreateDoc")) return undefined;
-      assert.match(url.search, /^\?rnd=\d+$/);
-      const headers = new Headers(init.headers);
-      assert.equal(headers.get("content-type"), "application/soap+xml");
-      assert.equal(headers.has("soapaction"), false);
-      assert.match(
-        body,
-        /^<\?xml version="1\.0" encoding="utf-8"\?><soap:Envelope xmlns:soap="http:\/\/www\.w3\.org\/2003\/05\/soap-envelope\/">/,
-      );
-      assert.match(
-        body,
-        /<soap:Body><CreateDoc xmlns="http:\/\/www\.datex-soft\.com\/"><ObjectTypeID>collaborator<\/ObjectTypeID>/,
-      );
-      assert.doesNotMatch(body, /<SessionID>/);
-      const assign = expectedAssign[calls];
-      if (assign === undefined) assert.doesNotMatch(body, /<AssignID>/);
-      else assert.match(body, new RegExp(`<AssignID>${assign}</AssignID></CreateDoc>`));
-      calls += 1;
-      return soap("CreateDoc", "<Data><collaborator/></Data>");
-    }),
-  });
-
-  await client.withNativeSession(async (session) => {
-    await session.lds.createDoc({ objectTypeId: "collaborator", assignId: true });
-    await session.lds.createDoc({ objectTypeId: "collaborator", assignId: false });
-    await session.lds.createDoc({ objectTypeId: "collaborator" });
-  });
-  assert.equal(calls, 3);
-});
-
 test("web get_app_info and page getUrl use exact query and preserve a non-empty stream", async () => {
   const pageBody = "non-empty page body";
   const seen: string[] = [];
@@ -298,13 +260,8 @@ test("native streaming XML parameters use exact multipart XOP framing", async ()
   assert.equal(calls, 1);
 });
 
-test("native XOP preserves exact binary PutUrl/PutLargeField data", async () => {
-  const largeFieldData = new ArrayBuffer(4);
-  new Uint8Array(largeFieldData).set([1, 2, 3, 254]);
-  const expected = new Map<string, Uint8Array>([
-    ["PutUrl", Uint8Array.of(0, 255, 13, 10, 60, 38)],
-    ["PutLargeField", new Uint8Array(largeFieldData)],
-  ]);
+test("native XOP preserves exact binary PutUrl data", async () => {
+  const expected = Uint8Array.of(0, 255, 13, 10, 60, 38);
   const seen: string[] = [];
 
   function indexOfBytes(source: Uint8Array, part: Uint8Array): number {
@@ -323,8 +280,7 @@ test("native XOP preserves exact binary PutUrl/PutLargeField data", async () => 
     fetch: nativeLifecycle((url, init) => {
       if (url.pathname !== "/services/LdsService") return undefined;
       const body = bodyText(init);
-      const method = ["PutUrl", "PutLargeField"].find((name) => body.includes(`<${name}`));
-      if (method === undefined) return undefined;
+      if (!body.includes("<PutUrl")) return undefined;
       const bytes = bodyBytes(init);
 
       const contentType = new Headers(init.headers).get("content-type") ?? "";
@@ -333,17 +289,10 @@ test("native XOP preserves exact binary PutUrl/PutLargeField data", async () => 
       assert.ok(boundary);
       assert.ok(contentId);
 
-      if (method === "PutUrl") {
-        assert.match(
-          body,
-          /<PutUrl[^>]*><Url>x-local:\/\/wt\/file\.bin<\/Url><SessionID>42<\/SessionID><Data><xop:Include[^>]+\/><\/Data><\/PutUrl>/,
-        );
-      } else if (method === "PutLargeField") {
-        assert.match(
-          body,
-          /<PutLargeField[^>]*><DocUrl>x-db-obj:\/\/wt\/fixture\/10\.xml<\/DocUrl><FieldID>10<\/FieldID><FieldPathname>body<\/FieldPathname><ContentType>application\/octet-stream<\/ContentType><SessionID>42<\/SessionID><Data><xop:Include[^>]+\/><\/Data><\/PutLargeField>/,
-        );
-      }
+      assert.match(
+        body,
+        /<PutUrl[^>]*><Url>x-local:\/\/wt\/file\.bin<\/Url><SessionID>42<\/SessionID><Data><xop:Include[^>]+\/><\/Data><\/PutUrl>/,
+      );
 
       const attachmentHeader = new TextEncoder().encode(
         `\r\n--${boundary}\r\nContent-ID: ${contentId}\r\n\r\n`,
@@ -354,24 +303,17 @@ test("native XOP preserves exact binary PutUrl/PutLargeField data", async () => 
       assert.deepEqual(bytes.subarray(bytes.length - footer.length), footer);
       assert.deepEqual(
         bytes.subarray(start + attachmentHeader.length, bytes.length - footer.length),
-        expected.get(method),
+        expected,
       );
-      seen.push(method);
-      return soap(method);
+      seen.push("PutUrl");
+      return soap("PutUrl");
     }),
   });
 
   await client.withNativeSession(async (session) => {
-    await session.lds.putUrl({ url: "x-local://wt/file.bin", data: expected.get("PutUrl")! });
-    await session.lds.putLargeField({
-      docUrl: "x-db-obj://wt/fixture/10.xml",
-      fieldId: "10",
-      fieldPathname: "body",
-      contentType: "application/octet-stream",
-      data: largeFieldData,
-    });
+    await session.lds.putUrl({ url: "x-local://wt/file.bin", data: expected });
   });
-  assert.deepEqual(seen, ["PutUrl", "PutLargeField"]);
+  assert.deepEqual(seen, ["PutUrl"]);
 });
 
 test("native streaming flags preserve mocked LoadUrl and LoadDoc bodies as streams", async () => {
@@ -475,54 +417,6 @@ test("streaming SOAP errors parse small faults and cancel oversized bodies", asy
     );
   });
   assert.equal(cancelled, true);
-});
-
-test("web large-field methods send every required input exactly", async () => {
-  const seen: string[] = [];
-  const client = new WsHcmClient({
-    baseUrl: "http://wt.test/",
-    auth: { username: "user", password: "secret" },
-    fetch: webLifecycle((url, init) => {
-      if (url.pathname === "/api/spxml/PutLargeField") {
-        seen.push("put");
-        assert.equal(
-          url.search,
-          "?DocUrl=x-db-obj%3A%2F%2Fwt%2Ffixture%2F10.xml&FieldID=10&FieldPathname=body&ContentType=text%2Fplain",
-        );
-        assert.equal(new Headers(init.headers).get("content-type"), "text/plain; charset=utf-8");
-        assert.equal(init.body, "payload");
-        return Response.json({ Success: 1 });
-      }
-      if (url.pathname === "/api/spxml/PutLargeFieldFromUrl") {
-        seen.push("from-url");
-        assert.equal(
-          url.search,
-          "?DocUrl=x-db-obj%3A%2F%2Fwt%2Ffixture%2F10.xml&FieldID=10&FieldPathname=body&ContentType=image%2Fpng&SrcUrl=x-local%3A%2F%2Fwt%2Fsource.png",
-        );
-        assert.equal(init.method, "POST");
-        return Response.json({ Success: 1 });
-      }
-      return undefined;
-    }),
-  });
-
-  await client.withWebSession(async (session) => {
-    await session.spxml.putLargeField({
-      docUrl: "x-db-obj://wt/fixture/10.xml",
-      fieldId: "10",
-      fieldPathname: "body",
-      contentType: "text/plain",
-      body: "payload",
-    });
-    await session.spxml.putLargeFieldFromUrl({
-      docUrl: "x-db-obj://wt/fixture/10.xml",
-      fieldId: "10",
-      fieldPathname: "body",
-      contentType: "image/png",
-      srcUrl: "x-local://wt/source.png",
-    });
-  });
-  assert.deepEqual(seen, ["put", "from-url"]);
 });
 
 test("buffered web XML honors response charset and GetDoc request fallback", async () => {
@@ -886,12 +780,6 @@ test("transport and web experimental regressions preserve errors, secrets and re
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },
     fetch: webLifecycle((url, init) => {
-      if (url.pathname === "/api/spxml2/get_ui_template") {
-        seen.push("template");
-        assert.equal(init.method ?? "GET", "GET");
-        assert.equal(url.search, "?id=ui%2Fcard");
-        return new Response("template-body", { status: 200 });
-      }
       if (url.pathname === "/api/spxml2/authenticate") {
         seen.push("authenticate");
         assert.equal(init.method, "POST");
@@ -916,10 +804,6 @@ test("transport and web experimental regressions preserve errors, secrets and re
   });
 
   await web.withWebSession(async (session) => {
-    assert.equal(
-      (await session.experimental.getUiTemplate({ id: "ui/card" })).data,
-      "template-body",
-    );
     await session.experimental.authenticate({ login: "login", password: "password", token });
     const image = await session.spxml2.getImage({
       url: "x-local://wt/required.png",
@@ -927,5 +811,5 @@ test("transport and web experimental regressions preserve errors, secrets and re
     });
     assert.equal(await new Response(image.body).text(), "image-body");
   });
-  assert.deepEqual(seen, ["template", "authenticate", "image"]);
+  assert.deepEqual(seen, ["authenticate", "image"]);
 });

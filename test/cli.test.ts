@@ -1404,7 +1404,7 @@ test("stdout delivery failure keeps write outcomes, stored references and succes
     ok: true,
     data: { TrackingID, unrelated: privateMarker },
     meta: {
-      operationId: "native.experimental.spxml.callMethodAsync",
+      operationId: "web.spxml.callMethodAsync",
       connection: config.name,
       durationMs: 16,
     },
@@ -1420,7 +1420,7 @@ test("stdout delivery failure keeps write outcomes, stored references and succes
       command: [
         "api",
         "call",
-        "native.experimental.spxml.callMethodAsync",
+        "web.spxml.callMethodAsync",
         "--args",
         '{"target":"tools.synthetic_async"}',
       ],

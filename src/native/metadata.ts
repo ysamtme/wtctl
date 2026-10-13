@@ -5,8 +5,6 @@ const compatibilityDescriptions: Readonly<Record<string, string>> = {
     "One bounded raw $hbt/$ok exchange on the fixed stock /services/main_ws_service route. Uses the gateway-owned web cookie, closes the socket locally and reports peer EOF separately from a close acknowledgement. No business payload, event subscription, browser LDS WebSocket binding or automatic reconnect is implied. On server 2025.1.1171 the main service returned $ok and then EOF without a peer close frame.",
   "web.experimental.authenticate":
     "Partial shipped browser JSON login shape requiring its own login-page token. Server 2025.1.1171 has no authenticate route in its built-in SPXML2 API; optional application hooks may differ. On the tested installation the stock login page returned HTTP 200 with a rendered error and no token, so no authenticate POST or managed-ticket revocation was exercised. Successful body and cookie semantics remain unverified.",
-  "web.experimental.getUiTemplate":
-    "Partial shipped browser UI-template route. Server 2025.1.1171 has no get_ui_template route in its built-in SPXML2 API; optional application hooks and other deployments may differ. A usable configured handler and its response semantics require independent verification.",
 };
 
 /** Replaces the generated description where the generic wording would mislead. */
@@ -34,5 +32,10 @@ export function getEffectiveNativeEffect(
     (deferredArgs || args.tryLock === true || isReference(args.tryLock))
   )
     return "write";
+  // GET and HEAD read; a missing method or a reference stays unknown.
+  if (operation.method === "rawRequest" && typeof args.method === "string") {
+    const verb = args.method.toUpperCase();
+    if (verb === "GET" || verb === "HEAD") return "read";
+  }
   return operation.effect;
 }

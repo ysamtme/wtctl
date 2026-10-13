@@ -44,34 +44,6 @@ export interface RunMethodRequest {
   argData: RawXml;
 }
 
-/** Web SPXML large-field upload request. `body` is forwarded without buffering. */
-export interface PutLargeFieldRequest {
-  docUrl: string;
-  fieldId: DecimalId;
-  fieldPathname: string;
-  contentType: string;
-  body: BodyInit;
-}
-
-/** Web SPXML request that imports a large field from a server-visible source URL. */
-export interface PutLargeFieldFromUrlRequest {
-  docUrl: string;
-  fieldId: DecimalId;
-  fieldPathname: string;
-  contentType?: string;
-  srcUrl: string;
-}
-
-/** Exact 1171 large-field handlers require a registered object-model storage provider. */
-function assertLargeFieldDocumentUrl(docUrl: string): void {
-  if (typeof docUrl !== "string" || !/^x-db-obj:\/\//.test(docUrl))
-    throw new WsHcmApiError(
-      "protocol",
-      "docUrl: большому полю нужен адрес x-db-obj://… объекта зарегистрированного типа; адрес x-local://… сюда не подходит.",
-      { requestSent: false },
-    );
-}
-
 function decimal(value: DecimalId, name: string): DecimalId;
 function decimal(value: DecimalId | undefined, name: string): DecimalId | undefined;
 function decimal(value: DecimalId | undefined, name: string): DecimalId | undefined {
@@ -425,16 +397,6 @@ export type SoapLoadRequest = LoadRequest & {
   useMultipartResponse?: false;
 };
 
-/** Native LDS large-field download parameters. The response is always streamed. */
-export interface LoadLargeFieldRequest {
-  docUrl: string;
-  fieldId: DecimalId;
-  contentType?: string;
-  compress?: boolean;
-  size?: DecimalId;
-  useMultipartResponse?: boolean;
-}
-
 /**
  * Native Administrator LDS SOAP 1.2 operations bound to one decimal LDS session ID.
  * Optional fields remain omitted unless explicitly supplied; large request bodies use multipart/XOP.
@@ -464,21 +426,6 @@ export class NativeLdsApi {
       [
         ["MinModDate", request.minModDate],
         ["SessionID", this.caller.id()],
-        ["Compress", request.compress],
-      ],
-      options,
-    );
-  }
-  /** Returns deleted-object changes. Availability and server-side storage dependencies must be checked on the connected server. */
-  getModDeletedObjects(
-    request: { minModDate?: string; compress?: boolean } = {},
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    return this.caller.call(
-      "GetModDeletedObjects",
-      [
-        ["SessionID", this.caller.id()],
-        ["MinModDate", request.minModDate],
         ["Compress", request.compress],
       ],
       options,
@@ -545,24 +492,6 @@ export class NativeLdsApi {
         ["Url", request.url],
         ["StrictDelete", request.strictDelete],
         ["SessionID", this.caller.id()],
-      ],
-      options,
-    );
-  }
-  /**
-   * Initializes an unsaved document through the runtime object model.
-   * The wire contract is supported, but success requires a registered object type; classic XMD catalogs may not qualify.
-   * @mutating
-   */
-  createDoc(
-    request: { objectTypeId: string; assignId?: boolean },
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    return this.caller.call(
-      "CreateDoc",
-      [
-        ["ObjectTypeID", request.objectTypeId],
-        ["AssignID", request.assignId],
       ],
       options,
     );
@@ -642,82 +571,6 @@ export class NativeLdsApi {
       [
         ["Url", request.url],
         ["StrictDelete", request.strictDelete],
-        ["SessionID", this.caller.id()],
-      ],
-      options,
-    );
-  }
-  /** Streams a native LDS large field for a registered x-db-obj object type; consume or cancel the body. */
-  loadLargeField(
-    request: LoadLargeFieldRequest,
-    options?: RequestOptions,
-  ): Promise<WsHcmBinaryResponse> {
-    assertLargeFieldDocumentUrl(request.docUrl);
-    return soapBinaryCall(
-      this.caller.getTransport(),
-      "native",
-      withRnd("/services/LdsService"),
-      "LoadLargeField",
-      [
-        ["DocUrl", request.docUrl],
-        ["FieldID", decimal(request.fieldId, "fieldId")],
-        ["ContentType", request.contentType],
-        ["SessionID", this.caller.id()],
-        ["Compress", request.compress],
-        ["Size", decimal(request.size, "size")],
-        ["UseMultipartResponse", request.useMultipartResponse],
-      ],
-      options,
-    );
-  }
-  /**
-   * Writes a large-field XOP attachment without text re-encoding binary values.
-   * Requires an x-db-obj document URL backed by a registered object-type provider.
-   * Never derive this URL from a classic x-local document by guessing its type.
-   * @mutating
-   */
-  putLargeField(
-    request: {
-      docUrl: string;
-      fieldId: DecimalId;
-      fieldPathname?: string;
-      contentType?: string;
-      data: SoapAttachment;
-    },
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    assertLargeFieldDocumentUrl(request.docUrl);
-    return soapMultipartCall(
-      this.caller.getTransport(),
-      "native",
-      withRnd("/services/LdsService"),
-      "PutLargeField",
-      [
-        ["DocUrl", request.docUrl],
-        ["FieldID", decimal(request.fieldId, "fieldId")],
-        ["FieldPathname", request.fieldPathname],
-        ["ContentType", request.contentType],
-        ["SessionID", this.caller.id()],
-      ],
-      { name: "Data", data: request.data },
-      options,
-    );
-  }
-  /**
-   * Deletes a large field by lossless document/field identity.
-   * Requires a registered x-db-obj object-type provider.
-   * @mutating
-   */
-  deleteLargeField(
-    request: { docUrl: string; fieldId: DecimalId },
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    assertLargeFieldDocumentUrl(request.docUrl);
-    return this.caller.call(
-      "DeleteLargeField",
-      [
-        ["DocUrl", request.docUrl],
-        ["FieldID", decimal(request.fieldId, "fieldId")],
         ["SessionID", this.caller.id()],
       ],
       options,
@@ -986,7 +839,7 @@ export class RpcApi {
   }
 }
 
-/** Shipped web `/api/spxml` RPC, document, large-field and async-task surface. */
+/** Shipped web `/api/spxml` RPC, document and async-task surface. */
 export class WebSpXmlApi {
   readonly rpc: RpcApi;
   constructor(private readonly transport: HttpTransport) {
@@ -1133,185 +986,6 @@ export class WebSpXmlApi {
       ),
     );
   }
-  /**
-   * Uploads a web SPXML large-field body without implicit buffering.
-   * Requires an x-db-obj document URL backed by a registered object-type provider.
-   * Never derive this URL from a classic x-local document by guessing its type.
-   * @mutating
-   */
-  async putLargeField(
-    request: PutLargeFieldRequest,
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<unknown>> {
-    assertLargeFieldDocumentUrl(request.docUrl);
-    const contentType = request.contentType ?? "application/binary";
-    const wireContentType = /^(?:text\/plain|text\/html)$/i.test(contentType)
-      ? `${contentType}; charset=utf-8`
-      : contentType;
-    return jsonResponse(
-      await this.transport.send(
-        query("/api/spxml/PutLargeField", {
-          DocUrl: request.docUrl,
-          FieldID: decimal(request.fieldId, "fieldId"),
-          FieldPathname: request.fieldPathname,
-          ContentType: contentType,
-        }),
-        { method: "POST", headers: { "Content-Type": wireContentType }, body: request.body },
-        options,
-      ),
-    );
-  }
-  /**
-   * Imports a web large field from a server-visible source URL.
-   * Requires an x-db-obj document URL backed by a registered object-type provider.
-   * @mutating
-   */
-  async putLargeFieldFromUrl(
-    request: PutLargeFieldFromUrlRequest,
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<unknown>> {
-    assertLargeFieldDocumentUrl(request.docUrl);
-    return jsonResponse(
-      await this.transport.send(
-        query("/api/spxml/PutLargeFieldFromUrl", {
-          DocUrl: request.docUrl,
-          FieldID: decimal(request.fieldId, "fieldId"),
-          FieldPathname: request.fieldPathname,
-          ContentType: request.contentType,
-          SrcUrl: request.srcUrl,
-        }),
-        { method: "POST", body: "" },
-        options,
-      ),
-    );
-  }
-}
-
-/**
- * Schema-backed native SPXML variants whose native reachability remains partial.
- * Access this class only through `NativeSession.experimental.spxml`.
- */
-export class NativeExperimentalSpXmlApi {
-  readonly #data: WebSpXmlApi;
-
-  constructor(private readonly transport: HttpTransport) {
-    this.#data = new WebSpXmlApi(transport);
-  }
-
-  /**
-   * Starts an allowlisted async target through the partial native SPXML profile.
-   * @mutating The selected target may change server state.
-   */
-  callMethodAsync(
-    request: { target: string; args?: readonly RpcArgument[] },
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    validateRpcTarget(request.target);
-    const dot = request.target.indexOf(".");
-    return soapCall(
-      this.transport,
-      "native",
-      "/api/spxml/CallMethodAsync",
-      "CallMethodAsync",
-      [
-        ["LibName", request.target.slice(0, dot)],
-        ["MethodName", request.target.slice(dot + 1)],
-        ["ArgData", rpcArgs(request.args ?? [])],
-      ],
-      options,
-    );
-  }
-
-  /**
-   * Lists name-filtered application-wide tasks through the native SOAP profile.
-   * On server 2025.1.1171 expired nonrunning entries are removed before
-   * filtering and the list can hold tasks belonging to other callers. Recent terminal
-   * entries are retained by this list; Task includes TrackingID, StartDate and
-   * status/result fields. Name matching never proves ownership: only operate on
-   * an independently journalled TrackingID.
-   */
-  getBackgroundTasksByName(
-    request: { libName: string; methodName: string },
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    return soapCall(
-      this.transport,
-      "native",
-      "/api/spxml/GetBackgroundTasksByName",
-      "GetBackgroundTasksByName",
-      [
-        ["LibName", request.libName],
-        ["MethodName", request.methodName],
-      ],
-      options,
-    );
-  }
-
-  /**
-   * Reads native async task state while preserving the original TrackingID lexical form.
-   * On server 2025.1.1171 the first terminal response consumes the finished tracking entry.
-   * Retain that payload immediately and never poll the finished ID again: a lost HTTP
-   * terminal response can consume its result. Other builds require separate verification.
-   * Poll running tasks no more often than once every 250 ms.
-   */
-  getAsyncMethodStatus(trackingId: TrackingId, options?: RequestOptions): Promise<SoapResult> {
-    return soapCall(
-      this.transport,
-      "native",
-      "/api/spxml/GetAsyncMethodStatus",
-      "GetAsyncMethodStatus",
-      [["TrackingID", tracking(trackingId, "trackingId")]],
-      options,
-    );
-  }
-
-  /**
-   * Requests cancellation through the partial native SPXML profile.
-   * @mutating
-   */
-  killAsyncMethod(trackingId: TrackingId, options?: RequestOptions): Promise<SoapResult> {
-    return soapCall(
-      this.transport,
-      "native",
-      "/api/spxml/KillAsyncMethod",
-      "KillAsyncMethod",
-      [["TrackingID", tracking(trackingId, "trackingId")]],
-      options,
-    );
-  }
-
-  /** Reads document XML through the partial native SPXML route. */
-  getDoc(...args: Parameters<WebSpXmlApi["getDoc"]>): ReturnType<WebSpXmlApi["getDoc"]> {
-    return this.#data.getDoc(...args);
-  }
-
-  /**
-   * Persists document XML through the partial native SPXML route.
-   * @mutating
-   */
-  putDoc(...args: Parameters<WebSpXmlApi["putDoc"]>): ReturnType<WebSpXmlApi["putDoc"]> {
-    return this.#data.putDoc(...args);
-  }
-
-  /**
-   * Uploads a large field through the partial native SPXML route.
-   * @mutating
-   */
-  putLargeField(
-    ...args: Parameters<WebSpXmlApi["putLargeField"]>
-  ): ReturnType<WebSpXmlApi["putLargeField"]> {
-    return this.#data.putLargeField(...args);
-  }
-
-  /**
-   * Imports a large field from a server-visible URL through the partial native route.
-   * @mutating
-   */
-  putLargeFieldFromUrl(
-    ...args: Parameters<WebSpXmlApi["putLargeFieldFromUrl"]>
-  ): ReturnType<WebSpXmlApi["putLargeFieldFromUrl"]> {
-    return this.#data.putLargeFieldFromUrl(...args);
-  }
 }
 
 class SpXml2Base {
@@ -1442,27 +1116,6 @@ export class WebPageApi {
     if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
       throw new TypeError("maximumUploadBytes: нужно целое число больше нуля.");
   }
-  /**
-   * Asks the web create handler for unsaved document XML.
-   * Success depends on classic/object-model branch and registered object type; this method does not persist the result.
-   * @mutating
-   */
-  async createDoc(
-    request: { objectTypeId: string; assignId?: boolean },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<XmlObject>> {
-    const body = new URLSearchParams({
-      object_type_id: request.objectTypeId,
-      assign_id: request.assignId ? "1" : "0",
-    });
-    return xmlResponse(
-      await this.transport.send(
-        "/spxml_web/service/create_doc.htm",
-        { method: "POST", body },
-        options,
-      ),
-    );
-  }
   /** Reads the shipped PDF preview helper page as text. */
   async filePreviewPdf(options?: RequestOptions): Promise<WsHcmResponse<string>> {
     return textResponse(
@@ -1513,33 +1166,6 @@ export class WebPageApi {
         options,
       ),
       "get_image.htm",
-    );
-  }
-  /**
-   * Streams a PNG generated by the stock icon page from an x-app/x-local .ico URL.
-   * This page supports one fixed 16-pixel extraction, not arbitrary resizing or
-   * a PNG input. A sufficiently fresh server icon-cache entry is returned as-is;
-   * a cache miss creates directories/temp files and runs misc/image_convert.exe.
-   * Availability therefore requires that cache entry or the installed converter.
-   * Treat this operation as write because it may change server cache/temp files.
-   * Consume or cancel the returned body.
-   * @mutating
-   */
-  async getIcon(request: { url: string }, options?: RequestOptions): Promise<WsHcmBinaryResponse> {
-    if (
-      typeof request?.url !== "string" ||
-      !/^(?:x-local|x-app):\/\/[^?#\u0000-\u001f\u007f]+\.ico$/u.test(request.url)
-    )
-      throw new TypeError(
-        "url: нужен адрес файла .ico вида x-app://… или x-local://…, без знаков ? и # и управляющих символов.",
-      );
-    return binaryResponse(
-      await this.transport.send(
-        query("/spxml_web/service/get_icon.htm", { url: request.url }),
-        {},
-        options,
-      ),
-      "get_icon.htm",
     );
   }
   /** Reads and parses web UI text XML using its declared application charset. */
@@ -1989,16 +1615,6 @@ export class ExperimentalApi {
 
 /** Schema-backed partial web operations plus the raw escape hatch. */
 export class WebExperimentalApi extends ExperimentalApi {
-  /** Reads the schema-backed but partial web UI-template route. */
-  async getUiTemplate(
-    request: { id: string },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<string>> {
-    return textResponse(
-      await this.transport.send(query("/api/spxml2/get_ui_template", request), {}, options),
-    );
-  }
-
   /**
    * Calls the partial web authentication route; success cookie/body semantics are not fully established.
    * @mutating Changes authentication/session state.
@@ -2022,14 +1638,7 @@ export class WebExperimentalApi extends ExperimentalApi {
 }
 
 /** Schema-backed partial native operations plus the raw escape hatch. */
-export class NativeExperimentalApi extends ExperimentalApi {
-  readonly spxml: NativeExperimentalSpXmlApi;
-
-  constructor(transport: HttpTransport) {
-    super(transport);
-    this.spxml = new NativeExperimentalSpXmlApi(transport);
-  }
-}
+export class NativeExperimentalApi extends ExperimentalApi {}
 
 export function createNativeLdsApi(
   transport: HttpTransport,

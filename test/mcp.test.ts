@@ -265,6 +265,39 @@ test("actual runtime effect prevents TryLock and raw query from slipping through
   }
 });
 
+test("without permissions rawRequest reads by GET, POST and getNewObjectId are refused unsent", async () => {
+  let requests = 0;
+  const fetch = async () => (requests++, new Response("page"));
+  const permissions = { write: false, execute: false };
+  const base = { name: "synthetic", baseUrl: "http://fixture.invalid", runtimeDir: ".unused" };
+  const runtime = new HcmRuntime({
+    ...base,
+    timeoutMs: 1000,
+    maxResponseBytes: 1024,
+    outputLimitBytes: 1024,
+    permissions,
+    fetch,
+  });
+  const tools = new HcmMcpTools(runtime);
+  const raw = (method: string) => ({
+    operationId: "anonymous.experimental.rawRequest",
+    args: { unsafe: true, path: "/page", method },
+  });
+  try {
+    for (const method of ["GET", "head"])
+      assert.equal(structured(await tools.invoke("hcm_api_read", raw(method))).ok, true);
+    const post = raw("POST");
+    const mismatch = structured(await tools.invoke("hcm_api_read", post));
+    assert.equal(mismatch.error?.code, "mcp.effect_mismatch");
+    assert.equal((await runtime.call(post.operationId, post.args)).error?.code, "WRITE_DISABLED");
+    const id = await runtime.call("native.lds.getNewObjectId", { dbName: "wt_data" });
+    assert.equal(id.error?.code, "WRITE_DISABLED");
+    assert.equal(requests, 2);
+  } finally {
+    await runtime.close();
+  }
+});
+
 const toolCases: { name: string; args: Record<string, unknown>; id: string }[] = [
   { name: "hcm_check", args: {}, id: "runtime.check" },
   { name: "hcm_status", args: {}, id: "runtime.status" },
