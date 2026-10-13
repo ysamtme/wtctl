@@ -15,6 +15,20 @@ export interface ScriptData<T = unknown> {
   readonly executionId: string;
 }
 
+/** PARAMS уходят в код текстом JSON; скрипт с SDK может передать и то, что JSON не записывает. */
+function paramsJson(params: unknown): string {
+  const value = inputObject(params, "params");
+  try {
+    return JSON.stringify(value);
+  } catch {
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "params: значение нельзя записать как JSON.",
+      "Большое целое передаётся строкой; объект не может ссылаться на самого себя.",
+    );
+  }
+}
+
 /** Существующий RPC Administrator получает несохранённый XmElem с приложенной штатной формой. */
 export function prepareScript(
   value: unknown,
@@ -28,7 +42,7 @@ export function prepareScript(
   const code =
     (params === undefined
       ? ""
-      : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(JSON.stringify(inputObject(params, "params"))).toString("base64")}"), "utf-8")); `) +
+      : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(paramsJson(params)).toString("base64")}"), "utf-8")); `) +
     requiredString(value, "code");
   if (Buffer.byteLength(code) > 1024 * 1024)
     throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");

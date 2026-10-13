@@ -1,5 +1,5 @@
 import { randomBytes, randomInt } from "node:crypto";
-import { WsHcmApiError } from "./error.js";
+import { ArgumentError, WsHcmApiError } from "./error.js";
 import {
   parseSoapBody,
   soapContentType,
@@ -48,13 +48,13 @@ function decimal(value: DecimalId, name: string): DecimalId;
 function decimal(value: DecimalId | undefined, name: string): DecimalId | undefined;
 function decimal(value: DecimalId | undefined, name: string): DecimalId | undefined {
   if (value !== undefined && !/^\d+$/.test(value))
-    throw new TypeError(`${name}: нужна строка из десятичных цифр.`);
+    throw new ArgumentError(`${name}: нужна строка из десятичных цифр.`);
   return value;
 }
 
 function tracking(value: TrackingId, name: string): TrackingId {
   if (!/^(?:\d+|0x[0-9a-f]+)$/i.test(value))
-    throw new TypeError(
+    throw new ArgumentError(
       `${name}: нужно целое число строкой — десятичное или шестнадцатеричное с 0x.`,
     );
   return value;
@@ -62,7 +62,7 @@ function tracking(value: TrackingId, name: string): TrackingId {
 
 function validateRpcTarget(target: string): void {
   if (!/^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(target))
-    throw new TypeError("target: нужно имя библиотеки и имя функции через точку.");
+    throw new ArgumentError("target: нужно имя библиотеки и имя функции через точку.");
 }
 
 async function soapCall(
@@ -374,7 +374,7 @@ export interface XQueryRequest {
 
 function safeInteger(value: number | undefined, name: string): number | undefined {
   if (value !== undefined && !Number.isSafeInteger(value))
-    throw new TypeError(`${name}: нужно целое число.`);
+    throw new ArgumentError(`${name}: нужно целое число.`);
   return value;
 }
 
@@ -541,7 +541,7 @@ export class NativeLdsApi {
     },
     options?: RequestOptions,
   ): Promise<SoapResult> {
-    if (!isRawXml(request.data)) throw new TypeError("data: нужен проверенный XML (RawXml).");
+    if (!isRawXml(request.data)) throw new ArgumentError("data: нужен проверенный XML (RawXml).");
     return soapMultipartCall(
       this.caller.getTransport(),
       "native",
@@ -647,7 +647,8 @@ function runLdsMethod(
   request: RunMethodRequest,
   options?: RequestOptions,
 ): Promise<SoapResult> {
-  if (!isRawXml(request.argData)) throw new TypeError("argData: нужен проверенный XML (RawXml).");
+  if (!isRawXml(request.argData))
+    throw new ArgumentError("argData: нужен проверенный XML (RawXml).");
   return caller.call(
     "RunMethod",
     [
@@ -751,12 +752,12 @@ export const rpc = Object.freeze({
     return { valueType: "string", lexicalValue: value };
   },
   typed(valueType: string, lexicalValue: string | RawXml): RpcArgument {
-    if (valueType.trim() === "") throw new TypeError("valueType: нужна непустая строка.");
+    if (valueType.trim() === "") throw new ArgumentError("valueType: нужна непустая строка.");
     return { valueType, lexicalValue };
   },
   /** Повторяет штатный сериализатор XmElem: проверенный дочерний XML без выдуманного VALUE-TYPE. */
   xml(value: RawXml): RpcArgument {
-    if (!isRawXml(value)) throw new TypeError("Аргумент XML: нужен проверенный XML (RawXml).");
+    if (!isRawXml(value)) throw new ArgumentError("Аргумент XML: нужен проверенный XML (RawXml).");
     return { lexicalValue: rawXmlElement(value.xml) };
   },
 });
@@ -766,7 +767,7 @@ function rpcArgs(args: readonly RpcArgument[]): RawXml {
     args
       .map((arg, index) => {
         if (arg.valueType === undefined && !isRawXml(arg.lexicalValue))
-          throw new TypeError(
+          throw new ArgumentError(
             "Аргументу функции нужен valueType; без него передаётся только XML: {lexicalValue: {xml: …}}.",
           );
         const value =
@@ -1115,7 +1116,7 @@ export class WebPageApi {
     private readonly maximumUploadBytes = 8 * 1024 * 1024,
   ) {
     if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
-      throw new TypeError("maximumUploadBytes: нужно целое число больше нуля.");
+      throw new ArgumentError("maximumUploadBytes: нужно целое число больше нуля.");
   }
   /** Прочитать штатную страницу предпросмотра PDF как текст. */
   async filePreviewPdf(options?: RequestOptions): Promise<WsHcmResponse<string>> {
@@ -1514,15 +1515,17 @@ export class ResourceApi {
         candidate.length === 0 ||
         /[\u0000-\u001f\u007f]/u.test(candidate)
       )
-        throw new TypeError(`${field}: нужна непустая строка без управляющих символов.`);
+        throw new ArgumentError(`${field}: нужна непустая строка без управляющих символов.`);
       return candidate;
     };
     if (!value || typeof value !== "object" || Array.isArray(value))
-      throw new TypeError("Не задан источник ресурса: нужен объект с url или с docUrl и elemPath.");
+      throw new ArgumentError(
+        "Не задан источник ресурса: нужен объект с url или с docUrl и elemPath.",
+      );
     const urlBranch = Object.hasOwn(value, "url");
     const fields = urlBranch ? ["url", "resId"] : ["docUrl", "elemPath", "resId"];
     if (Object.keys(value).some((field) => !fields.includes(field)))
-      throw new TypeError(
+      throw new ArgumentError(
         "Источник ресурса — это url и resId либо docUrl, elemPath и resId; других полей быть не должно.",
       );
     const source = text(urlBranch ? "url" : "docUrl");
@@ -1530,7 +1533,7 @@ export class ResourceApi {
       ? /^(?:x-local|x-app):\/\//u
       : /^(?:x-local|x-app|x-db-obj):\/\//u;
     if (!allowedScheme.test(source))
-      throw new TypeError(
+      throw new ArgumentError(
         "Источник ресурса: url начинается с x-local:// или x-app://, docUrl — ещё и с x-db-obj://.",
       );
     const resId = text("resId");
@@ -1595,10 +1598,20 @@ export class ExperimentalApi {
   ): Promise<WsHcmBinaryResponse> {
     if (request.unsafe !== true)
       throw new WsHcmApiError("protocol", "Экспериментальный rawRequest требует unsafe: true");
+    const method = request.method ?? "GET";
+    try {
+      // Пробный Request: метод и допустимость тела проверяет тот же код, что у fetch, до сети.
+      new Request(this.transport.baseUrl, {
+        method,
+        ...(request.body === undefined ? {} : { body: "" }),
+      });
+    } catch {
+      throw new ArgumentError("method: метод HTTP записан неверно или не допускает тела (body).");
+    }
     const response = await this.transport.send(
       request.path,
       {
-        method: request.method ?? "GET",
+        method,
         ...(request.headers === undefined ? {} : { headers: request.headers }),
         ...(request.body === undefined ? {} : { body: request.body }),
       },

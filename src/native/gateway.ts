@@ -1,7 +1,12 @@
 import type { NativeConfig, NativeOperation } from "../contracts.js";
 import { WsHcmClient, type NativeSession, type WebSession } from "../protocol/client.js";
 import { WsHcmBinaryResponse } from "../protocol/types.js";
-import { WsHcmApiError, attachCleanupError, isTransportFailure } from "../protocol/error.js";
+import {
+  ArgumentError,
+  WsHcmApiError,
+  attachCleanupError,
+  isTransportFailure,
+} from "../protocol/error.js";
 import { rawXml } from "../protocol/xml.js";
 import { NATIVE_ENTRIES, type NativeEntry } from "./generated.js";
 import { validate, prepare } from "./validation.js";
@@ -225,7 +230,7 @@ export class NativeGateway {
 
   constructor(config: NativeConfig) {
     if ((config.username === undefined) !== (config.password === undefined))
-      throw new TypeError("Имя пользователя и пароль задают вместе.");
+      throw new ArgumentError("Имя пользователя и пароль задают вместе.");
     this.client = new WsHcmClient({
       baseUrl: config.baseUrl,
       timeoutMs: config.timeoutMs,

@@ -32,6 +32,14 @@ function isBinary(value: unknown): value is BinaryResult {
     value.bytes instanceof Uint8Array
   );
 }
+/** Документ объекта приходит текстом UTF-8; другие байты — файл, а не документ. */
+function documentText(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new HcmError("INVALID_XML", "XML документа — не текст UTF-8.");
+  }
+}
 /** Опечатка: одна буква заменена, добавлена, пропущена или переставлена с соседней. */
 function oneEditApart(a: string, b: string): boolean {
   if (Math.abs(a.length - b.length) > 1) return false;
@@ -164,12 +172,13 @@ export class ServerObjects {
       url,
       useBinaryResponse: true,
     });
-    const source = isBinary(response)
-      ? new TextDecoder("utf-8", { fatal: true }).decode(response.bytes)
-      : buildXml(findXmlNode(response, "Data") as XmlObject);
     let document: XmlDocument;
     try {
-      document = XmlDocument.parse(source);
+      document = XmlDocument.parse(
+        isBinary(response)
+          ? documentText(response.bytes)
+          : buildXml(findXmlNode(response, "Data") as XmlObject),
+      );
     } catch (error) {
       if (args.url === undefined || !(error instanceof HcmError)) throw error;
       throw new HcmError(
@@ -220,10 +229,9 @@ export class ServerObjects {
   private async resolveCatalog(type: string, documentUrl?: string): Promise<string | undefined> {
     const info = await this.server.applicationInfo();
     let dbName = typeof info.default_db_name === "string" ? info.default_db_name : undefined;
-    if (documentUrl) {
-      const url = new URL(documentUrl);
-      if (url.protocol === "x-local:") dbName = url.hostname;
-    }
+    // Адрес, который не разбирается как URL, базу не называет.
+    const url = documentUrl ? URL.parse(documentUrl) : null;
+    if (url?.protocol === "x-local:") dbName = url.hostname;
     if (dbName === undefined || !Array.isArray(info.databases)) return undefined;
     const db = info.databases.find(
       (value) => value && typeof value === "object" && "id" in value && value.id === dbName,

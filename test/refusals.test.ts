@@ -3,6 +3,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { errorInFrontendTerms } from "../src/frontend-names.js";
+import { rawXml } from "../src/protocol/index.js";
+import { HcmRuntime } from "../src/runtime.js";
 import { fakeRuntime, refusal, refuse } from "./fake-server.js";
 
 const library = `<SPXML-INLINE-FORM><tools>
@@ -200,4 +202,88 @@ test("native.experimental.rawRequest: GET проходит как чтение �
   assert.equal((await request("GET")).ok, true);
   assert.equal((await request("POST")).error?.code, "WRITE_DISABLED");
   await runtime.close();
+});
+
+test("сбой кода клиента отвечает INTERNAL_ERROR без текста движка, отказ по аргументу — INVALID_ARGUMENT", async () => {
+  // Ошибка движка: чтение поля у undefined.
+  const crash = () => (undefined as unknown as { field: unknown }).field;
+  const plain = () => {
+    throw new Error("x");
+  };
+  const reply = async (answer: () => unknown, id: string, args: Record<string, unknown> = {}) => {
+    const { runtime } = fakeRuntime({ "native.lds.loadUrl": answer, "native.lds.putUrl": answer });
+    const { error } = await runtime.call(id, { url: "x-local://share/a.txt", ...args });
+    await runtime.close();
+    return error;
+  };
+  assert.deepEqual(await reply(crash, "files.read"), {
+    code: "INTERNAL_ERROR",
+    message: "Операция не выполнена: внутренняя ошибка клиента.",
+    hint: "Это дефект клиента: подбирать аргументы не нужно.",
+    retryable: false,
+  });
+  // Исход записи тот же, что у любого другого сбоя кода клиента.
+  const failedWrite = await reply(crash, "files.write", { text: "a" });
+  assert.equal(failedWrite?.mutationOutcome, "indeterminate");
+  assert.deepEqual(failedWrite, await reply(plain, "files.write", { text: "a" }));
+
+  const refused = await reply(crash, "files.read", { url: 1 });
+  assert.deepEqual(
+    [refused?.code, refused?.message],
+    ["INVALID_ARGUMENT", "args.url: нужна строка."],
+  );
+});
+
+test("значение, которое не принимает Node, отклоняется до запроса с именем аргумента", async () => {
+  const { runtime, server } = fakeRuntime({
+    "native.lds.loadDoc": { kind: "binary", bytes: new Uint8Array([0xff, 0xfe]) },
+  });
+  // Адрес, заголовки и метод сырого запроса разбирает транспорт: ему нужен шлюз подключения.
+  let requests = 0;
+  const overHttp = new HcmRuntime({
+    ...runtime.config,
+    fetch: async () => (requests++, new Response("")),
+  });
+  const raw = (extra: Record<string, unknown>) =>
+    [
+      overHttp,
+      "anonymous.experimental.rawRequest",
+      { unsafe: true, path: "/x", ...extra },
+    ] as const;
+  const refusals = [
+    [
+      runtime,
+      "execute.script",
+      { code: "RESULT = [];", params: { id: 1n } },
+      "params: значение нельзя записать как JSON.",
+    ],
+    [
+      runtime,
+      "results.export",
+      { resultId: "0".repeat(32), path: "a\0b" },
+      "path: в пути есть нулевой символ.",
+    ],
+    [...raw({ path: "http://[" }), "path: адрес записан неверно."],
+    [
+      ...raw({ headers: { "X-Name": "имя" } }),
+      "headers: имя или значение заголовка записано неверно.",
+    ],
+    [
+      ...raw({ method: "GET", body: "x" }),
+      "method: метод HTTP записан неверно или не допускает тела (body).",
+    ],
+  ] as const;
+  for (const [target, id, args, message] of refusals) {
+    const { error } = await target.call(id, args);
+    assert.deepEqual([error?.code, error?.message], ["INVALID_ARGUMENT", message]);
+  }
+  assert.equal(server.calls.length + requests, 0);
+  // По адресу файл, а не документ объекта.
+  const file = await runtime.call("objects.get", { url: "x-local://share/a.bin" });
+  assert.equal(file.error?.code, "INVALID_XML");
+  assert.match(file.error!.hint!, /files\.read/);
+  await Promise.all([runtime.close(), overHttp.close()]);
+
+  // Скрипту с wtctl/protocol отказ по аргументу приходит как TypeError.
+  assert.throws(() => rawXml("<a>"), TypeError);
 });

@@ -1,5 +1,5 @@
 import type { NativeLdsApi, SoapResult } from "./api.js";
-import { attachCleanupError, WsHcmApiError } from "./error.js";
+import { ArgumentError, attachCleanupError, WsHcmApiError } from "./error.js";
 import type { RequestOptions } from "./types.js";
 import { findXmlNode, isRawXml, localName, parseXml, type RawXml } from "./xml.js";
 
@@ -74,7 +74,7 @@ export function resolvePhysicalDocumentLocation(
 ): PhysicalDocumentLocation {
   validateDbName(dbName);
   if (!/^(?:\d+|0x[0-9a-f]+)$/i.test(idLexeme))
-    throw new TypeError(
+    throw new ArgumentError(
       "ID объекта записан неверно: нужна строка 0x… или десятичное число без знака.",
     );
   const id = BigInt(idLexeme);
@@ -84,7 +84,7 @@ export function resolvePhysicalDocumentLocation(
     return { objectId: id.toString(10), url: `x-local://${dbName}/objects/${base}/${index}.xml` };
   }
   const hex = id.toString(16).toUpperCase().padStart(16, "0");
-  if (hex.length !== 16) throw new TypeError("ID объекта не помещается в 64 бита.");
+  if (hex.length !== 16) throw new ArgumentError("ID объекта не помещается в 64 бита.");
   return {
     objectId: `0x${hex}`,
     url: `x-local://${dbName}/objects/${hex.slice(0, 14)}/${hex.slice(14)}.xml`,
@@ -105,7 +105,7 @@ export function parsePhysicalDocumentId(url: string): string | undefined {
 
 function validateDbName(dbName: string): void {
   if (!/^[A-Za-z0-9_.-]+$/.test(dbName))
-    throw new TypeError("dbName: нужно имя базы из латинских букв, цифр и знаков . _ -");
+    throw new ArgumentError("dbName: нужно имя базы из латинских букв, цифр и знаков . _ -");
 }
 
 /**
@@ -135,15 +135,15 @@ export class NativePhysicalDocumentsApi {
     const location = resolvePhysicalDocumentLocation(rawId, dbName);
     const document = request.document(location);
     if (!isRawXml(document))
-      throw new TypeError("document: функция должна вернуть проверенный XML (RawXml).");
+      throw new ArgumentError("document: функция должна вернуть проверенный XML (RawXml).");
     const parsed = parseXml(document.xml);
     const documentId = directDocumentId(parsed);
     if (documentId === undefined)
-      throw new TypeError(
+      throw new ArgumentError(
         "document: в XML нужен один корневой элемент и в нём ровно один элемент id.",
       );
     if (documentId.toUpperCase() !== location.objectId.toUpperCase()) {
-      throw new TypeError("document: id в XML должен совпадать с выданным ID объекта.");
+      throw new ArgumentError("document: id в XML должен совпадать с выданным ID объекта.");
     }
 
     let putStarted = false;

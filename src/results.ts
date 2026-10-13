@@ -16,6 +16,8 @@ export async function writeResultFile(
   chunks: AsyncIterable<string> | string[],
   overwrite = false,
 ): Promise<number> {
+  if (path.includes("\0"))
+    throw new HcmError("INVALID_ARGUMENT", "path: в пути есть нулевой символ.");
   const target = resolve(path);
   if ((await stat(target).catch(() => undefined))?.isDirectory())
     throw new HcmError(

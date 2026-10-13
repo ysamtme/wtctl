@@ -40,6 +40,12 @@ export class WsHcmApiError extends Error {
   }
 }
 
+/**
+ * Отказ по аргументу вызывающего: не тот тип, лишнее или неверно записанное значение. Наследует
+ * TypeError: так его ловят скрипты. TypeError движка и Node этим классом не является — это сбой кода.
+ */
+export class ArgumentError extends TypeError {}
+
 /** Отказ сервера со статусом отличается от потерянного или не наблюдавшегося ответа HTTP.
  * Идти только по ограниченным ссылкам ошибок; один локальный TypeError — не свидетельство сети. */
 export function isTransportFailure(error: unknown): boolean {

@@ -1,4 +1,5 @@
 import { WsHcmApiError } from "./native/index.js";
+import { ArgumentError } from "./protocol/error.js";
 import { WebSocketHeartbeatError } from "./protocol/websocket.js";
 import { HcmError } from "./errors.js";
 import { operationSpec } from "./operations.js";
@@ -204,7 +205,7 @@ export class ReplyPacker {
                 retryable: false,
                 ...(error.status === undefined ? {} : { details: { status: error.status } }),
               }
-            : error instanceof TypeError
+            : error instanceof ArgumentError
               ? {
                   code: "INVALID_ARGUMENT",
                   message: error.message,
@@ -214,7 +215,7 @@ export class ReplyPacker {
               : {
                   code: "INTERNAL_ERROR",
                   message: "Операция не выполнена: внутренняя ошибка клиента.",
-                  hint: "Проверить аргументы по api.describe. Если ошибка повторяется при верных аргументах, это дефект клиента.",
+                  hint: "Это дефект клиента: подбирать аргументы не нужно.",
                   retryable: false,
                 };
     if (refusedAfterSend)

@@ -11,7 +11,7 @@ import {
   type X2jOptions,
   type XmlBuilderOptions,
 } from "fast-xml-parser";
-import { WsHcmApiError } from "./error.js";
+import { ArgumentError, WsHcmApiError } from "./error.js";
 
 const RAW_XML = Symbol("RawXml");
 const unsafeDeclaration = /<!\s*(?:DOCTYPE|ENTITY)\b/i;
@@ -96,29 +96,29 @@ function validXmlCodePoint(code: number): boolean {
 export function assertXmlCharacters(source: string): void {
   for (const character of source)
     if (!validXmlCodePoint(character.codePointAt(0)!))
-      throw new TypeError("В XML есть недопустимый символ.");
+      throw new ArgumentError("В XML есть недопустимый символ.");
 }
 
 function assertSafe(source: string): void {
   assertXmlCharacters(source);
   const referenced = source.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>/g, "");
   if (unsafeDeclaration.test(referenced)) {
-    throw new TypeError("Объявления DOCTYPE и ENTITY в XML не допускаются.");
+    throw new ArgumentError("Объявления DOCTYPE и ENTITY в XML не допускаются.");
   }
   // Ссылки в комментариях, CDATA и инструкциях обработки — буквальный текст.
   for (const match of referenced.matchAll(/&#(?:x([0-9a-f]+)|(\d+));/gi)) {
     const code = Number.parseInt(match[1] ?? match[2]!, match[1] === undefined ? 10 : 16);
     if (!validXmlCodePoint(code))
-      throw new TypeError("В XML есть ссылка на недопустимый символ (&#…;).");
+      throw new ArgumentError("В XML есть ссылка на недопустимый символ (&#…;).");
   }
   for (const match of referenced.matchAll(/&([^;\s<&]+);/g)) {
     if (!/^(?:amp|lt|gt|apos|quot|#\d+|#x[\da-fA-F]+)$/.test(match[1]!))
-      throw new TypeError(
+      throw new ArgumentError(
         "В XML есть сущность, которой нет среди допустимых: amp, lt, gt, apos, quot и числовые.",
       );
   }
   if (/&(?!(?:amp|lt|gt|apos|quot|#\d+|#x[\da-fA-F]+);)/.test(referenced))
-    throw new TypeError("В XML есть одиночный знак &; сам знак записывается как &amp;.");
+    throw new ArgumentError("В XML есть одиночный знак &; сам знак записывается как &amp;.");
 }
 
 /**
@@ -187,7 +187,7 @@ export function createPlatformXmlBuilder(options: XmlBuilderOptions = {}): XMLBu
 
 function assertWellFormed(source: string): void {
   const validation = XMLValidator.validate(source);
-  if (validation !== true) throw new TypeError("Неверный XML: ошибка в разметке.");
+  if (validation !== true) throw new ArgumentError("Неверный XML: ошибка в разметке.");
 }
 
 /** Проверяет синтаксис документа и правила XML для символов и сущностей, не разбирая значения. */
@@ -238,7 +238,7 @@ export function rawXmlElement(source: string): RawXml {
     Array.isArray(value[elements[0]!]) ||
     (typeof value["#text"] === "string" && value["#text"].trim() !== "")
   )
-    throw new TypeError("Аргумент XML должен быть ровно одним элементом.");
+    throw new ArgumentError("Аргумент XML должен быть ровно одним элементом.");
   return rawXml(source);
 }
 

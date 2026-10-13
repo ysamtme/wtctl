@@ -1,7 +1,7 @@
 import { HcmError, inputObject, requiredString } from "../errors.js";
 import { prepare } from "../native/validation.js";
 import { boolean, operation, schema, string } from "../operation.js";
-import { WsHcmApiError } from "../protocol/error.js";
+import { ArgumentError, WsHcmApiError } from "../protocol/error.js";
 import { escapeXml } from "../protocol/xml.js";
 import { identifier } from "../query.js";
 import { rpcArgument, rpcValue } from "../server-value.js";
@@ -36,7 +36,7 @@ export const rpcOperations = [
         prepare(nativeArgs, context.pipeline.describe(operationId).inputSchema);
       } catch (error) {
         // Вызывающий написал arguments[i]; имя списка в протоколе ему знать не нужно.
-        const index = error instanceof TypeError && /^args\.args\[(\d+)\]/.exec(error.message);
+        const index = error instanceof ArgumentError && /^args\.args\[(\d+)\]/.exec(error.message);
         if (!index) throw error;
         throw new HcmError(
           "INVALID_RPC_ARGUMENT",

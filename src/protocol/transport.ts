@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { attachCleanupError, WsHcmApiError } from "./error.js";
+import { ArgumentError, attachCleanupError, WsHcmApiError } from "./error.js";
 import type { Credentials, RequestOptions, WsHcmResponse } from "./types.js";
 
 export interface TransportOptions {
@@ -58,25 +58,29 @@ export class HttpTransport {
   }
 
   constructor(options: TransportOptions) {
-    this.baseUrl = new URL(options.baseUrl.endsWith("/") ? options.baseUrl : `${options.baseUrl}/`);
+    const baseUrl = URL.parse(
+      options.baseUrl.endsWith("/") ? options.baseUrl : `${options.baseUrl}/`,
+    );
     if (
-      !["http:", "https:"].includes(this.baseUrl.protocol) ||
-      this.baseUrl.username !== "" ||
-      this.baseUrl.password !== ""
+      !baseUrl ||
+      !["http:", "https:"].includes(baseUrl.protocol) ||
+      baseUrl.username !== "" ||
+      baseUrl.password !== ""
     ) {
-      throw new TypeError("baseUrl: нужен URL HTTP(S) без имени и пароля в адресе");
+      throw new ArgumentError("baseUrl: нужен URL HTTP(S) без имени и пароля в адресе");
     }
+    this.baseUrl = baseUrl;
     this.#auth = options.auth;
     this.#timeoutMs = options.timeoutMs;
     if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1)
-      throw new TypeError("timeoutMs: нужно положительное целое число");
+      throw new ArgumentError("timeoutMs: нужно положительное целое число");
     this.#fetch = options.fetch;
     this.#webHeaders = options.webHeaders ?? false;
     this.#maxResponseBytes = options.maxResponseBytes ?? 16 * 1024 * 1024;
     if (!Number.isSafeInteger(this.#maxResponseBytes) || this.#maxResponseBytes < 1)
-      throw new TypeError("maxResponseBytes: нужно положительное целое число");
+      throw new ArgumentError("maxResponseBytes: нужно положительное целое число");
     if (this.baseUrl.search || this.baseUrl.hash)
-      throw new TypeError("baseUrl: строка запроса и фрагмент не допускаются");
+      throw new ArgumentError("baseUrl: строка запроса и фрагмент не допускаются");
   }
 
   assertOpen(): void {
@@ -90,10 +94,11 @@ export class HttpTransport {
 
   private resolve(path: string, relativeTo = this.baseUrl): URL {
     const absolute = /^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith("//");
-    const url = new URL(
+    const url = URL.parse(
       absolute ? path : relativeTo === this.baseUrl ? path.replace(/^\/+/, "") : path,
       relativeTo,
     );
+    if (!url) throw new ArgumentError("path: адрес записан неверно.");
     if (
       url.origin !== this.baseUrl.origin ||
       url.username ||
@@ -107,7 +112,12 @@ export class HttpTransport {
 
   async send(path: string, init: RequestInit = {}, options: SendOptions = {}): Promise<Response> {
     this.assertOpen();
-    const headers = new Headers(init.headers);
+    let headers: Headers;
+    try {
+      headers = new Headers(init.headers);
+    } catch {
+      throw new ArgumentError("headers: имя или значение заголовка записано неверно.");
+    }
     if (options.basic) {
       if (this.#auth === undefined)
         throw new WsHcmApiError("auth", "Нужны имя пользователя и пароль");
