@@ -1,13 +1,13 @@
 import { WsHcmApiError } from "./native/index.js";
 import { WebSocketHeartbeatError } from "./protocol/websocket.js";
 import { HcmError } from "./errors.js";
+import { operationSpec } from "./operations.js";
 import { platformFailure } from "./platform-errors.js";
 import type { ResultStore } from "./results.js";
-import type { CheckData } from "./self-check.js";
 import type { Verdict } from "./write-outcome.js";
 import type { ConnectionConfig, OperationError, OperationResult } from "./contracts.js";
 
-/** What a batch had done by the time it failed. */
+/** Что пакет успел сделать к моменту сбоя. */
 export interface BatchRecovery {
   completed: number;
   requested: number;
@@ -23,7 +23,7 @@ function jsonSafe(value: unknown): unknown {
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
   return value;
 }
-/** What a stored answer starts with: the first rows of a list, the first characters of a long text. */
+/** С чего начинается сохранённый ответ: первые строки списка, первые символы длинного текста. */
 function beginning(data: unknown): unknown {
   const cut = (value: unknown): unknown =>
     Array.isArray(value)
@@ -34,100 +34,39 @@ function beginning(data: unknown): unknown {
   if (data === null || typeof data !== "object" || Array.isArray(data)) return cut(data);
   return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, cut(value)]));
 }
-/** One line for a step of a stored batch answer: which step it is and how much it returned. */
-function stepSummary(step: unknown): unknown {
-  const { as, ok, data, error } = step as {
-    as?: string;
-    ok?: boolean;
-    data?: Record<string, unknown>;
-    error?: { code?: string };
-  };
-  return {
-    ...(as === undefined ? {} : { as }),
-    ok,
-    ...(error?.code ? { code: error.code } : {}),
-    ...(typeof data?.total === "number" ? { total: data.total } : {}),
-    ...(Array.isArray(data?.items) ? { rows: data.items.length } : {}),
-    ...(data?.incomplete ? { incomplete: true } : {}),
-  };
-}
 
-/** Makes the reply of an operation out of what it returned or threw, within the limits of the connection. */
+/** Собирает ответ операции из того, что она вернула или выбросила, в лимитах подключения. */
 export class ReplyPacker {
   constructor(
     private readonly config: ConnectionConfig,
     private readonly results: Pick<ResultStore, "put">,
   ) {}
-  /** Room for the payload of one reply; the rest of the output limit is left to its other fields. */
+  /** Место под payload одного ответа; остаток лимита вывода оставлен другим его полям. */
   get pageBytes(): number {
     return Math.floor(this.config.outputLimitBytes * 0.6);
   }
-  /** What the operation returned; an answer over the limit is stored whole and replaced by its beginning. */
+  /** Что вернула операция; ответ сверх лимита сохраняется целиком и заменяется своим началом. */
   async success(
     id: string,
     start: number,
     value: unknown,
     bound: boolean,
   ): Promise<OperationResult> {
+    const rules = operationSpec(id)?.reply;
     const data = jsonSafe(value);
     const serialised = JSON.stringify(data);
-    const failedBatch =
-      id === "runtime.batch" &&
-      data !== null &&
-      typeof data === "object" &&
-      "ok" in data &&
-      data.ok === false;
-    const failedCheck = id === "runtime.check" && (data as CheckData).summary.failed > 0;
-    // The steps that failed are named in the error: the answers of a long batch are stored.
-    const batch = data as unknown as {
-      results: OperationResult[];
-      completed: number;
-      requested: number;
+    const outcome = (stored: boolean) => {
+      const error = rules?.failed?.(data, stored);
+      return error ? { ok: false, error } : { ok: true };
     };
-    const failedSteps = failedBatch
-      ? batch.results.flatMap((result, index) =>
-          result.ok
-            ? []
-            : [{ index, id: result.meta.operationId, code: result.error?.code ?? "UNKNOWN" }],
-        )
-      : [];
-    const outcome =
-      failedBatch || failedCheck
-        ? {
-            ok: false,
-            error: {
-              code: failedCheck ? "CHECK_FAILED" : "BATCH_FAILED",
-              message: failedCheck
-                ? `Проверка подключения не пройдена: ${(data as CheckData).checks
-                    .filter((check) => check.result === "failed")
-                    .map((check) => check.name)
-                    .join(", ")}.`
-                : `Отказало шагов пакета: ${failedSteps.length} из ${batch.requested}${batch.requested > batch.completed ? `; после отказа не запускались: ${batch.requested - batch.completed}` : ""}. До повтора нужно посмотреть исход каждого шага.`,
-              hint: failedCheck
-                ? ((data as CheckData).checks.find((check) => check.result === "failed")?.reason ??
-                  "Причины — в data.checks.")
-                : "Номера и коды отказавших шагов — в error.details.failed, ответы шагов — в data.results.",
-              retryable: false,
-              ...(failedBatch
-                ? {
-                    details: {
-                      failed: failedSteps.slice(0, 20),
-                      ...(failedSteps.length > 20 ? { failedTotal: failedSteps.length } : {}),
-                    },
-                  }
-                : {}),
-            },
-          }
-        : { ok: true };
     if (
       bound &&
       Buffer.byteLength(serialised ?? "null") > this.config.outputLimitBytes &&
-      id !== "results.read" &&
-      id !== "runtime.check"
+      rules?.store !== "never"
     ) {
       const stored = await this.results.put(data);
       let preview = beginning(data);
-      // Rows too long for a preview are dropped; counters and positions next to them stay.
+      // Слишком длинные для предпросмотра строки отбрасываются; счётчики и позиции рядом остаются.
       if (Buffer.byteLength(JSON.stringify(preview)) > this.config.outputLimitBytes / 2)
         preview = {
           kind: "stored-result",
@@ -138,8 +77,8 @@ export class ReplyPacker {
                   .map(([key, value]) => [
                     key,
                     Array.isArray(value)
-                      ? id === "runtime.batch" && key === "results"
-                        ? value.map(stepSummary)
+                      ? rules?.preview && Object.hasOwn(rules.preview, key)
+                        ? value.map(rules.preview[key]!)
                         : `[список: ${value.length}]`
                       : value !== null && typeof value === "object"
                         ? "{структура}"
@@ -151,15 +90,7 @@ export class ReplyPacker {
             : {}),
         };
       return {
-        ...outcome,
-        ...(failedBatch && "error" in outcome
-          ? {
-              error: {
-                ...outcome.error,
-                hint: "Номера и коды отказавших шагов — в error.details.failed; ответы шагов сохранены, их читает results.read.",
-              },
-            }
-          : {}),
+        ...outcome(true),
         data: {
           preview,
           resultId: stored.resultId,
@@ -175,13 +106,13 @@ export class ReplyPacker {
         },
       };
     }
-    // The text of a log or a file is kept even when it fits: results.export saves it to a file.
+    // Текст лога или файла сохраняется, даже если помещается: results.export пишет его в файл.
     const kept =
-      bound && (id === "logs.read" || id === "files.read")
+      bound && rules?.store === "always"
         ? await this.results.put(data).catch(() => undefined)
         : undefined;
     return {
-      ...outcome,
+      ...outcome(false),
       data,
       meta: {
         operationId: id,
@@ -191,19 +122,19 @@ export class ReplyPacker {
       },
     };
   }
-  /** What the operation threw: worded by the class of the error, without secrets, within the limit. */
+  /** Что операция выбросила: формулировка по классу ошибки, без секретов, в пределах лимита. */
   failure(
     id: string,
     start: number,
     error: unknown,
     verdict: Verdict,
-    extra: { refusal?: string; batchRecovery?: BatchRecovery } = {},
+    extra: { causeRuledOut?: true; batchRecovery?: BatchRecovery } = {},
   ): OperationResult {
-    const failure = this.pack(id, start, error, verdict, extra.refusal);
+    const failure = this.pack(id, start, error, verdict, extra.causeRuledOut);
     if (!extra.batchRecovery) return failure;
     return { ...failure, data: this.batchRecoveryData(extra.batchRecovery) };
   }
-  /** Local storage failure cannot erase already executed steps or label a sent batch not_sent. */
+  /** Сбой локального хранилища не стирает выполненные шаги и не помечает ушедший пакет not_sent. */
   private batchRecoveryData(recovery: BatchRecovery): Record<string, unknown> {
     const data: Record<string, unknown> = {
       partial: true,
@@ -218,7 +149,7 @@ export class ReplyPacker {
     const budget = Math.floor(this.config.outputLimitBytes / 3);
     for (const receipt of recovery.receipts) {
       const compact = { ...receipt };
-      // Very long URLs remain inspectable through the original batch input; never invent a shortened URL.
+      // Длинные URL проверяемы по исходному вводу пакета; сокращённый URL не выдумывается.
       if (typeof compact.url === "string" && compact.url.length > 256) delete compact.url;
       receipts.push(compact);
       data.omittedReceipts = recovery.receipts.length - receipts.length;
@@ -235,7 +166,7 @@ export class ReplyPacker {
     start: number,
     error: unknown,
     verdict: Verdict,
-    refusal: string | undefined,
+    causeRuledOut: true | undefined,
   ): OperationResult {
     const redact = (message: string, limit = 500): string => {
       let safe = message;
@@ -265,7 +196,11 @@ export class ReplyPacker {
           : error instanceof WsHcmApiError
             ? {
                 code: `PLATFORM_${error.kind.toUpperCase()}`,
-                ...platformFailure(error, this.config.baseUrl, refusal ?? id),
+                ...platformFailure(
+                  error,
+                  this.config.baseUrl,
+                  causeRuledOut ? undefined : operationSpec(id)?.usualCause,
+                ),
                 retryable: false,
                 ...(error.status === undefined ? {} : { details: { status: error.status } }),
               }
@@ -296,7 +231,7 @@ export class ReplyPacker {
         return Object.fromEntries(
           Object.entries(value)
             .slice(0, 12)
-            // The caller fixes the code by the server's message: it is kept longer than the rest.
+            // Вызывающий правит код по сообщению сервера: его лимит длины больше остальных.
             .map(([key, item]) => [
               key.slice(0, 128),
               trim(item, depth + 1, key === "scriptError" ? 2048 : 256),
@@ -304,7 +239,8 @@ export class ReplyPacker {
         );
       return value;
     };
-    // Exact IDs go over the redaction: a password can legitimately match a UUID digit or prefix.
+    // Точные ID ставятся поверх маскирования: пароль может законно совпасть с цифрой или
+    // префиксом UUID.
     let details: Record<string, unknown> = {
       ...(trim({
         ...normal.details,
@@ -327,17 +263,17 @@ export class ReplyPacker {
         ...value,
         meta: { ...value.meta, connection: "[omitted]", connectionOmitted: true },
       };
-      // Direct SDK callers may supply a label beyond the configured profile
-      // bounds. Omit the entire label before sacrificing useful diagnostics or
-      // exact recovery/read receipts; a short ordinary label is retained.
+      // Прямые вызывающие SDK могут передать метку длиннее, чем позволяют границы
+      // подключения. Метка опускается целиком раньше, чем жертвуют полезной диагностикой или
+      // точными сведениями для восстановления и чтения; короткая обычная метка сохраняется.
       return Buffer.byteLength(JSON.stringify(omitted)) < bytes ? omitted : value;
     };
     const result: OperationResult = omitOversizedConnection({
       ok: false,
       error: {
         ...normal,
-        // A platform failure is worded here from fixed text and the configured address; a password
-        // that happens to be part of a word must not cut holes in it.
+        // Отказ платформы формулируется здесь из фиксированного текста и настроенного адреса;
+        // пароль, случайно ставший частью слова, не должен вырезать в нём дыры.
         ...(error instanceof WsHcmApiError
           ? {}
           : {
@@ -354,8 +290,8 @@ export class ReplyPacker {
       },
     });
     if (error instanceof WebSocketHeartbeatError) {
-      // The dedicated constructor retains only bounded protocol observations.
-      // Generic upstream details and close reasons never enter this receipt.
+      // Специальный конструктор сохраняет только ограниченные наблюдения протокола.
+      // Общие подробности со стороны сервера и причины закрытия в эту сводку не попадают.
       const contextual: OperationResult = omitOversizedConnection({
         ...result,
         error: {

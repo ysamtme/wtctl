@@ -85,7 +85,7 @@ export function parseSoapBody(method: string, source: string, status: number): X
   try {
     document = parseXml(source);
   } catch (cause) {
-    throw new WsHcmApiError("protocol", "Invalid XML response", {
+    throw new WsHcmApiError("protocol", "Неверный XML в ответе", {
       operation: method,
       status,
       cause,
@@ -112,10 +112,13 @@ export function parseSoapBody(method: string, source: string, status: number): X
     directChild(directChild(document, "Envelope"), "Body"),
     `${method}Response`,
   );
-  // An existing empty element is represented as an empty string by fast-xml-parser.
+  // fast-xml-parser представляет существующий пустой элемент пустой строкой.
   if (response === "") return {};
   if (response === undefined || response === null || typeof response !== "object") {
-    throw new WsHcmApiError("protocol", `Missing ${method}Response`, { operation: method, status });
+    throw new WsHcmApiError("protocol", `В ответе нет ${method}Response`, {
+      operation: method,
+      status,
+    });
   }
   return response as XmlObject;
 }

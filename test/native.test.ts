@@ -128,7 +128,7 @@ function operationSample(id: string, schema: Record<string, unknown>): Record<st
   return sample(schema) as Record<string, unknown>;
 }
 
-test("failed web.lifecycle.logout disposes the old context and the next call bootstraps again", async () => {
+test("неудачный web.lifecycle.logout освобождает старый контекст, и следующий вызов выполняет bootstrap заново", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({
     ...base,
@@ -144,7 +144,7 @@ test("failed web.lifecycle.logout disposes the old context and the next call boo
       gateway.call("web.lifecycle.logout", {}),
       (error) => error instanceof Error && (error as { status?: number }).status === 500,
     );
-    await assert.rejects(previous.lds.xQuery({ query: "1" }), /disposed|closed/);
+    await assert.rejects(previous.lds.xQuery({ query: "1" }), /закрыт/);
     await gateway.call("web.lds.xQuery", { query: "1" });
     assert.equal(mock.calls.filter((call) => call.url.pathname.endsWith("/main.htm")).length, 2);
   } finally {
@@ -152,7 +152,7 @@ test("failed web.lifecycle.logout disposes the old context and the next call boo
   }
 });
 
-test("binary result carries only kind, bytes and contentType, never HTTP headers", async () => {
+test("двоичный результат несёт только kind, bytes и contentType и никогда — заголовки HTTP", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({
     ...base,
@@ -166,7 +166,7 @@ test("binary result carries only kind, bytes and contentType, never HTTP headers
   await gateway.close();
 });
 
-test("operation registry has unique IDs and excludes reflective private dispatch", async () => {
+test("реестр операций имеет уникальные ID и исключает рефлексивный вызов закрытых методов", async () => {
   const operations = getNativeOperations();
   assert.equal(new Set(operations.map((item) => item.id)).size, operations.length);
   assert.equal(operations.find((item) => item.id === "native.lds.xQuery")?.effect, "execute");
@@ -174,16 +174,16 @@ test("operation registry has unique IDs and excludes reflective private dispatch
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   await assert.rejects(
     gateway.call("native.lds.constructor", { $args: [] }),
-    /Unknown native operation/,
+    /Неизвестная низкоуровневая операция/,
   );
   assert.equal(mock.calls.length, 0);
   await gateway.close();
 });
 
-// This fixture speaks HTTP/SOAP only. Socket operations have independent real
-// loopback fixtures in websocket-protocol.test.ts and websocket-frontends.test.ts.
+// Этот подставной сервер говорит только по HTTP/SOAP. У операций с сокетами свои,
+// независимые подставные серверы на настоящем loopback: websocket-protocol.test.ts и websocket-frontends.test.ts.
 for (const operation of getNativeOperations().filter((item) => item.group !== "websocket"))
-  test(`synthetic request/response: ${operation.id}`, async () => {
+  test(`подставные запрос и ответ: ${operation.id}`, async () => {
     const mock = fixture();
     const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
     try {
@@ -209,7 +209,7 @@ for (const operation of getNativeOperations().filter((item) => item.group !== "w
     }
   });
 
-test("native calls share one session and cursor context; close rejects further network access", async () => {
+test("вызовы native делят одну сессию и контекст курсора; close запрещает дальнейшее обращение к сети", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   await gateway.call("native.lds.xQuery", {
@@ -226,11 +226,11 @@ test("native calls share one session and cursor context; close rejects further n
   assert.ok(mock.calls.some((call) => call.body.includes("<CursorID>9007199254740993</CursorID>")));
   await gateway.close();
   const count = mock.calls.length;
-  await assert.rejects(gateway.call("native.lds.idle", {}), /closed/);
+  await assert.rejects(gateway.call("native.lds.idle", {}), /закрыт/);
   assert.equal(mock.calls.length, count);
 });
 
-test("invalid XML, missing arguments and unknown fields are rejected without persistent mutation", async () => {
+test("неверный XML, недостающие аргументы и неизвестные поля отклоняются без постоянных изменений", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   await assert.rejects(gateway.call("native.lds.deleteDoc", {}), /обязательное значение не задано/);
@@ -246,7 +246,7 @@ test("invalid XML, missing arguments and unknown fields are rejected without per
   await gateway.close();
 });
 
-test("all response consumers are byte-bounded and cancel oversized streams", async () => {
+test("все потребители ответа ограничены по байтам и отменяют потоки сверх предела", async () => {
   let cancelled = false;
   const fetch: typeof globalThis.fetch = async () =>
     new Response(
@@ -266,11 +266,11 @@ test("all response consumers are byte-bounded and cancel oversized streams", asy
     fetch,
   });
   const response = await transport.send("/bounded");
-  await assert.rejects(response.arrayBuffer(), /byte limit/);
+  await assert.rejects(response.arrayBuffer(), /предел в байтах/);
   assert.equal(cancelled, true);
 });
 
-test("redirects preserve mount path and cookies; external redirects and write redirects are refused", async () => {
+test("перенаправления сохраняют путь монтирования и cookie; внешние перенаправления и перенаправления записи отклоняются", async () => {
   const urls: string[] = [];
   const headers: Headers[] = [];
   const fetch: typeof globalThis.fetch = async (input, init) => {
@@ -293,14 +293,14 @@ test("redirects preserve mount path and cookies; external redirects and write re
     fetch: async () =>
       new Response(null, { status: 302, headers: { location: "https://outside.invalid/" } }),
   });
-  await assert.rejects(external.send("/first"), /Redirect leaves the configured server/);
+  await assert.rejects(external.send("/first"), /Перенаправление ведёт на другой сервер/);
   await assert.rejects(
     external.send("/first", { method: "POST", body: "fixture" }),
-    /Write redirect/,
+    /запроса на запись/,
   );
 });
 
-test("partial web bootstrap logs out and disposed sessions refuse reuse", async () => {
+test("частичный bootstrap web выходит из сессии, а освобождённые сессии не принимают повторного использования", async () => {
   const mock = fixture();
   const fetch: typeof globalThis.fetch = async (input, init) =>
     typeof init?.body === "string" && init.body.includes("<OpenSession ")
@@ -311,7 +311,7 @@ test("partial web bootstrap logs out and disposed sessions refuse reuse", async 
     auth: { username: "fixture", password: "fixture" },
     fetch,
   });
-  await assert.rejects(client.openWebSession(), /Invalid XML|Missing/);
+  await assert.rejects(client.openWebSession(), /Неверный XML|В ответе нет/);
   assert.ok(mock.calls.some((call) => call.url.pathname.endsWith("/logout.htm")));
   assert.ok(mock.calls.some((call) => call.url.pathname.endsWith("/logout2.htm")));
   const normal = new WsHcmClient({
@@ -322,11 +322,11 @@ test("partial web bootstrap logs out and disposed sessions refuse reuse", async 
   const session = await normal.openNativeSession();
   await session.close();
   const count = mock.calls.length;
-  await assert.rejects(session.lds.idle(), /closed/);
+  await assert.rejects(session.lds.idle(), /закрыт/);
   assert.equal(mock.calls.length, count);
 });
 
-test("web SPXML GetDoc omits a false TryLock rather than enabling a presence flag", async () => {
+test("web SPXML GetDoc опускает ложный TryLock, а не включает флаг наличия", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   await gateway.call("web.spxml.getDoc", { docUrl: "x-local://wtv/fixture.xml", tryLock: false });
@@ -339,7 +339,7 @@ test("web SPXML GetDoc omits a false TryLock rather than enabling a presence fla
   await gateway.close();
 });
 
-test("concurrent close calls await the same cleanup and drain accepted queued operations", async () => {
+test("параллельные вызовы close ждут одной и той же очистки и дорабатывают принятые операции из очереди", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   const accepted = gateway.call("native.lds.idle", {});
@@ -352,7 +352,7 @@ test("concurrent close calls await the same cleanup and drain accepted queued op
   assert.equal(mock.calls.filter((call) => call.body.includes("<CloseSession ")).length, 1);
 });
 
-test("queued native calls snapshot reused URLs and nested binary/XML boxes at acceptance", async () => {
+test("вызовы native в очереди запоминают повторно используемые URL и вложенные двоичные и XML-обёртки в момент приёма", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   const input = { url: "x-local://share/original-a.bin", data: { base64: "QQ==" } };
@@ -385,16 +385,16 @@ test("queued native calls snapshot reused URLs and nested binary/XML boxes at ac
   await gateway.close();
 });
 
-test("native registry describes 1171 async terminal result consumption", () => {
+test("реестр native описывает чтение конечного результата асинхронных операций на 1171", () => {
   const description = getNativeOperations().find(
     (operation) => operation.id === "web.spxml.getAsyncMethodStatus",
   )!.description;
   assert.match(description, /1171/);
-  assert.match(description, /terminal response consumes/);
-  assert.match(description, /lost HTTP/);
+  assert.match(description, /первый ответ о завершении расходует/);
+  assert.match(description, /ответ HTTP потерян/);
 });
 
-test("dynamic RPC preserves explicitly boxed XML arguments without forcing an upstream target allowlist", async () => {
+test("динамический RPC сохраняет аргументы XML в явной обёртке, не навязывая список разрешённых целей", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   await gateway.call("native.rpc.call", {
@@ -407,7 +407,7 @@ test("dynamic RPC preserves explicitly boxed XML arguments without forcing an up
   await gateway.close();
 });
 
-test("a failed bounded stream releases ownership of the original response reader", async () => {
+test("упавший ограниченный поток освобождает исходный reader ответа", async () => {
   const original = new Response(
     new ReadableStream<Uint8Array>({
       pull(controller) {
@@ -427,12 +427,12 @@ test("a failed bounded stream releases ownership of the original response reader
     (error) =>
       error instanceof Error &&
       (error as { kind?: string }).kind === "http" &&
-      error.message === "HTTP response body failed",
+      error.message === "Не удалось прочитать тело HTTP-ответа",
   );
   assert.equal(original.body?.locked, false);
 });
 
-test("invalid dynamic RPC target syntax is rejected before even opening a session", async () => {
+test("неверная запись цели динамического RPC отклоняется ещё до открытия сессии", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   await assert.rejects(
@@ -443,7 +443,7 @@ test("invalid dynamic RPC target syntax is rejected before even opening a sessio
   await gateway.close();
 });
 
-test("schema bounds and enum values are validated, including Unicode string length", () => {
+test("границы схемы и значения enum проверяются, в том числе длина строки в Unicode", () => {
   const rejected: Array<[unknown, Record<string, unknown>]> = [
     ["1", { type: "integer" }],
     [1.5, { type: "integer" }],
@@ -478,7 +478,7 @@ test("schema bounds and enum values are validated, including Unicode string leng
     );
 });
 
-test("composite integer and batch limits fail before opening a native context", async () => {
+test("составные целые и пределы пакета отказывают до открытия контекста native", async () => {
   const mock = fixture();
   const runtime = new HcmRuntime({
     ...base,
@@ -502,7 +502,7 @@ test("composite integer and batch limits fail before opening a native context", 
   await runtime.close();
 });
 
-test("XML literals and references reject invalid XML 1.0 characters before transport", async () => {
+test("литералы и ссылки XML отклоняют символы, недопустимые в XML 1.0, до транспорта", async () => {
   for (const source of [
     "<a>\u0000</a>",
     "<a>\ud800</a>",
@@ -532,7 +532,7 @@ test("XML literals and references reject invalid XML 1.0 characters before trans
   await gateway.close();
 });
 
-test("present empty SOAP response nodes are accepted while missing nodes still fail", () => {
+test("присутствующие пустые узлы ответа SOAP принимаются, а отсутствующие всё равно дают отказ", () => {
   for (const method of ["PutDoc", "PutUrl", "CloseSession"]) {
     for (const node of [`<${method}Response/>`, `<${method}Response></${method}Response>`])
       assert.deepEqual(
@@ -550,12 +550,12 @@ test("present empty SOAP response nodes are accepted while missing nodes still f
           '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope/"><s:Body/></s:Envelope>',
           200,
         ),
-      /Missing/,
+      /В ответе нет/,
     );
   }
 });
 
-test("XML character references decode exactly once in text and attributes without HTML entities", () => {
+test("символьные ссылки XML раскрываются ровно один раз в тексте и атрибутах, без сущностей HTML", () => {
   assert.deepEqual(parseXml('<x a="&#13;&#xD;&#9;&#x1F600;">&#13;&#xD;&#10;&#00000000065;</x>'), {
     x: { "#text": "\r\r\nA", "@_a": "\r\r\t😀" },
   });
@@ -581,7 +581,7 @@ test("XML character references decode exactly once in text and attributes withou
   });
 });
 
-test("unresolved batch references require write permission for conditional lock operations", () => {
+test("неразрешённые ссылки пакета требуют права на запись для условных операций блокировки", () => {
   for (const operation of getNativeOperations().filter((operation) =>
     ["loadDoc", "loadUrl", "getDoc"].includes(operation.method),
   )) {
@@ -609,7 +609,7 @@ test("unresolved batch references require write permission for conditional lock 
   }
 });
 
-test("zero-byte logs pass through the native RPC XML decoder as empty text and events", async () => {
+test("логи нулевого размера проходят через декодер XML native RPC как пустые текст и события", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({
     ...base,
@@ -656,7 +656,7 @@ test("zero-byte logs pass through the native RPC XML decoder as empty text and e
   }
 });
 
-test("native count fields and image effect scalars reject invalid inputs before any transport", async () => {
+test("поля-счётчики native и скаляры эффектов изображения отклоняют неверный ввод до любого транспорта", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   for (const operation of ["native.lds.xQuery", "web.lds.xQuery"])

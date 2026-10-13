@@ -299,7 +299,7 @@ const cases: {
     args: { file: "xhttp_2026-09-30.log", cursor: "opaque" },
   },
 ];
-test("typed shortcuts preserve documented operation IDs and wire argument names", async () => {
+test("типизированные сокращения сохраняют документированные ID операций и имена аргументов в протоколе", async () => {
   for (const entry of cases) {
     const f = fixture();
     const result = await entry.run(f.client);
@@ -309,7 +309,7 @@ test("typed shortcuts preserve documented operation IDs and wire argument names"
   }
 });
 
-test("discovery and explicit close use the same borrowed runtime", async () => {
+test("обзор и явное закрытие используют один и тот же переданный runtime", async () => {
   const f = fixture();
   assert.equal(f.client.runtime, f.runtime);
   assert.equal(f.client.describe(definition.id), definition);
@@ -319,7 +319,7 @@ test("discovery and explicit close use the same borrowed runtime", async () => {
   assert.equal(f.calls.length, 0);
 });
 
-test("unwrap returns a complete typed value and retains precise mutation and partial outcomes", () => {
+test("unwrap возвращает полное типизированное значение и сохраняет точный исход записи и частичные исходы", () => {
   const success: HcmResult<ObjectData<{ id: string; name: string }>> = {
     ok: true,
     data: {
@@ -362,7 +362,7 @@ test("unwrap returns a complete typed value and retains precise mutation and par
   );
 });
 
-test("unwrap never presents a stored preview as full typed data", () => {
+test("unwrap никогда не выдаёт сохранённый preview за полные типизированные данные", () => {
   for (const result of [
     {
       ok: true,
@@ -391,7 +391,7 @@ test("unwrap never presents a stored preview as full typed data", () => {
   );
 });
 
-test("scoped SDK closes exactly once after success and operation failure", async () => {
+test("SDK в области закрывается ровно один раз после успеха и после сбоя операции", async () => {
   const f = fixture();
   assert.equal(
     await f.client.use(async (client) => {
@@ -412,7 +412,7 @@ test("scoped SDK closes exactly once after success and operation failure", async
   assert.equal(g.closes(), 1);
 });
 
-test("cleanup failure retains a successful value and hides transport error text", async () => {
+test("сбой очистки сохраняет успешное значение и скрывает текст ошибки транспорта", async () => {
   const f = fixture();
   f.runtime.close = async () => {
     throw new Error("synthetic-private-transport-value");
@@ -434,7 +434,7 @@ test("cleanup failure retains a successful value and hides transport error text"
   );
 });
 
-test("operation and cleanup failure preserve original error, partial results and secondary evidence", async () => {
+test("сбой операции и очистки сохраняет исходную ошибку, частичные результаты и вторичные свидетельства", async () => {
   const f = fixture();
   f.runtime.close = async () => {
     throw new Error("synthetic-private-cleanup");
@@ -489,7 +489,7 @@ test("operation and cleanup failure preserve original error, partial results and
   );
 });
 
-test("typed config facade and raw scoped helper never expand permissions or attempt denied writes", async () => {
+test("типизированный фасад config и сырая функция в области не расширяют права и не пытаются записать запрещённое", async () => {
   let requests = 0;
   const options = {
     ...config,
@@ -518,7 +518,7 @@ test("typed config facade and raw scoped helper never expand permissions or atte
   assert.equal(requests, 0);
 });
 
-test("typed status returns connected version and scoped cleanup accepts a logout HTTP 500", async () => {
+test("типизированный status возвращает версию подключённого сервера, а очистка в области принимает HTTP 500 при выходе", async () => {
   const methods: string[] = [];
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const method = /<soap:Body><([A-Za-z0-9]+)/.exec(String(init?.body ?? ""))?.[1];

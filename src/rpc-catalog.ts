@@ -9,7 +9,7 @@ export interface RpcTargetCard {
   readonly id: string;
   readonly parameters: readonly string[];
   readonly allowed: boolean | null;
-  /** The function has no client gate: it is called from server code only. */
+  /** Функция не допускает вызова с клиента: её зовёт только код сервера. */
   readonly serverOnly?: true;
 }
 export interface RpcCatalogFilter {
@@ -17,7 +17,7 @@ export interface RpcCatalogFilter {
   readonly library?: string;
   readonly method?: string;
   readonly builtIn?: boolean;
-  /** Include functions that only server code can call. */
+  /** Включить функции, которые может вызывать только код сервера. */
   readonly all?: boolean;
   readonly cursor?: number;
   readonly limit?: number;
@@ -33,12 +33,12 @@ interface RpcCatalogSource {
 export interface RpcCatalogPage extends RpcCatalogSource {
   readonly targets: readonly RpcTargetCard[];
   readonly total: number;
-  /** Matching functions left out because a client cannot call them; all:true lists them. */
+  /** Подходящие функции, пропущенные из-за того, что клиент их не вызовет; all:true выводит их. */
   readonly serverOnlyHidden?: number;
   readonly nextCursor?: number;
 }
 export interface RpcTargetDescription extends RpcTargetCard, RpcCatalogSource {
-  /** How to call a function that a client cannot call. */
+  /** Как вызвать функцию, которую клиент вызвать не может. */
   readonly note?: string;
   readonly code?: string;
   readonly codeTruncated?: true;
@@ -83,7 +83,7 @@ function unknownTarget(
   );
 }
 
-/** Runtime-local discovery; calling a target remains a separate operation. */
+/** Поиск целей внутри runtime; вызов цели остаётся отдельной операцией. */
 export class RpcCatalog {
   private readonly reader: LibraryReader | undefined;
   constructor(
@@ -105,7 +105,7 @@ export class RpcCatalog {
         }
       : { targets, source: "built-in 2025.1.1171" };
   }
-  /** Why the server refused a call, when its own list of functions explains it. */
+  /** Почему сервер отказал в вызове, если это объясняет его собственный список функций. */
   async refusal(targetId: string): Promise<HcmError | undefined> {
     const { targets: available, source } = await this.catalog(false, targetId.split(".")[0]);
     if (source !== "server") return undefined;
@@ -151,7 +151,7 @@ export class RpcCatalog {
         ...serverOnlyHidden,
         ...(nextCursor < total ? { nextCursor } : {}),
       };
-      // Never advance past a card that was not emitted when the byte budget reduces the page.
+      // Не продвигаться за карточку, которая не выдана, когда бюджет в байтах сокращает страницу.
       if (Buffer.byteLength(JSON.stringify(page, null, 2), "utf8") > RPC_CATALOG_PAGE_MAX_BYTES) {
         if (selected.length === 0)
           throw new HcmError(

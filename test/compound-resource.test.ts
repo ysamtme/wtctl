@@ -5,7 +5,7 @@ import { HttpTransport } from "../src/protocol/transport.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
 import { NativeGateway, getNativeOperations } from "../src/native/index.js";
 
-test("compound resources use distinct URL/document GET branches and preserve exact bytes, media and HTTP context", async () => {
+test("составные ресурсы используют разные ветки GET для URL и документа и сохраняют точные байты, тип содержимого и контекст HTTP", async () => {
   const calls: { url: URL; headers: Headers; method: string; body: BodyInit | null | undefined }[] =
     [];
   const bytes = new Uint8Array([0, 1, 13, 10, 0xff, 0xf0, 0x9f, 0x98, 0x80]);
@@ -68,7 +68,7 @@ test("compound resources use distinct URL/document GET branches and preserve exa
   }
 });
 
-test("ambiguous or unsafe compound sources fail before transport and descriptor schema rejects both branches", async () => {
+test("неоднозначные или небезопасные составные источники отказывают до транспорта, а схема операции отклоняет обе ветки", async () => {
   let calls = 0;
   const fetch = async () => {
     calls++;
@@ -128,7 +128,7 @@ test("ambiguous or unsafe compound sources fail before transport and descriptor 
   }
 });
 
-test("compound resource HTTP failure and oversized streams release the underlying response", async () => {
+test("сбой HTTP составного ресурса и слишком большие потоки освобождают нижележащий ответ", async () => {
   for (const status of [404, 200]) {
     let cancelled = false;
     const transport = new HttpTransport({
@@ -160,10 +160,7 @@ test("compound resource HTTP failure and oversized streams release the underlyin
         );
       else {
         const response = await operation;
-        await assert.rejects(
-          new Response(response.body).arrayBuffer(),
-          /exceeds.*limit|exceed.*byte|limit/i,
-        );
+        await assert.rejects(new Response(response.body).arrayBuffer(), /превышает.*предел/);
       }
       assert.equal(cancelled, true);
     } finally {

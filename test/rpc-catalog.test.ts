@@ -19,7 +19,7 @@ const library = `<SPXML-INLINE-FORM><tools>
 const response = (source: string) => ({
   Data: Buffer.from(source).toString("base64").replace(/.{60}/g, "$&\n"),
 });
-test("built-in discovery retains pagination, compact cards, filters and immutable parameters", async () => {
+test("встроенный обзор сохраняет постраничность, краткие карточки, фильтры и неизменяемые параметры", async () => {
   const catalog = new RpcCatalog();
   const page = await catalog.list();
   assert.equal(page.source, "built-in 2025.1.1171");
@@ -65,7 +65,7 @@ test("built-in discovery retains pagination, compact cards, filters and immutabl
   assert.deepEqual((await catalog.describe(version.id)).parameters, ["sTypeParam", "bDateFlag"]);
 });
 
-test("invalid catalog inputs are rejected before reading metadata without echoing values", async () => {
+test("неверный ввод обзора отклоняется до чтения метаданных без повторения значений", async () => {
   const catalog = new RpcCatalog(
     async () => {
       throw new Error("must not read");
@@ -112,7 +112,7 @@ test("invalid catalog inputs are rejected before reading metadata without echoin
   });
 });
 
-test("runtime reads filtered library files once, skips broken files, and built-in discovery makes zero requests", async () => {
+test("runtime читает отфильтрованные файлы библиотек один раз, пропускает сломанные файлы, а встроенный обзор не делает запросов", async () => {
   const files = new Map([
     ["x-local://libs/tools.xml", library],
     [
@@ -172,7 +172,7 @@ test("runtime reads filtered library files once, skips broken files, and built-i
         { id: "tools.get_version", parameters: ["a", "b"], allowed: true },
       ],
       total: 4,
-      // tools.server_side matches too, but a client cannot call it.
+      // tools.server_side тоже подходит, но клиент не может его вызвать.
       serverOnlyHidden: 1,
     });
     const before = calls().length;
@@ -189,7 +189,7 @@ test("runtime reads filtered library files once, skips broken files, and built-i
       },
     );
     assert.equal(calls().length, before);
-    // A function without the client gate is left out of the list unless asked for, and can be described.
+    // Функция без допуска для клиента не попадает в список, пока её не запросят явно, но её можно описать.
     const everything = await runtime.call("rpc.list", { library: "tools", all: true });
     assert.deepEqual(
       (everything.data as { targets: { id: string; serverOnly?: true }[] }).targets
@@ -230,7 +230,7 @@ test("runtime reads filtered library files once, skips broken files, and built-i
   }
 });
 
-test("all-library reads use at most four requests; source truncation preserves UTF-8 and skips no valid cards", async () => {
+test("чтение всех библиотек обходится не более чем четырьмя запросами; усечение исходного кода сохраняет UTF-8 и не пропускает годные карточки", async () => {
   let active = 0;
   let maximum = 0;
   const shared_docs = Array.from({ length: 9 }, (_, index) => ({
@@ -260,7 +260,7 @@ test("all-library reads use at most four requests; source truncation preserves U
   assert.equal((await catalog.describe("lib0.get_version")).code, undefined);
 });
 
-test("only application metadata failure falls back; unreadable libraries retain server source", async () => {
+test("на запасной вариант переходят только при сбое метаданных приложения; нечитаемые библиотеки сохраняют исходный код сервера", async () => {
   let reads = 0;
   const fallback = new RpcCatalog(
     async () => {

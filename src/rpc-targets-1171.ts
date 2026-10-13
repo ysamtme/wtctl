@@ -1,8 +1,8 @@
 /**
- * Library functions that the stock 2025.1.1171 libraries declare for calls from a client.
- * Row: [target, positional parameter names, gate]. Gate true means ALLOW-CALL-FROM-CLIENT="1",
- * false means the declaration denies client calls, null means the gate was not established.
- * Other builds and customised servers differ; the connected server decides what can be called.
+ * Функции библиотек, которые штатные библиотеки 2025.1.1171 объявляют для вызова с клиента.
+ * Строка: [target, имена позиционных параметров, допуск]. Допуск true — ALLOW-CALL-FROM-CLIENT="1",
+ * false — объявление запрещает вызовы с клиента, null — допуск не установлен.
+ * Другие сборки и изменённые серверы отличаются; что можно вызвать, решает подключённый сервер.
  */
 export type RpcTargetRow = readonly [
   id: string,

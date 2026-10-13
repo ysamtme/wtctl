@@ -27,16 +27,16 @@ interface RegisteredTool {
   plain?: ((data: unknown) => string) | undefined;
 }
 interface ToolOptions {
-  /** A requirement across several arguments, stated in words instead of a schema combinator. */
+  /** Требование сразу к нескольким аргументам, выраженное словами, а не комбинатором схемы. */
   rule?: { test: (args: Arguments) => boolean; message: string };
-  /** A write that only adds data. */
+  /** Запись, которая только добавляет данные. */
   additive?: boolean;
-  /** A successful answer is this text as it is, not the JSON result. */
+  /** Успешный ответ — этот текст как есть, а не JSON-результат. */
   plain?: (data: unknown) => string;
 }
 
-// Every tool schema sits in the model's context from the first request, so an advertised schema
-// names only the type and the meaning. Limits are enforced by the validator and reported on violation.
+// Схема каждого инструмента лежит в контексте модели с первого запроса, поэтому объявленная схема
+// называет только тип и смысл. Ограничения проверяет валидатор и сообщает при нарушении.
 function text(description: string, required = false, maximum = 2048): Field {
   const validator = z.string().min(1).max(maximum);
   return {
@@ -103,11 +103,11 @@ const INSTRUCTIONS =
 export interface HcmMcpOptions {
   connectionName?: string;
   version?: string;
-  /** Where the server runs from; the guide names it for calls of the command and the SDK. */
+  /** Откуда запущен MCP-сервер; гайд называет это место для вызовов команды и SDK. */
   local?: LocalInstall | undefined;
 }
 
-/** Registrations and invocation share validators; exposed for protocol-free synthetic tests. */
+/** Регистрации и вызов делят валидаторы; открыто для тестов с подставным сервером без протокола. */
 export class HcmMcpTools {
   readonly #tools = new Map<string, RegisteredTool>();
   readonly #connection: string;
@@ -140,7 +140,7 @@ export class HcmMcpTools {
             title,
             readOnlyHint: effect === "read",
             destructiveHint: effect !== "read" && additive !== true,
-            // Some native reads consume state, notably terminal async results.
+            // Часть чтений native расходует состояние, например итоговые результаты фоновых задач.
             idempotentHint: effect === "read" && name !== "hcm_api_read",
             openWorldHint: true,
           },
@@ -306,7 +306,7 @@ export class HcmMcpTools {
         ...target,
         patch: {
           required: false,
-          // The list of {op, path, value} is the runtime form; the tool advertises the plain one.
+          // Список {op, path, value} — вид для runtime; инструмент объявляет простой объект.
           validator: z.union([z.record(z.unknown()), patchItems]).optional(),
           schema: { type: "object", description: "Что записать: {путь: значение}." },
         },
@@ -574,7 +574,7 @@ export class HcmMcpTools {
       );
     const parsed = tool.validator.safeParse(args);
     if (!parsed.success) {
-      // Names, codes, fixed limits and our own rule texts only; never the supplied values.
+      // Только имена, коды, фиксированные пределы и тексты собственных правил; никогда не значения.
       const validation = parsed.error.issues.map((issue) => ({
         path: issue.path
           .filter((item) => typeof item === "number" || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(item))
@@ -587,9 +587,9 @@ export class HcmMcpTools {
           ? { message: "Пустая строка: убери аргумент." }
           : {}),
       }));
-      // A bound is named in the message itself: an agent that sends several calls at once reads it first.
+      // Граница названа в самом сообщении: агент с несколькими вызовами сразу читает его первым.
       const bound = validation.find((issue) => issue.maximum !== undefined);
-      // So is the rule of the tool itself: which of its arguments have to be given.
+      // То же с правилом самого инструмента: какие его аргументы обязательны.
       const rule = validation.find((issue) => issue.code === "custom" && issue.message);
       const failed = this.error(
         name,
@@ -643,7 +643,7 @@ export class HcmMcpTools {
   }
 }
 
-/** One compact JSON text block: a second structured copy would double every result in context. */
+/** Один компактный блок текста JSON: вторая структурированная копия удвоила бы каждый результат. */
 export function mcpResult(result: OperationResult): CallToolResult {
   return {
     content: [

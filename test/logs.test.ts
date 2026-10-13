@@ -55,8 +55,8 @@ function fixture(
   };
 }
 
-/** Model the shipped branches for a file that permits range reads but rejects LoadUrlData.
- * This fixture proves routing, not the sharing permissions of any active server writer. */
+/** Моделирует ветки поставляемой версии для файла, который допускает чтение диапазона, но отклоняет LoadUrlData.
+ * Проверяется выбор маршрута, а не права совместного доступа у процесса сервера, пишущего лог. */
 function rangeOnlyLog(initial: string) {
   let content = Buffer.from(initial, "utf8");
   let present = true;
@@ -93,7 +93,7 @@ function rangeOnlyLog(initial: string) {
         throw new Error("LoadUrlData sharing violation in range-compatible fixture");
       assert.equal(range.valueType, "integer");
       assert.ok(Number.isSafeInteger(count) && count >= 0);
-      // Source returns empty before opening the file for range (0, 0).
+      // Источник возвращает пустое значение до открытия файла для диапазона (0, 0).
       if (count > 0) fileOpens++;
       const result =
         (overrideNotice ?? notice(count)) +
@@ -132,7 +132,7 @@ function rangeOnlyLog(initial: string) {
   };
 }
 
-test("server log report parses direct table cells, empty reports and quoted filenames without executable interpolation", async () => {
+test("отчёт о логах сервера разбирает прямые ячейки таблицы, пустые отчёты и имена файлов в кавычках без исполняемой подстановки", async () => {
   const named = "quoted 'log'_2026-09-30.log";
   const parsed = parseLogReport(report(named, "9007199254740993"));
   assert.equal(parsed[0]?.sizeBytes, "9007199254740993");
@@ -150,7 +150,7 @@ test("server log report parses direct table cells, empty reports and quoted file
   );
 });
 
-test("log reads validate bounds and listed basenames before the load RPC, then remove only the known tail notice", async () => {
+test("чтение лога проверяет границы и имена файлов из списка до RPC загрузки, затем убирает только известное замечание о хвосте", async () => {
   const mock = fixture();
   for (const name of [
     "../private.log",
@@ -184,7 +184,7 @@ test("log reads validate bounds and listed basenames before the load RPC, then r
   );
 });
 
-test("event parser preserves multiline stacks, leading partial text, millisecond timestamps and server-local date hints", () => {
+test("разбор событий сохраняет многострочные стеки, неполный текст в начале, метки времени с миллисекундами и подсказки о дате в местном времени сервера", () => {
   const events = parseLogEvents(
     "continued stack\r\n12:00:00.123 [request-1] ERROR exception\r\n    at first\r\n    at second\r\n12:00:01 INFO done",
     "2026-09-30",
@@ -203,7 +203,7 @@ test("event parser preserves multiline stacks, leading partial text, millisecond
   assert.equal(events[1]?.lineStart, 2);
   assert.equal(events[1]?.lineEnd, 4);
   assert.equal(events[2]?.level, "info");
-  // The break that ends the file is not a line of the last event; refusal lines are errors.
+  // Разрыв, которым кончается файл, — не строка последнего события; строки с отказом — ошибки.
   const refusals = parseLogEvents(
     "12:00:00 [a] Unknown method: get_versio\n12:00:01 [a] Доступ запрещён\n12:00:02 [a] Файл уже открыт в другой программе:\n12:00:03 [a] Invalid tag character: 32\n",
   );
@@ -214,7 +214,7 @@ test("event parser preserves multiline stacks, leading partial text, millisecond
   assert.equal(refusals[3]?.text, "12:00:03 [a] Invalid tag character: 32");
 });
 
-test("search includes continuation text and rejects changed fingerprint paging rather than silently skipping events", async () => {
+test("поиск включает продолжение текста события и отклоняет страницы с изменившимся отпечатком, а не пропускает события молча", async () => {
   const mock = fixture();
   const result = await mock.reader.search({
     file,
@@ -247,7 +247,7 @@ test("search includes continuation text and rejects changed fingerprint paging r
   );
 });
 
-test("search classifies completed multiline bodies without context false positives", async () => {
+test("поиск классифицирует законченные многострочные тела без ложных срабатываний от контекста", async () => {
   const source = [
     "12:00:00 [critical-request] Processing request",
     "System.Exception: Unicode ошибка 😀",
@@ -282,7 +282,7 @@ test("search classifies completed multiline bodies without context false positiv
   assert.equal(critical.events[0]?.sequence, 4);
 });
 
-test("follow recognizes stable windows, append overlap and rotation gaps without inventing a byte offset", async () => {
+test("слежение распознаёт неизменные окна, перекрытие при дописывании и разрывы при ротации, не выдумывая смещение в байтах", async () => {
   const mock = fixture("12:00:00 INFO first\n12:00:01 INFO second\n");
   const first = await mock.reader.follow({ file });
   assert.equal(first.events.length, 2);
@@ -307,7 +307,7 @@ test("follow recognizes stable windows, append overlap and rotation gaps without
   assert.equal(mock.calls.length, count);
 });
 
-test("follow reports ambiguous repeated events instead of silently skipping new identical messages", async () => {
+test("слежение сообщает о неоднозначных повторных событиях, а не пропускает молча новые одинаковые сообщения", async () => {
   const mock = fixture("12:00:00 ERROR repeated\n12:00:00 ERROR repeated\n");
   const first = await mock.reader.follow({ file });
   mock.update(
@@ -324,7 +324,7 @@ test("follow reports ambiguous repeated events instead of silently skipping new 
   );
 });
 
-test("range-compatible logs use bounded range for default tail and full, preserving requested mode and complete events", async () => {
+test("логи с чтением диапазона берут ограниченный диапазон для хвоста по умолчанию и для полного чтения, сохраняя запрошенный режим и целые события", async () => {
   const source = "12:00:00 INFO own first\n12:00:01 ERROR own second\n";
   const bytes = Buffer.byteLength(source);
   const mock = rangeOnlyLog(source);
@@ -355,7 +355,7 @@ test("range-compatible logs use bounded range for default tail and full, preserv
   assert.equal(mock.reports, 8, "every successful range has a report before and after");
 });
 
-test("tail growth keeps the effective wire range and refreshed size without pretending a complete requested tail", async () => {
+test("рост хвоста сохраняет фактический диапазон в запросе и обновлённый размер и не выдаёт результат за полный запрошенный хвост", async () => {
   const original = "12:00:00 INFO before\n";
   const grown = original + "12:00:01 ERROR appended\n";
   const mock = rangeOnlyLog(original);
@@ -372,7 +372,7 @@ test("tail growth keeps the effective wire range and refreshed size without pret
   assert.equal(mock.ranges.length, 1, "growth does not cause a content retry");
 });
 
-test("full range discards stale text if the log grows, shrinks or disappears before the second report", async () => {
+test("полный диапазон отбрасывает устаревший текст, если лог вырос, уменьшился или исчез до второго отчёта", async () => {
   for (const change of ["grow", "shrink", "missing", "date-metadata"] as const) {
     const original = "12:00:00 INFO snapshot\n";
     const mock = rangeOnlyLog(original);
@@ -387,7 +387,7 @@ test("full range discards stale text if the log grows, shrinks or disappears bef
   }
 });
 
-test("range notice is checked against effective bytes and an absent notice cannot certify a full range", async () => {
+test("замечание о диапазоне сверяется с фактическими байтами, а его отсутствие не может подтвердить полный диапазон", async () => {
   const wrong = rangeOnlyLog("12:00:00 INFO small\n");
   wrong.setNotice(notice(512));
   await assert.rejects(wrong.reader.read({ file, tailBytes: 512 }), {
@@ -399,7 +399,7 @@ test("range notice is checked against effective bytes and an absent notice canno
   assert.equal(missing.reports, 2);
 });
 
-test("empty logs make a zero-range RPC with two agreeing reports and never claim pending writer bytes were flushed", async () => {
+test("пустые логи дают RPC с нулевым диапазоном при двух совпавших отчётах и не утверждают, что отложенные байты записи сброшены", async () => {
   const mock = rangeOnlyLog("");
   const read = await mock.reader.read({ file, full: true });
   assert.equal(read.text, "");
@@ -423,7 +423,7 @@ test("empty logs make a zero-range RPC with two agreeing reports and never claim
   });
 });
 
-test("64-bit reported sizes stay lexical while tail ranges remain bounded safe integers", async () => {
+test("64-битные размеры из отчёта остаются как записаны, а диапазоны хвоста остаются ограниченными безопасными целыми", async () => {
   let loads = 0;
   const size = "18446744073709551615";
   const gateway: LogGateway = {

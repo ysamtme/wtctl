@@ -3,7 +3,7 @@ import type { RuntimePort } from "../runtime-port.js";
 export type { RuntimePort } from "../runtime-port.js";
 
 export interface CliIo {
-  /** Indent JSON for a person at a terminal; otherwise results are one compact line. */
+  /** Отступы в JSON для человека в терминале; иначе результат — одна компактная строка. */
   readonly pretty?: boolean;
   writeOut(text: string): void | Promise<void>;
   writeError(text: string): void | Promise<void>;
@@ -12,7 +12,7 @@ export interface CliIo {
   readBinaryFile?(path: string, maximumBytes: number): Promise<Uint8Array>;
   readBinaryStdin?(maximumBytes: number): Promise<Uint8Array>;
   writeFile(path: string, text: string): Promise<void>;
-  /** Ask the person at the terminal; absent when there is no terminal. Typed secrets are not shown. */
+  /** Спрашивает человека в терминале; без него отсутствует. Секреты при вводе не показываются. */
   prompt?(question: string, secret?: boolean): Promise<string>;
 }
 
@@ -29,6 +29,6 @@ export interface CliDependencies {
     io: CliIo,
     local?: import("../guide.js").LocalInstall,
   ): Promise<void>;
-  /** Where this program runs from; the guide names it so an agent can call the command and the SDK. */
+  /** Откуда запущена программа; гайд называет это место, чтобы агент мог вызвать команду и SDK. */
   readonly local?: import("../guide.js").LocalInstall | undefined;
 }

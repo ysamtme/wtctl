@@ -1,4 +1,4 @@
-// Golden wire fixtures keep their expected namespaces, field order and framing.
+// Эталонные образцы запросов и ответов хранят ожидаемые пространства имён, порядок полей и обрамление.
 import "./protocol/regressions.test.js";
 import "./protocol/physical-documents.test.js";
 import "./protocol/coverage.test.js";

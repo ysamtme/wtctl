@@ -27,7 +27,7 @@ function lostBody(error: Error = new TypeError("The fixture response body was lo
   );
 }
 
-test("native and web opening halt remote cleanup after request or response-body loss, including a partially opened web HTTP context", async () => {
+test("открытие native и web прекращает очистку на сервере после потери запроса или тела ответа, в том числе при частично открытом контексте web HTTP", async () => {
   for (const profile of profiles) {
     const phases: readonly Phase[] =
       profile === "web"
@@ -68,7 +68,7 @@ test("native and web opening halt remote cleanup after request or response-body 
   }
 });
 
-test("ordinary bootstrap rejection and a bounded-response violation still clean the owned HTTP context without guessing LDS identities", async () => {
+test("обычный отказ bootstrap и нарушение предела ответа всё равно очищают собственный контекст HTTP, не угадывая идентификаторы LDS", async () => {
   for (const profile of profiles) {
     for (const variant of ["server-rejection", "response-budget"] as const) {
       const calls: { path: string; body: string }[] = [];
@@ -119,7 +119,7 @@ test("ordinary bootstrap rejection and a bounded-response violation still clean 
   }
 });
 
-test("ordinary bootstrap rejection stays primary when HTTP cleanup loses headers or body, and web logout stops before its second leg", async () => {
+test("обычный отказ bootstrap остаётся первичным, когда очистка HTTP теряет заголовки или тело, а выход web останавливается до второго шага", async () => {
   for (const profile of profiles) {
     for (const cleanupPhase of ["request", "body", "typed-body"] as const) {
       const calls: { path: string; body: string; cookie: string | null }[] = [];

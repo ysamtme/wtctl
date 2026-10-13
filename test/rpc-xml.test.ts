@@ -37,7 +37,7 @@ function mock() {
   return { bodies, fetch };
 }
 
-test("structured XmElem RPC arguments preserve child XML without an invented VALUE-TYPE", async () => {
+test("структурные аргументы RPC типа XmElem сохраняют вложенный XML без выдуманного VALUE-TYPE", async () => {
   const fixture = mock();
   const transport = new HttpTransport({ ...base, fetch: fixture.fetch });
   try {
@@ -55,7 +55,7 @@ test("structured XmElem RPC arguments preserve child XML without an invented VAL
   }
 });
 
-test("shared runtime supports boxed XmElem RPC and rejects ambiguous XML before any HTTP", async () => {
+test("общий runtime поддерживает RPC с упакованным XmElem и отклоняет неоднозначный XML до любого HTTP", async () => {
   for (const source of ["<a/><b/>", "<a/><a/>", "literal", "<a>&#0;</a>"]) {
     const fixture = mock();
     const gateway = new NativeGateway({ ...base, fetch: fixture.fetch });
@@ -95,7 +95,7 @@ test("shared runtime supports boxed XmElem RPC and rejects ambiguous XML before 
   }
 });
 
-test("RPC convenience booleans use SP-XML 0/1 while explicit typed lexical input is preserved", async () => {
+test("удобные булевы значения RPC записываются как 0/1 в SP-XML, а явно заданный типизированный ввод сохраняется как записан", async () => {
   const fixture = mock();
   const runtime = new HcmRuntime({
     ...base,

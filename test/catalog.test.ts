@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { listHcmOperations, describeHcmOperation, HcmError } from "../src/index.js";
 
-test("public metadata discovery works without a connection and protects shared descriptors", () => {
+test("обзор публичных метаданных работает без подключения и защищает общие описания операций", () => {
   const first = listHcmOperations({ limit: 1 });
   assert.equal(first.operations.length, 1);
   assert.equal(first.nextCursor, 1);

@@ -1,4 +1,4 @@
-# Keep checkout bytes consistent with the package formatter on every OS.
+# Байты рабочей копии совпадают с форматтером пакета на любой ОС.
 * text=auto eol=lf
 *.cmd text eol=crlf
 *.bat text eol=crlf

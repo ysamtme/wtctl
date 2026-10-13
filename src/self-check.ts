@@ -13,7 +13,7 @@ export interface CheckData {
 }
 type Invoke = (id: string, args: Record<string, unknown>) => Promise<unknown>;
 
-/** Fixed probes retain neither server payloads nor error messages in the report. */
+/** Фиксированные пробы не сохраняют в отчёте ни payload сервера, ни тексты ошибок. */
 export async function checkServer(config: ConnectionConfig, invoke: Invoke): Promise<CheckData> {
   const report: CheckData = {
     permissions: config.permissions,
@@ -24,7 +24,7 @@ export async function checkServer(config: ConnectionConfig, invoke: Invoke): Pro
   const rows = (value: unknown): Record<string, unknown>[] =>
     Array.isArray(value) ? value.filter((v) => v && typeof v === "object") : [];
   const text = (value: unknown, max = 128): string => {
-    const result = requiredString(value, "check response");
+    const result = requiredString(value, "ответ проверки");
     if (result.length > max) throw new Error();
     return result;
   };
@@ -44,7 +44,7 @@ export async function checkServer(config: ConnectionConfig, invoke: Invoke): Pro
       report.checks.push({ name, result: "skipped", reason: skipped });
       return;
     }
-    // Every request is already bounded by the transport; this bounds a probe made of several requests.
+    // Каждый запрос уже ограничен транспортом; это ограничивает пробу из нескольких запросов.
     let late = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -60,10 +60,10 @@ export async function checkServer(config: ConnectionConfig, invoke: Invoke): Pro
       report.checks.push({ name, result: "ok" });
     } catch (error) {
       const status = error instanceof WsHcmApiError ? error.status : undefined;
-      // The first step is where a wrong address, a stopped server or a wrong password shows up.
+      // Первый шаг — там, где проявляется неверный адрес, остановленный сервер или неверный пароль.
       const explained =
         error instanceof WsHcmApiError && (name === "login" || status === undefined)
-          ? platformFailure(error, config.baseUrl, id)
+          ? platformFailure(error, config.baseUrl)
           : undefined;
       const reason = late
         ? "превышено время проверки"
@@ -110,7 +110,7 @@ export async function checkServer(config: ConnectionConfig, invoke: Invoke): Pro
   await probe("portal", "anonymous.diagnostics.portal", {}, (v) => {
     const status = Number(inputObject(v).status);
     if (!Number.isInteger(status) || status < 100 || status > 599) throw new Error();
-    if (status >= 500) throw new WsHcmApiError("http", "Portal error", { status });
+    if (status >= 500) throw new WsHcmApiError("http", "Ошибка портала", { status });
   });
   await probe("execute", "execute.script", { code: "RESULT = [1 + 1];" }, (v) => {
     const result = inputObject(v).result;

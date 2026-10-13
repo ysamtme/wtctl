@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { HcmRuntime } from "../src/runtime.js";
-import { decodeRpcValue, scriptRequest, scriptResult } from "../src/scripts.js";
+import { scriptRequest, scriptResult } from "../src/scripts.js";
+import { decodeRpcValue } from "../src/server-value.js";
 import { findXmlNode, parseXml } from "../src/protocol/xml.js";
+import { fakeRuntime } from "./fake-server.js";
 
 const fields =
   '<error VALUE-TYPE="integer">0</error><error_text VALUE-TYPE="string"/><ticks VALUE-TYPE="integer">7</ticks><result VALUE-TYPE="Array"><e VALUE-TYPE="Object"><id VALUE-TYPE="integer">9223372036854775807</id><text VALUE-TYPE="string">Текст &amp; &lt;tag&gt; 😀</text><flags VALUE-TYPE="Array"><e VALUE-TYPE="bool">1</e><e VALUE-TYPE="null"/></flags></e></result><columns VALUE-TYPE="Array"/><data VALUE-TYPE="Object"/><total VALUE-TYPE="integer">1</total>';
@@ -47,7 +49,7 @@ function fixture(responseFields = fields) {
   return { calls, runtime };
 }
 
-test("temporary collection requests escape code, disable cache and never allocate or persist an object", async () => {
+test("временные запросы коллекции экранируют код, отключают кэш и не выделяют и не сохраняют объект", async () => {
   const fixtureValue = fixture();
   const code = 'RESULT=[{text:"<& 😀"}];';
   try {
@@ -92,7 +94,7 @@ test("temporary collection requests escape code, disable cache and never allocat
   );
 });
 
-test("params reach the code as PARAMS on its first line; anything but an object is refused unsent", () => {
+test("params попадают в код как PARAMS в первой строке; всё, кроме объекта, отклоняется без отправки", () => {
   const params = { name: 'Иван "и" \\ 😀', ids: ["0x1"], n: 1.5, none: null };
   const code = "// первая строка\nRESULT = [PARAMS.name];";
   const xml = (scriptRequest(code, params).args as { lexicalValue: { xml: string } }[])[0]!
@@ -110,7 +112,27 @@ test("params reach the code as PARAMS on its first line; anything but an object 
     );
 });
 
-test("agents.run sends decimal IDs only and answers with the times of the run", async () => {
+test("agents.run отмечает, что сервер писал в лог", async () => {
+  const answer = parseXml(
+    resultXml(
+      fields.replace(
+        /<result .*<\/result>/,
+        '<result VALUE-TYPE="Array"><e VALUE-TYPE="Object"><started VALUE-TYPE="bool">1</started></e></result>',
+      ),
+    ),
+  );
+  const { runtime } = fakeRuntime({ "web.rpc.call": answer });
+  let wrote = 0;
+  (runtime as any).logs.serverWroteLog = () => wrote++;
+  try {
+    assert.equal((await runtime.call("agents.run", { id: "0x10" })).ok, true);
+    assert.equal(wrote, 1);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("agents.run отправляет только десятичные ID и отвечает временем запуска", async () => {
   const fixtureValue = fixture(
     fields.replace(
       /<result .*<\/result>/,
@@ -148,7 +170,7 @@ test("agents.run sends decimal IDs only and answers with the times of the run", 
   }
 });
 
-test("caught server script errors are failures with indeterminate mutation outcome and the script's own message", async () => {
+test("перехваченные ошибки серверного скрипта — это сбои с исходом записи indeterminate и собственным сообщением скрипта", async () => {
   const fixtureValue = fixture(
     fields
       .replace('<error VALUE-TYPE="integer">0</error>', '<error VALUE-TYPE="integer">1</error>')
@@ -189,7 +211,7 @@ no_such_var not defined
   }
 });
 
-test("a syntax error of the whole code is not_sent, one raised by eval() in running code is not", async () => {
+test("синтаксическая ошибка всего кода — not_sent, а вызванная eval() в работающем коде — нет", async () => {
   const syntax = "JavaScript syntax error.\nUnknown source,   line 1";
   for (const [text, expected] of [
     [syntax, "not_sent"],
@@ -212,7 +234,7 @@ test("a syntax error of the whole code is not_sent, one raised by eval() in runn
   }
 });
 
-test("script policy and XML/byte limits reject locally while typed result validation detects semantic failures", async () => {
+test("права на скрипты и лимиты XML и байтов отклоняют запрос локально, а проверка типизированного результата находит смысловые сбои", async () => {
   for (const code of ["\0", "😀".repeat(300000)]) {
     const fixtureValue = fixture();
     try {

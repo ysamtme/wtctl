@@ -101,7 +101,7 @@ function fixture(input = "{}") {
   return { state, io, runtime, dependencies };
 }
 
-test("parser accepts globals anywhere and never echoes unknown secret argv", () => {
+test("парсер принимает глобальные флаги где угодно и не повторяет в ответе неизвестные секретные аргументы argv", () => {
   assert.deepEqual(parseArguments(["status", "--connection=x", "--json"]).options, {
     connection: "x",
     json: true,
@@ -172,7 +172,7 @@ const commandCases: {
     args: { query: "(1)" },
   },
   {
-    // Windows PowerShell 5.1 and cmd need \" inside an argument; PowerShell 7 and bash then pass the backslashes too.
+    // Windows PowerShell 5.1 и cmd требуют \" внутри аргумента; PowerShell 7 и bash тогда передают и обратные косые черты.
     argv: ["query", "--catalog", "collaborators", "--where", '{\\"code\\":\\"synthetic\\"}'],
     id: "runtime.query",
     args: { catalog: "collaborators", where: { code: "synthetic" } },
@@ -464,7 +464,7 @@ const commandCases: {
     args: { type: "education_mode", id: "1", patch: [{ op: "remove", path: "items[0]" }] },
   },
   {
-    // The arguments of the MCP tool, as an agent would copy them into a file.
+    // Аргументы инструмента MCP в том виде, как агент скопировал бы их в файл.
     argv: ["object", "patch", "education_mode", "1", "--stdin", "--preview"],
     input: '{"patch":{"name":"Changed"},"remove":["comment"]}',
     id: "objects.patch",
@@ -483,7 +483,7 @@ const commandCases: {
     args: { type: "education_mode", id: "1", remove: ["comment"] },
   },
   {
-    // A field of the document may be called patch: a plain value is a value.
+    // Поле документа может называться patch: простое значение — это значение.
     argv: ["object", "patch", "education_mode", "1", "--stdin"],
     input: '{"patch":"v2","name":"Changed"}',
     id: "objects.patch",
@@ -630,7 +630,7 @@ const commandCases: {
 ];
 
 for (const entry of commandCases)
-  test(`CLI command ${entry.argv.slice(0, 2).join(" ")} compiles one explicit call and closes once`, async () => {
+  test(`команда CLI ${entry.argv.slice(0, 2).join(" ")} собирает один явный вызов и закрывается один раз`, async () => {
     const f = fixture(entry.input);
     const code = await runCli(entry.argv, f.io, f.dependencies);
     assert.equal(code, 0, f.state.stderr);
@@ -642,7 +642,7 @@ for (const entry of commandCases)
     assert.equal(result.meta.operationId, entry.id);
   });
 
-/** A command that must answer without a connection. */
+/** Команда, которая должна отвечать без подключения. */
 async function offline(argv: string[]) {
   const f = fixture();
   assert.equal(await runCli(argv, f.io, f.dependencies), 0, argv.join(" "));
@@ -652,7 +652,7 @@ async function offline(argv: string[]) {
   return f.state;
 }
 
-test("help is text to read: commands and options in columns, usage and notes of a command one per line", async () => {
+test("справка — текст для чтения: команды и параметры в колонках, использование и заметки команды по одной в строке", async () => {
   const top = (await offline([])).stdout;
   assert.equal((await offline(["help"])).stdout, top);
   assert.ok(top.startsWith("wtctl [--config ФАЙЛ] [--connection ИМЯ] КОМАНДА …\n\nКоманды:\n"));
@@ -690,7 +690,7 @@ test("help is text to read: commands and options in columns, usage and notes of 
     assert.ok(unknown.startsWith(`Неизвестная команда: ${name}.\n\nКоманды:\n  status `), name);
   }
 
-  // The options typed before --help belong to the command; help help is the top help.
+  // Параметры, набранные перед --help, относятся к команде; help help — это главная справка.
   assert.equal(
     (await offline(["query", "--catalog", "people", "--help"])).stdout,
     (await offline(["help", "query"])).stdout,
@@ -702,7 +702,7 @@ test("help is text to read: commands and options in columns, usage and notes of 
   assert.equal(saved.files.get("query.txt"), (await offline(["help", "query"])).stdout);
 });
 
-test("help --json gives the same help as the usual answer", async () => {
+test("help --json даёт ту же справку, что и обычный ответ", async () => {
   for (const [argv, command] of [
     [["--json"], undefined],
     [["help", "--json"], undefined],
@@ -716,14 +716,14 @@ test("help --json gives the same help as the usual answer", async () => {
   }
 });
 
-test("config example needs no runtime or config and contains env references only", async () => {
+test("config example не требует runtime и настроек и содержит только ссылки на переменные окружения", async () => {
   const { stdout } = await offline(["config", "example"]);
   assert.equal(JSON.parse(stdout).ok, true);
   assert.match(stdout, /WTCTL_PASSWORD/);
   assert.doesNotMatch(stdout, /"password":/);
 });
 
-test("--order sorts a catalog search; with an XQuery text it is refused and the answer says what to write", async () => {
+test("--order сортирует поиск по каталогу; с текстом XQuery он отклоняется, и ответ говорит, что писать", async () => {
   const io = fixture('{"catalog":"collaborators","order":["fullname","hire_date desc"]}').io;
   const file = await commandInvocation(parseArguments(["query", "--input-file", "q.json"]), io);
   assert.deepEqual(file.args, { catalog: "collaborators", order: ["fullname", "hire_date desc"] });
@@ -748,7 +748,7 @@ test("--order sorts a catalog search; with an XQuery text it is refused and the 
   }
 });
 
-test("api discovery preserves exact descriptors and pagination filters", async () => {
+test("обзор api сохраняет точные описания операций и фильтры страниц", async () => {
   const f = fixture();
   assert.equal(
     await runCli(
@@ -782,7 +782,7 @@ test("api discovery preserves exact descriptors and pagination filters", async (
   assert.deepEqual(JSON.parse(g.state.stdout).data, operationHelp(operation));
 });
 
-test("offline discovery reads exact packaged metadata without configuration or credentials", async () => {
+test("обзор с --offline читает точные метаданные из пакета без настроек и учётных данных", async () => {
   for (const action of ["list", "describe"] as const) {
     const f = fixture();
     let creations = 0;
@@ -840,7 +840,7 @@ test("offline discovery reads exact packaged metadata without configuration or c
   }
 });
 
-test("offline discovery preserves pagination and common output-file envelopes", async () => {
+test("обзор с --offline сохраняет разбивку на страницы и общий вид ответа в файле вывода", async () => {
   const expected = listHcmOperations({ limit: 6 }).operations.map((item) => item.id);
   assert.equal(expected.length, 6);
   const visited: string[] = [];
@@ -889,7 +889,7 @@ test("offline discovery preserves pagination and common output-file envelopes", 
   assert.equal(new Set(visited).size, 6);
 });
 
-test("offline mode rejects incompatible commands, input and password before local IO", async () => {
+test("--offline отклоняет несовместимые команды, ввод и пароль до локального ввода-вывода", async () => {
   const cases = [
     ["api", "list", "--offline", "--password-stdin"],
     ["api", "describe", operation.id, "--offline", "--password-stdin"],
@@ -923,7 +923,7 @@ test("offline mode rejects incompatible commands, input and password before loca
   }
 });
 
-test("compact discovery pagination visits every operation once without embedding huge schemas", async () => {
+test("компактный обзор проходит каждую операцию по страницам один раз, не встраивая огромные схемы", async () => {
   const definitions: OperationDefinition[] = Array.from({ length: 80 }, (_, index) => ({
     ...operation,
     id: "native.synthetic.read_" + index,
@@ -976,7 +976,7 @@ test("compact discovery pagination visits every operation once without embedding
   );
 });
 
-test("invalid api list filters fail before password, configuration and runtime", async () => {
+test("неверные фильтры api list отказывают до пароля, настроек и runtime", async () => {
   const cases = [
     ["--effect", "not-an-effect"],
     ["--cursor", "not-a-number"],
@@ -1010,7 +1010,7 @@ test("invalid api list filters fail before password, configuration and runtime",
   }
 });
 
-test("invalid command/input/limits fail before config and network", async () => {
+test("неверные команда, ввод и пределы отказывают до настроек и сети", async () => {
   const cases = [
     ["unknown"],
     ["status", "extra"],
@@ -1066,7 +1066,7 @@ test("invalid command/input/limits fail before config and network", async () => 
     assert.equal(f.state.stdout, "");
     assert.equal(JSON.parse(f.state.stderr).error.code, "cli.invalid_input");
   }
-  // A parameter the command does not take is named, with the help that lists the ones it takes.
+  // Параметр, которого команда не принимает, назван, и приведена справка со списком принимаемых.
   const named = fixture("[]");
   await runCli(["schema", "--type", "collaborator", "--deep"], named.io, named.dependencies);
   const refusal = JSON.parse(named.state.stderr).error;
@@ -1074,7 +1074,7 @@ test("invalid command/input/limits fail before config and network", async () => 
   assert.equal(refusal.hint, "Параметры команды: wtctl help schema.");
 });
 
-test("invalid files exists syntax and URLs fail before input, password, configuration and runtime", async () => {
+test("неверный синтаксис files exists и неверные URL отказывают до ввода, пароля, настроек и runtime", async () => {
   const validUrl = "x-local://share/owned.txt";
   const invalidUrls = [
     "",
@@ -1130,7 +1130,7 @@ test("invalid files exists syntax and URLs fail before input, password, configur
   }
 });
 
-test("invalid object targets fail before operation input, password, configuration and runtime", async () => {
+test("неверные цели объекта отказывают до ввода операции, пароля, настроек и runtime", async () => {
   const invalidTargets = [
     [],
     ["education_mode"],
@@ -1190,7 +1190,7 @@ test("invalid object targets fail before operation input, password, configuratio
   }
 });
 
-test("runtime errors are structured and close occurs once; unknown errors omit details", async () => {
+test("ошибки runtime структурированы, а закрытие происходит один раз; неизвестные ошибки не показывают подробностей", async () => {
   const f = fixture();
   f.runtime.call = async () => {
     throw new Error("synthetic-private-detail");
@@ -1226,7 +1226,7 @@ test("runtime errors are structured and close occurs once; unknown errors omit d
   assert.equal(h.state.closes, 1);
 });
 
-test("output file receives complete result and stdout contains only one receipt", async () => {
+test("файл вывода получает полный результат, а в stdout — только одна сводка", async () => {
   const f = fixture();
   assert.equal(await runCli(["status", "--output", "result.json"], f.io, f.dependencies), 0);
   assert.equal(f.state.files.size, 1);
@@ -1251,7 +1251,7 @@ test("output file receives complete result and stdout contains only one receipt"
   assert.deepEqual(JSON.parse(g.state.files.get("partial.json")!), failed);
 });
 
-test("--output writes no file when the command stops before the operation: wrong arguments or connection settings", async () => {
+test("--output не пишет файл, если команда остановилась до операции: неверные аргументы или настройки подключения", async () => {
   const f = fixture();
   assert.equal(await runCli(["status", "extra", "--output", "o.json"], f.io, f.dependencies), 2);
   assert.equal(JSON.parse(f.state.stderr).error.code, "cli.invalid_input");
@@ -1267,7 +1267,7 @@ test("--output writes no file when the command stops before the operation: wrong
   }
 });
 
-test("stored --output streams a full envelope and keeps the reference on file failure without retry", async () => {
+test("--output для сохранённого результата пишет полный ответ потоком и при сбое файла сохраняет ссылку без повтора", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-cli-export-"));
   try {
     const f = fixture(),
@@ -1292,7 +1292,7 @@ test("stored --output streams a full envelope and keeps the reference on file fa
     assert.deepEqual(saved, { ...base, data, meta: { ...base.meta, resultId: stored.resultId } });
     assert.equal(JSON.parse(f.state.stdout).data.bytes, Buffer.byteLength(await readFile(path)));
     assert.equal(JSON.parse(f.state.stdout).data.output, path);
-    // The file is whole: the receipt keeps the name of the local copy and does not call it cut.
+    // Файл целиком: сводка хранит имя локальной копии и не называет её обрезанной.
     assert.deepEqual(
       [JSON.parse(f.state.stdout).meta.truncated, JSON.parse(f.state.stdout).meta.resultId],
       [undefined, stored.resultId],
@@ -1311,7 +1311,7 @@ test("stored --output streams a full envelope and keeps the reference on file fa
   }
 });
 
-test("local output failure retains applied writes and partial failures without retrying", async () => {
+test("сбой локального вывода сохраняет применённые записи и частичные сбои без повтора", async () => {
   const outcomes: OperationResult[] = [
     {
       ok: true,
@@ -1356,7 +1356,7 @@ test("local output failure retains applied writes and partial failures without r
   }
 });
 
-test("stdout delivery failure keeps write outcomes, stored references and successful file exports", async () => {
+test("сбой доставки в stdout сохраняет исходы записи, сохранённые ссылки и успешные экспорты файлов", async () => {
   const privateMarker = "synthetic-private-payload-cookie-request-EPIPE";
   const id = "9007199254740993";
   const resultId = "01234567-89ab-4cde-8f01-23456789abcd";
@@ -1512,7 +1512,7 @@ test("stdout delivery failure keeps write outcomes, stored references and succes
   }
 });
 
-test("closed stdout and stderr still fail once after the completed operation", async () => {
+test("закрытые stdout и stderr всё равно дают один отказ после завершённой операции", async () => {
   const f = fixture();
   let stdoutWrites = 0;
   let stderrWrites = 0;
@@ -1532,7 +1532,7 @@ test("closed stdout and stderr still fail once after the completed operation", a
   assert.equal(f.state.stdout + f.state.stderr, "");
 });
 
-test("MCP lifecycle waits for transport before closing runtime and emits no CLI result", async () => {
+test("жизненный цикл MCP ждёт транспорта перед закрытием runtime и не выдаёт результата CLI", async () => {
   const f = fixture();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -1551,12 +1551,12 @@ test("MCP lifecycle waits for transport before closing runtime and emits no CLI 
   assert.equal(f.state.stdout, "");
 });
 
-test("bounded input rejects oversized supplied data before runtime", async () => {
+test("ограниченный ввод отклоняет слишком большие переданные данные до runtime", async () => {
   const f = fixture("x".repeat(8 * 1024 * 1024 + 1));
   await assert.rejects(commandInvocation(parseArguments(["exec", "--stdin"]), f.io), CliInputError);
 });
 
-test("password stdin is separate credential input, preserves whitespace, and never becomes result data", async () => {
+test("пароль через stdin — отдельный ввод учётных данных, сохраняет пробелы и никогда не становится данными результата", async () => {
   const f = fixture(" synthetic-private-password \r\n");
   let supplied: string | undefined;
   f.dependencies.loadConfiguration = (options) => {
@@ -1575,7 +1575,7 @@ test("password stdin is separate credential input, preserves whitespace, and nev
   }
 });
 
-test("file upload uses exact bounded binary input without UTF-8 conversion", async () => {
+test("загрузка файла использует точный ограниченный двоичный ввод без преобразования из UTF-8", async () => {
   const bytes = Buffer.from([0, 255, 254, 65]);
   for (const [action, target] of [["upload", "synthetic.bin"]]) {
     const f = fixture();

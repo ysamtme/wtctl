@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import { patchSegments, XmlDocument } from "./documents.js";
+import { patchSegments, XmlDocument, type PatchChange } from "./documents.js";
 import { HcmError, inputObject, requiredString, scalar } from "./errors.js";
 import type { HcmServer } from "./hcm-server.js";
 import type { WriteOutcome } from "./write-outcome.js";
@@ -32,7 +32,7 @@ function isBinary(value: unknown): value is BinaryResult {
     value.bytes instanceof Uint8Array
   );
 }
-/** A typing slip: one letter changed, added, dropped or swapped with its neighbour. */
+/** Опечатка: одна буква заменена, добавлена, пропущена или переставлена с соседней. */
 function oneEditApart(a: string, b: string): boolean {
   if (Math.abs(a.length - b.length) > 1) return false;
   let start = 0;
@@ -47,7 +47,7 @@ function oneEditApart(a: string, b: string): boolean {
     (restA.length === 2 && restB.length === 2 && restA === restB[1]! + restB[0]!)
   );
 }
-/** What to write and the paths to remove, as the one list of operations a document takes. */
+/** Что записать и какие пути удалить — одним списком операций, который принимает документ. */
 function patchInput(patch: unknown, remove: unknown, resave = false): unknown {
   if (remove === undefined) {
     if (patch === undefined) {
@@ -68,7 +68,41 @@ function patchInput(patch: unknown, remove: unknown, resave = false): unknown {
   return [...set, ...remove.map((path: string) => ({ op: "remove", path }))];
 }
 
-/** Objects of the server: reading, creating, patching and deleting one document, with the write journal. */
+/** Запись возвращает сводку, а не копию документа; нужны поля — прочитать объект. */
+export interface CreatedObjectData {
+  readonly id: string;
+  readonly type: string;
+  readonly url: string;
+  readonly fingerprint: string;
+  readonly mutationId: string;
+  readonly mutationOutcome: "confirmed";
+}
+/** Ничего не записано: запрошен предпросмотр или правка ничего не меняет (noop). */
+export interface PatchPreviewData {
+  readonly preview: boolean;
+  readonly noop: boolean;
+  readonly changes: PatchChange[];
+  readonly fingerprint: string;
+}
+export interface PatchedObjectData {
+  readonly id?: string;
+  readonly type: string;
+  readonly url: string;
+  readonly fingerprint: string;
+  readonly changes: PatchChange[];
+  /** Поля верхнего уровня вне правки, которые сервер сам изменил при сохранении. */
+  readonly serverChanged?: string[];
+  readonly mutationId: string;
+  readonly mutationOutcome: "confirmed";
+}
+export interface DeletedObjectData {
+  readonly id?: string;
+  readonly mutationId: string;
+  readonly mutationOutcome: "confirmed";
+  readonly verification: string;
+  readonly catalog?: string;
+}
+/** Объекты сервера: чтение, создание, правка и удаление одного документа, с журналом записей. */
 export class ServerObjects {
   constructor(
     private readonly server: Pick<HcmServer, "call" | "read" | "applicationInfo">,
@@ -76,11 +110,11 @@ export class ServerObjects {
       SchemaReader,
       "documentShape" | "catalogShape" | "requireType" | "documentForm"
     >,
-    /** The folder of the write journal, mutations.jsonl. */
+    /** Папка журнала записей, mutations.jsonl. */
     private readonly journalDirectory: string,
   ) {}
 
-  /** One object by id or url, as objects.get answers. */
+  /** Один объект по id или url, как отвечает objects.get. */
   async get(args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const loaded = await this.load(args);
     const snapshot = loaded.document.snapshot();
@@ -91,17 +125,17 @@ export class ServerObjects {
     const absent = Array.isArray(args.fields)
       ? (args.fields as string[]).filter((field) => !Object.hasOwn(data, field))
       : [];
-    // The form tells a repeated element from a single one, and an empty field from a wrong name.
+    // Форма отличает повторяющийся элемент от одиночного, а пустое поле — от неверного имени.
     const shape =
       absent.length || hasStructure(data)
         ? await this.schema.documentShape(snapshot.type, snapshot.formUrl).catch(() => undefined)
         : undefined;
-    // A field the server computes for the catalog (fullname) is not kept in the document.
+    // Поле, которое сервер вычисляет для каталога (fullname), в документе не хранится.
     const row = await this.catalogRow(snapshot.type, loaded.url, loaded.id, absent);
     const unknownFields = shape?.fields.size
       ? absent.filter((field) => !shape.fields.has(field) && !row.known.has(field))
       : [];
-    // Asked for, known to the form or the catalog, and without a value: empty, not forgotten.
+    // Запрошенное, известное форме или каталогу и без значения — пустое, а не забытое.
     const emptyFields = shape?.fields.size
       ? absent.filter(
           (field) => !unknownFields.includes(field) && !Object.hasOwn(row.values, field),
@@ -172,7 +206,7 @@ export class ServerObjects {
         undefined,
         { actualType: snapshot.type },
       );
-    // Some stock types keep no <id> in the document: the ID is then the requested one or the storage address.
+    // У некоторых штатных типов в документе нет <id>: тогда ID — запрошенный или адрес хранилища.
     return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
   }
   private async journal(entry: Record<string, unknown>): Promise<void> {
@@ -205,14 +239,14 @@ export class ServerObjects {
       typeof value.id === "string" &&
       (id === undefined || value.id === id);
     let matches = db.catalogs.filter((value: unknown) => named(value, type));
-    // For some types (event) the server leaves the catalog without its object type.
+    // У некоторых типов (event) сервер оставляет каталог без типа объекта.
     if (!matches.length)
       matches = db.catalogs.filter((value: unknown) => named(value, "", `${type}s`));
     return matches.length === 1 ? identifier(inputObject(matches[0]).id, "catalog") : undefined;
   }
   /**
-   * Values of the named fields in the catalog row of an object. `known` holds the names that are
-   * fields of the catalog, whether the row has a value for them or not.
+   * Значения названных полей в строке каталога объекта. В `known` — имена, которые являются
+   * полями каталога, есть у строки значение для них или нет.
    */
   private async catalogRow(
     type: string,
@@ -261,9 +295,9 @@ export class ServerObjects {
     );
   }
   /**
-   * What the server would not keep is refused before the write: a field the type does not have is
-   * dropped from the saved document, as is a value for a field the server computes, and a date the
-   * server cannot read is stored as another value.
+   * Чего сервер не сохранит, отклоняется до записи: поле, которого нет у типа, выпадает из
+   * сохранённого документа, как и значение поля, которое сервер вычисляет сам, а дата, которую
+   * сервер не может прочитать, сохраняется другим значением.
    */
   private async requireFields(
     type: string,
@@ -314,7 +348,7 @@ export class ServerObjects {
         { fields: wrong },
       );
   }
-  async create(args: Record<string, unknown>, out: WriteOutcome): Promise<Record<string, unknown>> {
+  async create(args: Record<string, unknown>, out: WriteOutcome): Promise<CreatedObjectData> {
     const type = identifier(args.type, "type");
     const data = inputObject(args.data, "data");
     if (data.id !== undefined)
@@ -392,7 +426,10 @@ export class ServerObjects {
       mutationOutcome: "confirmed",
     };
   }
-  async patch(args: Record<string, unknown>, out: WriteOutcome): Promise<Record<string, unknown>> {
+  async patch(
+    args: Record<string, unknown>,
+    out: WriteOutcome,
+  ): Promise<PatchedObjectData | PatchPreviewData> {
     const loaded = await this.load(args);
     const changes = loaded.document.patch(
       patchInput(args.patch, args.remove, args.resave === true),
@@ -408,18 +445,18 @@ export class ServerObjects {
         undefined,
         "not_sent",
       );
-    // Checked before the preview too: a preview must not promise what the write will refuse.
+    // Проверяется и перед предпросмотром: он не должен обещать то, от чего запись откажется.
     await this.requireFields(
       changes.before.type,
       changes.before.formUrl,
       changes.after.data,
       changes.changes
-        .filter((change) => inputObject(change).op === "set")
-        .map((change) => patchSegments(String(inputObject(change).path))[0]![1]!),
+        .filter((change) => change.op === "set")
+        .map((change) => patchSegments(change.path)[0]![1]!),
     );
     const noop = changes.before.fingerprint === changes.after.fingerprint;
-    // Nothing to change means nothing is sent, unless the caller asks to save the document as
-    // it is: the server then fills in again the fields it computes when a document is saved.
+    // Нечего менять — ничего не отправляется, если только вызывающий не просит сохранить документ
+    // как есть: тогда сервер заново заполняет поля, которые вычисляет при сохранении документа.
     if (args.preview === true || (noop && args.resave !== true))
       return {
         preview: args.preview === true,
@@ -439,9 +476,7 @@ export class ServerObjects {
     const form = await this.schema.documentForm(
       changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`,
     );
-    const branches = changes.changes.map(
-      (change) => patchSegments(String(inputObject(change).path))[0]![1]!,
-    );
+    const branches = changes.changes.map((change) => patchSegments(change.path)[0]![1]!);
     const mutationId = randomUUID();
     await this.journal({
       mutationId,
@@ -469,7 +504,7 @@ export class ServerObjects {
       stage: "verified",
       fingerprint: snapshot.fingerprint,
     });
-    // Fields outside the patch that differ after the save are the server's own work.
+    // Поля вне правки, которые после сохранения отличаются, — собственная работа сервера.
     const serverChanged = Object.keys({ ...changes.after.data, ...snapshot.data }).filter(
       (key) =>
         key !== "doc_info" &&
@@ -487,7 +522,7 @@ export class ServerObjects {
       mutationOutcome: "confirmed",
     };
   }
-  async delete(args: Record<string, unknown>, out: WriteOutcome): Promise<Record<string, unknown>> {
+  async delete(args: Record<string, unknown>, out: WriteOutcome): Promise<DeletedObjectData> {
     if (args.permanent !== true)
       throw new HcmError(
         "DELETE_MODE_REQUIRED",

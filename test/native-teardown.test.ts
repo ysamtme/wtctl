@@ -17,7 +17,7 @@ for (const variant of [
   "body-loss",
   "fault-then-logout-loss",
 ] as const)
-  test(`gateway teardown waits for complete native body before other profiles: ${variant}`, async () => {
+  test(`закрытие шлюза дожидается полного тела native, прежде чем закрывать другие профили: ${variant}`, async () => {
     const requests: string[] = [];
     let nativeCloseController: ReadableStreamDefaultController<Uint8Array> | undefined;
     let signalNativeClose!: () => void;
@@ -94,7 +94,7 @@ for (const variant of [
       closing,
       "repeated gateway close shares the original pending promise",
     );
-    // Attach a rejection handler before releasing the failing body, avoiding an unhandled promise.
+    // Обработчик отказа вешается до освобождения упавшего тела, чтобы не получить необработанный Promise.
     const outcome = closing.then(
       () => undefined,
       (error: unknown) => error,
@@ -142,9 +142,9 @@ for (const variant of [
       ]);
     }
     const completedRequests = requests.length;
-    await assert.rejects(native.lds.idle(), /closed/);
-    await assert.rejects(web.rpc.call({ target: "tools.get_version", args: [] }), /closed/);
-    await assert.rejects(gateway.call("web.lds.idle", {}), /closed/);
+    await assert.rejects(native.lds.idle(), /закрыт/);
+    await assert.rejects(web.rpc.call({ target: "tools.get_version", args: [] }), /закрыт/);
+    await assert.rejects(gateway.call("web.lds.idle", {}), /закрыт/);
     assert.equal(
       requests.length,
       completedRequests,

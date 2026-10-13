@@ -18,7 +18,7 @@ function marked(): { outcome: WriteOutcome; withdraw: () => void } {
   return { outcome, withdraw: outcome.sending() };
 }
 
-test("without an error there is no outcome and a mark counts as sent only for a non-read", () => {
+test("без ошибки исхода нет, а отметка означает отправку только у операции, которая не чтение", () => {
   assert.deepEqual(new WriteOutcome().verdict("write"), { sent: false, ids: {}, exactIds: {} });
   for (const effect of ["write", "execute", "unknown"] as const) {
     const verdict = marked().outcome.verdict(effect);
@@ -28,14 +28,14 @@ test("without an error there is no outcome and a mark counts as sent only for a 
   assert.equal(marked().outcome.verdict("read").sent, false);
 });
 
-test("a read has no outcome except the one its own error carries", () => {
+test("у чтения нет исхода, кроме того, что несёт его собственная ошибка", () => {
   const { outcome } = marked();
   assert.equal(outcome.verdict("read", plain).mutationOutcome, undefined);
   assert.equal(outcome.verdict("read", new HcmError("X", "x")).mutationOutcome, undefined);
   assert.equal(outcome.verdict("read", notSent).mutationOutcome, "not_sent");
 });
 
-test("a failed non-read is not_sent without a mark, indeterminate with one and not_sent once withdrawn", () => {
+test("неудавшаяся операция, которая не чтение, — not_sent без отметки, indeterminate с отметкой и снова not_sent, когда отметка снята", () => {
   for (const effect of ["write", "execute"] as const) {
     assert.equal(new WriteOutcome().verdict(effect, plain).mutationOutcome, "not_sent");
     const { outcome, withdraw } = marked();
@@ -45,7 +45,7 @@ test("a failed non-read is not_sent without a mark, indeterminate with one and n
   }
 });
 
-test("a refusal of the one request of rpc.call is not_sent even though the request was marked", () => {
+test("отклонение единственного запроса rpc.call — not_sent, хотя запрос был отмечен", () => {
   for (const error of atTheDoor) {
     const verdict = marked().outcome.verdict("write", error);
     assert.equal(verdict.sent, true);
@@ -55,13 +55,13 @@ test("a refusal of the one request of rpc.call is not_sent even though the reque
   assert.equal(marked().outcome.verdict("write", refused).mutationOutcome, "indeterminate");
 });
 
-test("a refusal at the door that finds a mark still standing is indeterminate and says so", () => {
+test("отказ на входе, заставший отметку на месте, — indeterminate и говорит об этом", () => {
   const verdict = marked().outcome.verdict("write", unauthorized());
   assert.equal(verdict.mutationOutcome, "indeterminate");
   assert.equal(verdict.refusedAfterSend, true);
 });
 
-test("the funnel withdraws the mark of the request that was turned away at the door", async () => {
+test("общий путь вызова снимает отметку с запроса, отклонённого на входе", async () => {
   const server = new HcmServer(
     fakeServer({ "native.lds.putDoc": refuse(401), "web.rpc.call": refuse(401) }),
   );
@@ -69,7 +69,7 @@ test("the funnel withdraws the mark of the request that was turned away at the d
   await assert.rejects(server.call("native.lds.putDoc", put, first));
   assert.equal(first.verdict("write", unauthorized()).mutationOutcome, "not_sent");
 
-  // An earlier request that went through keeps its mark.
+  // Прежний запрос, который прошёл, сохраняет свою отметку.
   const later = new WriteOutcome();
   later.sending();
   await assert.rejects(server.call("native.lds.putDoc", put, later));
@@ -80,7 +80,7 @@ test("the funnel withdraws the mark of the request that was turned away at the d
   assert.equal(code.verdict("execute", unauthorized()).mutationOutcome, "not_sent");
 });
 
-test("a withdrawal belongs to its own mark and works once", () => {
+test("снятие относится к своей отметке и срабатывает один раз", () => {
   const outcome = new WriteOutcome();
   const [first, second] = [outcome.sending(), outcome.sending()];
   first();
@@ -90,7 +90,7 @@ test("a withdrawal belongs to its own mark and works once", () => {
   assert.equal(outcome.verdict("write").sent, false);
 });
 
-test("noted IDs are replaced by later values and never erased by undefined", () => {
+test("записанные ID заменяются более поздними значениями и никогда не стираются undefined", () => {
   const outcome = new WriteOutcome();
   outcome.note({ objectId: "1", url: "x-local://a" });
   outcome.note({ objectId: "2", url: undefined } as never);
@@ -99,7 +99,7 @@ test("noted IDs are replaced by later values and never erased by undefined", () 
   assert.deepEqual(exactIds, { objectId: "2" });
 });
 
-test("only well-formed IDs are exact", () => {
+test("точными считаются только корректно сформированные ID", () => {
   const hex32 = "0123456789abcdef0123456789abcdef";
   const cases: [string, string, boolean][] = [
     ["mutationId", "123e4567-e89b-42d3-a456-426614174000", true],
@@ -125,7 +125,7 @@ const put = { url: "x-local://wt_data/objects/0000/41.xml", data: "<fixture/>" }
 const query = { query: "for $e in fixtures return $e" };
 const load = { url: put.url };
 
-test("a request that may change the server is refused without an owner before it reaches the server", async () => {
+test("запрос, способный изменить сервер, отклоняется без владельца до того, как дойдёт до сервера", async () => {
   const fake = fakeServer({ "*": { ok: true } });
   const server = new HcmServer(fake);
   await assert.rejects(server.call("native.lds.putDoc", put), /без владельца/);
@@ -135,7 +135,7 @@ test("a request that may change the server is refused without an owner before it
   assert.equal(fake.calls.length, 1);
 });
 
-test("read lets an execute-class request through without a mark and still refuses a write", async () => {
+test("read пропускает запрос класса execute без отметки и всё равно отклоняет запись", async () => {
   const fake = fakeServer({ "*": { ok: true } });
   const server = new HcmServer(fake);
   await server.read("native.lds.xQuery", query);
@@ -146,7 +146,7 @@ test("read lets an execute-class request through without a mark and still refuse
   );
 });
 
-test("an owned call is marked; a port error that proves nothing was sent withdraws the mark and a server refusal does not", async () => {
+test("собственный вызов помечается; ошибка порта, доказывающая, что ничего не отправлено, снимает отметку, а отказ сервера — нет", async () => {
   const fake = fakeServer({ "native.lds.putDoc": { completed: true } });
   const server = new HcmServer(fake);
   const outcome = new WriteOutcome();
@@ -168,7 +168,7 @@ test("an owned call is marked; a port error that proves nothing was sent withdra
   assert.equal(refused.verdict("write").sent, true);
 });
 
-test("code run on the server notes its execution ID, stays marked after an answer and is withdrawn when idle", async () => {
+test("код, выполняемый на сервере, записывает свой ID исполнения, остаётся отмеченным после ответа и снимается в простое", async () => {
   const body =
     '<error VALUE-TYPE="integer">0</error><error_text VALUE-TYPE="string"/><ticks VALUE-TYPE="integer">1</ticks><result VALUE-TYPE="Array"/><columns VALUE-TYPE="Array"/><data VALUE-TYPE="Object"/><total VALUE-TYPE="integer">0</total>';
   const answer = parseXml(`<ResultData><Result VALUE-TYPE="Object">${body}</Result></ResultData>`);

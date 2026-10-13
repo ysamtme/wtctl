@@ -1,6 +1,6 @@
 /**
- * Safe XML object parsing/building and explicit exact-fragment helpers.
- * These utilities are not XMD schema validation or generic SOAP serializers.
+ * Безопасный разбор и построение объектов XML, а также явные функции для точных фрагментов.
+ * Это не проверка схемы XMD и не универсальные сериализаторы SOAP.
  *
  * @packageDocumentation
  */
@@ -28,7 +28,7 @@ const reservedXmlNames = new Set([
   "__lookupSetter__",
 ]);
 
-// XML character validation excludes this marker from every source name.
+// Проверка символов XML исключает этот маркер из любого исходного имени.
 const xmlNameMarker = "\u0001";
 const protectXmlName = (name: string): string =>
   reservedXmlNames.has(name) ? xmlNameMarker + name : name;
@@ -36,7 +36,7 @@ function restoreXmlNames(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(restoreXmlNames);
   if (value === null || typeof value !== "object") return value;
   const node = value as Record<PropertyKey, unknown>;
-  // fromEntries creates own properties even for __proto__; no prototype setters run.
+  // fromEntries создаёт собственные свойства даже для __proto__; сеттеры прототипа не вызываются.
   return Object.fromEntries(
     Reflect.ownKeys(node).map((key) => [
       typeof key === "string" ? key.replace(xmlNameMarker, "") : key,
@@ -45,19 +45,19 @@ function restoreXmlNames(value: unknown): unknown {
   );
 }
 
-/** Primitive value accepted by the object-to-XML builder. */
+/** Примитивное значение, которое принимает построитель XML из объекта. */
 export type XmlPrimitive = string | number | boolean | null;
-/** XML node value: a primitive, nested element map, or repeated-element array. */
+/** Значение узла XML: примитив, карта вложенных элементов или массив повторяющихся элементов. */
 export type XmlValue = XmlPrimitive | XmlObject | XmlValue[];
 /**
- * Object representation used by `parseXml()`/`buildXml()`.
- * `@_` keys are attributes, `#text` is text, and arrays create repeated sibling elements.
+ * Представление объекта для `parseXml()`/`buildXml()`.
+ * Ключи `@_` — атрибуты, `#text` — текст, массивы создают повторяющиеся соседние элементы.
  */
 export interface XmlObject {
   [key: string]: XmlValue;
 }
 
-/** Validated exact XML fragment accepted by raw child/attachment fields. */
+/** Проверенный точный фрагмент XML, который принимают поля сырых дочерних элементов и вложений. */
 export interface RawXml {
   readonly [RAW_XML]: true;
   readonly xml: string;
@@ -92,7 +92,7 @@ function validXmlCodePoint(code: number): boolean {
   );
 }
 
-/** Rejects literal characters excluded by XML 1.0, including unpaired UTF-16 surrogates. */
+/** Отклоняет литеральные символы, запрещённые XML 1.0, включая непарные суррогаты UTF-16. */
 export function assertXmlCharacters(source: string): void {
   for (const character of source)
     if (!validXmlCodePoint(character.codePointAt(0)!))
@@ -105,7 +105,7 @@ function assertSafe(source: string): void {
   if (unsafeDeclaration.test(referenced)) {
     throw new TypeError("Объявления DOCTYPE и ENTITY в XML не допускаются.");
   }
-  // References in comments, CDATA and processing instructions are literal text.
+  // Ссылки в комментариях, CDATA и инструкциях обработки — буквальный текст.
   for (const match of referenced.matchAll(/&#(?:x([0-9a-f]+)|(\d+));/gi)) {
     const code = Number.parseInt(match[1] ?? match[2]!, match[1] === undefined ? 10 : 16);
     if (!validXmlCodePoint(code))
@@ -122,7 +122,8 @@ function assertSafe(source: string): void {
 }
 
 /**
- * Shared parser with complete XML numeric decoding and forbidden/undefined entity checks.
+ * Общий парсер: полное декодирование числовых ссылок XML, проверка запрещённых и неопределённых
+ * сущностей.
  * @internal
  */
 export function createPlatformXmlParser(options: X2jOptions = {}): XMLParser {
@@ -151,19 +152,19 @@ export function createPlatformXmlParser(options: X2jOptions = {}): XMLParser {
         ? source
         : new TextDecoder("utf-8", { fatal: true }).decode(source);
     assertSafe(text);
-    // Pinned fast-xml-parser 5.11.2 uses a single-pass EntityDecoder, including
-    // numeric references. Its HTML names are excluded by assertSafe above.
+    // Закреплённый fast-xml-parser 5.11.2 использует однопроходный EntityDecoder, в том числе для
+    // числовых ссылок. Его имена HTML исключены проверкой assertSafe выше.
     try {
       return restoreXmlNames(parse(text, validation ?? false));
     } catch {
-      throw new WsHcmApiError("protocol", "XML could not be parsed within supported limits.");
+      throw new WsHcmApiError("protocol", "XML не удалось разобрать в поддерживаемых пределах.");
     }
   };
   return result;
 }
 
 /**
- * Escape XML values and preserve CR values as references across XML line-end normalization.
+ * Экранирует значения XML и сохраняет CR ссылками при нормализации концов строк XML.
  * @internal
  */
 export function createPlatformXmlBuilder(options: XmlBuilderOptions = {}): XMLBuilder {
@@ -189,15 +190,15 @@ function assertWellFormed(source: string): void {
   if (validation !== true) throw new TypeError("Неверный XML: ошибка в разметке.");
 }
 
-/** Validates document syntax and XML-only character/entity rules without parsing its values. */
+/** Проверяет синтаксис документа и правила XML для символов и сущностей, не разбирая значения. */
 export function validatePlatformXmlSource(source: string): void {
   assertSafe(source);
   assertWellFormed(source);
 }
 
 /**
- * Parses one well-formed XML document without coercing lexical values.
- * Namespace prefixes and attributes are preserved; DTD/entity declarations are rejected.
+ * Разбирает один корректный документ XML, не приводя значения к типам.
+ * Префиксы пространств имён и атрибуты сохраняются; объявления DTD и сущностей отклоняются.
  */
 export function parseXml(source: string): XmlObject {
   assertSafe(source);
@@ -206,8 +207,8 @@ export function parseXml(source: string): XmlObject {
 }
 
 /**
- * Serializes an `XmlObject`, escaping values and validating the result.
- * This is not XMD/schema-aware and is not a byte-for-byte round-trip formatter.
+ * Сериализует `XmlObject`, экранируя значения и проверяя результат.
+ * Не учитывает XMD и схему и не гарантирует побайтного совпадения при обратном разборе.
  */
 export function buildXml(value: XmlObject): string {
   const source = builder.build(value) as string;
@@ -217,8 +218,8 @@ export function buildXml(value: XmlObject): string {
 }
 
 /**
- * Validates an exact XML fragment and brands it for raw child/attachment fields.
- * The fragment is inserted without escaping; DTD/entity declarations remain forbidden.
+ * Проверяет точный фрагмент XML и помечает его для полей сырых дочерних элементов и вложений.
+ * Фрагмент вставляется без экранирования; объявления DTD и сущностей по-прежнему запрещены.
  */
 export function rawXml(source: string): RawXml {
   assertSafe(source);
@@ -226,7 +227,7 @@ export function rawXml(source: string): RawXml {
   return Object.freeze({ [RAW_XML]: true as const, xml: source });
 }
 
-/** Exactly one child element, as required by an untyped structured XmElem RPC argument. */
+/** Ровно один дочерний элемент, как требует нетипизированный структурный аргумент XmElem RPC. */
 export function rawXmlElement(source: string): RawXml {
   const value = parseXml(source);
   const elements = Object.keys(value).filter(
@@ -241,12 +242,12 @@ export function rawXmlElement(source: string): RawXml {
   return rawXml(source);
 }
 
-/** Returns whether a value was created by `rawXml()`. */
+/** Показывает, создано ли значение через `rawXml()`. */
 export function isRawXml(value: unknown): value is RawXml {
   return typeof value === "object" && value !== null && RAW_XML in value;
 }
 
-/** Escapes a scalar for XML text/attribute content; it does not build a complete document. */
+/** Экранирует скаляр для текста и атрибутов XML; полный документ не строит. */
 export function escapeXml(value: unknown): string {
   const source = String(value);
   assertXmlCharacters(source);
@@ -261,15 +262,15 @@ export function escapeXml(value: unknown): string {
     .replaceAll("\t", "&#9;");
 }
 
-/** Returns the local part of a possibly namespace-prefixed XML name. */
+/** Возвращает локальную часть имени XML, возможно с префиксом пространства имён. */
 export function localName(name: string): string {
   const colon = name.indexOf(":");
   return colon < 0 ? name : name.slice(colon + 1);
 }
 
 /**
- * Finds the first element by local name using depth-first traversal.
- * Do not use this convenience search to enforce direct-child/cardinality schema rules.
+ * Находит первый элемент по локальному имени обходом в глубину.
+ * Не использовать этот поиск для проверки правил схемы о прямых потомках и кратности.
  */
 export function findXmlNode(value: unknown, name: string): unknown {
   if (value === null || typeof value !== "object") return undefined;

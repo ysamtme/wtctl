@@ -88,11 +88,11 @@ function canonicalReceipt(value: WebSocketHeartbeatReceipt): WebSocketHeartbeatR
   });
 }
 
-/** Uses only the pinned library's public constructor and public events/methods. */
+/** Использует лишь публичный конструктор закреплённой библиотеки, её публичные события и методы. */
 export const defaultWebSocketFactory: WebSocketFactory = (url, options) =>
   new WebSocket(url, { ...options, headers: { ...options.headers } });
 
-/** Fixed diagnostics and canonical observations; arbitrary upstream details are never copied. */
+/** Фиксированная диагностика и канонические наблюдения; произвольные подробности не копируются. */
 export class WebSocketHeartbeatError extends WsHcmApiError {
   readonly errorCode: WebSocketHeartbeatErrorCode;
   readonly hint: string;
@@ -103,8 +103,8 @@ export class WebSocketHeartbeatError extends WsHcmApiError {
     receipt: WebSocketHeartbeatReceipt,
     options: { requestSent?: false } = {},
   ) {
-    // WebSocket loss is independent of the still-owned HTTP context. Do not mark
-    // it as an HTTP transport failure and prevent exact LDS/logout cleanup.
+    // Потеря WebSocket не зависит от контекста HTTP, которым клиент всё ещё владеет. Не помечать
+    // её как сбой транспорта HTTP и не мешать точной очистке LDS и выхода.
     const code = Object.hasOwn(ERROR_MESSAGES, errorCode) ? errorCode : "WS_TRANSPORT_ERROR";
     super("protocol", ERROR_MESSAGES[code], {
       operation: "WebSocketHeartbeat",
@@ -150,7 +150,7 @@ function emptyReceipt(timeoutMs = 5000): WebSocketHeartbeatReceipt {
   };
 }
 
-/** Fail before HTTP bootstrap when a synthetic HTTP connector has no matching socket connector. */
+/** Отказать до начальной загрузки HTTP, если у подставного коннектора HTTP нет парного сокета. */
 export function assertWebSocketAvailable(
   factory: WebSocketFactory | undefined,
 ): asserts factory is WebSocketFactory {
@@ -160,7 +160,7 @@ export function assertWebSocketAvailable(
     });
 }
 
-/** Direct protocol callers get the same bounded input contract as gateway callers. */
+/** Вызывающие протокол напрямую получают тот же ограниченный контракт ввода, что и шлюз. */
 function timeout(input: WebSocketHeartbeatInput): number {
   if (
     !input ||
@@ -176,7 +176,10 @@ function timeout(input: WebSocketHeartbeatInput): number {
   return input.timeoutMs ?? 5000;
 }
 
-/** A single bounded stock heartbeat; no app payloads, LDS tags, reconnects or delivery guarantees. */
+/**
+ * Один ограниченный штатный heartbeat: без payload приложения, тегов LDS, переподключений
+ * и гарантий доставки.
+ */
 export async function webSocketHeartbeat(
   http: HttpTransport,
   factory: WebSocketFactory | undefined,
@@ -228,7 +231,7 @@ export async function webSocketHeartbeat(
       if (!state.localSocketDisposed && !failure)
         failure = {
           code: "WS_DISPOSAL_FAILED",
-          message: "WebSocket local disposal was not observed",
+          message: "Закрытие локального сокета WebSocket не зафиксировано",
         };
       if (failure) reject(new WebSocketHeartbeatError(failure.code, receipt()));
       else if (state.handshakeValidated && state.heartbeatWritten && state.heartbeatObserved)
@@ -252,7 +255,7 @@ export async function webSocketHeartbeat(
       try {
         ws?.terminate();
       } catch {
-        /* Still await a bounded terminal observation. */
+        /* Всё равно дождаться ограниченного завершающего наблюдения. */
       }
       if (!ws) {
         state.localSocketDisposed = true;
@@ -267,7 +270,7 @@ export async function webSocketHeartbeat(
       state.peerEofObserved = true;
     }
     function onSocketError(): void {
-      if (!finished) fail("WS_TRANSPORT_ERROR", "WebSocket transport failed");
+      if (!finished) fail("WS_TRANSPORT_ERROR", "Сбой транспорта WebSocket");
     }
     function account(bytes: number, message = false): boolean {
       if (failure || terminating || finished) return false;
@@ -280,7 +283,7 @@ export async function webSocketHeartbeat(
         messages > MAX_MESSAGES ||
         events > 32
       ) {
-        fail("WS_RESPONSE_LIMIT", "WebSocket response exceeded its bounded limits");
+        fail("WS_RESPONSE_LIMIT", "Ответ WebSocket превысил заданные пределы");
         return false;
       }
       return true;
@@ -299,16 +302,16 @@ export async function webSocketHeartbeat(
       try {
         ws!.close(1000);
       } catch {
-        fail("WS_TRANSPORT_ERROR", "WebSocket close request failed");
+        fail("WS_TRANSPORT_ERROR", "Не удалось отправить запрос закрытия WebSocket");
       }
-      // close() has no public write callback. Do not infer its flush from this call.
+      // У close() нет публичного обратного вызова записи. Сброс по этому вызову не выводить.
     }
 
     deadline = setTimeout(() => {
       if (state.heartbeatWritten && state.heartbeatObserved && state.closeRequested) {
         state.warning = "PEER_CLOSE_ACK_NOT_OBSERVED";
         terminate();
-      } else fail("WS_HEARTBEAT_FAILED", "Stock heartbeat deadline expired");
+      } else fail("WS_HEARTBEAT_FAILED", "Истёк срок ожидания штатного heartbeat");
     }, timeoutMs);
     try {
       ws = factory(
@@ -330,12 +333,12 @@ export async function webSocketHeartbeat(
         }),
       );
     } catch {
-      fail("WS_HANDSHAKE_FAILED", "WebSocket connector failed");
+      fail("WS_HANDSHAKE_FAILED", "Соединение WebSocket не создано");
       return;
     }
 
-    // Retain an error listener even after bounded disposal: a custom connector
-    // may emit a late error, which must neither leak secrets nor crash its caller.
+    // Оставить обработчик error даже после ограниченного освобождения: собственный коннектор
+    // может выдать позднюю ошибку, и она не должна ни раскрыть секреты, ни уронить вызывающего.
     ws.on("error", (error: unknown) => {
       if (finished || (terminating && failure)) return;
       const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
@@ -343,7 +346,7 @@ export async function webSocketHeartbeat(
         code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" ||
         code === "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH" ||
         code === "WS_ERR_TOO_MANY_BUFFERED_PARTS";
-      fail(limited ? "WS_RESPONSE_LIMIT" : "WS_TRANSPORT_ERROR", "WebSocket connection failed");
+      fail(limited ? "WS_RESPONSE_LIMIT" : "WS_TRANSPORT_ERROR", "Сбой соединения WebSocket");
     });
     ws.on("upgrade", (response: IncomingMessage) => {
       const status = boundedInteger(response.statusCode, 100, 599, 0);
@@ -356,7 +359,7 @@ export async function webSocketHeartbeat(
         const candidate = new SessionCookie();
         for (const value of cookies) candidate.capture(new Headers({ "set-cookie": value }));
         if (cookies.some((value) => /^\s*SessionID\s*=/i.test(value)) && candidate.value !== cookie)
-          fail("WS_SESSION_CHANGED", "WebSocket handshake changed the owned session cookie");
+          fail("WS_SESSION_CHANGED", "Handshake WebSocket изменил cookie своей сессии");
       }
     });
     ws.on("unexpected-response", (request: ClientRequest, response: IncomingMessage) => {
@@ -368,9 +371,9 @@ export async function webSocketHeartbeat(
           : status === 403
             ? "WS_PERMISSION_DENIED"
             : "WS_HANDSHAKE_FAILED",
-        "Stock WebSocket handshake was rejected",
+        "Штатный handshake WebSocket отклонён",
       );
-      // Registering this public event suppresses ws's default request abort.
+      // Регистрация этого публичного события отключает штатное прерывание запроса в ws.
       response.destroy();
       request.destroy();
     });
@@ -381,14 +384,15 @@ export async function webSocketHeartbeat(
       try {
         ws!.send("$hbt", (error) => {
           if (error) {
-            if (!terminating && !finished) fail("WS_TRANSPORT_ERROR", "Heartbeat write failed");
+            if (!terminating && !finished)
+              fail("WS_TRANSPORT_ERROR", "Не удалось отправить heartbeat");
             return;
           }
           state.heartbeatWritten = true;
           requestClose();
         });
       } catch {
-        fail("WS_TRANSPORT_ERROR", "Heartbeat write failed");
+        fail("WS_TRANSPORT_ERROR", "Не удалось отправить heartbeat");
       }
     });
     ws.on("message", (data: Uint8Array | ArrayBuffer | Uint8Array[], binary: boolean) => {
@@ -409,10 +413,10 @@ export async function webSocketHeartbeat(
       try {
         ws!.pong(data, true, (error) => {
           if (error && !terminating && !finished)
-            fail("WS_TRANSPORT_ERROR", "WebSocket pong write failed");
+            fail("WS_TRANSPORT_ERROR", "Не удалось отправить pong WebSocket");
         });
       } catch {
-        fail("WS_TRANSPORT_ERROR", "WebSocket pong write failed");
+        fail("WS_TRANSPORT_ERROR", "Не удалось отправить pong WebSocket");
       }
     });
     ws.on("pong", (data: Uint8Array) => {
@@ -421,7 +425,7 @@ export async function webSocketHeartbeat(
     ws.on("close", (code: number) => {
       state.libraryCloseCode = code;
       state.localSocketDisposed = ws?.readyState === WebSocket.CLOSED;
-      // 1006 is a library sentinel, never a peer Close frame.
+      // 1006 — служебное значение библиотеки, а не кадр Close от другой стороны.
       state.peerCloseObserved = code !== 1006;
       if (!failure && !terminating && code === 1006) {
         if (
@@ -434,13 +438,13 @@ export async function webSocketHeartbeat(
         else
           failure = {
             code: "WS_TRANSPORT_ERROR",
-            message: "WebSocket ended without the expected heartbeat/close observations",
+            message: "WebSocket завершился без ожидаемых heartbeat и закрытия",
           };
       }
       if (!failure && code !== 1006 && code !== 1000 && code !== 1005)
         failure = {
           code: "WS_HEARTBEAT_FAILED",
-          message: "WebSocket peer reported an unsuccessful close",
+          message: "Другая сторона WebSocket сообщила о неуспешном закрытии",
         };
       settle();
     });

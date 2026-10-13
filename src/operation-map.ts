@@ -1,12 +1,12 @@
-import { operations } from "./operations.js";
+import { operations, operationSpec } from "./operations.js";
 import { HcmError } from "./errors.js";
 
 interface Topic {
   readonly id: string;
   readonly title: string;
-  /** Operation ID to a one-line summary; listed IDs appear in the overview. */
-  readonly operations: Readonly<Record<string, string>>;
-  /** Further members selected by ID prefix; shown in the overview only as a count. */
+  /** ID операций в порядке обзора; краткое описание каждой — поле её определения. */
+  readonly operations: readonly string[];
+  /** Остальные операции темы, выбираемые по префиксу ID; в обзоре показаны только числом. */
   readonly prefixes?: readonly string[];
 }
 
@@ -15,163 +15,107 @@ const TOPICS: readonly Topic[] = [
   {
     id: "functions",
     title: "Функции библиотек сервера: найти, посмотреть параметры и код, вызвать",
-    operations: {
-      "rpc.list":
-        "Найти функции, разрешённые для вызова с клиента: query, library, method; all:true — вместе с функциями только для кода на сервере.",
-      "rpc.describe":
-        "Параметры функции по targetId «библиотека.функция»; source:true добавляет код. Знает и функции, которые вызываются только из кода на сервере.",
-      "rpc.call":
-        "Вызвать функцию: {library, method, arguments:[…]}; async:true запускает фоновой задачей.",
-    },
+    operations: ["rpc.list", "rpc.describe", "rpc.call"],
   },
   {
     id: "tasks",
     title: "Фоновые задачи: запустить, узнать состояние, остановить",
-    operations: {
-      "web.spxml.callMethodAsync":
-        "Запустить функцию библиотеки фоновой задачей; ответ содержит TrackingID.",
-      "web.spxml.getAsyncMethodStatus":
-        "Состояние задачи по TrackingID. Итог выдаётся один раз: его нужно сохранить и больше не опрашивать.",
-      "web.spxml.getBackgroundTasksByName": "Найти задачи по имени библиотеки и функции.",
-      "web.spxml.killAsyncMethod": "Попросить сервер остановить задачу.",
-    },
+    operations: [
+      "web.spxml.callMethodAsync",
+      "web.spxml.getAsyncMethodStatus",
+      "web.spxml.getBackgroundTasksByName",
+      "web.spxml.killAsyncMethod",
+    ],
   },
   {
     id: "agents",
     title: "Агенты сервера: запустить и дождаться конца",
-    operations: {
-      "agents.run":
-        "Запустить агента по ID и дождаться конца: {id}; objectId и objectIds — объекты, над которыми он работает.",
-    },
+    operations: ["agents.run"],
   },
   {
     id: "files",
     title:
       "Файлы сервера по адресу x-local://…: проверить, прочитать, показать папку, записать, удалить, загрузить",
-    operations: {
-      "files.exists": "Есть ли файл или папка по адресу.",
-      "files.read":
-        'Прочитать файл: текст, если это текст в UTF-8, иначе base64; encoding:"base64" — всегда base64.',
-      "files.list": "Показать один уровень папки: файлы с размером и вложенные папки.",
-      "files.write": "Записать файл: text или base64; способ записи операция выбирает по папке.",
-      "files.delete": "Удалить файл (в папке данных — и пустую папку).",
-      "web.pages.uploadFile":
-        "Загрузить файл до 8 МБ в папку загрузок сервера; ответ содержит его адрес.",
-      "web.pages.uploadChunk": "Загрузить одну часть большого файла.",
-      "web.pages.clearUploadChunks": "Удалить загруженные части файла.",
-    },
+    operations: [
+      "files.exists",
+      "files.read",
+      "files.list",
+      "files.write",
+      "files.delete",
+      "web.pages.uploadFile",
+      "web.pages.uploadChunk",
+      "web.pages.clearUploadChunks",
+    ],
   },
   {
     id: "documents",
     title: "Документ объекта как XML: чтение, сохранение, удаление",
-    operations: {
-      "native.lds.loadDoc": "Прочитать документ по адресу; приходит разобранным в JSON.",
-      "native.lds.putDoc": "Сохранить документ по адресу из текста XML.",
-      "native.lds.deleteDoc": "Удалить документ по адресу.",
-      "native.lds.getNewObjectId": "Выделить новый ID объекта; каждый вызов расходует ID.",
-      "native.physicalDocuments.createFromXml":
-        "Создать документ из готового XML; новый ID подставляется вместо {{objectId}}.",
-    },
+    operations: [
+      "native.lds.loadDoc",
+      "native.lds.putDoc",
+      "native.lds.deleteDoc",
+      "native.lds.getNewObjectId",
+      "native.physicalDocuments.createFromXml",
+    ],
   },
   {
     id: "changes",
     title: "Учёт изменений самим сервером: на 2025.1–2025.2 отвечает пусто, см. описания операций",
-    operations: {
-      "native.lds.getModObjects":
-        "Объекты, изменённые после даты minModDate; на 2025.1–2025.2 ответ пуст и при изменениях.",
-      "native.lds.getCatalogsStat":
-        "Число записей по каталогам из кэша сервера; пустой ответ не значит, что записей нет.",
-    },
+    operations: ["native.lds.getModObjects", "native.lds.getCatalogsStat"],
   },
   {
     id: "server",
     title: "Сведения о сервере и проверка служб",
-    operations: {
-      "server.info": "Версия, операционная система и ограничения сервера.",
-      "native.spxml2.getAppInfo":
-        "Каталоги, типы объектов, общие документы и настройки приложения.",
-      "anonymous.diagnostics.portal": "Отвечает ли портал.",
-      "anonymous.diagnostics.xhttpInfo": "Служебная страница /xhttp_info.",
-      "web.websocket.heartbeat": "Отвечает ли служба WebSocket.",
-    },
+    operations: [
+      "server.info",
+      "native.spxml2.getAppInfo",
+      "anonymous.diagnostics.portal",
+      "anonymous.diagnostics.xhttpInfo",
+      "web.websocket.heartbeat",
+    ],
   },
   {
     id: "forms",
     title: "Формы, тексты интерфейса и картинки",
-    operations: {
-      "native.spxml2.getForm": "Текст формы (.xmd, .xms) по адресу.",
-      "web.pages.getScreenForm": "Текст экранной формы по адресу.",
-      "web.pages.getUiText": "Тексты интерфейса.",
-      "native.resources.getImage": "Картинка ресурса по ID.",
-      "native.resources.getCompoundResource": "Вложение составного документа.",
-    },
+    operations: [
+      "native.spxml2.getForm",
+      "web.pages.getScreenForm",
+      "web.pages.getUiText",
+      "native.resources.getImage",
+      "native.resources.getCompoundResource",
+    ],
   },
   {
     id: "basic",
     title:
       "Основные операции. У каждой есть своя команда и свой инструмент; по ID они нужны в runtime.batch — несколько операций одним вызовом",
-    operations: {},
+    operations: [],
     prefixes: ["runtime.", "objects.", "schema.", "logs.", "results.", "execute."],
   },
   {
     id: PROTOCOL,
     title:
       "Прямые вызовы протокола: те же действия через веб-профиль, сессии, сырые запросы. Обычно не нужны",
-    operations: {},
+    operations: [],
   },
 ];
-
-/** What the one-line summary leaves out. Shown by describe, written in the caller's terms. */
-const NOTES: Readonly<Record<string, string>> = {
-  "agents.run":
-    "Вызов ждёт, пока код агента не кончится, и ограничен временем ожидания подключения (timeoutMs): долгого агента нужно запускать без ожидания — rpc.call {library:'tools', method:'start_agent', arguments:[id]} — и следить за логом agent. Параметры агента берутся из его документа. Агенты на C# и агенты выгрузки и импорта не проверялись.",
-  "native.spxml2.getAppInfo":
-    "Ответ большой и сохраняется целиком. Каталоги — databases[i].catalogs: {id, form_url, object_type}; основная база названа в default_db_name. Типы и их каталоги короче показывает schema.types.",
-  "web.pages.uploadFile":
-    'filename — имя без пути; data — текст или {base64:"…"}. Ответ: url — адрес файла, folderUrl — папка, которую сервер создал для него.',
-  "web.pages.uploadChunk":
-    "fileId — 32 шестнадцатеричных знака, его выбирает вызывающий. Части идут по порядку, последняя собирает файл. Ответ сервера не доказывает, что часть сохранена. При ошибке на последней части вслепую повторять нельзя: адрес итогового файла может остаться неизвестным.",
-  "web.pages.clearUploadChunks":
-    "Удаляет части с 0 по chunksTotal − 1 для заданного fileId. Сервер не проверяет, кто создал этот ID; пустой ответ не доказывает, что части удалены.",
-  "native.lds.loadDoc":
-    "Документ приходит разобранным: data.Data.<тип объекта>. Повторяемый элемент из одного элемента здесь объект, а не список. Даты записаны как на сервере, со смещением +00:00: это местное время сервера. Текст XML того же документа отдаёт files.read по тому же адресу.",
-  "native.lds.putDoc":
-    "data — текст XML всего документа; он заменяет документ целиком. writeDocInfo:true — сервер обновляет дату и автора изменения; без него они остаются как в тексте, и поиск по modification_date правку не видит. neverSaved:true — документ записывается впервые (так пишет новый объект objects.create). skipActions:true отключает обработку, которую сервер выполняет перед сохранением. Чужую правку операция не замечает: fingerprint из objects.get нужно сверять до записи самому.",
-  "native.lds.deleteDoc": "strictDelete:true требует, чтобы документ существовал.",
-  "native.lds.getNewObjectId":
-    "ObjectID — новый ID десятичной записью; остальные операции принимают его и так, и в записи 0x….",
-  "native.physicalDocuments.createFromXml":
-    "documentXmlTemplate — текст XML документа с {{objectId}} на месте ID. После записи документ перечитывается, и его ID сверяется. Обработчики, которые админка выполняет при создании, не запускаются.",
-  "native.lds.getModObjects":
-    "На проверенных серверах ответ пуст и при свежих изменениях. Изменённые объекты находит runtime.query по modification_date в нужном каталоге. compress передавать нельзя: сжатый ответ клиент не разбирает.",
-  "native.lds.getCatalogsStat":
-    "Числа — из кэша сервера, а не свежий подсчёт. Каталога в ответе может не быть; пустой ответ тоже возможен.",
-  "web.spxml.callMethodAsync":
-    "target — «библиотека.функция». Удобнее rpc.call с async:true: он принимает обычные значения аргументов.",
-  "web.spxml.getBackgroundTasksByName":
-    "В списке бывают задачи других пользователей: совпадение имени не значит, что задача своя. Недавно завершённые задачи остаются в списке вместе с итогом.",
-  "web.spxml.getAsyncMethodStatus":
-    "trackingId — как в ответе запуска: 0x… или десятичный. Пока задача идёт, IsRunning «1»; у завершённой IsRunning «0» и value — её результат, как у обычного rpc.call. После такого ответа сервер запись о задаче удаляет: второй раз результат не получить. Опрашивать не чаще четырёх раз в секунду.",
-  "web.spxml.killAsyncMethod":
-    "Уже сделанные изменения не откатываются. Остановка завершённой задачи не гарантирована.",
-  "anonymous.diagnostics.xhttpInfo": "Ответ — страница HTML со сведениями о сборке сервера.",
-  "web.websocket.heartbeat":
-    "Одна проверка: соединение, служебное сообщение, ответ. heartbeatObserved:true — служба ответила.",
-  "native.resources.getCompoundResource":
-    "Источник — url (адрес HTML-файла, x-local или x-app) либо docUrl и elemPath (строковое поле документа). elemPath начинается с имени корневого элемента документа: presence_state.name.",
-};
 
 const topicOfOperation = new Map<string, Topic>();
 for (const operation of operations) {
   const topic =
-    TOPICS.find((item) => Object.hasOwn(item.operations, operation.id)) ??
+    TOPICS.find((item) => item.operations.includes(operation.id)) ??
     TOPICS.find((item) => item.prefixes?.some((prefix) => operation.id.startsWith(prefix))) ??
     TOPICS.find((item) => item.id === PROTOCOL)!;
   topicOfOperation.set(operation.id, topic);
+  const listed = topic.operations.includes(operation.id);
+  if (listed !== Boolean(operationSpec(operation.id)?.summary))
+    throw new Error(
+      `${listed ? "Операция темы без summary" : "Операция с summary не названа в теме"}: ${operation.id}`,
+    );
 }
 for (const topic of TOPICS)
-  for (const id of Object.keys(topic.operations))
-    if (topicOfOperation.get(id) !== topic) throw new Error(`Unknown operation in topic: ${id}`);
+  for (const id of topic.operations)
+    if (topicOfOperation.get(id) !== topic) throw new Error(`Неизвестная операция в теме: ${id}`);
 
 export interface OperationMap {
   readonly topics: readonly {
@@ -181,24 +125,21 @@ export interface OperationMap {
     readonly count?: number;
   }[];
   readonly total: number;
-  /** How many operations read, write and run code; an effect is the most an operation may do. */
+  /** Сколько операций читают, пишут и выполняют код; эффект — самое большее, что операция может. */
   readonly effects: Readonly<Record<string, number>>;
   readonly hint: string;
 }
 
-/** A fixed overview by task; the entry point when the caller does not know what to look for. */
+/** Фиксированный обзор по задачам; точка входа, когда вызывающий не знает, что искать. */
 export function operationMap(): OperationMap {
   return {
-    topics: TOPICS.map((topic) => {
-      const listed = Object.keys(topic.operations);
-      return listed.length
-        ? { topic: topic.id, title: topic.title, operations: listed }
-        : {
-            topic: topic.id,
-            title: topic.title,
-            count: operations.filter((item) => topicOfOperation.get(item.id) === topic).length,
-          };
-    }),
+    topics: TOPICS.map((topic) => ({
+      topic: topic.id,
+      title: topic.title,
+      ...(topic.operations.length
+        ? { operations: [...topic.operations] }
+        : { count: operations.filter((item) => topicOfOperation.get(item.id) === topic).length }),
+    })),
     total: operations.length,
     effects: Object.fromEntries(
       ["read", "write", "execute", "unknown"]
@@ -213,18 +154,18 @@ export function operationTopic(id: string): string {
   return topicOfOperation.get(id)?.id ?? PROTOCOL;
 }
 
-/** Position within the topic as the overview lists it; unlisted operations keep registry order. */
+/** Положение в теме в порядке обзора; неперечисленные операции идут в порядке реестра. */
 export function operationOrder(id: string): number {
-  const position = Object.keys(topicOfOperation.get(id)?.operations ?? {}).indexOf(id);
+  const position = (topicOfOperation.get(id)?.operations ?? []).indexOf(id);
   return position < 0 ? Number.MAX_SAFE_INTEGER : position;
 }
 
 export function operationSummary(id: string): string | undefined {
-  return topicOfOperation.get(id)?.operations[id];
+  return operationSpec(id)?.summary;
 }
 
 export function operationNotes(id: string): string | undefined {
-  return NOTES[id];
+  return operationSpec(id)?.details;
 }
 
 export function requireTopic(id: string): string {
@@ -236,8 +177,8 @@ export function requireTopic(id: string): string {
   );
 }
 
-/** A query also matches the task wording of the overview, not only English identifiers. */
+/** Запрос совпадает и с формулировками задач в обзоре, а не только с английскими ID. */
 export function overviewMatches(id: string, query: string): boolean {
   const topic = topicOfOperation.get(id);
-  return `${topic?.title} ${topic?.operations[id] ?? ""}`.toLowerCase().includes(query);
+  return `${topic?.title} ${operationSummary(id) ?? ""}`.toLowerCase().includes(query);
 }

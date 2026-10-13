@@ -13,7 +13,7 @@ export interface TransportOptions {
 
 export interface SendOptions extends RequestOptions {
   basic?: boolean;
-  /** "any": a response with any HTTP status completes the request (the logout landing page). */
+  /** "any": ответ с любым статусом HTTP завершает запрос (страница выхода). */
   allowStatuses?: readonly number[] | "any";
   redirect?: RequestRedirect;
 }
@@ -64,23 +64,23 @@ export class HttpTransport {
       this.baseUrl.username !== "" ||
       this.baseUrl.password !== ""
     ) {
-      throw new TypeError("baseUrl must be an HTTP(S) URL without embedded credentials");
+      throw new TypeError("baseUrl: нужен URL HTTP(S) без имени и пароля в адресе");
     }
     this.#auth = options.auth;
     this.#timeoutMs = options.timeoutMs;
     if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1)
-      throw new TypeError("timeoutMs must be a positive integer");
+      throw new TypeError("timeoutMs: нужно положительное целое число");
     this.#fetch = options.fetch;
     this.#webHeaders = options.webHeaders ?? false;
     this.#maxResponseBytes = options.maxResponseBytes ?? 16 * 1024 * 1024;
     if (!Number.isSafeInteger(this.#maxResponseBytes) || this.#maxResponseBytes < 1)
-      throw new TypeError("maxResponseBytes must be a positive integer");
+      throw new TypeError("maxResponseBytes: нужно положительное целое число");
     if (this.baseUrl.search || this.baseUrl.hash)
-      throw new TypeError("baseUrl must not contain a query or fragment");
+      throw new TypeError("baseUrl: строка запроса и фрагмент не допускаются");
   }
 
   assertOpen(): void {
-    if (this.#disposed) throw new WsHcmApiError("protocol", "Session is closed");
+    if (this.#disposed) throw new WsHcmApiError("protocol", "Сессия закрыта");
   }
 
   dispose(): void {
@@ -100,10 +100,7 @@ export class HttpTransport {
       url.password ||
       !url.pathname.startsWith(this.baseUrl.pathname)
     ) {
-      throw new WsHcmApiError(
-        "protocol",
-        "Request outside the configured server base is not allowed",
-      );
+      throw new WsHcmApiError("protocol", "Запрос за пределы адреса подключения запрещён");
     }
     return url;
   }
@@ -112,7 +109,8 @@ export class HttpTransport {
     this.assertOpen();
     const headers = new Headers(init.headers);
     if (options.basic) {
-      if (this.#auth === undefined) throw new WsHcmApiError("auth", "Credentials are required");
+      if (this.#auth === undefined)
+        throw new WsHcmApiError("auth", "Нужны имя пользователя и пароль");
       headers.set(
         "Authorization",
         `Basic ${Buffer.from(`${this.#auth.username}:${this.#auth.password}`, "utf8").toString("base64")}`,
@@ -146,27 +144,28 @@ export class HttpTransport {
         for (let hop = 0; [301, 302, 303, 307, 308].includes(response.status); hop++) {
           await response.body?.cancel();
           const redirected = { details: { network: "redirect" } };
-          if (hop >= 5) throw new WsHcmApiError("http", "Too many redirects", redirected);
+          if (hop >= 5)
+            throw new WsHcmApiError("http", "Слишком много перенаправлений", redirected);
           if (!["GET", "HEAD"].includes((requestInit.method ?? "GET").toUpperCase()))
             throw new WsHcmApiError(
               "http",
-              "Write redirect is not followed automatically",
+              "Перенаправление запроса на запись само не выполняется",
               redirected,
             );
           const location = response.headers.get("location");
           if (location === null)
-            throw new WsHcmApiError("protocol", "Redirect is missing Location");
+            throw new WsHcmApiError("protocol", "В перенаправлении нет Location");
           try {
             requestUrl = this.resolve(location, requestUrl);
           } catch {
-            throw new WsHcmApiError("http", "Redirect leaves the configured server", redirected);
+            throw new WsHcmApiError("http", "Перенаправление ведёт на другой сервер", redirected);
           }
           if (this.cookie.value !== undefined) {
             headers.set("Cookie", `SessionID=${this.cookie.value}`);
             ownsCookieHeader = true;
           } else if (ownsCookieHeader) {
-            // A redirect can expire our SessionID. Remove the header we applied,
-            // while preserving an expert caller's Cookie when we never owned it.
+            // Перенаправление может сделать SessionID недействительным. Свой заголовок клиент
+            // убирает, а Cookie опытного вызывающего, который клиент не ставил, сохраняет.
             headers.delete("Cookie");
           }
           response = await this.#fetch(requestUrl, { ...requestInit, redirect: "manual" });
@@ -181,10 +180,10 @@ export class HttpTransport {
       throw new WsHcmApiError(
         "http",
         timedOut
-          ? "HTTP request timed out"
+          ? "Истекло время HTTP-запроса"
           : aborted
-            ? "HTTP request aborted"
-            : "HTTP request failed",
+            ? "HTTP-запрос прерван"
+            : "HTTP-запрос не выполнен",
         { details: { network } },
       );
     }
@@ -195,24 +194,26 @@ export class HttpTransport {
         return limitResponse(response, this.#maxResponseBytes);
       await response.body?.cancel();
       if (response.status === 401)
-        throw new WsHcmApiError("auth", "Authentication or session boundary", { status: 401 });
+        throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", {
+          status: 401,
+        });
       if (response.status === 403)
-        throw new WsHcmApiError("permission", "Permission denied", { status: 403 });
+        throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
       throw new WsHcmApiError("http", `HTTP ${response.status}`, { status: response.status });
     }
     if (response.status === 401) {
       await response.body?.cancel();
-      throw new WsHcmApiError("auth", "Authentication or session boundary", { status: 401 });
+      throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", { status: 401 });
     }
     if (response.status === 403) {
       await response.body?.cancel();
-      throw new WsHcmApiError("permission", "Permission denied", { status: 403 });
+      throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
     }
     return limitResponse(response, this.#maxResponseBytes);
   }
 }
 
-/** Why a request got no HTTP response, as a fixed word; the system error text itself is not kept. */
+/** Почему на запрос не пришёл ответ HTTP, одним словом; текст системной ошибки не хранится. */
 export type NetworkFailure =
   | "refused"
   | "unknown_host"
@@ -247,7 +248,7 @@ function networkFailure(error: unknown): NetworkFailure {
   return "failed";
 }
 
-/** Enforces a byte budget before any consumer can buffer an untrusted response. */
+/** Ограничивает число байтов до того, как потребитель сможет буферизовать недоверенный ответ. */
 export function limitResponse(response: Response, maxBytes: number): Response {
   if (response.body === null) return response;
   const reader = response.body.getReader();
@@ -263,7 +264,7 @@ export function limitResponse(response: Response, maxBytes: number): Response {
         }
         read += result.value.byteLength;
         if (read > maxBytes) {
-          const error = new WsHcmApiError("protocol", "Response exceeds configured byte limit", {
+          const error = new WsHcmApiError("protocol", "Ответ превышает заданный предел в байтах", {
             details: { maxResponseBytes: maxBytes },
           });
           try {
@@ -273,7 +274,7 @@ export function limitResponse(response: Response, maxBytes: number): Response {
               error,
               cleanupError instanceof WsHcmApiError
                 ? cleanupError
-                : new WsHcmApiError("http", "HTTP response cancellation failed", {
+                : new WsHcmApiError("http", "Не удалось отменить чтение HTTP-ответа", {
                     cause: cleanupError,
                   }),
             );
@@ -290,7 +291,7 @@ export function limitResponse(response: Response, maxBytes: number): Response {
         controller.error(
           error instanceof WsHcmApiError
             ? error
-            : new WsHcmApiError("http", "HTTP response body failed", { cause: error }),
+            : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", { cause: error }),
         );
       }
     },
@@ -300,7 +301,7 @@ export function limitResponse(response: Response, maxBytes: number): Response {
       } catch (error) {
         throw error instanceof WsHcmApiError
           ? error
-          : new WsHcmApiError("http", "HTTP response body failed", { cause: error });
+          : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", { cause: error });
       } finally {
         reader.releaseLock();
       }
@@ -323,8 +324,8 @@ export function query(path: string, values: Readonly<Record<string, unknown>>): 
   for (const [key, value] of Object.entries(values)) {
     if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
   }
-  // Datex percent-decodes query parameters without form-style '+' handling.
-  // URLSearchParams encodes actual spaces as '+', while literal plus is %2B.
-  // Preserve the latter and emit %20 for every serialized space.
+  // Datex раскодирует параметры запроса без обработки '+' как в формах.
+  // URLSearchParams кодирует настоящие пробелы как '+', а буквальный плюс — как %2B.
+  // Последнее сохранить, а каждый сериализованный пробел выдать как %20.
   return `${url.pathname}${url.search.replaceAll("+", "%20")}`;
 }

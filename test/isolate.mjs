@@ -1,4 +1,4 @@
-// Loaded before every test file: tests must not read the developer's own client folder.
+// Загружается перед каждым файлом тестов: тесты не должны читать собственную папку клиента разработчика.
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 

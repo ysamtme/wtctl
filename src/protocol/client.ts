@@ -75,8 +75,8 @@ async function withCleanup<T, S extends { close(): Promise<void> }>(
 }
 
 /**
- * Authenticated native Administrator context with its own cookie store and decimal LDS session ID.
- * Prefer `WsHcmClient.withNativeSession()` so cleanup always runs.
+ * Контекст native Administrator после входа: своё хранилище cookie, десятичный ID сессии LDS.
+ * Лучше `WsHcmClient.withNativeSession()`: так очистка выполняется всегда.
  */
 export class NativeSession {
   readonly lds: NativeLdsApi;
@@ -127,15 +127,15 @@ export class NativeSession {
     }
   }
 
-  /** Drops local access without claiming that server-side LDS cleanup was acknowledged. */
+  /** Снять локальный доступ, не утверждая, что очистку LDS на сервере подтвердили. */
   disposeLocal(): void {
     this.#closed = true;
     this.transport.dispose();
   }
 
   /**
-   * Idempotently closes LDS, visits `/loggedoff.html`, and clears only this session's cookie.
-   * The landing-page leg is partial lifecycle metadata, not a standalone supported operation.
+   * Идемпотентно закрыть LDS, зайти на `/loggedoff.html` и очистить только cookie этой сессии.
+   * Шаг со страницей выхода — часть жизненного цикла, а не отдельная поддерживаемая операция.
    */
   async close(): Promise<void> {
     if (this.#closed) return;
@@ -161,20 +161,22 @@ export class NativeSession {
       this.disposeLocal();
     }
     if (errors.length > 0) {
-      throw new WsHcmApiError("cleanup", "Native session cleanup failed", {
+      throw new WsHcmApiError("cleanup", "Не удалось закрыть сессию native", {
         details: { errorCount: errors.length },
         cause:
-          errors.length === 1 ? errors[0] : new AggregateError(errors, "Native cleanup failures"),
+          errors.length === 1
+            ? errors[0]
+            : new AggregateError(errors, "Ошибки при закрытии сессии native"),
       });
     }
   }
 }
 
-/** Decode the shipped CodeLiteral assignment without evaluating returned JavaScript. */
+/** Декодировать штатное присваивание CodeLiteral, не выполняя возвращённый JavaScript. */
 function extractWebUploadToken(html: string): string | undefined {
   const assignments: RegExpExecArray[] = [];
-  // This is a deliberately narrow reader of the shipped inline assignment, not
-  // a JavaScript interpreter. Markup, comments and string literals are not code.
+  // Намеренно узкое чтение штатного встроенного присваивания, а не интерпретатор
+  // JavaScript. Разметка, комментарии и строковые литералы кодом не считаются.
   const markup = html.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
   for (const script of markup.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
     const attributes = script[1]!;
@@ -210,8 +212,8 @@ function extractWebUploadToken(html: string): string | undefined {
       }
       if (character !== "g" || !source.startsWith("gFaApp.webSessionToken", index)) continue;
       if (!/^gFaApp\.webSessionToken\s*=/.test(source.slice(index, index + 128))) continue;
-      // The delivery writes a direct assignment on its own line. Requiring this
-      // context also excludes mentions in regex literals and other expressions.
+      // В поставке это прямое присваивание на отдельной строке. Такое требование заодно
+      // исключает упоминания в литералах регулярных выражений и других выражениях.
       const lineStart =
         Math.max(source.lastIndexOf("\n", index - 1), source.lastIndexOf("\r", index - 1)) + 1;
       if (!/^\s*$/.test(source.slice(lineStart, index))) return undefined;
@@ -256,7 +258,7 @@ function extractWebUploadToken(html: string): string | undefined {
   return typeof token === "string" && /^[\x21-\x7E]{1,256}$/.test(token) ? token : undefined;
 }
 
-/** Bootstrap HTML is read only for a private token; returned script is never executed. */
+/** HTML начальной загрузки читается ради закрытого токена; возвращённый скрипт не выполняется. */
 async function boundedWebBootstrap(response: Response, maximumBytes: number): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
@@ -268,7 +270,7 @@ async function boundedWebBootstrap(response: Response, maximumBytes: number): Pr
       if (part.done) break;
       length += part.value.byteLength;
       if (length > maximumBytes)
-        throw new WsHcmApiError("protocol", "Web bootstrap exceeds its bounded HTML limit");
+        throw new WsHcmApiError("protocol", "Стартовая страница web превышает предел размера HTML");
       chunks.push(part.value.slice());
     }
     const bytes = new Uint8Array(length);
@@ -284,14 +286,14 @@ async function boundedWebBootstrap(response: Response, maximumBytes: number): Pr
   }
 }
 
-/** Web Administrator page/bootstrap/logout lifecycle bound to one web cookie store. */
+/** Страница, начальная загрузка и выход web Administrator; привязаны к одному хранилищу cookie. */
 export class WebLifecycleApi {
   constructor(
     private readonly transport: HttpTransport,
     private readonly onMain?: (html: string | undefined) => void,
   ) {}
 
-  /** Reads the `/admin` redirect response without following it. */
+  /** Прочитать ответ `/admin` с перенаправлением, не переходя по нему. */
   async admin(options?: RequestOptions): Promise<WsHcmResponse<string>> {
     const response = await this.transport.send(
       "/admin",
@@ -312,10 +314,10 @@ export class WebLifecycleApi {
     };
   }
 
-  /** Reads the authenticated web Administrator main page. */
+  /** Прочитать главную страницу веб-администратора после входа. */
   async main(options?: RequestOptions): Promise<WsHcmResponse<string>> {
-    // The shipped page rotates its token before writing HTML, including requests
-    // whose response cannot subsequently be read. An earlier token is stale.
+    // Штатная страница меняет токен до записи HTML, в том числе для запросов, ответ на которые
+    // потом не удаётся прочитать. Прежний токен устарел.
     this.onMain?.(undefined);
     const response = await this.transport.send("/spxml_web/main.htm", {}, options);
     const rawBody = new Uint8Array(await response.arrayBuffer());
@@ -326,7 +328,7 @@ export class WebLifecycleApi {
     return { status: response.status, headers: response.headers, data, rawBody };
   }
 
-  /** Runs both logout legs; observed transport loss stops further requests. */
+  /** Выполнить оба шага выхода; при потере связи дальнейшие запросы не отправляются. */
   async logout(options?: RequestOptions): Promise<void> {
     this.onMain?.(undefined);
     let logoutError: unknown;
@@ -354,7 +356,7 @@ export class WebLifecycleApi {
     if (logoutError !== undefined) throw logoutError;
   }
 
-  /** Executes the second web logout leg; `logout()` calls it. */
+  /** Выполнить второй шаг веб-выхода; его вызывает `logout()`. */
   private async logout2(options?: RequestOptions): Promise<void> {
     this.onMain?.(undefined);
     const second = await this.transport.send(
@@ -372,8 +374,8 @@ export class WebLifecycleApi {
 }
 
 /**
- * Authenticated web Administrator context with an isolated cookie store and web LDS session ID.
- * Web LDS/SPXML defaults intentionally differ from native ones; do not move IDs between sessions.
+ * Контекст web Administrator после входа: своё хранилище cookie, ID сессии web LDS.
+ * Умолчания web LDS/SPXML намеренно отличаются от native; ID между сессиями не переносить.
  */
 export class WebSession {
   readonly lds: WebLdsApi;
@@ -423,7 +425,7 @@ export class WebSession {
       }
       const html = await boundedWebBootstrap(main, defaults.maxResponseBytes);
       if (http.cookie.value === undefined)
-        throw new WsHcmApiError("protocol", "Web bootstrap did not return SessionID cookie");
+        throw new WsHcmApiError("protocol", "Стартовая страница web не вернула cookie SessionID");
       const opened = await openLdsSession(http, "web");
       return new WebSession(
         http,
@@ -444,7 +446,7 @@ export class WebSession {
     }
   }
 
-  /** One stock transport heartbeat, with bounded socket disposal before the receipt is returned. */
+  /** Один штатный heartbeat; ограниченное по времени закрытие сокета — до возврата сводки. */
   heartbeat(input: WebSocketHeartbeatInput = {}): Promise<WebSocketHeartbeatData> {
     if (this.#closed)
       return Promise.reject(
@@ -466,20 +468,20 @@ export class WebSession {
     return pending;
   }
 
-  /** Invalidates the local context after a directly requested terminal web logout. */
+  /** Сделать локальный контекст недействительным после прямо запрошенного итогового веб-выхода. */
   disposeLocal(): void {
     this.#closed = true;
     this.#uploadToken = undefined;
     this.transport.dispose();
   }
 
-  /** Idempotently closes web LDS, runs both logout pages, and clears only this session's cookie. */
+  /** Идемпотентно закрыть web LDS, пройти обе страницы выхода, очистить cookie лишь этой сессии. */
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
     this.#uploadToken = undefined;
-    // A WS error does not imply HTTP loss. Settle its bounded local disposal
-    // before closing this exact still-known HTTP/LDS context.
+    // Ошибка WS не означает потери HTTP. Сначала завершить её ограниченное локальное закрытие,
+    // затем закрывать именно этот ещё известный контекст HTTP/LDS.
     await this.#heartbeat?.catch(() => {});
     const errors: unknown[] = [];
     try {
@@ -495,19 +497,22 @@ export class WebSession {
       this.transport.dispose();
     }
     if (errors.length > 0) {
-      throw new WsHcmApiError("cleanup", "Web session cleanup failed", {
+      throw new WsHcmApiError("cleanup", "Не удалось закрыть сессию web", {
         details: { errorCount: errors.length },
-        cause: errors.length === 1 ? errors[0] : new AggregateError(errors, "Web cleanup failures"),
+        cause:
+          errors.length === 1
+            ? errors[0]
+            : new AggregateError(errors, "Ошибки при закрытии сессии web"),
       });
     }
   }
 }
 
 /**
- * Entry point for WebSoft HCM administrative APIs.
+ * Точка входа в административные API WebSoft HCM.
  *
- * Defaults: `http://localhost:8088/`, 30-second per-request timeout, built-in `fetch`. Each opened session receives
- * an independent transport/cookie store. Prefer `with*Session()` for guaranteed cleanup.
+ * Умолчания: `http://localhost:8088/`, таймаут запроса 30 секунд, встроенный `fetch`. Каждая сессия
+ * получает собственные транспорт и хранилище cookie. Очистка гарантирована в `with*Session()`.
  */
 export class WsHcmClient {
   readonly diagnostics: DiagnosticsApi;
@@ -534,29 +539,29 @@ export class WsHcmClient {
     this.experimental = new ExperimentalApi(anonymous);
   }
 
-  /** Disposes the standalone diagnostics/raw context. Session owners close their sessions separately. */
+  /** Освободить автономный контекст диагностики и сырых запросов; сессии закрывают их владельцы. */
   close(): void {
     this.#anonymous.dispose();
   }
 
-  /** Local guard used before web bootstrap when a custom HTTP connector is supplied. */
+  /** Локальная проверка перед начальной загрузкой web, когда задан собственный коннектор HTTP. */
   assertWebSocketAvailable(): void {
     assertWebSocketAvailable(this.#defaults.webSocketFactory);
   }
 
-  /** Opens a native session. The caller owns it and must call `close()`. */
+  /** Открыть сессию native. Ею владеет вызывающий, он обязан вызвать `close()`. */
   openNativeSession(): Promise<NativeSession> {
     return NativeSession.open(this.#defaults);
   }
-  /** Opens a web Administrator session. The caller owns it and must call `close()`. */
+  /** Открыть сессию web Administrator. Ею владеет вызывающий, он обязан вызвать `close()`. */
   openWebSession(): Promise<WebSession> {
     return WebSession.open(this.#defaults);
   }
-  /** Runs an action in a native session and closes it in `finally`, preserving operation error precedence. */
+  /** Выполнить действие в сессии native и закрыть её в `finally`; главная — ошибка операции. */
   async withNativeSession<T>(action: (session: NativeSession) => Promise<T>): Promise<T> {
     return withCleanup(await this.openNativeSession(), action);
   }
-  /** Runs an action in a web session and closes it in `finally`, preserving operation error precedence. */
+  /** Выполнить действие в сессии web и закрыть её в `finally`; главная — ошибка операции. */
   async withWebSession<T>(action: (session: WebSession) => Promise<T>): Promise<T> {
     return withCleanup(await this.openWebSession(), action);
   }

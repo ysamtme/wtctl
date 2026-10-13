@@ -19,7 +19,7 @@ function fixture(steps: readonly Step[], initialCookie?: string) {
       const step = steps[requests.length];
       assert.ok(step, "No request beyond the declared redirect chain");
       assert.equal(path, step.path);
-      // Snapshot the wire headers: send() reuses its own Headers across hops.
+      // Снимок заголовков протокола: send() переиспользует свой Headers между переходами.
       requests.push({ path, headers: new Headers(init.headers), redirect: init.redirect });
       return new Response(null, {
         status: step.status ?? 200,
@@ -39,7 +39,7 @@ function fixture(steps: readonly Step[], initialCookie?: string) {
   };
 }
 
-test("redirect expiration removes the transport-owned SessionID without restoring caller Cookie", async () => {
+test("истечение при перенаправлении убирает SessionID транспорта и не восстанавливает Cookie вызывающего", async () => {
   const f = fixture(
     [
       {
@@ -60,7 +60,7 @@ test("redirect expiration removes the transport-owned SessionID without restorin
   assert.equal(suppliedHeaders.get("cookie"), "expert=caller-cookie");
 });
 
-test("a SessionID acquired mid-chain is removed after a later redirect expires it", async () => {
+test("SessionID, полученный посреди цепочки, убирается после того, как позднее перенаправление прекращает его действие", async () => {
   const f = fixture([
     {
       path: "/mount/start",
@@ -85,7 +85,7 @@ test("a SessionID acquired mid-chain is removed after a later redirect expires i
   assert.equal(f.transport.cookie.value, undefined);
 });
 
-test("redirect rotation replaces the owned SessionID on each subsequent hop", async () => {
+test("смена SessionID при перенаправлении заменяет собственный SessionID на каждом следующем переходе", async () => {
   const f = fixture(
     [
       {
@@ -113,7 +113,7 @@ test("redirect rotation replaces the owned SessionID on each subsequent hop", as
   assert.equal(f.transport.cookie.value, "rotated-twice");
 });
 
-test("anonymous raw caller Cookie survives redirects when the SessionID store never applies a header", async () => {
+test("анонимный исходный Cookie вызывающего переживает перенаправления, когда хранилище SessionID не применяет заголовок", async () => {
   const f = fixture([
     {
       path: "/mount/start",
@@ -135,7 +135,7 @@ test("anonymous raw caller Cookie survives redirects when the SessionID store ne
   assert.equal(f.transport.cookie.value, undefined);
 });
 
-test("manual redirects capture SessionID deletion without following or changing caller headers", async () => {
+test("ручные перенаправления фиксируют удаление SessionID, не следуя им и не меняя заголовки вызывающего", async () => {
   const f = fixture(
     [
       {

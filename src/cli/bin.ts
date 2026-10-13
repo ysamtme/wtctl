@@ -8,10 +8,10 @@ import { nodeIo } from "./node-io.js";
 import { localInstall } from "./local-install.js";
 
 process.stdout.on("error", () => {
-  /* The write callback reports closed pipes without raw input. */
+  /* Обратный вызов записи сообщает о закрытых каналах без исходного ввода. */
 });
 process.stderr.on("error", () => {
-  /* Diagnostic stream failures must not expose data. */
+  /* Сбои диагностических потоков не должны раскрывать данные. */
 });
 process.exitCode = await runCli(process.argv.slice(2), nodeIo(), {
   loadConfiguration: loadConfig,

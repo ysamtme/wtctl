@@ -13,7 +13,7 @@ const config = {
 const id = "web.spxml.getBackgroundTasksByName";
 const ownTrackingId = "0x7FFFFFFFFFFFFFFE";
 
-test(`${id} sends its exact SOAP profile and preserves repeated running/terminal task payloads`, async () => {
+test(`${id} отправляет свой точный профиль SOAP и сохраняет повторяющиеся payload выполняющейся и завершённой задачи`, async () => {
   const calls: string[] = [];
   let consumed = false;
   const gateway = new NativeGateway({
@@ -62,8 +62,8 @@ test(`${id} sends its exact SOAP profile and preserves repeated running/terminal
   });
   const operation = getNativeOperations().find((operation) => operation.id === id)!;
   assert.equal(operation.effect, "read");
-  assert.match(operation.description, /other callers/);
-  assert.match(operation.description, /[Ee]xpired nonrunning entries/);
+  assert.match(operation.description, /чужие задачи/);
+  assert.match(operation.description, /Устаревшие записи/);
   try {
     for (const expectedRunning of ["1", "0", "0"]) {
       const result = await gateway.call(id, {
@@ -94,7 +94,7 @@ test(`${id} sends its exact SOAP profile and preserves repeated running/terminal
   assert.equal(calls.filter((call) => call === "GetAsyncMethodStatus").length, 1);
 });
 
-test("background-task discovery rejects absent or non-string names before authentication", async () => {
+test("обзор фоновых задач отклоняет отсутствующие и нестроковые имена до аутентификации", async () => {
   let calls = 0;
   const gateway = new NativeGateway({
     ...config,

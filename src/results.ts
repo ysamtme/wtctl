@@ -27,12 +27,13 @@ export async function writeResultFile(
   try {
     await writeFile(temporary, chunks, { encoding: "utf8", mode: 0o600, flag: "wx" });
     const bytes = (await stat(temporary)).size;
-    // An exclusive hard link publishes the complete file without a no-clobber rename race.
+    // Эксклюзивная жёсткая ссылка публикует полный файл без гонки, которая есть
+    // у переименования без перезаписи.
     if (overwrite) await rename(temporary, target);
     else
       await link(temporary, target).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "EEXIST") throw error;
-        return copyFile(temporary, target, constants.COPYFILE_EXCL); // No hard links on this file system.
+        return copyFile(temporary, target, constants.COPYFILE_EXCL); // ФС без жёстких ссылок.
       });
     return bytes;
   } catch (error) {
@@ -55,13 +56,13 @@ export async function writeResultFile(
   }
 }
 
-/** Select an outer array or the list member of the answer without buffering even one complete row. */
+/** Выбирает внешний массив или элемент-список ответа, не буферизуя даже одну полную строку. */
 async function* jsonLines(
   source: AsyncIterable<string>,
   count: { items: number },
   list = "items",
 ): AsyncGenerator<string> {
-  // The key as the JSON text spells it, with its closing quote.
+  // Ключ в том виде, в каком его пишет JSON-текст, с закрывающей кавычкой.
   const name = JSON.stringify(list).slice(1);
   let depth = 0,
     selected = -1,
@@ -103,7 +104,7 @@ const exportFormatError = () =>
     "Этот результат нельзя отдать в запрошенном формате.",
     "text подходит сохранённой строке и ответу с полем text, jsonl — списку; json подходит любому результату.",
   );
-/** The text of an answer that is mostly one long string: a log or a file read as text. */
+/** Текст ответа, который в основном одна длинная строка: лог или файл, прочитанный как текст. */
 function textOf(data: unknown): string | undefined {
   if (typeof data === "string") return data;
   if (data === null || typeof data !== "object" || Array.isArray(data)) return undefined;
@@ -111,9 +112,9 @@ function textOf(data: unknown): string | undefined {
   return typeof text === "string" ? text : undefined;
 }
 /**
- * The list an answer is made of: items of a search, types, fields, steps of a batch. It is read by
- * elements, as a bare list is. A list counts when it is the bulk of the answer: the names of
- * unknown fields next to a long document are not what the caller came for.
+ * Список, из которого состоит ответ: элементы поиска, типы, поля, шаги пакета. Читается по
+ * элементам, как и голый список. Список засчитывается, когда составляет основную часть ответа:
+ * имена неизвестных полей рядом с длинным документом — не то, за чем пришёл вызывающий.
  */
 function listOf(data: unknown): { key: string; items: unknown[] } | undefined {
   if (data === null || typeof data !== "object" || Array.isArray(data)) return undefined;
@@ -139,7 +140,7 @@ interface Metadata {
   checkpoints: number;
   rows?: number;
   textChars?: number;
-  /** The member of a stored object that holds its list; rows index the elements of that list. */
+  /** Поле сохранённого объекта, в котором лежит его список; rows индексируют его элементы. */
   list?: string;
 }
 function invalid(): HcmError {
@@ -166,7 +167,7 @@ function numbers(bytes: Buffer): [number, number] {
 async function writeAll(file: FileHandle, bytes: Buffer): Promise<void> {
   for (let offset = 0; offset < bytes.length;) {
     const written = (await file.write(bytes, offset, bytes.length - offset)).bytesWritten;
-    if (!written) throw new Error("Result write did not progress");
+    if (!written) throw new Error("Запись результата не продвигается");
     offset += written;
   }
 }
@@ -198,7 +199,7 @@ function low(value: string): boolean {
   return /[\uDC00-\uDFFF]/.test(value);
 }
 
-/** Write bounded UTF-8 chunks and a sparse UTF-16-character-to-byte seek index. */
+/** Пишет ограниченные куски UTF-8 и разреженный индекс перехода от символа UTF-16 к байту. */
 class JsonWriter {
   bytes = 0;
   chars = 0;
@@ -236,7 +237,10 @@ class JsonWriter {
   }
 }
 
-/** Opaque IDs are connection/principal scoped. Published metadata points only to complete local payloads. */
+/**
+ * Непрозрачные ID привязаны к подключению и пользователю. Опубликованные метаданные
+ * указывают только на полные локальные payload.
+ */
 export class ResultStore {
   readonly directory: string;
   constructor(readonly config: ConnectionConfig) {
@@ -327,7 +331,7 @@ export class ResultStore {
         const rows = await create(this.payload(id, "rows.idx"));
         metadata.rows = elements.length;
         if (list) metadata.list = list.key;
-        // The list is written first: its elements are indexed, the rest of the answer follows it.
+        // Сначала пишется список: его элементы индексируются, остальной ответ идёт за ним.
         await writer.append(list ? `{${JSON.stringify(list.key)}:[` : "[");
         let pendingIndex: Buffer[] = [];
         for (const [position, item] of elements.entries()) {
@@ -360,7 +364,7 @@ export class ResultStore {
       });
       const text = textOf(data);
       if (text !== undefined) {
-        // UTF-16LE preserves every original string code unit, including lone surrogates.
+        // UTF-16LE сохраняет каждую кодовую единицу строки, в том числе одиночные суррогаты.
         const plain = await create(this.payload(id, "text.bin"));
         metadata.textChars = text.length;
         for (let offset = 0; offset < text.length; offset += CHUNK_CHARS)
@@ -431,7 +435,7 @@ export class ResultStore {
     const arrayPage =
       (metadata.kind === "array" || metadata.list !== undefined) && formatValue !== "json";
     const offset = boundedInteger(offsetValue, 0, Number.MAX_SAFE_INTEGER, "offset");
-    // One limit serves both kinds of page: a caller cannot tell beforehand which one it will get.
+    // Один лимит обслуживает оба вида страниц: вызывающий заранее не знает, какую получит.
     const asked = boundedInteger(limitValue, arrayPage ? 100 : 12000, 65536, "limit");
     if (!asked) throw new HcmError("INVALID_ARGUMENT", "limit: нужно число больше нуля.");
     const limit = arrayPage ? Math.min(asked, 1000) : asked;
@@ -440,7 +444,7 @@ export class ResultStore {
       await this.assertSize(this.payload(id, "data.idx"), metadata.checkpoints * RECORD_BYTES);
       if (arrayPage && formatValue !== "text") return await this.array(id, metadata, offset, limit);
       if (formatValue === "text" && metadata.textChars === undefined) throw exportFormatError();
-      // A stored answer with a text field (a log, a file) is read as that text, not as escaped JSON.
+      // Сохранённый ответ с текстом (лог, файл) читается как текст, не как экранированный JSON.
       const plain = metadata.textChars !== undefined && formatValue !== "json";
       const total = plain ? metadata.textChars! : metadata.jsonChars;
       const text = plain
@@ -656,7 +660,7 @@ export class ResultStore {
       ...(end < Math.min(limit, source.length) ? { cutBySize: true } : {}),
     };
   }
-  /** Version-one artifacts retain their bounded reader; all new references use indexed v2. */
+  /** Артефакты версии 1 читает прежний ограниченный читатель; новые ссылки — индексированная v2. */
   private async legacy(
     path: string,
     bytes: number,

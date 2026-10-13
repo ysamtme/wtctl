@@ -42,7 +42,7 @@ function lifecycle(
   }) as typeof globalThis.fetch;
 }
 
-test("physical location preserves bigint IDs and both shipped path layouts", () => {
+test("физическое расположение сохраняет ID bigint и обе штатные раскладки путей", () => {
   assert.deepEqual(resolvePhysicalDocumentLocation("123"), {
     objectId: "123",
     url: "x-local://wt_data/objects/0001/23.xml",
@@ -61,7 +61,7 @@ test("physical location preserves bigint IDs and both shipped path layouts", () 
   });
 });
 
-test("physicalDocuments.createFromXml rejects an invalid dbName before allocation", async () => {
+test("physicalDocuments.createFromXml отклоняет неверный dbName до выделения ID", async () => {
   let allocations = 0;
   const api = new NativePhysicalDocumentsApi({
     async getNewObjectId() {
@@ -79,7 +79,7 @@ test("physicalDocuments.createFromXml rejects an invalid dbName before allocatio
   assert.equal(allocations, 0);
 });
 
-test("physicalDocuments.createFromXml composes allocation, XOP PutDoc and LoadDoc verification", async () => {
+test("physicalDocuments.createFromXml выполняет по порядку выделение ID, XOP PutDoc и проверку LoadDoc", async () => {
   const calls: string[] = [];
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -127,7 +127,7 @@ test("physicalDocuments.createFromXml composes allocation, XOP PutDoc and LoadDo
   assert.deepEqual(calls, ["GetNewObjectID", "PutDoc", "LoadDoc"]);
 });
 
-test("physicalDocuments.createFromXml exposes native server-action and document-info flags", async () => {
+test("physicalDocuments.createFromXml отдаёт флаги native server-action и document-info", async () => {
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },
@@ -156,7 +156,7 @@ test("physicalDocuments.createFromXml exposes native server-action and document-
   );
 });
 
-test("physicalDocuments.createFromXml requires one root and one direct id before PutDoc", async () => {
+test("physicalDocuments.createFromXml требует один корень и один прямой id до PutDoc", async () => {
   const calls: string[] = [];
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -191,7 +191,7 @@ test("physicalDocuments.createFromXml requires one root and one direct id before
   assert.deepEqual(calls, ["GetNewObjectID", "GetNewObjectID"]);
 });
 
-test("physicalDocuments.createFromXml deletes a possible partial document when verification fails", async () => {
+test("physicalDocuments.createFromXml удаляет возможный частичный документ при сбое проверки", async () => {
   const calls: string[] = [];
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -238,7 +238,7 @@ test("physicalDocuments.createFromXml deletes a possible partial document when v
   assert.deepEqual(calls, ["GetNewObjectID", "PutDoc", "LoadDoc", "DeleteDoc"]);
 });
 
-test("physicalDocuments.createFromXml rejects wrong loaded root id and deletes the document", async () => {
+test("physicalDocuments.createFromXml отклоняет неверный id корня загруженного документа и удаляет документ", async () => {
   const calls: string[] = [];
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -275,12 +275,12 @@ test("physicalDocuments.createFromXml rejects wrong loaded root id and deletes t
       error.kind === "protocol" &&
       error.operation === "LoadDoc" &&
       error.status === 200 &&
-      error.message === "Loaded document id does not match allocated objectId",
+      error.message === "ID загруженного документа не совпадает с выделенным objectId",
   );
   assert.deepEqual(calls, ["GetNewObjectID", "PutDoc", "LoadDoc", "DeleteDoc"]);
 });
 
-test("nested document and session cleanup failures remain attached to the primary error", async () => {
+test("вложенные сбои очистки документа и сессии остаются привязанными к основной ошибке", async () => {
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },

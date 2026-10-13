@@ -1,6 +1,7 @@
 import { HcmError } from "./errors.js";
 import { freezeRegistry } from "./immutable.js";
 import { parseXml } from "./protocol/xml.js";
+import { blank, exactKeys, isType, object, strictResponse, typedText } from "./server-value.js";
 
 export type ServerInfoProfile = "native" | "web";
 export interface ServerInfoInput {
@@ -10,7 +11,7 @@ export interface ServerCatalogLimit {
   readonly objectTypeName: string;
   readonly maxRecordsNum: string;
 }
-/** Database behind the server, by the flags the server itself tells its database type by. */
+/** База за сервером по флагам, которыми сам сервер определяет тип своей базы. */
 export type ServerDatabase = "mssql" | "postgresql" | "oracle" | "azure" | "xml" | "other";
 export interface ServerInfoData {
   readonly profile: ServerInfoProfile;
@@ -18,9 +19,9 @@ export interface ServerInfoData {
   readonly osType: "windows" | "linux";
   readonly capabilityMask: string;
   readonly database: ServerDatabase;
-  /** Licence limits on the number of objects by type, declared at server start; not current counts. */
+  /** Лицензионные пределы числа объектов по типам, объявленные при запуске, не текущие числа. */
   readonly catalogLimits: readonly ServerCatalogLimit[];
-  /** Native profile: folders that take files through LDS, and folders that only code on the server writes to. */
+  /** Профиль native: папки, куда файлы идут через LDS, и те, куда пишет только код на сервере. */
   readonly dataFolders?: readonly string[];
   readonly codeFolders?: readonly string[];
 }
@@ -29,41 +30,6 @@ const fields = ["sys_db_capability", "catalog_limits", "version_server", "os_typ
 const maxCatalogXmlBytes = 256 * 1024;
 const maxCatalogRows = 4096;
 
-function object(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error();
-  return value as Record<string, unknown>;
-}
-function blank(value: unknown): boolean {
-  return value === undefined || (typeof value === "string" && value.trim() === "");
-}
-function exactKeys(node: Record<string, unknown>, allowed: readonly string[]): void {
-  if (Object.keys(node).some((key) => !allowed.includes(key))) throw new Error();
-}
-function wrapper(value: unknown, child: string): unknown {
-  const node = object(value);
-  if (
-    !blank(node["#text"]) ||
-    Object.keys(node).some((key) => {
-      if (key === child || key === "#text") return false;
-      return (
-        !/^@_xmlns(?::[A-Za-z_][\w.-]*)?$/.test(key) ||
-        typeof node[key] !== "string" ||
-        node[key].length > 1024
-      );
-    })
-  )
-    throw new Error();
-  return node[child];
-}
-function typedText(value: unknown, type: "string" | "integer"): string {
-  const node = object(value);
-  exactKeys(node, ["@_VALUE-TYPE", "#text"]);
-  if (typeof node["@_VALUE-TYPE"] !== "string" || node["@_VALUE-TYPE"].toLowerCase() !== type)
-    throw new Error();
-  const text = node["#text"] ?? "";
-  if (typeof text !== "string") throw new Error();
-  return text;
-}
 function signedInteger(value: string): string {
   if (!/^(?:0x[0-9a-fA-F]{1,16}|[+-]?\d{1,20})$/.test(value)) throw new Error();
   const integer = BigInt(value);
@@ -71,8 +37,9 @@ function signedInteger(value: string): string {
   return value;
 }
 /**
- * Flags of the stock UNI_CAP_* list: BASIC 1, AZURE 0x8000, MSSQL 0x10000, ORACLE 0x20000. The list has no
- * flag for PostgreSQL; bit 33 is the one seen set on PostgreSQL only (2025.1.1171 — 2025.2.1535).
+ * Флаги штатного списка UNI_CAP_*: BASIC 1, AZURE 0x8000, MSSQL 0x10000, ORACLE 0x20000. Флага
+ * PostgreSQL в списке нет; бит 33 — тот, что замечен установленным только на PostgreSQL
+ * (2025.1.1171 — 2025.2.1535).
  */
 function database(mask: bigint): ServerDatabase {
   if ((mask & 1n) === 0n) return "xml";
@@ -110,29 +77,24 @@ function catalogLimits(source: string): readonly ServerCatalogLimit[] {
   });
 }
 
-/** Decode only the fixed stock metadata RPC; never evaluate or decode XML text twice. */
+/**
+ * Разбирает только фиксированный штатный RPC метаданных; XML не вычисляется
+ * и не декодируется дважды.
+ */
 export function parseServerInfo(
   response: unknown,
   profile: ServerInfoProfile = "native",
 ): ServerInfoData {
   try {
     if (profile !== "native" && profile !== "web") throw new Error();
-    const rpc = object(response);
-    exactKeys(rpc, ["xml", "valueType", "lexicalValue"]);
+    const { rpc, result } = strictResponse(response);
     if (
-      (rpc.valueType !== undefined &&
-        (typeof rpc.valueType !== "string" || rpc.valueType.toLowerCase() !== "object")) ||
+      (rpc.valueType !== undefined && !isType(rpc.valueType, "object")) ||
       !blank(rpc.lexicalValue)
     )
       throw new Error();
-    const result = object(wrapper(wrapper(rpc.xml, "ResultData"), "Result"));
     exactKeys(result, ["@_VALUE-TYPE", "#text", ...fields]);
-    if (
-      typeof result["@_VALUE-TYPE"] !== "string" ||
-      result["@_VALUE-TYPE"].toLowerCase() !== "object" ||
-      !blank(result["#text"])
-    )
-      throw new Error();
+    if (!isType(result["@_VALUE-TYPE"], "object") || !blank(result["#text"])) throw new Error();
     const capabilityMask = signedInteger(typedText(result.sys_db_capability, "integer"));
     const versionServer = typedText(result.version_server, "string");
     const osType = typedText(result.os_type, "string");

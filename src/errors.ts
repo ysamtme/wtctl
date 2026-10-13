@@ -1,6 +1,6 @@
 import type { MutationOutcome, OperationError } from "./contracts.js";
 
-/** Actionable, serialisable error; never includes a request body or credentials. */
+/** Ошибка с подсказкой, сериализуемая; тело запроса и учётные данные в неё никогда не попадают. */
 export class HcmError extends Error {
   constructor(
     readonly code: string,
@@ -59,7 +59,7 @@ export function boundedInteger(
     );
   return value;
 }
-/** The text of an XML node that is a string or has #text; the answer of the server lacks it otherwise. */
+/** Текст XML-узла, являющегося строкой или имеющего #text; иначе в ответе сервера текста нет. */
 export function scalar(value: unknown, label: string): string {
   if (typeof value === "string") return value;
   if (value && typeof value === "object" && "#text" in value)

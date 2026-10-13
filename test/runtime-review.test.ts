@@ -23,7 +23,7 @@ const config = (runtimeDir: string, outputLimitBytes = 1024): ConnectionConfig =
   permissions: { write: true, execute: true },
 });
 
-test("Runtime and SDK discovery reject zero limits and advance through all ranked matches without network", async () => {
+test("обзор в runtime и SDK отклоняет нулевые лимиты и проходит все ранжированные совпадения без сети", async () => {
   let requests = 0;
   const runtime = new HcmRuntime({
     ...config(".runtime"),
@@ -74,9 +74,9 @@ test("Runtime and SDK discovery reject zero limits and advance through all ranke
     assert.equal(runtime.listOperations({ query: "missing-operation-name" }).total, 0);
     const expectedRead = runtime.listOperations({ effect: "read", limit: 1000 });
     assert.ok(expectedRead.total > 2);
-    // The name of an effect as the whole query asks for the operations of that effect.
+    // Название эффекта как весь запрос выдаёт операции с этим эффектом.
     assert.equal(runtime.listOperations({ query: " Read " }).total, expectedRead.total);
-    // Operations whose effect depends on the arguments are listed by the word the map counts them under.
+    // Операции, у которых эффект зависит от аргументов, перечисляются по слову, под которым их считает карта.
     assert.ok(
       runtime
         .listOperations({ query: "unknown" })
@@ -104,7 +104,7 @@ test("Runtime and SDK discovery reject zero limits and advance through all ranke
   assert.equal(requests, 0);
 });
 
-test("public operation descriptors cannot change shared validation or write policy", async () => {
+test("публичные описания операций не могут изменить общую проверку и права на запись", async () => {
   const { runtime, server } = fakeRuntime({}, { permissions: { write: false, execute: false } });
   try {
     const create = runtime.describe("objects.create");
@@ -148,7 +148,7 @@ async function fixture(
   }
 }
 
-test("failure receipts retain exact prepared execution IDs when a password matches their prefix", async () => {
+test("сводки сбоя сохраняют точные ID подготовленного исполнения, когда пароль совпадает с их началом", async () => {
   let preparedId: unknown;
   const { runtime } = fakeRuntime(
     {
@@ -175,7 +175,7 @@ test("failure receipts retain exact prepared execution IDs when a password match
   }
 });
 
-test("failed document writes preserve journal UUID and numeric object ID despite matching a short password", async () => {
+test("неудачные записи документов сохраняют UUID из журнала записей и числовой ID объекта, несмотря на совпадение с коротким паролем", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-review-"));
   const { runtime } = fakeRuntime(
     {
@@ -214,7 +214,7 @@ test("failed document writes preserve journal UUID and numeric object ID despite
   }
 });
 
-test("runtime concurrent close waits for accepted work and the same cleanup outcome", async () => {
+test("параллельное закрытие runtime ждёт принятую работу и тот же исход очистки", async () => {
   const runtime = new HcmRuntime(config(".unused"));
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -246,7 +246,7 @@ test("runtime concurrent close waits for accepted work and the same cleanup outc
   assert.equal((await runtime.call("native.lds.idle")).error?.code, "RUNTIME_CLOSED");
 });
 
-test("document data does not disappear because a field name resembles transport credentials", async () => {
+test("данные документа не пропадают из-за того, что имя поля похоже на учётные данные транспорта", async () => {
   const source =
     "<fixture><id>41</id><password>application-value</password><cookie>business-cookie</cookie><authorization>delegation</authorization><sessionid>external-reference</sessionid></fixture>";
   await fixture(
@@ -269,7 +269,7 @@ test("document data does not disappear because a field name resembles transport 
   );
 });
 
-test("batch references address full prior values even when their public result is stored", async () => {
+test("ссылки в пакете указывают на полные прежние значения, даже когда их публичный результат сохранён", async () => {
   let loadedUrl: unknown;
   const script: Script = {
     "native.spxml2.getAppInfo": { url: "x-local://fixture.txt", metadata: "x".repeat(5000) },
@@ -290,7 +290,7 @@ test("batch references address full prior values even when their public result i
   });
 });
 
-test("batch artifact failure retains sent writes and bounded step receipts instead of not_sent", async () => {
+test("сбой артефакта пакета сохраняет отправленные записи и ограниченные сводки шагов вместо not_sent", async () => {
   await fixture(
     { "*": { acknowledged: true, large: "x".repeat(5000) } },
     async (runtime, server) => {
@@ -327,7 +327,7 @@ test("batch artifact failure retains sent writes and bounded step receipts inste
   );
 });
 
-test("batch storage failure preserves not_sent when only a rejected mutation and a read ran", async () => {
+test("сбой хранилища пакета сохраняет not_sent, если выполнялись только отклонённая запись и чтение", async () => {
   await fixture(
     { "native.spxml2.getAppInfo": { large: "x".repeat(5000) } },
     async (runtime, server) => {
@@ -360,7 +360,7 @@ test("batch storage failure preserves not_sent when only a rejected mutation and
   );
 });
 
-test("remove followed by set verifies the final patch intent rather than an intermediate deletion", async () => {
+test("remove, за которым идёт set, проверяется по итоговому намерению правки, а не по промежуточному удалению", async () => {
   let source = "<fixture><id>41</id><name>old</name></fixture>";
   let writes = 0;
   const script: Script = {
@@ -390,7 +390,7 @@ test("remove followed by set verifies the final patch intent rather than an inte
   );
 });
 
-test("failed responses remain bounded when an untrusted operation identifier is enormous", async () => {
+test("ответы с ошибкой остаются ограниченными, когда ненадёжный идентификатор операции огромен", async () => {
   await fixture({}, async (runtime) => {
     const result = await runtime.call("x".repeat(10000));
     assert.equal(result.ok, false);
@@ -402,7 +402,7 @@ test("failed responses remain bounded when an untrusted operation identifier is 
   });
 });
 
-test("invalid native XML rejected before HTTP is reported not_sent", async () => {
+test("неверный XML native, отклонённый до HTTP, сообщается как not_sent", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-review-"));
   let requests = 0;
   const runtime = new HcmRuntime({
@@ -426,7 +426,7 @@ test("invalid native XML rejected before HTTP is reported not_sent", async () =>
   }
 });
 
-test("queued arguments retain preview intent even if a caller reuses and mutates its object", async () => {
+test("аргументы в очереди сохраняют намерение preview, даже если вызывающий переиспользует и меняет свой объект", async () => {
   const args: Record<string, unknown> = { id: "41", patch: { name: "preview" }, preview: true };
   let release!: () => void;
   const wait = new Promise<void>((resolve) => {
@@ -438,7 +438,7 @@ test("queued arguments retain preview intent even if a caller reuses and mutates
       await wait;
       return doc("<fixture><id>41</id><name>original</name></fixture>");
     },
-    // The form is read to check the field names; this fixture has none.
+    // Форма читается для проверки имён полей; в этом подставном ответе их нет.
     "native.spxml2.getForm": () => {
       throw new Error("Fixture form is unavailable");
     },
@@ -467,7 +467,7 @@ test("queued arguments retain preview intent even if a caller reuses and mutates
 });
 
 for (const idElement of ["", "<id/>"])
-  test(`documents with ${idElement || "no id"} use their physical identity without changing XML`, async () => {
+  test(`документы с ${idElement || "no id"} используют физическую идентичность, не меняя XML`, async () => {
     const objectId = "0x1000000000000029";
     const url = "x-local://wt_data/objects/10000000000000/29.xml";
     let source = `<fixture>${idElement}<name>before</name><future vendor="fixture">preserve</future></fixture>`;
@@ -534,7 +534,7 @@ for (const idElement of ["", "<id/>"])
     );
   });
 
-test("creation is confirmed when the server stores the document without its id", async () => {
+test("создание подтверждается, когда сервер сохраняет документ без его id", async () => {
   const objectId = "0x1000000000000029";
   let source = "";
   const script: Script = {
@@ -563,7 +563,7 @@ test("creation is confirmed when the server stores the document without its id",
   );
 });
 
-test("a conflicting ID and URL cannot read, patch or delete the document selected by URL", async () => {
+test("противоречащие друг другу ID и URL не позволяют читать, править и удалять документ, выбранный по URL", async () => {
   let mutations = 0;
   const script: Script = {
     "native.lds.loadDoc": doc("<fixture><id>42</id><name>other document</name></fixture>"),
@@ -595,7 +595,7 @@ test("a conflicting ID and URL cannot read, patch or delete the document selecte
   });
 });
 
-test("a bounded-request batch remains retrievable when its aggregate exceeds two individual response budgets", async () => {
+test("пакет ограниченных запросов остаётся доступным для чтения, когда его суммарный ответ превышает два отдельных бюджета ответа", async () => {
   await fixture({ "*": { text: "x".repeat(900000) } }, async (runtime) => {
     const batch = await runtime.call("runtime.batch", {
       steps: [
@@ -621,7 +621,7 @@ test("a bounded-request batch remains retrievable when its aggregate exceeds two
   });
 });
 
-test("a patch whose read-back returns another document is TARGET_MISMATCH and indeterminate", async () => {
+test("правка, у которой чтение после записи возвращает другой документ, даёт TARGET_MISMATCH и indeterminate", async () => {
   let source = "<fixture><id>41</id><name>before</name></fixture>";
   const script: Script = {
     "native.lds.loadDoc": () => doc(source),
@@ -638,7 +638,7 @@ test("a patch whose read-back returns another document is TARGET_MISMATCH and in
   });
 });
 
-test("a write after close is RUNTIME_CLOSED and carries no mutation outcome", async () => {
+test("запись после закрытия даёт RUNTIME_CLOSED и не несёт исхода записи", async () => {
   const { runtime, server } = fakeRuntime();
   await runtime.close();
   const result = await runtime.call("objects.create", { type: "fixture", data: { name: "x" } });
@@ -651,7 +651,7 @@ const unauthorized = () => new WsHcmApiError("http", "unauthorized", { status: 4
 const readBackHint =
   /запрос на запись уже ушёл: после восстановления входа проверить, прошла ли запись/;
 
-test("a refusal at the door after an accepted write is indeterminate and the hint says the write went out", async () => {
+test("отказ на входе после принятой записи — indeterminate, а подсказка говорит, что запись ушла", async () => {
   let loads = 0;
   const patch = (door: "load" | "put") =>
     fixture(
@@ -683,7 +683,7 @@ test("a refusal at the door after an accepted write is indeterminate and the hin
   await patch("put");
 });
 
-test("a creation whose ID was issued and whose write is refused at the door is indeterminate", async () => {
+test("создание, для которого выдан ID и запись которого отклонена на входе, — indeterminate", async () => {
   await fixture(
     {
       "native.spxml2.getForm": '<SPXML-FORM><fixture><name TYPE="string"/></fixture></SPXML-FORM>',

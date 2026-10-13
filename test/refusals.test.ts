@@ -1,5 +1,5 @@
-// A call that cannot work is named for what it is: before anything is written where the client
-// can tell, and from the server's own lists where only the server's bare HTTP 500 is left.
+// Вызов, который не может сработать, называется своим именем: до записи — там, где клиент
+// может это определить, и по спискам самого сервера — там, где остался только его голый HTTP 500.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { errorInFrontendTerms } from "../src/frontend-names.js";
@@ -10,7 +10,7 @@ const library = `<SPXML-INLINE-FORM><tools>
   <server_side PROPERTY="1" PARAM="id" EXPR="return id;"/>
 </tools></SPXML-INLINE-FORM>`;
 
-test("an object of a type the server does not have is refused before anything is written", async () => {
+test("объект типа, которого нет на сервере, отклоняется до любой записи", async () => {
   let declared = true;
   const { runtime, server } = fakeRuntime({
     "native.spxml2.getAppInfo": {
@@ -21,7 +21,7 @@ test("an object of a type the server does not have is refused before anything is
           id: "sample",
           catalogs: [
             { id: "groups", object_type: "group" },
-            // The server leaves this catalog without the type of its objects.
+            // Сервер оставляет этот каталог без типа его объектов.
             { id: "events", object_type: "", form_url: "x-local://wtv/wtv_events.xmd" },
           ],
         },
@@ -38,7 +38,7 @@ test("an object of a type the server does not have is refused before anything is
   });
   const create = (type: string) => runtime.call("objects.create", { type, data: { name: "x" } });
   try {
-    // The catalog name has a form of its own, so the form alone would not stop the write.
+    // У имени каталога есть собственная форма, поэтому одной формы недостаточно, чтобы остановить запись.
     const catalog = await create("groups");
     assert.equal(catalog.error?.code, "UNKNOWN_TYPE");
     assert.match(catalog.error!.hint!, /Похожие: group\./);
@@ -46,10 +46,10 @@ test("an object of a type the server does not have is refused before anything is
     assert.match((await create("events")).error!.hint!, /Похожие: event\./);
     assert.equal((await create("no_such")).error?.code, "UNKNOWN_TYPE");
     assert.equal(server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length, 0);
-    // A type the server declares without naming its catalog is a type: the refusal that follows
-    // is the fixture's missing form, not the check.
+    // Тип, который сервер объявляет, не называя его каталог, — это тип: следующий за этим отказ —
+    // недостающая форма в подставном сервере, а не проверка.
     assert.equal((await create("event")).error?.code, "PLATFORM_SOAP-FAULT");
-    // Without the server's declaration only a catalog name can be told from a type.
+    // Без объявления сервера отличить каталог от типа можно только по имени каталога.
     declared = false;
     const fresh = fakeRuntime(server).runtime;
     try {
@@ -73,7 +73,7 @@ test("an object of a type the server does not have is refused before anything is
   }
 });
 
-test("a refused library call is explained from the server's list of functions", async () => {
+test("отказ при вызове функции библиотеки объясняется списком функций сервера", async () => {
   let known = true;
   const { runtime, server } = fakeRuntime({
     "native.spxml2.getAppInfo": (_args, id) => {
@@ -96,21 +96,21 @@ test("a refused library call is explained from the server's list of functions", 
     const misspelt = await call("get_versio");
     assert.equal(misspelt.error?.code, "UNKNOWN_RPC_TARGET");
     assert.match(misspelt.error!.hint!, /^Похожие: get_version\./);
-    // The server ran nothing: there is no write to look for.
+    // Сервер ничего не выполнил: записи, которую нужно искать, нет.
     assert.equal(misspelt.error?.mutationOutcome, "not_sent");
     assert.equal((await call("get_versio", { async: true })).error?.code, "UNKNOWN_RPC_TARGET");
     const closed = await call("server_side");
     assert.equal(closed.error?.code, "RPC_SERVER_ONLY");
     assert.equal(closed.error?.mutationOutcome, "not_sent");
     assert.match(closed.error!.hint!, /execute\.script.*tools\.server_side\(/);
-    // The function exists and may be called: the refusal came from inside it and stays as it is.
+    // Функция существует и может быть вызвана: отказ пришёл изнутри неё и остаётся как есть.
     const inside = await call("get_version");
     assert.equal(inside.error?.code, "PLATFORM_SOAP-FAULT");
     assert.equal(inside.error?.mutationOutcome, "indeterminate");
   } finally {
     await runtime.close();
   }
-  // Without the server's list there is nothing to judge by.
+  // Без списка сервера судить не по чему.
   const blind = fakeRuntime(server).runtime;
   known = false;
   try {
@@ -121,7 +121,7 @@ test("a refused library call is explained from the server's list of functions", 
   }
 });
 
-test("a malformed function argument is named by its place in arguments", async () => {
+test("неверный аргумент функции называется по его месту среди аргументов", async () => {
   const { runtime } = fakeRuntime();
   try {
     const object = await runtime.call("rpc.call", {
@@ -143,7 +143,7 @@ test("a malformed function argument is named by its place in arguments", async (
   }
 });
 
-test("a failed step inside a batch and the operation lists are named in the caller's terms", () => {
+test("упавший шаг пакета и списки операций называются в терминах вызывающего", () => {
   const meta = (operationId: string) => ({ operationId, connection: "t", durationMs: 0 });
   const step = {
     ok: false,
@@ -183,4 +183,21 @@ test("a failed step inside a batch and the operation lists are named in the call
     "mcp",
   );
   assert.equal(described.error?.hint, "Аргументы операции описывает hcm_api_describe.");
+});
+
+test("native.lds.loadDoc: отказ сервера HTTP 500 называет обычную причину операции", async () => {
+  const { runtime } = fakeRuntime({ "native.lds.loadDoc": refuse(500) });
+  const refused = await runtime.call("native.lds.loadDoc", { url: "x-local://wt_data/x.xml" });
+  assert.equal(refused.error?.code, "PLATFORM_SOAP-FAULT");
+  assert.match(refused.error!.hint!, /по этому адресу ничего нет/);
+  await runtime.close();
+});
+
+test("native.experimental.rawRequest: GET проходит как чтение на подключении только для чтения, остальные методы — нет", async () => {
+  const { runtime } = fakeRuntime({ "*": {} }, { permissions: { write: false, execute: false } });
+  const request = (method: string) =>
+    runtime.call("native.experimental.rawRequest", { unsafe: true, path: "/x", method });
+  assert.equal((await request("GET")).ok, true);
+  assert.equal((await request("POST")).error?.code, "WRITE_DISABLED");
+  await runtime.close();
 });

@@ -1,10 +1,10 @@
 import { guideTopics } from "../guide.js";
 
 interface CommandHelp {
-  /** One line for the overview. */
+  /** Одна строка для обзора. */
   readonly summary: string;
   readonly usage: readonly string[];
-  /** Only what the usage lines do not say; one sentence per item, the text form prints one per line. */
+  /** Только то, чего нет в строках usage; по предложению на пункт, в текстовом виде — по строке. */
   readonly notes?: readonly string[];
 }
 
@@ -272,7 +272,7 @@ const NOTES: readonly string[] = [
   "При error.mutationOutcome = indeterminate запись могла пройти: перед повтором проверить объект.",
 ];
 
-// The name comes from the command line: names every object inherits are not commands.
+// Имя приходит из командной строки: имена, унаследованные каждым объектом, не команды.
 function known(command: string): CommandHelp | undefined {
   return Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
 }
@@ -298,7 +298,7 @@ function rows(pairs: readonly (readonly [string, string])[]): string[] {
   return pairs.map(([name, text]) => `  ${name.padEnd(width)}  — ${text}`);
 }
 
-/** The same help as cliHelp, laid out in lines for reading. */
+/** Та же справка, что у cliHelp, разложенная по строкам для чтения. */
 export function cliHelpText(command?: string): string {
   const commands = [
     "Команды:",

@@ -71,7 +71,7 @@ function structured(value: unknown): OperationResult {
   return result;
 }
 
-test("all tools declare plain input schemas and conservative annotations", () => {
+test("все инструменты объявляют простые схемы ввода и осторожные аннотации", () => {
   const f = fixture();
   const names = f.tools.list().map((tool) => tool.name);
   assert.equal(new Set(names).size, 23);
@@ -81,7 +81,7 @@ test("all tools declare plain input schemas and conservative annotations", () =>
     assert.equal(tool.outputSchema, undefined, "the result shape is stated once in instructions");
     assert.equal(tool.annotations?.openWorldHint, true);
     assert.equal(typeof tool.annotations?.readOnlyHint, "boolean");
-    // Combinators and length limits are stated in words: weaker models and some hosts mishandle them.
+    // Комбинаторы и ограничения длины описаны словами: слабые модели и некоторые хосты обрабатывают их неправильно.
     assert.doesNotMatch(
       JSON.stringify(tool.inputSchema),
       /"(?:oneOf|anyOf|allOf|not|minLength|maxLength|maximum|minimum|const)":/,
@@ -127,7 +127,7 @@ test("all tools declare plain input schemas and conservative annotations", () =>
   );
 });
 
-test("the startup payload stays small", () => {
+test("payload при запуске остаётся небольшим", () => {
   const f = fixture();
   const visible = f.tools
     .list()
@@ -137,7 +137,7 @@ test("the startup payload stays small", () => {
   assert.ok(JSON.stringify(f.tools.list()).length < 19_000);
 });
 
-test("discovery without arguments returns the overview by task and makes no call", async () => {
+test("поиск операций без аргументов возвращает обзор по задачам и не делает вызовов", async () => {
   const f = fixture();
   const map = structured(await f.tools.invoke("hcm_api_list", {})).data as {
     topics: { topic: string; title: string; operations?: string[]; count?: number }[];
@@ -149,7 +149,7 @@ test("discovery without arguments returns the overview by task and makes no call
   assert.ok(JSON.stringify(map).length < 3500);
 });
 
-test("discovery tools expose descriptors and pass filters without network calls", async () => {
+test("инструменты обзора выдают описания операций и передают фильтры без сетевых вызовов", async () => {
   const f = fixture();
   const filter = { query: "synthetic", topic: "protocol", cursor: 1, limit: 2 };
   const page = structured(await f.tools.invoke("hcm_api_list", filter));
@@ -169,7 +169,7 @@ test("discovery tools expose descriptors and pass filters without network calls"
   assert.equal(f.calls.length, 0);
 });
 
-test("generic tools enforce registry effects, including unknown only via execute", async () => {
+test("общие инструменты применяют эффекты из реестра, а unknown — только через execute", async () => {
   for (const toolEffect of ["read", "write", "execute"] as const) {
     for (const effect of ["read", "write", "execute", "unknown"] as const) {
       const f = fixture();
@@ -187,7 +187,7 @@ test("generic tools enforce registry effects, including unknown only via execute
   }
 });
 
-test("actual runtime effect prevents TryLock and raw query from slipping through read tools", async () => {
+test("фактический эффект в runtime не пропускает TryLock и сырой запрос через инструменты чтения", async () => {
   let requests = 0;
   const config: ConnectionConfig = {
     name: "synthetic",
@@ -265,7 +265,7 @@ test("actual runtime effect prevents TryLock and raw query from slipping through
   }
 });
 
-test("without permissions rawRequest reads by GET, POST and getNewObjectId are refused unsent", async () => {
+test("без прав чтение через rawRequest по GET, POST и getNewObjectId отклоняется без отправки", async () => {
   let requests = 0;
   const fetch = async () => (requests++, new Response("page"));
   const permissions = { write: false, execute: false };
@@ -428,13 +428,13 @@ const toolCases: { name: string; args: Record<string, unknown>; id: string }[] =
   },
 ];
 for (const entry of toolCases)
-  test(`${entry.name} forwards exact high-level args to the shared runtime`, async () => {
+  test(`${entry.name} передаёт общему runtime точные аргументы высокого уровня`, async () => {
     const f = fixture();
     assert.equal(structured(await f.tools.invoke(entry.name, entry.args)).ok, true);
     assert.deepEqual(f.calls, [{ id: entry.id, args: entry.args }]);
   });
 
-test("hcm_script reads the code from a local file and passes params on", async () => {
+test("hcm_script читает код из локального файла и передаёт params дальше", async () => {
   const f = fixture();
   const params = { ids: ["0x1"] };
   const file = fileURLToPath(new URL("../examples/script-params.js", import.meta.url));
@@ -447,7 +447,7 @@ test("hcm_script reads the code from a local file and passes params on", async (
   assert.equal(f.calls.length, 1);
 });
 
-test("all malformed inputs reject before runtime with actionable paths and no values", async () => {
+test("все неверные вводы отклоняются до runtime, с путями, по которым можно исправить, и без значений", async () => {
   const cases: [string, unknown][] = [
     ["hcm_api_list", { cursor: -1 }],
     ["hcm_api_list", { limit: 101 }],
@@ -497,7 +497,7 @@ test("all malformed inputs reject before runtime with actionable paths and no va
     assert.equal(f.calls.length, 0);
     assert.doesNotMatch(JSON.stringify(result), /synthetic-private-value/);
   }
-  // An empty string is named as such, without the line about IDs.
+  // Пустая строка названа так прямо, без строки про ID.
   const empty = structured(await fixture().tools.invoke("hcm_schema", { type: "x", search: "" }));
   assert.deepEqual(empty.error?.details, {
     validation: [
@@ -510,7 +510,7 @@ test("all malformed inputs reject before runtime with actionable paths and no va
     ],
   });
   assert.equal(empty.error?.hint, "Причины — в details.validation.");
-  // A bound is named in the message itself.
+  // Граница названа в самом сообщении.
   const big = structured(await fixture().tools.invoke("hcm_api_list", { limit: 1000 }));
   assert.deepEqual(
     [big.error?.message, big.error?.hint],
@@ -521,7 +521,7 @@ test("all malformed inputs reject before runtime with actionable paths and no va
   );
 });
 
-test("unknown tools/operations and unexpected exceptions stay structured and safe", async () => {
+test("неизвестные инструменты и операции и неожиданные исключения остаются структурированными и безопасными", async () => {
   const f = fixture();
   assert.equal(structured(await f.tools.invoke("missing", {})).error?.code, "mcp.unknown_tool");
   assert.equal(
@@ -536,7 +536,7 @@ test("unknown tools/operations and unexpected exceptions stay structured and saf
   assert.doesNotMatch(JSON.stringify(result), /synthetic-private-error/);
 });
 
-test("indeterminate outcome survives structured/text compatibility output unchanged", async () => {
+test("исход indeterminate доходит без изменений через структурированный и текстовый вывод", async () => {
   const f = fixture();
   f.runtime.call = async (id) => ({
     ok: false,
@@ -555,7 +555,7 @@ test("indeterminate outcome survives structured/text compatibility output unchan
   assert.equal(result.error?.retryable, false);
 });
 
-test("native MCP SDK handshake/list/call returns one JSON text block", async () => {
+test("штатный MCP SDK: handshake, список и вызов возвращают один текстовый блок JSON", async () => {
   const f = fixture();
   const server = createHcmMcpServer(f.runtime, { connectionName: "synthetic", version: "0.1.0" });
   const client = new Client({ name: "synthetic-tests", version: "1.0.0" });
@@ -580,7 +580,7 @@ test("native MCP SDK handshake/list/call returns one JSON text block", async () 
   assert.equal(f.closed(), 0, "server does not close its borrowed runtime; CLI owns it");
 });
 
-test("real-runtime MCP discovery is compact while describe exposes the independent native input contract", async () => {
+test("обзор MCP на настоящем runtime компактен, а describe показывает независимый контракт ввода native", async () => {
   let networkCalls = 0;
   const config: ConnectionConfig = {
     name: "synthetic",

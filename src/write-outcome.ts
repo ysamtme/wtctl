@@ -3,37 +3,37 @@ import { HcmError } from "./errors.js";
 import { loginFailed } from "./native/gateway.js";
 import { WsHcmApiError } from "./protocol/error.js";
 
-/** IDs by which a write is found after a failure. */
+/** ID, по которым запись находится после сбоя. */
 export interface WriteIds {
   mutationId?: string;
   objectId?: string;
   url?: string;
   executionId?: string;
 }
-/** The server turned this very request away at the door: HTTP 401, or no session could be opened for it. */
+/** Сервер отклонил именно этот запрос на входе: HTTP 401 или для него не удалось открыть сессию. */
 export function refusedAtDoor(error: unknown): boolean {
   return (error instanceof WsHcmApiError && error.status === 401) || loginFailed(error);
 }
 
 export interface Verdict {
-  /** A request that may have changed the server was sent and not withdrawn. */
+  /** Запрос, способный изменить сервер, отправлен и не отозван. */
   sent: boolean;
-  /** Only when an error is given. */
+  /** Только когда дана ошибка. */
   mutationOutcome?: MutationOutcome;
-  /** Indeterminate, and the error is a refusal at the door: an earlier request went through. */
+  /** Неопределён, а ошибка — отказ на входе: более ранний запрос прошёл. */
   refusedAfterSend?: true;
-  /** As the handlers noted them. */
+  /** Как их отметили обработчики. */
   ids: WriteIds;
-  /** mutationId, objectId, executionId that passed the format check. */
+  /** mutationId, objectId, executionId, прошедшие проверку формата. */
   exactIds: WriteIds;
 }
 
-/** The write outcome of one call: the marks, the IDs and the rule of the three outcomes. */
+/** Исход записи одного вызова: отметки, ID и правило трёх исходов. */
 export class WriteOutcome {
   private marks = 0;
   private readonly ids: WriteIds = {};
 
-  /** Before a request that may change the server; returns the withdrawal of this one mark. */
+  /** Перед запросом, способным изменить сервер; возвращает снятие этой отметки. */
   sending(): () => void {
     this.marks++;
     let withdrawn = false;
@@ -48,10 +48,14 @@ export class WriteOutcome {
       if (value !== undefined) this.ids[key as keyof WriteIds] = value;
   }
 
-  /** The first line that fits: no error, a read, a refusal at the door, a mark not withdrawn, otherwise not sent. */
+  /**
+   * Первая подходящая строка: нет ошибки, чтение, отказ на входе, неснятая отметка,
+   * иначе not_sent.
+   */
   verdict(effect: OperationEffect, error?: unknown): Verdict {
     const { mutationId, objectId, executionId } = this.ids;
-    // Generated correlation IDs and bounded numeric object IDs are receipts, not server diagnostics.
+    // Сгенерированные ID корреляции и ограниченные по длине числовые ID объектов — сводка,
+    // а не диагностика сервера.
     const exactIds: WriteIds = {
       ...(mutationId !== undefined &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId)
@@ -69,8 +73,8 @@ export class WriteOutcome {
     const sent = effect !== "read" && this.marks > 0;
     const verdict: Verdict = { sent, ids: { ...this.ids }, exactIds };
     if (error === undefined) return verdict;
-    // A refusal at the door is withdrawn with the mark of its own request (HcmServer); a mark still
-    // standing is an earlier request that went through. rpc.call has one request, its handler refuses.
+    // Отказ на входе снимается вместе с отметкой своего запроса (HcmServer); оставшаяся отметка —
+    // более ранний запрос, который прошёл. У rpc.call один запрос, его обработчик отказывает.
     const turnedAway =
       error instanceof HcmError &&
       (error.code === "RPC_SERVER_ONLY" || error.code === "UNKNOWN_RPC_TARGET");

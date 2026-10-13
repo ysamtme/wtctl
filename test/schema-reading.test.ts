@@ -1,5 +1,5 @@
-// What agents on mock tasks asked of the schema: a field by a Russian word, the rows of a catalog
-// by its name, a whole structure in one call, the number of catalogs.
+// Что агенты на подставных задачах спрашивали у схемы: поле по русскому слову, строки каталога
+// по его названию, всю структуру одним вызовом, число каталогов.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { HcmMcpTools } from "../src/mcp/server.js";
@@ -71,7 +71,7 @@ test("search finds a title by its words: in another case form, with е for ё, i
   for (const search of ["подразделение", "подразделения"])
     assert.deepEqual(await paths({ search }), ["position_parent_name"], search);
   assert.deepEqual(await paths({ search: "Должность  название" }), ["position_name"]);
-  // A word of four letters is compared as it is typed.
+  // Слово из четырёх букв сравнивается как напечатано.
   assert.deepEqual(await paths({ search: "дата" }), ["hire_date"]);
   assert.deepEqual(await paths({ search: "даты" }), []);
   const types = async (search: string) =>
@@ -81,14 +81,14 @@ test("search finds a title by its words: in another case form, with е for ё, i
   assert.deepEqual(await types("группы"), ["group"]);
 });
 
-test("a search that finds nothing says where it looks and what to try", async () => {
+test("поиск, ничего не нашедший, говорит, где он искал и что попробовать", async () => {
   const fields = await reader.get({ type: "person", search: "почта" });
   assert.equal(fields.total, 0);
   assert.deepEqual(fields.notes, [
     "Ничего не найдено: search ищет слова в пути, заголовке поля и имени каталога, на который оно ссылается. Можно попробовать слово из заголовка на языке сервера, часть имени латиницей (hire, mail) или вызов без search.",
   ]);
   assert.deepEqual((await reader.get({ type: "person", search: "mail" })).notes, []);
-  // Several words must all be in one field, and the note says so; a field is found by its catalog.
+  // Несколько слов должны быть все в одном поле, и примечание об этом говорит; поле находится по своему каталогу.
   assert.match(
     (await reader.get({ type: "person", search: "должность почта" })).notes[0]!,
     /Все слова должны быть в одном поле: искать нужно по одному слову\./,
@@ -97,19 +97,19 @@ test("a search that finds nothing says where it looks and what to try", async ()
   const types = await reader.types({ search: "почта" });
   assert.match(types.notes![0]!, /search ищет слова в имени типа, имени каталога и заголовке/);
   assert.equal((await reader.types({ search: "person" })).notes, undefined);
-  // Catalogs whose rows are not objects are named next to the types found.
+  // Каталоги, строки которых не объекты, названы рядом с найденными типами.
   assert.deepEqual((await reader.types({ search: "group" })).notes, [
     "Каталоги без своего типа объекта: group_members. Поля строки показывает схема по имени каталога.",
   ]);
-  // A word of the title finds the type; the catalog named after the type comes with it.
+  // Слово из названия находит тип; каталог с именем этого типа приходит вместе с ним.
   assert.match((await reader.types({ search: "группа" })).notes?.[0] ?? "", /: group_members\./);
-  // A catalog whose rows are not objects has no type to list: the note names it.
+  // У каталога, строки которого не объекты, нет типа для списка: примечание называет его.
   assert.deepEqual((await reader.types({ search: "group_members" })).notes, [
     "Типа с таким именем нет; есть каталоги без своего типа объекта: group_members. Поля строки показывает схема по имени каталога.",
   ]);
 });
 
-test("a catalog without its own object type shows the fields of its row at once", async () => {
+test("каталог без собственного типа объектов сразу показывает поля своей строки", async () => {
   const rows = await reader.get({ type: "group_members" });
   assert.deepEqual(
     rows.fields.map((field) => field.path),
@@ -119,7 +119,7 @@ test("a catalog without its own object type shows the fields of its row at once"
     [rows.element?.path, rows.element?.multiple, rows.element?.key],
     ["group_member", true, "id"],
   );
-  // The fields of the row are what a search in this catalog goes by.
+  // Поиск в этом каталоге идёт по полям строки.
   assert.deepEqual(
     rows.fields.map((field) => field.query),
     [true, true, true],
@@ -127,19 +127,19 @@ test("a catalog without its own object type shows the fields of its row at once"
   assert.deepEqual(rows.notes, [
     "group_members — каталог без своего типа объекта: документов у его строк нет. Поля строки — под group_member; в условиях и fields поиска их пишут без этой приставки.",
   ]);
-  // A search goes over all fields as it does for a type.
+  // Поиск идёт по всем полям, как и для типа.
   assert.deepEqual(await paths({ type: "group_members", search: "сотрудник" }), [
     "group_member.person_fullname",
   ]);
 });
 
-test("deep lists nested fields of every depth in one paged listing, under a path as well", async () => {
+test("deep выводит вложенные поля любой глубины одним постраничным списком, в том числе под путём", async () => {
   assert.deepEqual(await paths({ path: "access" }), nested.slice(0, 2));
   assert.deepEqual(await paths(inside), nested);
-  // A search under a path looks at every depth, as it does without a path.
+  // Поиск под путём смотрит на любую глубину, как и без пути.
   assert.deepEqual(await paths({ path: "access", search: "role" }), nested.slice(1));
   assert.deepEqual((await paths({ deep: true })).slice(-5), ["access", ...nested]);
-  // A page the size cut short says so; the one cut by limit does not.
+  // Страница, обрезанная по размеру, об этом говорит; обрезанная по limit — нет.
   const wide = await reader.get({ type: "wide", deep: true, limit: 500 });
   assert.equal(wide.cutBySize, true);
   assert.ok(wide.fields.length < 500 && wide.nextCursor === wide.fields.length);
@@ -151,7 +151,7 @@ test("deep lists nested fields of every depth in one paged listing, under a path
   );
 });
 
-test("hcm_schema and the operation behind it take deep", async () => {
+test("hcm_schema и стоящая за ним операция принимают deep", async () => {
   const { runtime } = fakeRuntime(
     {
       "native.spxml2.getAppInfo": info,
@@ -170,7 +170,7 @@ test("hcm_schema and the operation behind it take deep", async () => {
   }
 });
 
-test("the list of types counts all catalogs of the server, also the ones without an object type", async () => {
+test("список типов учитывает все каталоги сервера, в том числе без типа объектов", async () => {
   const listed = await reader.types({ search: "group" });
   assert.deepEqual(listed.types, [
     { type: "group", catalog: "groups", title: "Группа", customFields: 0 },

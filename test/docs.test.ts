@@ -22,7 +22,7 @@ function actualToolNames(): Set<string> {
   return new Set(new HcmMcpTools(runtime).list().map((tool) => tool.name));
 }
 
-test("documented calls reject invented tools without treating receipt IDs or wildcard families as calls", () => {
+test("документированные вызовы отклоняют выдуманные инструменты, не принимая за вызовы ID сводок и семейства с подстановкой", () => {
   const markdown = [
     'Use `hcm_api_read({operationId:"rpc.list",args:{}})` and `hcm_rpc_list`.',
     "Families `hcm_*` and `hcm_logs_*`, receipt `hcm_inline_` and `hcm_inline_123abc` are identifiers.",
@@ -41,7 +41,7 @@ test("documented calls reject invented tools without treating receipt IDs or wil
   ]);
 });
 
-test("packaged routing skill and MCP guide name only tools actually advertised by the server", async () => {
+test("навык из пакета и гайд называют только инструменты, которые MCP-сервер действительно объявляет", async () => {
   const knownNames = actualToolNames();
   const skill = "../skills/wtctl/";
   const references = (await readdir(new URL(skill + "references/", import.meta.url)))

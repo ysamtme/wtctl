@@ -17,7 +17,7 @@ const typed = (lexical: string, type = "bool") => ({
 const prefix = "x-local://Share/";
 const inputUrl = prefix + "файл 😀 +% & =.txt";
 
-test("the stock predicate decodes direct bool0/1 without interpreting existence as access or regular-file status", () => {
+test("штатный предикат разбирает прямые bool0/1, не принимая существование за доступ или статус обычного файла", () => {
   for (const [lexical, exists] of [
     ["0", false],
     ["1", true],
@@ -33,7 +33,18 @@ test("the stock predicate decodes direct bool0/1 without interpreting existence 
   }
 });
 
-test("malformed, nested and inconsistent RPC booleans produce a fixed semantic error without raw data", () => {
+test("обёртка ответа допускает объявление пространства имён и отклоняет посторонний атрибут или текст", () => {
+  const good = typed("1");
+  const wrapped = (extra: Record<string, unknown>) => ({
+    ...good,
+    xml: { ResultData: { ...extra, Result: { "@_VALUE-TYPE": "bool", "#text": "1" } } },
+  });
+  assert.deepEqual(parseFileExists(wrapped({ "@_xmlns:x": "urn:x" })), { exists: true });
+  for (const extra of [{ "@_id": "1" }, { "#text": "текст" }, { "@_xmlns:x": 1 }])
+    assert.throws(() => parseFileExists(wrapped(extra)), { code: "FILE_EXISTS_RESPONSE" });
+});
+
+test("неверные, вложенные и противоречивые булевы значения RPC дают фиксированную смысловую ошибку без сырых данных", () => {
   const good = typed("1");
   const bad = [
     typed("true"),
@@ -72,7 +83,7 @@ test("malformed, nested and inconsistent RPC booleans produce a fixed semantic e
     );
 });
 
-test("URL preflight preserves path text and bounds UTF-16 length before any server use", () => {
+test("проверка URL до отправки сохраняет текст пути и ограничивает длину в UTF-16 до любого обращения к серверу", () => {
   for (const url of [
     inputUrl,
     "x-local://Logs",
@@ -185,7 +196,7 @@ async function fixture(
   };
 }
 
-test("SDK true and false use one exact fixed native RPC under read-only policy with owned session teardown", async () => {
+test("SDK true и false используют один точный фиксированный native RPC при правах только на чтение и закрывают свою сессию", async () => {
   for (const lexical of ["0", "1"]) {
     const f = await fixture({ lexical });
     try {
@@ -235,7 +246,7 @@ test("SDK true and false use one exact fixed native RPC under read-only policy w
   }
 });
 
-test("invalid fixed predicate input never bootstraps or accepts target/profile injection", async () => {
+test("неверный ввод фиксированного предиката не запускает bootstrap и не принимает подмену target или profile", async () => {
   const f = await fixture();
   try {
     for (const args of [
@@ -258,7 +269,7 @@ test("invalid fixed predicate input never bootstraps or accepts target/profile i
   assert.equal(f.calls.length, 0);
 });
 
-test("auth, permission, SOAP, protocol and transport failures remain upstream errors rather than false predicates", async () => {
+test("сбои авторизации, прав, SOAP, протокола и транспорта остаются ошибками сервера, а не ложными предикатами", async () => {
   const variants = [
     { code: "PLATFORM_AUTH", response: () => new Response("PRIVATE_SECRET", { status: 401 }) },
     {
@@ -305,7 +316,7 @@ test("auth, permission, SOAP, protocol and transport failures remain upstream er
   }
 });
 
-test("bootstrap auth and malformed session replies remain errors and never send the predicate RPC", async () => {
+test("ошибки bootstrap по авторизации и неверные ответы сессии остаются ошибками и не отправляют RPC предиката", async () => {
   for (const variant of [
     { code: "PLATFORM_AUTH", body: "PRIVATE_SECRET", status: 401 },
     { code: "PLATFORM_PROTOCOL", body: soap("OpenSession"), status: 200 },

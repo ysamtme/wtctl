@@ -60,7 +60,7 @@ export function refuse(status?: number): Answer {
   };
 }
 
-/** Рантайм на подставном сервере с обычным тестовым подключением; config дополняет его. */
+/** runtime на подставном сервере с обычным тестовым подключением; config дополняет его. */
 export function fakeRuntime(
   script: Script | FakeServer = {},
   config: Partial<ConnectionConfig> = {},

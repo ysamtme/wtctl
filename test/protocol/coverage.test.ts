@@ -67,7 +67,7 @@ async function cancel(response: WsHcmBinaryResponse): Promise<void> {
   await response.body?.cancel();
 }
 
-test("all 45 supported operation units construct a request through a public method", async () => {
+test("все 45 поддерживаемых единиц операций строят запрос через публичный метод", async () => {
   const pending: WireOperationId[] = [];
   const covered = new Set<WireOperationId>();
   const fetch: typeof globalThis.fetch = async (input, init = {}) => {

@@ -124,7 +124,7 @@ function fixture(mainHtml = html(tokenOne), maximumBytes = 4096) {
   };
 }
 
-test("single-file upload keeps exact bytes, uses current private token and source multipart contract", async () => {
+test("загрузка одного файла сохраняет точные байты, использует текущий закрытый токен и исходный контракт multipart", async () => {
   const f = fixture(html(tokenOne).replace("synthetic", "\\u0073ynthetic"));
   try {
     const session = await f.client.openWebSession();
@@ -167,7 +167,7 @@ test("single-file upload keeps exact bytes, uses current private token and sourc
   }
 });
 
-test("missing, malformed, ambiguous and code-like page tokens never cause fallback upload requests", async () => {
+test("отсутствующий, неверный, неоднозначный и похожий на код токен страницы никогда не вызывает запасных запросов загрузки", async () => {
   for (const source of [
     "<html>Legacy main without token</html>",
     html(tokenOne) + html(tokenTwo),
@@ -206,7 +206,7 @@ test("missing, malformed, ambiguous and code-like page tokens never cause fallba
   }
 });
 
-test("single-quoted CodeLiteral token and escaping are decoded without script execution", async () => {
+test("токен CodeLiteral в одинарных кавычках и экранирование декодируются без выполнения скрипта", async () => {
   const f = fixture("<script>gFaApp.webSessionToken = '\\x73ynthetic_upload_token_01';</script>");
   try {
     const session = await f.client.openWebSession();
@@ -221,7 +221,7 @@ test("single-quoted CodeLiteral token and escaping are decoded without script ex
   }
 });
 
-test("failed main status/body invalidates the former token before any upload", async () => {
+test("неудачный статус и тело основного ответа делают прежний токен недействительным до любой загрузки", async () => {
   for (const mode of ["status", "body"] as const) {
     const f = fixture();
     try {
@@ -246,7 +246,7 @@ test("failed main status/body invalidates the former token before any upload", a
   }
 });
 
-test("direct terminal logout invalidates the upload token before successful or failed requests", async () => {
+test("прямой завершающий выход делает токен загрузки недействительным до успешных и неудачных запросов", async () => {
   for (const leg of ["logout", "logout2"] as const)
     for (const failed of [false, true]) {
       const f = fixture();
@@ -273,7 +273,7 @@ test("direct terminal logout invalidates the upload token before successful or f
     }
 });
 
-test("filename, MIME and byte limits reject before mutation; UTF-8 limits count bytes", async () => {
+test("лимиты имени файла, MIME и байтов отклоняют запрос до записи; лимиты UTF-8 считаются в байтах", async () => {
   const f = fixture(html(tokenOne), 256);
   try {
     const session = await f.client.openWebSession();
@@ -323,7 +323,7 @@ test("filename, MIME and byte limits reject before mutation; UTF-8 limits count 
   }
 });
 
-test("bounded bootstrap failure closes the context and never reaches LDS or upload", async () => {
+test("ограниченный сбой bootstrap закрывает контекст и не доходит ни до LDS, ни до загрузки", async () => {
   const f = fixture("x".repeat(257), 256);
   try {
     await assert.rejects(f.client.openWebSession(), WsHcmApiError);
@@ -333,7 +333,7 @@ test("bounded bootstrap failure closes the context and never reaches LDS or uplo
   }
 });
 
-test("upload response errors stay safe, never repeat the mutation and retain a strict success oracle", async () => {
+test("ошибки ответа загрузки остаются безопасными, запись не повторяется, строгий критерий успеха сохраняется", async () => {
   for (const [body, status] of [
     [{ error: 1, error_text: tokenOne }, 200],
     [{ Url: "", secret: tokenOne }, 200],
@@ -364,7 +364,7 @@ test("upload response errors stay safe, never repeat the mutation and retain a s
   }
 });
 
-test("closed sessions and standalone adapters have no token fallback", async () => {
+test("у закрытых сессий и автономных адаптеров нет запасного токена", async () => {
   const f = fixture();
   try {
     const session = await f.client.openWebSession();
@@ -395,7 +395,7 @@ test("closed sessions and standalone adapters have no token fallback", async () 
   }
 });
 
-test("runtime preserves proven upload preflight not_sent and uncertain post-send outcomes without retry", async () => {
+test("runtime сохраняет доказанный not_sent при проверке до отправки и неопределённые исходы после отправки без повтора", async () => {
   for (const mode of ["token", "filename", "bytes", "response", "network"] as const) {
     const f = fixture(mode === "token" ? "<html>No current token</html>" : html(tokenOne), 1024);
     if (mode === "response") f.setUpload({ Url: "../synthetic.txt", error_text: tokenOne });
@@ -438,7 +438,7 @@ test("runtime preserves proven upload preflight not_sent and uncertain post-send
 });
 
 test(
-  "SDK and actual CLI upload send bounded multipart HTTP with exact binary bytes and normal lifecycle",
+  "загрузка через SDK и настоящий CLI отправляет ограниченный multipart HTTP с точными двоичными байтами и обычным жизненным циклом",
   { timeout: 30000 },
   async () => {
     const wire: string[] = [];

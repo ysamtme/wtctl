@@ -85,8 +85,8 @@ function compact(nodes: Node[], depth = 0): unknown {
           (Array.isArray(node["#cdata"]) ? compact(node["#cdata"] as Node[], depth + 1) : ""),
       )
       .join("");
-  // A field that carries a value and elements under it reads as the value: under a reference
-  // the server keeps `sd`, a copy of the referenced object's fields, which it fills itself.
+  // Поле со значением и вложенными элементами читается как значение: под ссылкой сервер
+  // хранит `sd` — копию полей объекта, на который она указывает, и заполняет её сам.
   const text = nodes
     .map((node) => String(node["#text"] ?? ""))
     .join("")
@@ -104,10 +104,10 @@ function compact(nodes: Node[], depth = 0): unknown {
   return result;
 }
 /**
- * The document as it goes to the server. A line break is written as a character reference, and
- * the server takes one that follows a value for a part of the value: a reference that keeps `sd`
- * under it then fails to be read and the field is dropped from the saved document. Indentation
- * around elements is not data, the server lays the document out again, so it is left out.
+ * Документ в том виде, в каком он уходит на сервер. Перевод строки записывается символьной
+ * ссылкой, а сервер принимает идущий за значением перевод за часть значения: ссылка, под
+ * которой лежит `sd`, после этого не читается, и поле выпадает из сохранённого документа.
+ * Отступы вокруг элементов — не данные, сервер раскладывает документ заново, поэтому их нет.
  */
 function withoutIndentation(nodes: Node[]): Node[] {
   const elements = nodes.some((node) => name(node) !== undefined);
@@ -180,13 +180,13 @@ function encodeValue(key: string, value: unknown, depth = 0): Node {
   return { [key]: nested };
 }
 
-/** A key in a path finds its element by the same text or by the same ID written the other way. */
+/** Ключ в пути находит свой элемент по тому же тексту или по тому же ID, записанному иначе. */
 const ID_TEXT = /^(?:0x[0-9a-f]{1,16}|[1-9]\d{0,19})$/i;
 function sameKey(stored: unknown, key: string): boolean {
   const text = String(stored);
   return text === key || (ID_TEXT.test(text) && ID_TEXT.test(key) && BigInt(text) === BigInt(key));
 }
-/** A change record shows scalar values; of a structure it names the fields and counts the lists. */
+/** Запись изменения показывает скалярные значения; у структуры называет поля и считает списки. */
 function brief(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return `[${value.length} items]`;
@@ -212,7 +212,14 @@ export interface DocumentSnapshot {
   readonly data: Record<string, unknown>;
   readonly formUrl?: string;
 }
-/** Preserve ordered unknown elements, attributes, comments and CDATA while editing selected paths. */
+/** Скалярные значения показаны как были и как записаны; структура названа, а не скопирована. */
+export interface PatchChange {
+  readonly op: "set" | "remove";
+  readonly path: string;
+  readonly before?: unknown;
+  readonly after?: unknown;
+}
+/** Сохраняет по порядку неизвестные элементы, атрибуты, комментарии и CDATA при правке путей. */
 export class XmlDocument {
   private constructor(private root: Node) {}
   static parse(source: string): XmlDocument {
@@ -269,7 +276,11 @@ export class XmlDocument {
       ...(typeof formUrl === "string" ? { formUrl } : {}),
     };
   }
-  patch(input: unknown): { before: DocumentSnapshot; after: DocumentSnapshot; changes: unknown[] } {
+  patch(input: unknown): {
+    before: DocumentSnapshot;
+    after: DocumentSnapshot;
+    changes: PatchChange[];
+  } {
     const before = this.snapshot();
     const workingRoot = structuredClone(this.root);
     const operations = Array.isArray(input)
@@ -281,7 +292,7 @@ export class XmlDocument {
         }));
     if (operations.length > 1000)
       throw new HcmError("PATCH_LIMIT", "В одном patch не больше 1000 изменений.");
-    const changes: unknown[] = [];
+    const changes: PatchChange[] = [];
     for (const raw of operations) {
       const operation = inputObject(raw, "элемент patch");
       const path = requiredString(operation.path, "path");
@@ -292,7 +303,7 @@ export class XmlDocument {
           .map((part) => part[0])
           .join(".");
       let createdKeyedElement = false;
-      // An element made on the way holds only its key: what is found in it was not there before.
+      // Элемент, созданный по пути, содержит только свой ключ: найденного в нём раньше не было.
       let created = false;
       if (operation.op !== "set" && operation.op !== "remove")
         throw new HcmError("INVALID_PATCH", "op: поддерживаются set и remove.");
@@ -368,7 +379,7 @@ export class XmlDocument {
           if (!Object.hasOwn(operation, "value"))
             throw new HcmError("INVALID_PATCH", "Для set нужно value.", undefined, { path });
           if (key !== undefined) inputObject(operation.value, "значение элемента с ключом");
-          // The element was made by this path with its key: the key field takes that same value.
+          // Элемент создан этим путём вместе с ключом: поле ключа получает то же значение.
           const made = segments[index - 1];
           if (created && made?.[3] === field && !sameKey(operation.value, made[4]!))
             throw new HcmError(
@@ -395,10 +406,10 @@ export class XmlDocument {
                 path,
               },
             );
-          // A date given back as it was read, without the offset the server writes, is the stored value.
+          // Дата, возвращённая как прочитана, без смещения, что пишет сервер, — хранимое значение.
           const stored = chosen ? compact(children(chosen.node)) : undefined;
           if (stored !== operation.value && withoutFalseOffset(stored) === operation.value) {
-            /* The stored text stays. */
+            /* Хранимый текст остаётся. */
           } else if (chosen) {
             if (chosen.node[":@"] !== undefined && replacement.length === 1)
               replacement[0]![":@"] = chosen.node[":@"];

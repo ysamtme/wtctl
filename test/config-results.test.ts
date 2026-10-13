@@ -16,7 +16,7 @@ const config = (runtimeDir: string, name = "dev"): ConnectionConfig => ({
   runtimeDir,
   permissions: { write: false, execute: false },
 });
-test("configuration accepts UTF-8 BOM and preserves Unicode profile values", async () => {
+test("конфигурация принимает UTF-8 BOM и сохраняет значения подключения в Unicode", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-config-utf8-"));
   try {
     const file = join(directory, "connections.json");
@@ -40,7 +40,7 @@ test("configuration accepts UTF-8 BOM and preserves Unicode profile values", asy
   }
 });
 
-test("keys of the removed legacy client in a connection file are ignored", async () => {
+test("ключи удалённого прежнего клиента в файле подключений игнорируются", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-config-leftover-"));
   try {
     const file = join(directory, "connections.json");
@@ -52,7 +52,7 @@ test("keys of the removed legacy client in a connection file are ignored", async
   }
 });
 
-test("configuration rejects malformed UTF-8 instead of replacing credential bytes", async () => {
+test("конфигурация отклоняет неверный UTF-8, а не подменяет байты учётных данных", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-config-invalid-utf8-"));
   try {
     const file = join(directory, "connections.json");
@@ -77,7 +77,7 @@ test("configuration rejects malformed UTF-8 instead of replacing credential byte
   }
 });
 
-test("configuration enforces its byte ceiling and rejects directories", async () => {
+test("конфигурация соблюдает предел в байтах и отклоняет папки", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-config-bound-"));
   try {
     const file = join(directory, "connections.json");
@@ -94,7 +94,7 @@ test("configuration enforces its byte ceiling and rejects directories", async ()
   }
 });
 
-test("named profiles isolate origin, credentials and write policy from global environment overrides", async () => {
+test("именованные подключения изолируют origin, учётные данные и право на запись от глобальных переопределений через переменные окружения", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-config-"));
   const file = join(directory, "profiles.json");
   const keys = [
@@ -136,7 +136,7 @@ test("named profiles isolate origin, credentials and write policy from global en
     await rm(directory, { recursive: true, force: true });
   }
 });
-test("opaque result scope prevents cross-connection access and rejects traversal; emoji pages always progress", async () => {
+test("непрозрачная область результатов не пускает к чужому подключению и отклоняет выход за пределы пути; страницы с эмодзи всегда продвигаются", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-results-"));
   try {
     const store = new ResultStore(config(directory));
@@ -157,7 +157,7 @@ test("opaque result scope prevents cross-connection access and rejects traversal
   }
 });
 
-test("oversized array rows remain recoverable as bounded JSON pages without skipping or corrupting Unicode", async () => {
+test("слишком большие строки массивов читаются ограниченными страницами JSON без пропусков и порчи Unicode", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-results-"));
   try {
     const settings = { ...config(directory), outputLimitBytes: 1024 };

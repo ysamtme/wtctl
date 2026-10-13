@@ -1,5 +1,5 @@
-// Generates src/guide-texts.ts from the skill, so that the server and the command hand out the same
-// texts to an agent that has no skill installed. With --check it only compares.
+// Генерирует src/guide-texts.ts из навыка, чтобы MCP-сервер и команда выдавали один и тот же
+// текст агенту без установленного навыка. С --check только сравнивает.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -10,16 +10,16 @@ const target = join(root, "src/guide-texts.ts");
 const read = (path) => readFileSync(join(skill, path), "utf8").replaceAll("\r\n", "\n");
 function replaceOnce(text, from, to) {
   if (text.split(from).length !== 2)
-    throw new Error(`Expected exactly one occurrence in SKILL.md: ${from}`);
+    throw new Error(`В SKILL.md должно быть ровно одно вхождение: ${from}`);
   return text.replace(from, to);
 }
 
 const source = read("SKILL.md");
 const end = source.indexOf("\n---\n", 4);
-if (!source.startsWith("---\n") || end < 0) throw new Error("SKILL.md has no front matter.");
+if (!source.startsWith("---\n") || end < 0) throw new Error("В SKILL.md нет front matter.");
 let start = source.slice(end + 5).trim();
 
-// The table of references in SKILL.md gives the topics, their order and their titles.
+// Таблица ссылок в SKILL.md задаёт темы, их порядок и заголовки.
 const topics = [
   ...start.matchAll(/^\| (.+?) \| \[references\/([\w-]+)\.md\]\(references\/\2\.md\) \|$/gm),
 ].map(([, title, topic]) => ({ topic, title }));
@@ -28,8 +28,9 @@ const files = readdirSync(join(skill, "references"))
   .map((name) => name.slice(0, -3));
 for (const name of files)
   if (!topics.some((item) => item.topic === name))
-    throw new Error(`references/${name}.md is missing from the table in SKILL.md.`);
-if (topics.length !== files.length) throw new Error("The table in SKILL.md names a missing file.");
+    throw new Error(`references/${name}.md нет в таблице SKILL.md.`);
+if (topics.length !== files.length)
+  throw new Error("Таблица в SKILL.md называет файл, которого нет.");
 
 start = replaceOnce(
   start,
@@ -77,10 +78,10 @@ if (process.argv.includes("--check")) {
     current = readFileSync(target, "utf8").replaceAll("\r\n", "\n");
   } catch {}
   if (current !== generated) {
-    console.error("src/guide-texts.ts does not match the skill: run npm run generate.");
+    console.error("src/guide-texts.ts не совпадает с навыком: выполнить npm run generate.");
     process.exit(1);
   }
-  console.log(`Guide texts match the skill: ${pages.length} topics.`);
+  console.log(`Тексты гайда совпадают с навыком: тем — ${pages.length}.`);
 } else {
   writeFileSync(target, generated);
   console.log(

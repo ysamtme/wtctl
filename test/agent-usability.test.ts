@@ -1,5 +1,5 @@
-// What an agent sees: the size of the first contact, discovery without search, and errors
-// that say what to fix.
+// Что видит агент: объём первого контакта, обзор без поиска и ошибки,
+// которые говорят, что исправить.
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,8 +17,9 @@ import { parseArguments } from "../src/cli/arguments.js";
 import { cliHelp, cliHelpText } from "../src/cli/help.js";
 import { commandInvocation, serializeResult } from "../src/cli/run.js";
 import { HcmMcpTools } from "../src/mcp/server.js";
+import { guide, guideTopics } from "../src/guide.js";
 import { SchemaReader } from "../src/schema.js";
-import { rpcValue } from "../src/scripts.js";
+import { rpcValue } from "../src/server-value.js";
 import { catalogQuery, queryPage } from "../src/query.js";
 import { fileContent } from "../src/files.js";
 import { logMatches, logNews } from "../src/log-output.js";
@@ -28,7 +29,7 @@ import type { OperationMap } from "../src/operation-map.js";
 import { fakeRuntime, refuse } from "./fake-server.js";
 import { mcpJson } from "./mcp-json.js";
 
-test("the overview by task covers every operation once and stays small", () => {
+test("обзор по задачам покрывает каждую операцию один раз и остаётся небольшим", () => {
   const map = operationMap();
   const known = new Set(operations.map((operation) => operation.id));
   const listed = map.topics.flatMap((topic) => topic.operations ?? []);
@@ -53,7 +54,7 @@ test("the overview by task covers every operation once and stays small", () => {
   assert.ok(JSON.stringify(map).length < 3000, `overview is ${JSON.stringify(map).length} chars`);
 });
 
-test("discovery needs no search: no selection gives the overview, a topic gives short cards", () => {
+test("обзор не требует поиска: без выбора выдаётся обзор, по теме — короткие карточки", () => {
   const overview = discoverOperations(listHcmOperations, {}) as OperationMap;
   assert.ok(overview.topics.length >= 5);
   assert.ok("topics" in discoverOperations(listHcmOperations, { limit: 100 }));
@@ -68,7 +69,7 @@ test("discovery needs no search: no selection gives the overview, a topic gives 
     assert.ok(card.description.length <= 200);
     assert.match(card.description, /[а-яё]/i);
   }
-  // Task wording in Russian finds operations whose identifiers are English.
+  // Формулировка задачи по-русски находит операции, чьи идентификаторы английские.
   for (const [query, expected] of [
     ["файл", "files.read"],
     ["фонов", "web.spxml.getAsyncMethodStatus"],
@@ -83,7 +84,7 @@ test("discovery needs no search: no selection gives the overview, a topic gives 
   assert.throws(() => listHcmOperations({ topic: "missing" }), { code: "UNKNOWN_TOPIC" });
 });
 
-test("CLI help opens with a short command list; details are per command", () => {
+test("справка CLI начинается с короткого списка команд; подробности — по каждой команде", () => {
   const top = cliHelp();
   const commands = Object.keys(top.commands as Record<string, string>);
   assert.ok(serializeResult(top).length < 3200, `top help is ${serializeResult(top).length} chars`);
@@ -92,7 +93,7 @@ test("CLI help opens with a short command list; details are per command", () => 
     assert.equal(help.error, undefined, command);
     assert.ok(help.usage.length > 0, command);
     assert.ok(serializeResult(help).length < 1500, command);
-    // The text a person reads has every usage line and every note on a line of its own.
+    // Текст для человека: каждая строка использования и каждая заметка — на отдельной строке.
     const lines = cliHelpText(command).split("\n");
     for (const line of [...help.usage.map((usage) => `  ${usage}`), ...(help.notes ?? [])])
       assert.ok(lines.includes(line), `${command}: ${line}`);
@@ -100,7 +101,7 @@ test("CLI help opens with a short command list; details are per command", () => 
   assert.equal(typeof (cliHelp("missing") as { error: string }).error, "string");
 });
 
-test("CLI output is one compact line unless a person reads it at a terminal", () => {
+test("вывод CLI — одна компактная строка, если только человек не читает его в терминале", () => {
   const value = { ok: true, data: { items: [{ id: "0x1" }] } };
   assert.equal(serializeResult(value), `${JSON.stringify(value)}\n`);
   assert.equal(serializeResult(value, true), `${JSON.stringify(value, null, 2)}\n`);
@@ -123,7 +124,7 @@ function tools() {
   return { calls, tools: new HcmMcpTools(runtime, { connectionName: "t" }) };
 }
 
-test("a patch takes plain {path: value} and a list of paths to remove, whichever way it is called", async () => {
+test("правка принимает простой {path: value} и список путей на удаление, как бы её ни вызвали", async () => {
   const f = tools();
   await f.tools.invoke("hcm_object_patch", { id: "1", patch: { name: "N" }, remove: ["comment"] });
   await f.tools.invoke("hcm_object_patch", { id: "1", remove: ["a.b[0]"], preview: true });
@@ -131,7 +132,7 @@ test("a patch takes plain {path: value} and a list of paths to remove, whichever
     { id: "objects.patch", args: { id: "1", patch: { name: "N" }, remove: ["comment"] } },
     { id: "objects.patch", args: { id: "1", remove: ["a.b[0]"], preview: true } },
   ]);
-  // The operation itself takes remove, so a program and a step of several operations can pass it too.
+  // Сама операция принимает remove, поэтому его могут передать и программа, и шаг из нескольких операций.
   const { runtime } = fakeRuntime(
     {
       "native.lds.loadDoc": {
@@ -164,7 +165,7 @@ test("a patch takes plain {path: value} and a list of paths to remove, whichever
   }
 });
 
-test("a rejected tool call says which rule or limit was broken", async () => {
+test("отклонённый вызов инструмента говорит, какое правило или ограничение нарушено", async () => {
   const f = tools();
   const validation = async (name: string, args: unknown) =>
     (mcpJson(await f.tools.invoke(name, args)).error?.details as { validation: unknown[] })
@@ -187,12 +188,12 @@ test("a rejected tool call says which rule or limit was broken", async () => {
     { path: "limit", code: "too_big", maximum: 1000 },
   ]);
   assert.equal(f.calls.length, 0);
-  // A list of IDs stands for id: the call goes through with the list as it was given.
+  // Список ID заменяет id: вызов проходит со списком в том виде, как он передан.
   await f.tools.invoke("hcm_object_get", { ids: ["1", "2"], fields: ["name"] });
   assert.deepEqual(f.calls, [{ id: "objects.get", args: { ids: ["1", "2"], fields: ["name"] } }]);
 });
 
-test("a library function call returns its value as plain JSON", () => {
+test("вызов функции библиотеки возвращает значение простым JSON", () => {
   const typed = (result: unknown) => ({ valueType: "x", xml: { ResultData: { Result: result } } });
   assert.deepEqual(rpcValue(typed({ "#text": "2025.2", "@_VALUE-TYPE": "string" })), {
     value: "2025.2",
@@ -207,7 +208,7 @@ test("a library function call returns its value as plain JSON", () => {
     ),
     { value: { count: "3", names: ["a"] } },
   );
-  // A document or form element has no plain form: the parsed response is returned as it is.
+  // У документа или элемента формы нет простого вида: возвращается разобранный ответ как есть.
   const document = typed({ "@_VALUE-TYPE": "XmDoc", root: { name: "x" } });
   assert.equal(rpcValue(document), document);
 });
@@ -247,7 +248,7 @@ function reader() {
   );
 }
 
-test("schema shows fields that exist only in the catalog row, so a search can use them", async () => {
+test("schema показывает поля, которые есть только в строке каталога, чтобы поиск мог их использовать", async () => {
   const schema = await reader().get({ type: "person" });
   assert.deepEqual(
     schema.fields.map((field) => [field.path, field.origin, field.query ?? false]),
@@ -265,7 +266,7 @@ test("schema shows fields that exist only in the catalog row, so a search can us
   );
 });
 
-test("a refused catalog query is explained by the catalog or the field that does not exist", async () => {
+test("отказ в запросе по каталогу объясняется каталогом или полем, которого нет", async () => {
   const catalog = await reader().explainQuery("person", []);
   assert.equal(catalog?.code, "UNKNOWN_CATALOG");
   assert.match(catalog!.hint!, /^Похожие: people, person_groups\./);
@@ -274,18 +275,18 @@ test("a refused catalog query is explained by the catalog or the field that does
   assert.deepEqual(field?.details, { fields: ["note", "missing"] });
   assert.equal(await reader().explainQuery("people", ["lastname", "role_id"]), undefined);
   assert.equal(await reader().explainQuery("people", []), undefined);
-  // Without a catalog form the names cannot be judged; the server's refusal stands.
+  // Без формы каталога имена оценить нельзя; остаётся отказ сервера.
   assert.equal(await reader().explainQuery("person_groups", ["anything"]), undefined);
 });
 
-test("an unknown type is named as such instead of a bare server failure", async () => {
+test("неизвестный тип так и назван, а не выдан голым отказом сервера", async () => {
   await assert.rejects(reader().get({ type: "persons" }), (error: unknown) => {
     assert.ok(error instanceof HcmError);
     assert.equal(error.code, "UNKNOWN_TYPE");
     assert.match(error.hint!, /Похожие: person/);
     return true;
   });
-  // A catalog name has a form of its own; the answer says which type was meant.
+  // У имени каталога своя форма; ответ говорит, какой тип имелся в виду.
   assert.ok(
     (await reader().get({ type: "people" })).notes.includes(
       'people — имя каталога; поля его объектов показывает тип person, поля строки каталога — path:"person".',
@@ -293,7 +294,7 @@ test("an unknown type is named as such instead of a bare server failure", async 
   );
 });
 
-test("the runtime explains a refused search and points a bare HTTP 500 to the server log", async () => {
+test("runtime объясняет отказ в поиске, а при голом HTTP 500 отсылает к логу сервера", async () => {
   const { runtime } = fakeRuntime(
     {
       "native.spxml2.getAppInfo": {
@@ -308,7 +309,7 @@ test("the runtime explains a refused search and points a bare HTTP 500 to the se
     const unknown = await runtime.call("runtime.query", { catalog: "persons" });
     assert.equal(unknown.error?.code, "UNKNOWN_CATALOG");
     assert.match(unknown.error!.hint!, /Похожие: people/);
-    // A query text that names a real catalog: the cause is not in the names.
+    // Текст запроса называет настоящий каталог: причина не в именах.
     const raw = await runtime.call("runtime.query", {
       query: "for $e in people where no_such($e/id) return $e",
     });
@@ -321,7 +322,7 @@ test("the runtime explains a refused search and points a bare HTTP 500 to the se
   }
 });
 
-test("an ID passed as a 0x string is compared as a number, so a search by ID finds the object", () => {
+test("ID, переданный строкой 0x, сравнивается как число, поэтому поиск по ID находит объект", () => {
   assert.equal(
     catalogQuery("collaborators", { id: "0x5555555555555501" }),
     "for $elem in collaborators where ($elem/id = 6148914691236517121) return $elem",
@@ -332,7 +333,7 @@ test("an ID passed as a 0x string is compared as a number, so a search by ID fin
   );
 });
 
-test("an empty field is asked in the form that every database answers the same way", () => {
+test("пустое поле запрашивается в виде, на который все базы данных отвечают одинаково", () => {
   assert.equal(
     catalogQuery("resources", {
       code: "",
@@ -349,7 +350,7 @@ test("an empty field is asked in the form that every database answers the same w
   );
 });
 
-test("a date reaches a date field as date('…'): a quoted date finds nothing on PostgreSQL", () => {
+test("дата попадает в поле даты как date('…'): дата в кавычках на PostgreSQL ничего не находит", () => {
   const dates = new Set(["hire_date", "birth_date"]);
   assert.equal(
     catalogQuery(
@@ -364,7 +365,7 @@ test("a date reaches a date field as date('…'): a quoted date finds nothing on
     "for $elem in collaborators where ($elem/hire_date >= date('2024-01-01')) and ($elem/hire_date < date('2024-02-01T10:30:00'))" +
       " and (($elem/birth_date = date('1990-05-01') or ($elem/birth_date = '' or IsEmpty($elem/birth_date) = true()))) and ($elem/code = '2024-01-01') return $elem",
   );
-  // Without the form nothing is known about the field, and a value that is not a date stays a string.
+  // Без формы о поле ничего не известно, а значение, не являющееся датой, остаётся строкой.
   assert.equal(
     catalogQuery("collaborators", { hire_date: "2024-01-01" }),
     "for $elem in collaborators where ($elem/hire_date = '2024-01-01') return $elem",
@@ -375,7 +376,7 @@ test("a date reaches a date field as date('…'): a quoted date finds nothing on
   );
 });
 
-test("a raw query that finds nothing is an empty page, not an error", () => {
+test("сырой запрос, который ничего не нашёл, — пустая страница, а не ошибка", () => {
   const blank = "\n\t\t\t";
   for (const response of [
     { Data: blank, TotalCount: "0", EOF: "true" },
@@ -383,7 +384,7 @@ test("a raw query that finds nothing is an empty page, not an error", () => {
     { Data: { "#text": blank }, TotalCount: "0" },
   ])
     assert.deepEqual(queryPage(response, 0, 20, undefined, true).items, []);
-  // Whitespace with a positive count is one or more separate values, which a row page cannot hold.
+  // Пробелы с положительным числом — это одно или несколько отдельных значений, которых страница строк вместить не может.
   assert.throws(
     () => queryPage({ Data: blank, TotalCount: "1", EOF: "true" }, 0, 20, undefined, true),
     {
@@ -395,7 +396,7 @@ test("a raw query that finds nothing is an empty page, not an error", () => {
   });
 });
 
-test("a server file is returned as text when it is UTF-8 and as base64 otherwise", () => {
+test("файл сервера возвращается текстом, если это UTF-8, и как base64 в остальных случаях", () => {
   const lines = (bytes: Buffer) =>
     `\n${bytes.toString("base64").replace(/(.{20})/g, "$1\n")}\n\t\t`;
   const text = Buffer.from("﻿<a>Привет</a>", "utf8");
@@ -409,7 +410,7 @@ test("a server file is returned as text when it is UTF-8 and as base64 otherwise
     base64: binary.toString("base64"),
     bytes: 4,
   });
-  // Ten bytes 00…09 are valid UTF-8 and still not a text; a text is given as bytes on request.
+  // Десять байтов 00…09 — корректный UTF-8, но не текст; текст выдаётся байтами по запросу.
   const low = Buffer.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.deepEqual(fileContent({ Data: lines(low) }), { base64: "AAECAwQFBgcICQ==", bytes: 10 });
   assert.deepEqual(fileContent({ Data: lines(Buffer.from("a\tb\r\nc")) }), {
@@ -424,7 +425,7 @@ test("a server file is returned as text when it is UTF-8 and as base64 otherwise
   assert.throws(() => fileContent({ Data: { nested: "x" } }), { code: "FILE_READ_RESPONSE" });
 });
 
-test("log replies stay within one page, so the cursor and the next offset are never hidden", () => {
+test("ответы лога умещаются в одну страницу, поэтому курсор и следующее смещение никогда не скрываются", () => {
   const file = {
     name: "a.log",
     url: "x-local://Logs/a.log",
@@ -448,21 +449,21 @@ test("log replies stay within one page, so the cursor and the next offset are ne
     gapPossible: false,
     windowTruncated: false,
   };
-  // The first call only takes a position: the last ten events, nothing reported as left out.
+  // Первый вызов только берёт позицию: последние десять событий, о пропущенных не сообщается.
   const first = logNews(follow as never, true, 100_000);
   assert.deepEqual(
     first.events.map((item) => item.sequence),
     events.slice(-10).map((item) => item.sequence),
   );
   assert.equal(first.omitted, undefined);
-  // Later calls return what is new; when it does not fit, the newest are kept and the rest counted.
+  // Следующие вызовы возвращают новое; если оно не умещается, остаются самые новые, а остальные считаются.
   const later = logNews(follow as never, false, 1000);
   assert.ok(later.events.length < 40 && later.events.length > 0);
   assert.equal(later.events.at(-1)?.sequence, 39);
   assert.equal(later.omitted, 40 - later.events.length);
   assert.equal(later.cursor, "c");
   assert.equal(logNews(follow as never, false, 100_000).omitted, undefined);
-  // A search page that does not fit ends earlier and its next offset moves back with it.
+  // Страница поиска, которая не умещается, заканчивается раньше, и следующее смещение сдвигается назад вместе с ней.
   const search = {
     file,
     events: events.slice(0, 20),
@@ -478,11 +479,11 @@ test("log replies stay within one page, so the cursor and the next offset are ne
   assert.equal(logMatches(search as never, 100_000).nextOffset, 30);
   const last = logMatches({ ...search, nextOffset: undefined } as never, 100_000);
   assert.equal(last.nextOffset, undefined);
-  // One event larger than the budget is still returned: an empty page would never advance.
+  // Одно событие больше бюджета всё равно возвращается: пустая страница никогда бы не продвинулась.
   assert.equal(logMatches(search as never, 10).events.length, 1);
 });
 
-test("the description of one operation says how to pass data and leaves registry bookkeeping out", () => {
+test("описание одной операции говорит, как передать данные, и не содержит служебных сведений реестра", () => {
   const upload = operationHelp(describeHcmOperation("web.pages.uploadFile"));
   assert.deepEqual(Object.keys(upload), [
     "id",
@@ -506,20 +507,29 @@ test("the description of one operation says how to pass data and leaves registry
   for (const operation of operations) {
     const help = operationHelp(operation);
     assert.doesNotMatch(JSON.stringify(help), /x-normalization/, operation.id);
-    // An operation of the overview is described for its caller: in Russian, without registry prose.
-    if (operationTopic(operation.id) !== "protocol")
-      for (const text of [help.description, help.details ?? "я"])
-        assert.match(text, /[а-яё]/i, operation.id);
   }
   assert.match(operationHelp(describeHcmOperation("native.lds.loadDoc")).details!, /files\.read/);
-  // A plain operation keeps its registry schema as it is.
+  // Обычная операция сохраняет схему реестра как есть.
   assert.deepEqual(
     operationHelp(describeHcmOperation("native.lds.deleteDoc")).inputSchema,
     describeHcmOperation("native.lds.deleteDoc").inputSchema,
   );
 });
 
-test("a raw server answer comes without XML indentation and namespace attributes", async () => {
+test("описания операций, инструментов MCP-сервера и тем гайда написаны по-русски", () => {
+  const texts = [
+    ...operations.map((item) => [item.id, item.description]),
+    ...operations.map((item) => [item.id, operationHelp(item).description]),
+    ...operations.map((item) => [item.id, operationHelp(item).details ?? "я"]),
+    ...tools()
+      .tools.list()
+      .map((tool) => [tool.name, tool.description]),
+    ...guideTopics().map((topic) => [topic, guide(topic).text]),
+  ];
+  for (const [name, text] of texts) assert.match(String(text), /[а-яё]/i, name);
+});
+
+test("сырой ответ сервера приходит без отступов XML и атрибутов пространств имён", async () => {
   const { runtime } = fakeRuntime(
     {
       "*": {
@@ -538,7 +548,7 @@ test("a raw server answer comes without XML indentation and namespace attributes
   }
 });
 
-test("an upload answers with the address of the file; a file read as base64 comes in one piece", async () => {
+test("загрузка отвечает адресом файла; файл, прочитанный как base64, приходит целиком", async () => {
   const { runtime } = fakeRuntime(
     { "web.pages.uploadFile": { Url: "123/report.txt" }, "*": { Data: "\nAAEC\nAwQF\n\t\t\t" } },
     {
@@ -563,7 +573,7 @@ test("an upload answers with the address of the file; a file read as base64 come
   }
 });
 
-test("search conditions can come from a file, so JSON quoting does not depend on the shell", async () => {
+test("условия поиска можно брать из файла, чтобы кавычки JSON не зависели от оболочки", async () => {
   const io = {
     readFile: async () => '{"is_dismiss":false}',
   } as unknown as CliIo;
@@ -579,7 +589,7 @@ test("search conditions can come from a file, so JSON quoting does not depend on
     ),
     /Условия заданы/,
   );
-  // Without --catalog a JSON object is the whole set of arguments; conditions alone are a mistake.
+  // Без --catalog объект JSON — весь набор аргументов; одни условия — ошибка.
   await assert.rejects(
     commandInvocation(parseArguments(["query", "--input-file", "where.json"]), io),
     /нет ни catalog, ни query/,

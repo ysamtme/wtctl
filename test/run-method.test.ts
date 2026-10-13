@@ -22,14 +22,14 @@ const args = { libName: "tools", methodName: "get_version", runAsync: false, arg
 const resultXml =
   '<ResultData><Result VALUE-TYPE="string">1171 &amp; exact 😀</Result></ResultData>';
 function soap(method: string, inner = "") {
-  // The stock service can reply with SOAP 1.2 to a SOAP 1.1 request.
+  // Штатный сервис может ответить SOAP 1.2 на запрос SOAP 1.1.
   return new Response(
     `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope/"><soap:Body><${method}Response>${inner}</${method}Response></soap:Body></soap:Envelope>`,
     { headers: { "content-type": "application/soap+xml" } },
   );
 }
 
-test("native and web LDS share ordered inline arguments and preserve untracked undefined acknowledgements", async () => {
+test("LDS в профилях native и web принимают одинаковые упорядоченные встроенные аргументы и сохраняют неотслеживаемые подтверждения undefined", async () => {
   for (const profile of ["native", "web"] as const) {
     let calls = 0;
     const transport = new HttpTransport({
@@ -178,7 +178,7 @@ async function cli(runtime: HcmRuntime, config: ConnectionConfig, input: unknown
   return JSON.parse(stdout) as OperationResult;
 }
 
-test("web LDS RunMethod preserves exact typed result and owned cleanup through SDK, CLI and MCP", async () => {
+test("RunMethod в web LDS сохраняет точный типизированный результат и собственную очистку через SDK, CLI и MCP", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-web-run-method-"));
   try {
     const operation = getNativeOperations().find((item) => item.id === "web.lds.runMethod")!;
@@ -223,7 +223,7 @@ test("web LDS RunMethod preserves exact typed result and owned cleanup through S
   }
 });
 
-test("web RunMethod rejects missing execute permission, malformed inline XML and caller session IDs before bootstrap", async () => {
+test("RunMethod в профиле web отклоняет отсутствие права execute, неверный встроенный XML и ID сессии от вызывающего до bootstrap", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-web-run-method-policy-"));
   try {
     for (const execute of [false, true]) {
@@ -261,7 +261,7 @@ test("web RunMethod rejects missing execute permission, malformed inline XML and
   }
 });
 
-test("a web RunMethod SOAP fault preserves the primary error and closes only its own context without retry", async () => {
+test("SOAP fault при RunMethod в web сохраняет основную ошибку и закрывает только собственный контекст без повтора", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-web-run-method-fault-"));
   const f = fixture(directory, true, true);
   const client = new HcmClient(f.config);

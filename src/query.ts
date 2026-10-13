@@ -15,19 +15,19 @@ export function identifier(value: unknown, field: string): string {
     );
   return text;
 }
-/** A date written the ISO way: 2024-01-31, optionally with a time. */
+/** Дата в формате ISO: 2024-01-31, при желании со временем. */
 export function looksLikeDate(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}(?:$|[T ]\d{2}:\d{2})/.test(value);
 }
-/** An ID written in decimal, the way the server itself returns a new one. */
+/** ID в десятичной записи, как сам сервер возвращает новый. */
 export function looksLikeDecimalId(value: unknown): value is string {
   return typeof value === "string" && /^[1-9]\d{0,18}$/.test(value);
 }
 function literal(value: unknown, date = false, integer = false): string {
-  // A quoted number never equals an integer field on PostgreSQL: the server rejects the query.
+  // Число в кавычках на PostgreSQL никогда не равно целому полю: сервер отклоняет запрос.
   if (integer && looksLikeDecimalId(value)) return value;
-  // A date field compared with a quoted string finds nothing on PostgreSQL and gives no error;
-  // date('…') is understood by every database the server works with.
+  // Поле даты, сравнённое со строкой в кавычках, на PostgreSQL ничего не находит без ошибки;
+  // date('…') понимает любая база, с которой работает сервер.
   if (date && looksLikeDate(value) && value.length <= 40 && !value.includes("'"))
     return `date('${value}')`;
   if (value === null) return "null()";
@@ -38,8 +38,8 @@ function literal(value: unknown, date = false, integer = false): string {
     (!Number.isInteger(value) || Number.isSafeInteger(value))
   )
     return decimalLiteral(value);
-  // An ID is passed as a string to keep its 64 bits, but a quoted 0x… never equals an integer
-  // field: the query would silently find nothing. The decimal form is what platform code writes.
+  // ID передаётся строкой, чтобы сохранить 64 бита, но 0x… в кавычках никогда не равно целому
+  // полю: запрос молча ничего не найдёт. Десятичная запись — то, что пишет код платформы.
   if (typeof value === "string" && /^0x[0-9a-fA-F]{1,16}$/.test(value)) {
     const id = BigInt(value);
     return id < 1n << 63n ? id.toString(10) : value;
@@ -52,7 +52,7 @@ function literal(value: unknown, date = false, integer = false): string {
     "ID передаётся строкой: число такой величины теряет последние цифры.",
   );
 }
-/** The platform's XQuery tokenizer accepts decimal literals, not JS exponent notation. */
+/** Токенизатор XQuery платформы принимает десятичные литералы, но не экспоненту JS. */
 function decimalLiteral(value: number): string {
   const source = String(value);
   const scientific = /^(-?)(\d+)(?:\.(\d+))?e([+-]?\d+)$/i.exec(source);
@@ -64,7 +64,7 @@ function decimalLiteral(value: number): string {
   if (point >= digits.length) return `${sign}${digits}${"0".repeat(point - digits.length)}`;
   return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
 }
-/** Closed query DSL: identifiers and values cannot inject a raw server expression. */
+/** Закрытый DSL запросов: идентификаторы и значения не могут внедрить сырое выражение сервера. */
 export function catalogQuery(
   catalog: unknown,
   where: unknown = {},
@@ -78,9 +78,10 @@ export function catalogQuery(
     const path = `$elem/${identifier(field, "поле условия")}`;
     const date = dates.has(field);
     const integer = integers.has(field);
-    // "The field is empty" needs both forms. A field of several values: on PostgreSQL only IsEmpty
-    // finds it; on MS SQL IsEmpty misses one that was filled and then emptied, and = '' finds it.
-    // "Not empty" has no such pair: != '' matches every row on MS SQL and none on PostgreSQL.
+    // «Поле пусто» требует обеих форм. Поле с несколькими значениями: на PostgreSQL его находит
+    // только IsEmpty; на MS SQL IsEmpty пропускает заполненное, а затем опустошённое, а = ''
+    // находит. У «не пусто» такой пары нет: != '' совпадает со всеми строками на MS SQL
+    // и ни с одной на PostgreSQL.
     const equals = (value: unknown): string =>
       value === "" || value === null
         ? `(${path} = '' or IsEmpty(${path}) = true())`
@@ -132,7 +133,7 @@ export function catalogQuery(
   );
   return `for $elem in ${name}${conditions.length ? ` where ${conditions.map((condition) => `(${condition})`).join(" and ")}` : ""}${sorted.length ? ` order by ${sorted.join(", ")}` : ""} return $elem`;
 }
-/** order of a catalog query: a field or a list of fields, each as "field" or "field desc". */
+/** order запроса к каталогу: поле или список полей, каждое как "field" или "field desc". */
 export function orderFields(order: unknown): { field: string; descending: boolean }[] {
   if (order === undefined) return [];
   const items = typeof order === "string" ? [order] : order;
@@ -155,8 +156,8 @@ export function orderFields(order: unknown): { field: string; descending: boolea
   });
 }
 /**
- * The server writes a date with +00:00 though the time is its own local time. The offset is
- * dropped: a program that trusts it moves the time by the server's distance from UTC.
+ * Сервер пишет дату с +00:00, хотя время — его местное. Смещение отбрасывается: программа,
+ * которая ему верит, сдвинет время на расстояние сервера от UTC.
  */
 export function withoutFalseOffset(value: unknown): unknown {
   if (typeof value === "string")
@@ -168,8 +169,8 @@ export function withoutFalseOffset(value: unknown): unknown {
   );
 }
 /**
- * The catalogs an XQuery text reads and the fields it names in each: `$v in CATALOG` and
- * `$v/field`. Enough to explain a refusal; the text is not parsed further.
+ * Каталоги, которые читает текст XQuery, и поля, которые он называет в каждом: `$v in CATALOG`
+ * и `$v/field`. Хватает, чтобы объяснить отказ; дальше текст не разбирается.
  */
 export function xqueryNames(query: string): [string, string[]][] {
   const names: [string, string[]][] = [];
@@ -212,7 +213,7 @@ function elementEntries(value: Record<string, unknown>): [string, unknown][] {
   );
 }
 
-/** The gateway already unwrapped XQueryResponse; row fields are never response metadata. */
+/** Шлюз уже развернул XQueryResponse; поля строк никогда не бывают метаданными ответа. */
 function responseChild(response: Record<string, unknown>, name: string): unknown {
   const matches = elementEntries(response).filter(([key]) => localName(key) === name);
   if (matches.length > 1 || (matches.length === 1 && Array.isArray(matches[0]![1])))
@@ -254,7 +255,7 @@ function hasMixedText(value: unknown): boolean {
   );
 }
 
-/** blankIsEmpty: whitespace in Data is formatting of an empty answer, not a value. */
+/** blankIsEmpty: пробелы в Data — форматирование пустого ответа, а не значение. */
 function objectRows(data: unknown, blankIsEmpty: boolean): Record<string, unknown>[] {
   if (typeof data === "string") {
     if (data === "" || (blankIsEmpty && data.trim() === "")) return [];
@@ -265,7 +266,7 @@ function objectRows(data: unknown, blankIsEmpty: boolean): Record<string, unknow
   if (node["#text"] !== undefined && responseScalar(node["#text"], "содержимое Data").trim() !== "")
     return representationError();
   const entries = elementEntries(node);
-  // The XML object parser groups equal tags. Multiple groups cannot retain document order.
+  // Парсер XML-объектов группирует равные теги; несколько групп не сохраняют порядок документа.
   if (entries.length > 1) return representationError();
   if (entries.length === 0) {
     if (!blankIsEmpty && node["#text"] !== undefined && node["#text"] !== "")
@@ -284,7 +285,7 @@ function objectRows(data: unknown, blankIsEmpty: boolean): Record<string, unknow
   });
 }
 
-/** Tag of the rows in an XQuery answer: the object type of the catalog they came from. */
+/** Тег строк в ответе XQuery: тип объекта каталога, из которого они пришли. */
 export function rowTag(response: unknown): string | undefined {
   const data = responseChild(inputObject(response, "ответ на запрос XQuery"), "Data");
   if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
@@ -292,7 +293,7 @@ export function rowTag(response: unknown): string | undefined {
   return entries.length === 1 ? localName(entries[0]![0]) : undefined;
 }
 
-/** Bounded object rows and a usable offset, never a promise of a stable server snapshot. */
+/** Ограниченные строки объектов и годное смещение, но не обещание стабильного снимка сервера. */
 export function queryPage(
   response: unknown,
   start: number,
@@ -319,10 +320,10 @@ export function queryPage(
       "PLATFORM_RESPONSE",
       "В ответе на запрос XQuery EOF — не 0, 1, false или true.",
     );
-  // The stock 1171 NULL-FALSE serializer omits false; no lookahead occurs after MaxCount rows.
+  // Штатный NULL-FALSE-сериализатор 1171 пропускает false; просмотра вперёд за MaxCount строк нет.
   const ended = serverEOF !== undefined && /^(?:1|true)$/.test(serverEOF.trim());
-  // A query that returns separate values writes them as text; whitespace could then be one empty
-  // value. The server's own count, or its end mark without a count, settles that there are none.
+  // Запрос, возвращающий отдельные значения, пишет их текстом; пробел тогда мог бы быть одним
+  // пустым значением. Что их нет, решает счётчик сервера или его признак конца без счётчика.
   const rows = objectRows(data, !rawQuery || count === 0n || (count === undefined && ended));
   const items = rows.slice(0, limit).map((row) => projectFields(row, fields));
   const next = start + items.length;
@@ -336,14 +337,14 @@ export function queryPage(
       "Число строк, которое назвал сервер, не сходится с полученной страницей, поэтому total не показан.",
     );
 
-  // A page states one of three things: more rows may follow (nextStartPosition), the rows have
-  // ended (neither field), or the end is not established and no offset advances (incomplete).
+  // Страница сообщает одно из трёх: могут идти ещё строки (nextStartPosition), строки кончились
+  // (нет ни того, ни другого поля) или конец не установлен и смещение не растёт (incomplete).
   let more = false;
   let incomplete = false;
   if (items.length === 0) {
-    // "No rows" is the server's count. A first page with an end mark and no count is how a server
-    // on an SQL database answers a query the database refused (MS SQL and PostgreSQL,
-    // 2025.1.1171–2025.2.1535); such a server names the count on every page, also past the end.
+    // «Нет строк» — счётчик сервера. Первая страница с признаком конца и без счётчика — так
+    // сервер на SQL-базе отвечает на запрос, который база отклонила (MS SQL и PostgreSQL,
+    // 2025.1.1171–2025.2.1535); такой сервер называет счётчик на каждой странице, и за концом тоже.
     const refused = ended && count === undefined && start === 0;
     incomplete =
       refused || !(ended || (count !== undefined && !inconsistentTotal && BigInt(start) >= count));
@@ -363,7 +364,7 @@ export function queryPage(
     items.length === rows.length &&
     (ended || (count !== undefined && !inconsistentTotal && BigInt(next) >= count))
   ) {
-    // The rows have ended.
+    // Строки закончились.
   } else if (next > 1_000_000) {
     incomplete = true;
     hints.push("Следующая позиция больше предела startPosition (1000000): запрос нужно сузить.");
@@ -381,7 +382,7 @@ export function queryPage(
   };
 }
 
-/** A document with a nested value: the form tells whether it is a repeated element. */
+/** Документ с вложенным значением: форма показывает, повторяющийся ли это элемент. */
 export function hasStructure(data: Record<string, unknown>): boolean {
   return Object.values(data).some((value) => value !== null && typeof value === "object");
 }

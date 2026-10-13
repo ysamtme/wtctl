@@ -1,4 +1,7 @@
-/** Concrete tool names in inline code or JSON name fields; wildcard families and receipts are not calls. */
+/**
+ * Конкретные имена инструментов в коде внутри строки или в полях name JSON.
+ * Семейства с подстановкой и сводки — не вызовы.
+ */
 export function documentedMcpToolNames(markdown) {
   const names = new Set();
   const add = (name) => {

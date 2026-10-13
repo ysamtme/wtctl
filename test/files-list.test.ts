@@ -1,4 +1,4 @@
-// files.list shows one level of a folder by code on the server; the low-level URL operations are the runtime's own.
+// files.list показывает один уровень папки кодом на сервере; низкоуровневые операции с URL — собственные для runtime.
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,7 +26,7 @@ function fixture(rows: (string | Record<string, string>)[], execute = true) {
   );
 }
 
-test("a folder is listed by name with file sizes and folder marks; the code gets the address as given", async () => {
+test("папка перечисляется по имени с размерами файлов и пометками папок; код получает адрес как задан", async () => {
   const { runtime, server } = fixture([
     { u: "x-local://share/б файл%20.txt", f: "0", b: "12" },
     { u: "x-local://share/img", f: "1", b: "0" },
@@ -53,7 +53,7 @@ test("a folder is listed by name with file sizes and folder marks; the code gets
   await runtime.close();
 });
 
-test("no folder is an error that sent nothing; the right is execute; bad addresses and rows are refused", async () => {
+test("отсутствие папки — ошибка, которая ничего не отправила; право — execute; неверные адреса и строки отклоняются", async () => {
   const call = (f: ReturnType<typeof fixture>, url = "x-local://share") =>
     f.runtime.call("files.list", { url });
   const none = await call(fixture(["none"]));
@@ -78,7 +78,7 @@ test("no folder is an error that sent nothing; the right is execute; bad address
     assert.equal((await call(fixture([row]))).error?.code, "SCRIPT_RESPONSE");
 });
 
-test("an error that says not_sent does not make a sent write not_sent", async () => {
+test("ошибка с not_sent не делает отправленную запись not_sent", async () => {
   const { runtime, server } = fixture([]);
   server.on("*", () => {
     throw new HcmError("X", "m", undefined, undefined, "not_sent");
@@ -87,7 +87,7 @@ test("an error that says not_sent does not make a sent write not_sent", async ()
   assert.equal(write.error?.mutationOutcome, "indeterminate");
 });
 
-test("the URL operations of LDS are unknown from outside and still work inside files.read", async () => {
+test("операции LDS с URL снаружи неизвестны, но внутри files.read работают", async () => {
   const { runtime, server } = fixture([]);
   const args = { url: "x-local://share/a" };
   for (const id of ["native.lds.putUrl", "native.lds.deleteUrl", "native.lds.loadUrl"]) {
@@ -100,7 +100,7 @@ test("the URL operations of LDS are unknown from outside and still work inside f
   assert.equal(server.calls[0]!.id, "native.lds.loadUrl");
 });
 
-test("the removed operations are unknown from outside", async () => {
+test("удалённые операции снаружи неизвестны", async () => {
   const { runtime, server } = fixture([]);
   const removed = `native.lds.getModDeletedObjects native.lds.createDoc native.lds.loadLargeField native.lds.putLargeField native.lds.deleteLargeField web.spxml.putLargeField web.spxml.getLargeField web.spxml.putLargeFieldFromUrl web.pages.createDoc web.pages.getIcon web.lifecycle.logout2 web.experimental.getUiTemplate native.experimental.spxml.getLargeField native.experimental.spxml.putLargeField native.experimental.spxml.putLargeFieldFromUrl native.experimental.spxml.callMethodAsync native.experimental.spxml.getBackgroundTasksByName native.experimental.spxml.getAsyncMethodStatus native.experimental.spxml.killAsyncMethod native.experimental.spxml.getDoc native.experimental.spxml.putDoc`;
   for (const id of removed.split(" ")) {

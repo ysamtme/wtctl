@@ -3,10 +3,10 @@ import { HcmError, boundedInteger } from "./errors.js";
 import { operationOrder, operationTopic, requireTopic, overviewMatches } from "./operation-map.js";
 import type { OperationDefinition, OperationFilter, OperationPage } from "./contracts.js";
 
-/** Packaged operation metadata only; no connection, credentials or server probe. */
+/** Только упакованные метаданные операций: без подключения, учётных данных и проверки сервера. */
 export function listHcmOperations(filter: OperationFilter = {}): OperationPage {
   const asked = filter.query?.toLowerCase().trim();
-  // read, write or execute as the whole query asks for the operations of that effect.
+  // Запрос целиком read, write или execute выбирает операции с таким эффектом.
   const effect =
     filter.effect ??
     (["read", "write", "execute", "unknown"] as const).find((name) => name === asked);
@@ -39,7 +39,7 @@ export function listHcmOperations(filter: OperationFilter = {}): OperationPage {
   };
 }
 
-/** Exact descriptor of one operation; no connection or server probe. */
+/** Точное описание одной операции; без подключения и проверки сервера. */
 export function describeHcmOperation(id: string): OperationDefinition {
   if (typeof id !== "string" || id.length > 128 || !/^[A-Za-z][A-Za-z0-9_.]*$/.test(id))
     throw new HcmError(
@@ -48,7 +48,7 @@ export function describeHcmOperation(id: string): OperationDefinition {
     );
   const operation = operationDefinition(id);
   if (!operation) {
-    // The asked name is compared by its last part: loadDocs is next to loadDoc, query to xQuery.
+    // Имя сравнивается по последней части: loadDocs рядом с loadDoc, query — с xQuery.
     const asked = id.split(".").at(-1)!.toLowerCase();
     const near = operations
       .map((item) => item.id)

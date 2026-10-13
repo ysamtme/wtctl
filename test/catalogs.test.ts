@@ -1,5 +1,5 @@
-// The server names the object type only for some catalogs. A catalog it leaves unnamed is still a
-// catalog: the main one of a type the server declares (events), or one whose rows have no document.
+// Сервер называет тип объекта только у некоторых каталогов. Каталог без такого имени всё равно
+// каталог: основной у типа, который объявляет сервер (events), или тот, чьи строки не имеют документа.
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,7 +19,7 @@ const forms: Record<string, string> = {
     '<SPXML-FORM><event><id TYPE="integer"/><name TYPE="string"/><start_date TYPE="date"/><note TYPE="string"/><label TYPE="string" PROPERTY="1" EXPR="name"/></event></SPXML-FORM>',
   "x-local://wtv/wtv_events.xmd":
     '<SPXML-FORM CATALOG="1"><events><event MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><name TYPE="string"/><start_date TYPE="date"/><place_id TYPE="integer" FOREIGN-ARRAY="places"/><days TYPE="integer" PROPERTY="1" EXPR="1"/></event></events></SPXML-FORM>',
-  // The row of this catalog is not named after its object type.
+  // Строка этого каталога названа не по его типу объекта.
   "x-local://wtv/wtv_plans.xmd":
     '<SPXML-FORM CATALOG="1"><plans><budget MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><changed TYPE="date"/></budget></plans></SPXML-FORM>',
   "x-local://wtv/wtv_event_members.xmd":
@@ -36,7 +36,7 @@ const info = {
         { id: "events", object_type: "", form_url: "x-local://wtv/wtv_events.xmd" },
         { id: "event_members", object_type: "", form_url: "x-local://wtv/wtv_event_members.xmd" },
         { id: "plans", object_type: "plan", form_url: "x-local://wtv/wtv_plans.xmd" },
-        // A common list of the server stands in the same list and is not a catalog.
+        // Общий список сервера стоит в том же списке и каталогом не является.
         { id: "common.kinds", object_type: "", form_url: "x-local://wtv/websoft.common.kinds.xml" },
       ],
     },
@@ -54,7 +54,7 @@ const reader = () =>
     async () => ({}),
   );
 
-test("a type the server declares without naming its catalog is listed with the catalog called after it", async () => {
+test("тип, который сервер объявляет без названия каталога, выдаётся с каталогом, названным по нему", async () => {
   const { types } = await reader().types();
   assert.deepEqual(
     types.map((item) => [item.type, item.catalog, item.title]),
@@ -78,7 +78,7 @@ test("a type the server declares without naming its catalog is listed with the c
       ["days", false],
     ],
   );
-  // A field only the catalog has keeps its link; a property of the catalog form is computed.
+  // Поле, которое есть только у каталога, сохраняет свою ссылку; свойство формы каталога вычисляется.
   assert.deepEqual(
     schema.fields.slice(-2).map((field) => [field.origin, field.references, field.computed]),
     [
@@ -87,19 +87,19 @@ test("a type the server declares without naming its catalog is listed with the c
     ],
   );
   assert.equal((await reader().types()).catalogs, 4);
-  // The name of a row leads to its catalog.
+  // Имя строки ведёт к её каталогу.
   await assert.rejects(reader().get({ type: "event_member" }), (error: any) =>
     error.hint.includes("Каталог без своего типа объекта: event_members"),
   );
 });
 
-test("a catalog without an object type gives its row fields and says whether its rows are documents", async () => {
+test("каталог без типа объекта даёт поля своей строки и говорит, являются ли его строки документами", async () => {
   const main = await reader().get({ type: "events" });
   assert.equal(
     main.notes.at(-1),
     'events — имя каталога; поля его объектов показывает тип event, поля строки каталога — path:"event".',
   );
-  // The fields of its row are marked as the ones a search goes by.
+  // Поля его строки помечены как те, по которым идёт поиск.
   assert.deepEqual(
     (await reader().get({ type: "events", path: "event" })).fields.map((field) => field.query),
     [true, true, true, true],
@@ -133,8 +133,8 @@ const schemaAnswers: Script = {
   "native.spxml2.getForm": (args) => form(String(args.url)),
 };
 
-test("an empty answer for a name that is not a catalog is not taken for an empty catalog", async () => {
-  // On an empty database table the server lets a wrong name through.
+test("пустой ответ на имя, которое не каталог, не принимается за пустой каталог", async () => {
+  // В пустой таблице базы данных сервер пропускает неверное имя.
   const { runtime, server } = fakeRuntime({
     ...schemaAnswers,
     "native.lds.xQuery": { Data: "", TotalCount: "0", EOF: "true" },
@@ -156,7 +156,7 @@ test("an empty answer for a name that is not a catalog is not taken for an empty
       sent()[1],
       "for $elem in events where ($elem/start_date >= date('2026-01-01')) return $elem",
     );
-    // A date field is known also where the row of the catalog bears another name.
+    // Поле даты известно и там, где строка каталога носит другое имя.
     await runtime.call("runtime.query", {
       catalog: "plans",
       where: { changed: { gte: "2026-01-01" } },
@@ -165,7 +165,7 @@ test("an empty answer for a name that is not a catalog is not taken for an empty
       sent().at(-1),
       "for $elem in plans where ($elem/changed >= date('2026-01-01')) return $elem",
     );
-    // An ID in decimal reaches an integer field as a number; in a string field digits stay a string.
+    // ID в десятичном виде попадает в целочисленное поле числом; в строковом поле цифры остаются строкой.
     await runtime.call("runtime.query", {
       catalog: "events",
       where: { id: "7336555599450041442", name: "40702810900000001234" },
@@ -174,7 +174,7 @@ test("an empty answer for a name that is not a catalog is not taken for an empty
       sent().at(-1),
       "for $elem in events where ($elem/id = 7336555599450041442) and ($elem/name = '40702810900000001234') return $elem",
     );
-    // A common list is refused before the server with the way to read it.
+    // Общий список отклоняется до сервера, с указанием, как его прочитать.
     const before = sent().length;
     const common = await runtime.call("runtime.query", { catalog: "common.kinds" });
     assert.equal(common.error?.message, "common.kinds — общий список сервера, а не каталог.");
@@ -184,7 +184,7 @@ test("an empty answer for a name that is not a catalog is not taken for an empty
   }
 });
 
-test("a date is confirmed by its clock time and refused before the write when the server would not read it", async () => {
+test("дата подтверждается временем суток и отклоняется до записи, если сервер её не прочтёт", async () => {
   const stored = { start_date: "2026-12-05T09:30:00+00:00", day: "2026-12-05T00:00:00+00:00" };
   for (const value of ["2026-12-05T09:30", "2026-12-05T09:30:00.000Z", "2026-12-05T09:30:00+03:00"])
     verifyFields({ start_date: value }, stored, []);
@@ -194,7 +194,7 @@ test("a date is confirmed by its clock time and refused before the write when th
       code: "READ_BACK_MISMATCH",
     });
 
-  // The last call here gets as far as the journal of writes, which is a file.
+  // Последний вызов здесь доходит до журнала записей, а это файл.
   const directory = await mkdtemp(join(tmpdir(), "hcm-catalogs-"));
   const { runtime, server } = fakeRuntime(schemaAnswers, { runtimeDir: directory });
   try {
@@ -207,7 +207,7 @@ test("a date is confirmed by its clock time and refused before the write when th
       assert.match(refused.error!.message, /^start_date: дата записана не так/);
       assert.equal(refused.error?.mutationOutcome, "not_sent");
     }
-    // A text field may hold anything.
+    // Текстовое поле может хранить что угодно.
     const text = await runtime.call("objects.create", {
       type: "event",
       data: { note: "05.12.2026", start_date: "2026-12-05" },
@@ -220,7 +220,7 @@ test("a date is confirmed by its clock time and refused before the write when th
   }
 });
 
-test("a field the type does not have is refused before the write and before the preview", async () => {
+test("поле, которого нет у типа, отклоняется до записи и до предпросмотра", async () => {
   const { runtime, server } = fakeRuntime({
     ...schemaAnswers,
     "native.lds.loadDoc": {
@@ -246,7 +246,7 @@ test("a field the type does not have is refused before the write and before the 
       assert.equal(patched.error?.code, "UNKNOWN_FIELD", String(preview));
       assert.deepEqual(patched.error?.details, { fields: ["nmae"] });
     }
-    // A value for a field the server computes would not be kept either.
+    // Значение для поля, которое вычисляет сервер, тоже не сохранилось бы.
     for (const call of [
       () => runtime.call("objects.create", { type: "event", data: { name: "x", label: "L" } }),
       () => runtime.call("objects.patch", { id: "1", patch: { label: "L" }, preview: true }),
@@ -258,7 +258,7 @@ test("a field the type does not have is refused before the write and before the 
         "label: значение вычисляет сервер, записать его нельзя.",
       );
     }
-    // Removing what is not there changes nothing and is not an error.
+    // Удаление того, чего нет, ничего не меняет и не считается ошибкой.
     const removed = await runtime.call("objects.patch", { id: "1", remove: ["no_such"] });
     assert.equal((removed.data as { noop: boolean }).noop, true);
     assert.equal(server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length, 0);

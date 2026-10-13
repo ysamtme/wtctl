@@ -131,7 +131,7 @@ async function fixture() {
         request.headers["x-spxml-client"],
         context.profile === "web" ? "SP-XML Web client 1.0" : undefined,
       );
-      // The native profile also asks for the folder lists; this server does not give them.
+      // Профиль native запрашивает ещё и списки папок; этот сервер их не отдаёт.
       if (url.pathname === prefix + "/api/spxml2/get_app_info") {
         assert.equal(context.profile, "native");
         assert.equal(context.steps.at(-1), "CallMethod");
@@ -345,7 +345,7 @@ function structured(response: Awaited<ReturnType<Client["callTool"]>>): Operatio
 }
 
 test(
-  "read-only SDK, foreign-cwd CLI and stdio MCP use only the fixed stock metadata RPC and close separate owned scopes",
+  "SDK с правами только на чтение, CLI из чужого cwd и MCP по stdio используют только фиксированный штатный RPC метаданных и закрывают отдельные собственные области",
   { timeout: 45000 },
   async () => {
     const f = await fixture();
@@ -374,7 +374,7 @@ test(
 );
 
 test(
-  "invalid metadata input and generic RPC permissions reject across real frontends before any backend context",
+  "неверный ввод метаданных и права общего RPC отклоняются в реальных SDK, CLI и MCP до любого серверного контекста",
   { timeout: 45000 },
   async () => {
     const f = await fixture();

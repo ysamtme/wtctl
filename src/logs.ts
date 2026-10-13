@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { HcmError, inputObject, boundedInteger, requiredString } from "./errors.js";
 import type { ServerPort } from "./hcm-server.js";
 import { parseXml } from "./protocol/xml.js";
+import { rpcArgument } from "./server-value.js";
 import { WsHcmApiError, attachCleanupError, isTransportFailure } from "./protocol/error.js";
 
 export type LogGateway = ServerPort;
@@ -36,8 +37,8 @@ export interface LogReadInput {
   readonly full?: boolean;
 }
 /**
- * The server's own reader refused a listed file, also on the repeated attempt. The server gives
- * no reason; on the stands this happens while it is writing to that file.
+ * Собственный читатель сервера отказал на файле из списка и при повторной попытке. Причину
+ * сервер не называет; на стендах это бывает, пока он пишет в этот файл.
  */
 export class LogReadUnavailableError extends HcmError {
   constructor() {
@@ -53,7 +54,7 @@ export interface LogReadData {
   readonly text: string;
   readonly requestedMode: "full" | "tail";
   readonly requestedTailBytes?: number;
-  /** Actual bounded range passed to the server; it can be smaller than the requested tail. */
+  /** Фактически переданный серверу ограниченный диапазон; может быть меньше запрошенного хвоста. */
   readonly effectiveTailBytes: number;
   readonly sizeBytesBefore: string;
   readonly sizeBytesAfter: string;
@@ -85,7 +86,7 @@ export interface LogSearchInput extends LogReadInput {
   readonly context?: string;
   readonly offset?: number;
   readonly limit?: number;
-  /** Latest matches first; offset then counts from the end of the file. */
+  /** Сначала новейшие совпадения; offset тогда считается с конца файла. */
   readonly newestFirst?: boolean;
   readonly expectedFingerprint?: string;
 }
@@ -155,8 +156,8 @@ function filename(value: unknown): string {
   return source;
 }
 /**
- * Which log a file belongs to: its name without the date. The server's own type column puts most
- * logs into one group, so it does not tell them apart.
+ * К какому логу относится файл: его имя без даты. Собственный столбец типа на сервере
+ * сводит большинство логов в одну группу, поэтому по нему их не различить.
  */
 export function logKind(name: string): string {
   return name.replace(/\.log$/i, "").replace(/[_-]?\d{4}-\d{2}-\d{2}.*$/, "") || name;
@@ -191,7 +192,7 @@ function selectedName(value: unknown): string {
   return filename(name);
 }
 
-/** Parse the actual table-data cells returned by tools_report.server_log_report. */
+/** Разбирает фактические ячейки таблицы данных от tools_report.server_log_report. */
 export function parseLogReport(source: string): LogFile[] {
   const parsed = parseXml(source);
   if (Object.keys(parsed).length !== 1 || !Object.hasOwn(parsed, "data"))
@@ -255,7 +256,7 @@ export function parseLogReport(source: string): LogFile[] {
   });
 }
 
-// The server writes no level; a refusal is logged as a bare Russian line such as «Элемент не найден».
+// Сервер не пишет уровень; отказ попадает в лог голой русской строкой вроде «Элемент не найден».
 const ERROR_WORDS =
   /\b(?:error|exception|failed|denied|invalid)\b|not defined|not found|not allowed|unknown object property|unknown method|unregistered|wrong number of arguments|already declared|(?:^|\s)major:|ошибк|не найден|не удалось|исключени|недопустим|отказано|запрещ[её]н|уже открыт|невозможно/i;
 function severity(message: string): LogLevel {
@@ -266,7 +267,7 @@ function severity(message: string): LogLevel {
   if (/\b(?:info|information|inform)\b/i.test(message)) return "info";
   return "normal";
 }
-/** Preserve continuation lines and stack traces; timestamps stay in server-local text. */
+/** Сохраняет строки продолжения и стеки; время остаётся текстом в местном времени сервера. */
 export function parseLogEvents(
   source: string,
   dateHint?: string,
@@ -311,8 +312,8 @@ export function parseLogEvents(
       last.lineEnd = index + 1;
     }
   }
-  // Evaluate each completed body once. Timestamp/context remain in text, but
-  // only the initial message and its continuation lines contribute to severity.
+  // Каждое завершённое тело оценивается один раз. Время и контекст остаются в тексте, но
+  // на серьёзность влияют только первое сообщение и его строки продолжения.
   return events.map(({ lines, ...event }) => ({
     ...event,
     level: severity([event.message, ...lines.slice(1)].join("\n")),
@@ -334,7 +335,7 @@ interface FollowCursor {
   anchors: string[];
 }
 
-/** Remote-only log access through two existing, audited read-only platform methods. */
+/** Доступ к логам только удалённо: два существующих проверенных метода чтения платформы. */
 export class LogReader {
   private readonly maxTailBytes: number;
   private readonly busyMs: number;
@@ -349,9 +350,9 @@ export class LogReader {
     this.maxTailBytes = Math.max(1, Math.floor((options.maxResponseBytes - 512) / 6));
   }
   /**
-   * The server keeps a log file to itself for about five seconds after writing a line to it
-   * (measured on 2025.1.1333 and 2025.2.1535) and refuses to read it meanwhile. The owner reports
-   * a request the server has just refused, since the refusal is what gets written.
+   * Сервер держит файл лога за собой около пяти секунд после записи в него строки
+   * (замер на 2025.1.1333 и 2025.2.1535) и всё это время отказывает в чтении. Владелец
+   * отмечает запрос, который сервер только что отклонил, потому что в лог пишется именно отказ.
    */
   serverWroteLog(): void {
     this.busyUntil = Date.now() + this.busyMs;
@@ -365,7 +366,7 @@ export class LogReader {
       "<func_params><server_log_report><type_id>all</type_id><show_alert>false</show_alert></server_log_report></func_params>";
     const response = await this.gateway.call("native.rpc.call", {
       target: "tools_report.server_log_report",
-      args: [{ valueType: "string", lexicalValue: encodeURIComponent(params) }],
+      args: [rpcArgument(encodeURIComponent(params))],
     });
     return parseLogReport(rpcString(response));
   }
@@ -390,7 +391,7 @@ export class LogReader {
           (!start || (file.dateHint !== undefined && file.dateHint >= start)) &&
           (!end || (file.dateHint !== undefined && file.dateHint <= end)),
       )
-      // The server lists by name, so the first page was the oldest files of the first log.
+      // Сервер перечисляет по имени, поэтому первая страница — самые старые файлы первого лога.
       .sort(
         (left, right) =>
           (right.dateHint ?? "").localeCompare(left.dateHint ?? "") ||
@@ -423,7 +424,7 @@ export class LogReader {
       error.operation === "CallMethod" &&
       error.requestSent !== false &&
       !isTransportFailure(error);
-    // Size and range are taken anew for each attempt: a refused read adds its own line to the log.
+    // Размер и диапазон заново на каждой попытке: отклонённое чтение пишет в лог свою строку.
     const attempt = async () => {
       const file = (await this.allFiles()).find((item) => item.name === name);
       if (!file)
@@ -439,20 +440,17 @@ export class LogReader {
           "Лог целиком не помещается в предел чтения подключения.",
           "Нужно прочитать конец файла (tailBytes) или увеличить maxResponseBytes подключения.",
         );
-      // The stock helper uses LoadUrlData for null or an oversized tail. Active
-      // server logs may reject that loader's sharing mode. A range no larger than
-      // the reported file selects LoadFileDataRange, including equality; this
-      // still depends on the server's access and sharing rules.
+      // Штатная функция берёт LoadUrlData для null или слишком большого хвоста. Активные
+      // логи сервера могут отклонить режим совместного доступа этого загрузчика. Диапазон не
+      // больше известного размера файла (включая равенство) выбирает LoadFileDataRange; это
+      // всё равно зависит от правил доступа и совместного использования на сервере.
       const effectiveTailBytes = Number(
         input.full || sizeBefore < BigInt(tailBytes) ? sizeBefore : BigInt(tailBytes),
       );
       try {
         const response = await this.gateway.call("native.rpc.call", {
           target: "tools.load_url_data_server",
-          args: [
-            { valueType: "string", lexicalValue: file.url },
-            { valueType: "integer", lexicalValue: String(effectiveTailBytes) },
-          ],
+          args: [rpcArgument(file.url), rpcArgument(effectiveTailBytes)],
         });
         return { file, sizeBefore, effectiveTailBytes, response };
       } catch (error) {
@@ -464,7 +462,7 @@ export class LogReader {
     let read = await attempt();
     if ("refusal" in read) {
       const first = read.refusal;
-      // The refused read is itself written to the server log, so the wait starts over from here.
+      // Отклонённое чтение само пишется в лог сервера, поэтому ожидание идёт заново отсюда.
       this.serverWroteLog();
       await this.whileBusy();
       read = await attempt();
@@ -601,10 +599,10 @@ export class LogReader {
     }
     const read = await this.read(input);
     const events = parseLogEvents(read.text, read.file.dateHint, read.truncated);
-    // A file's final newline becomes the separator before the next event on append.
-    // Ignore only trailing newlines in overlap anchors; preserve the returned event text.
-    // The cursor travels with every call, so it carries short marks: 64 bits tell apart the
-    // events of one window, and the last eight events are enough to find the overlap.
+    // Завершающий перевод строки файла при дозаписи становится разделителем перед новым событием.
+    // В якорях перекрытия игнорируются лишь завершающие переводы строк; текст событий сохраняется.
+    // Курсор ездит с каждым вызовом, поэтому несёт короткие метки: 64 бита различают
+    // события одного окна, а для поиска перекрытия хватает последних восьми событий.
     const hashes = events.map((event) => hash(event.text.replace(/\n+$/, "")).slice(0, 16));
     const fingerprint = read.fingerprint.slice(0, 16);
     let start = 0;

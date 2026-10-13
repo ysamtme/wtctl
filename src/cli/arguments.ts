@@ -92,7 +92,7 @@ const VALUE_OPTIONS = new Set([
   "password-env",
 ]);
 
-/** Parse once; secrets are deliberately not accepted as command-line options. */
+/** Разбирается один раз; секреты намеренно не принимаются как параметры командной строки. */
 export function parseArguments(argv: readonly string[]): CliArguments {
   const result: CliArguments = { positionals: [], options: {} };
   let positionalOnly = false;
@@ -130,7 +130,7 @@ export function parseArguments(argv: readonly string[]): CliArguments {
       }
       result.options[name] = next;
     } else {
-      // Never echo unknown arguments: they might accidentally contain credentials.
+      // Неизвестные аргументы не выводятся: в них могут случайно оказаться учётные данные.
       throw new CliInputError(
         "Неизвестный параметр командной строки.",
         "Пароли и токены задаются через конфигурацию и переменные окружения; параметры доступа не принимаются в argv.",
@@ -160,7 +160,7 @@ export function stringOption(args: CliArguments, name: string): string | undefin
   return typeof value === "string" ? value : undefined;
 }
 
-/** A list written through commas: items are trimmed, empty ones dropped. */
+/** Список через запятую: элементы обрезаются по пробелам, пустые отбрасываются. */
 export function listOption(args: CliArguments, name: string): string[] | undefined {
   return stringOption(args, name)
     ?.split(",")
@@ -191,9 +191,9 @@ export function requirePositional(args: CliArguments, index: number, label: stri
 }
 
 /**
- * JSON given to the command. Shells disagree about quotes inside an argument: Windows PowerShell 5.1
- * and cmd need them written as \", PowerShell 7 and bash pass them as they are and then the
- * backslashes arrive too. Both spellings are accepted.
+ * JSON, переданный команде. Оболочки по-разному трактуют кавычки внутри аргумента: Windows
+ * PowerShell 5.1 и cmd требуют писать их как \", PowerShell 7 и bash передают их как есть, и тогда
+ * обратные косые черты доходят до команды тоже. Принимаются обе записи.
  */
 export function parseJson(text: string): unknown {
   try {
@@ -203,7 +203,7 @@ export function parseJson(text: string): unknown {
       try {
         return JSON.parse(text.replaceAll('\\"', '"'));
       } catch {
-        // The common message below covers it.
+        // Это покрывает общее сообщение ниже.
       }
     throw new CliInputError(
       'Ввод — не JSON. В аргументе оболочка могла убрать кавычки: их можно написать как \\" или передать JSON файлом через --input-file.',

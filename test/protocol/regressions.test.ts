@@ -71,7 +71,7 @@ function webLifecycle(
   }) as typeof globalThis.fetch;
 }
 
-test("native RPC preserves exact target, VALUE-TYPE, RawXml and result typing", async () => {
+test("RPC native сохраняет точную цель, VALUE-TYPE, RawXml и типизацию результата", async () => {
   let calls = 0;
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -103,7 +103,7 @@ test("native RPC preserves exact target, VALUE-TYPE, RawXml and result typing", 
   assert.equal(calls, 1);
 });
 
-test("RPC distinguishes an existing empty typed string from a missing Result", async () => {
+test("RPC отличает существующую пустую типизированную строку от отсутствующего Result", async () => {
   for (const profile of ["native", "web"] as const) {
     let inner = '<ResultData><Result VALUE-TYPE="string"/></ResultData>';
     const lifecycle = profile === "native" ? nativeLifecycle : webLifecycle;
@@ -119,7 +119,7 @@ test("RPC distinguishes an existing empty typed string from a missing Result", a
     try {
       assert.equal((await session.rpc.call({ target: "tools.get_version" })).data.lexicalValue, "");
       inner = "<ResultData/>";
-      await assert.rejects(session.rpc.call({ target: "tools.get_version" }), /missing Result/);
+      await assert.rejects(session.rpc.call({ target: "tools.get_version" }), /нет Result/);
     } finally {
       await session.close();
       client.close();
@@ -127,7 +127,7 @@ test("RPC distinguishes an existing empty typed string from a missing Result", a
   }
 });
 
-test("web get_app_info and page getUrl use exact query and preserve a non-empty stream", async () => {
+test("web get_app_info и getUrl страницы используют точный запрос и сохраняют непустой поток", async () => {
   const pageBody = "non-empty page body";
   const seen: string[] = [];
   const client = new WsHcmClient({
@@ -176,7 +176,7 @@ test("web get_app_info and page getUrl use exact query and preserve a non-empty 
   assert.deepEqual(seen, ["app-info", "page-get-url"]);
 });
 
-test("async lifecycle preserves 1171 hexadecimal TrackingID lexical form", async () => {
+test("асинхронный жизненный цикл сохраняет шестнадцатеричный TrackingID 1171 в том виде, как он записан", async () => {
   const trackingId = "0x28865C2947AC3BF9";
   const seen: string[] = [];
   const client = new WsHcmClient({
@@ -208,7 +208,7 @@ test("async lifecycle preserves 1171 hexadecimal TrackingID lexical form", async
   assert.deepEqual(seen, ["GetAsyncMethodStatus", "KillAsyncMethod"]);
 });
 
-test("native streaming XML parameters use exact multipart XOP framing", async () => {
+test("потоковые XML-параметры native используют точную разметку multipart XOP", async () => {
   let calls = 0;
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -260,7 +260,7 @@ test("native streaming XML parameters use exact multipart XOP framing", async ()
   assert.equal(calls, 1);
 });
 
-test("native XOP preserves exact binary PutUrl data", async () => {
+test("XOP native сохраняет точные двоичные данные PutUrl", async () => {
   const expected = Uint8Array.of(0, 255, 13, 10, 60, 38);
   const seen: string[] = [];
 
@@ -316,7 +316,7 @@ test("native XOP preserves exact binary PutUrl data", async () => {
   assert.deepEqual(seen, ["PutUrl"]);
 });
 
-test("native streaming flags preserve mocked LoadUrl and LoadDoc bodies as streams", async () => {
+test("потоковые флаги native сохраняют подставные тела LoadUrl и LoadDoc потоками", async () => {
   const binary = Uint8Array.of(0, 255, 60, 120, 109, 108, 62);
   const multipart = new TextEncoder().encode(
     "\r\n--response-boundary\r\nContent-Type: application/soap+xml\r\n\r\n<Envelope/>\r\n--response-boundary--\r\n",
@@ -367,7 +367,7 @@ test("native streaming flags preserve mocked LoadUrl and LoadDoc bodies as strea
   });
 });
 
-test("streaming SOAP errors parse small faults and cancel oversized bodies", async () => {
+test("потоковые ошибки SOAP разбирают малые fault и отменяют слишком большие тела", async () => {
   let loadCalls = 0;
   let cancelled = false;
   const client = new WsHcmClient({
@@ -419,7 +419,7 @@ test("streaming SOAP errors parse small faults and cancel oversized bodies", asy
   assert.equal(cancelled, true);
 });
 
-test("buffered web XML honors response charset and GetDoc request fallback", async () => {
+test("буферизованный XML web учитывает charset ответа и запасной вариант запроса GetDoc", async () => {
   const word = Uint8Array.of(0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2);
   const encodedXml = (root: string): Uint8Array<ArrayBuffer> => {
     const start = new TextEncoder().encode(`<${root}><name>`);
@@ -458,7 +458,7 @@ test("buffered web XML honors response charset and GetDoc request fallback", asy
   });
 });
 
-test("web PutDoc rejects DTD/entity input and exposes only shipped persistence flags", async () => {
+test("PutDoc в web отклоняет ввод с DTD и entity и отдаёт только штатные флаги сохранения", async () => {
   let putCalls = 0;
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -496,7 +496,7 @@ test("web PutDoc rejects DTD/entity input and exposes only shipped persistence f
   assert.equal(putCalls, 1);
 });
 
-test("bare SOAP Fault becomes a bounded soap-fault error", async () => {
+test("голый SOAP Fault становится ограниченной ошибкой soap-fault", async () => {
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },
@@ -518,7 +518,7 @@ test("bare SOAP Fault becomes a bounded soap-fault error", async () => {
   });
 });
 
-test("SOAP 1.2 Fault reason and code are preserved", async () => {
+test("причина и код SOAP 1.2 Fault сохраняются", async () => {
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },
@@ -542,7 +542,7 @@ test("SOAP 1.2 Fault reason and code are preserved", async () => {
   });
 });
 
-test("application Fault elements are not treated as SOAP faults", async () => {
+test("элементы Fault прикладного уровня не считаются SOAP fault", async () => {
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },
@@ -562,7 +562,7 @@ test("application Fault elements are not treated as SOAP faults", async () => {
   });
 });
 
-test("SOAP success response must be a direct Body child", async () => {
+test("успешный ответ SOAP обязан быть прямым потомком Body", async () => {
   const invalid = [
     '<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope/"><soap:Body><wrapper><OpenSessionResponse><SessionID>42</SessionID></OpenSessionResponse></wrapper></soap:Body></soap:Envelope>',
     "<OpenSessionResponse><SessionID>42</SessionID></OpenSessionResponse>",
@@ -582,12 +582,12 @@ test("SOAP success response must be a direct Body child", async () => {
       (error: unknown) =>
         error instanceof WsHcmApiError &&
         error.kind === "protocol" &&
-        /Missing OpenSessionResponse/.test(error.message),
+        /нет OpenSessionResponse/.test(error.message),
     );
   }
 });
 
-test("SOAP fault messages are bounded and redact common secret fields", async () => {
+test("сообщения SOAP fault ограничены по длине и скрывают типичные секретные поля", async () => {
   const secret = "do-not-expose";
   const oversized = `Password=${secret} ${"x".repeat(700)}`;
   const client = new WsHcmClient({
@@ -610,7 +610,7 @@ test("SOAP fault messages are bounded and redact common secret fields", async ()
   });
 });
 
-test("plain operation Error remains primary when cleanup also fails", async () => {
+test("обычная Error операции остаётся основной, когда очистка тоже падает", async () => {
   const primary = new Error("plain operation failure") as Error & { cleanupError?: unknown };
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -636,10 +636,10 @@ test("plain operation Error remains primary when cleanup also fails", async () =
   );
 });
 
-test("transport rejects embedded credentials and cross-origin experimental requests before fetch", async () => {
+test("транспорт отклоняет встроенные учётные данные и экспериментальные запросы на другой origin до fetch", async () => {
   assert.throws(
     () => new WsHcmClient({ baseUrl: "http://user:password@wt.test/" }),
-    /without embedded credentials/,
+    /без имени и пароля в адресе/,
   );
 
   let fetchCalls = 0;
@@ -665,7 +665,7 @@ test("transport rejects embedded credentials and cross-origin experimental reque
   assert.equal(fetchCalls, 0);
 });
 
-test("transport sets Node duplex for ReadableStream bodies", async () => {
+test("транспорт выставляет Node duplex для тел ReadableStream", async () => {
   let duplex: unknown;
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -691,7 +691,7 @@ test("transport sets Node duplex for ReadableStream bodies", async () => {
   assert.equal(duplex, "half");
 });
 
-test("diagnostics uses optional Basic authentication when credentials exist", async () => {
+test("диагностика использует необязательную аутентификацию Basic, когда учётные данные есть", async () => {
   const headers: Array<string | null> = [];
   const fetch = (async (_input, init) => {
     headers.push(new Headers(init?.headers).get("authorization"));
@@ -707,7 +707,7 @@ test("diagnostics uses optional Basic authentication when credentials exist", as
   assert.match(headers[1] ?? "", /^Basic /);
 });
 
-test("web lifecycle attempts logout2 after logout failure and remains idempotent", async () => {
+test("жизненный цикл web пробует logout2 после сбоя logout и остаётся идемпотентным", async () => {
   const logoutCalls: string[] = [];
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -736,7 +736,7 @@ test("web lifecycle attempts logout2 after logout failure and remains idempotent
   assert.deepEqual(logoutCalls, ["logout", "logout2"]);
 });
 
-test("transport and web experimental regressions preserve errors, secrets and required URLs", async () => {
+test("экспериментальные регрессии транспорта и web сохраняют ошибки, секреты и нужные URL", async () => {
   const secretUrl = "http://secret-user:secret-password@private.example/hidden";
   const failed = new WsHcmClient({
     baseUrl: "http://wt.test/",

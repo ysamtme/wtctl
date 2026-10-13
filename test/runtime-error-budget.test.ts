@@ -34,7 +34,7 @@ function assertOmitted(result: OperationResult): void {
   );
 }
 
-test("all ordinary error envelopes explicitly omit an oversized connection without changing diagnostics", async () => {
+test("все обычные ответы с ошибкой явно опускают слишком большое подключение, не меняя диагностику", async () => {
   for (const operation of ["server.info", "missing.operation", "rpc.call"] as const) {
     let ordinary: OperationResult | undefined;
     const script: Script = {
@@ -85,7 +85,7 @@ test("all ordinary error envelopes explicitly omit an oversized connection witho
   }
 });
 
-test("common connection omission preserves the exact generated execution recovery receipt and mutation outcome", async () => {
+test("общее опускание подключения сохраняет точную сформированную сводку восстановления исполнения и исход записи", async () => {
   let expectedExecutionId: unknown;
   const f = fixture(
     "n".repeat(800),

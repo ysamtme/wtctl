@@ -6,25 +6,8 @@ export interface FailureText {
   readonly hint?: string;
 }
 
-/** The server answers every refusal with a bare HTTP 500; the reason goes only to its log. */
-const USUAL_CAUSES: Readonly<Record<string, string>> = {
-  "runtime.query": "нет такого каталога или поля, ошибка в запросе XQuery",
-  "objects.get":
-    "объекта с таким ID или адресом нет; ID строки каталога без своего типа объекта — не ID документа",
-  "objects.patch": "объекта с таким ID или адресом нет",
-  "objects.delete": "объекта с таким ID или адресом нет",
-  "objects.create": "значение, которое тип объекта не принимает",
-  "schema.get": "формы по этому адресу нет",
-  "rpc.call": "нет такой функции, неверные аргументы или ошибка внутри функции",
-  "files.read": "по этому адресу ничего нет",
-  "files.write":
-    "сервер не сообщил, какие папки принимают запись; в папку кода файл записывает код на сервере",
-  "files.delete":
-    "по адресу нет файла или в папке есть файлы; если сервер не сообщил, какие папки принимают запись, это может быть папка кода, где файл удаляет код на сервере",
-  "native.lds.loadDoc": "по этому адресу ничего нет",
-};
-function refusalHint(operation: string): string {
-  const cause = USUAL_CAUSES[operation];
+/** Сервер отвечает на каждый отказ голым HTTP 500; причина попадает только в его лог. */
+function refusalHint(cause: string | undefined): string {
   return `${cause ? `Обычная причина: ${cause}. ` : ""}Причину сервер в ответе не сообщает. Строка о ней может быть в логе xhttp за сегодня (последние строки показывает logs.follow); отклонённый запрос часто строки не оставляет.`;
 }
 
@@ -78,11 +61,11 @@ function network(reason: NetworkFailure, address: string, host: string): Failure
   }
 }
 
-/** What a failed exchange with the server means for the person who set the connection up. */
+/** Что значит неудавшийся обмен с сервером для того, кто настраивал подключение. */
 export function platformFailure(
   error: WsHcmApiError,
   baseUrl: string,
-  operation: string,
+  usualCause?: string,
 ): FailureText {
   let address = baseUrl.replace(/\/+$/, "");
   let host = address;
@@ -91,13 +74,13 @@ export function platformFailure(
     address = `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
     host = url.hostname;
   } catch {
-    /* The address is shown as configured. */
+    /* Адрес показывается так, как настроен. */
   }
   const status = error.status;
   if (status === undefined) {
     const reason = error.details?.network;
     if (error.kind === "http")
-      // Without a stated reason the response broke off after its headers.
+      // Без названной причины ответ оборвался после заголовков.
       return network(
         typeof reason === "string" ? (reason as NetworkFailure) : "reset",
         address,
@@ -108,7 +91,7 @@ export function platformFailure(
         message: "Не заданы имя пользователя и пароль подключения.",
         hint: "Нужно задать WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init.",
       };
-    // A local check that sent nothing states its reason itself.
+    // Локальная проверка, ничего не отправившая, сама называет причину.
     if (error.requestSent === false) return { message: error.message };
     if (error.kind === "cleanup") return { message: "Не удалось закрыть сессию на сервере." };
     return {
@@ -127,7 +110,7 @@ export function platformFailure(
       hint: "У пользователя подключения нет прав на это действие.",
     };
   if (status === 500)
-    return { message: "Сервер отклонил запрос (HTTP 500).", hint: refusalHint(operation) };
+    return { message: "Сервер отклонил запрос (HTTP 500).", hint: refusalHint(usualCause) };
   if (status === 404)
     return {
       message: "Сервер ответил HTTP 404: по этому адресу ничего нет.",

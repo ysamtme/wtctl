@@ -1,8 +1,8 @@
 import type { OperationResult } from "./contracts.js";
 
-// Error texts are written once, in the runtime, and name operations by ID. A caller of the MCP
-// server knows tools and a caller of the command knows subcommands, so each front end shows its own name.
-const NAMES: Readonly<Record<string, readonly [tool: string, command: string]>> = {
+// Тексты ошибок пишутся один раз, в runtime, с ID операций. Вызывающий MCP-сервер знает
+// инструменты, вызывающий команду — подкоманды: каждый интерфейс показывает свои имена.
+export const NAMES: Readonly<Record<string, readonly [tool: string, command: string]>> = {
   "runtime.status": ["hcm_status", "wtctl status"],
   "runtime.check": ["hcm_check", "wtctl check"],
   "runtime.query": ["hcm_query", "wtctl query"],
@@ -22,7 +22,7 @@ const NAMES: Readonly<Record<string, readonly [tool: string, command: string]>> 
   "api.list": ["hcm_api_list", "wtctl api list"],
   "api.describe": ["hcm_api_describe", "wtctl api describe"],
 };
-// An ID inside a longer dotted name is left alone; a full stop that ends the sentence is not part of a name.
+// ID внутри длинного имени через точку не трогается; точка в конце предложения — не часть имени.
 const PATTERN = new RegExp(
   `(?<![\\w.])(?:${Object.keys(NAMES)
     .map((id) => id.replace(".", "\\."))
@@ -36,9 +36,9 @@ function renamed(text: string, frontend: Frontend): string {
   return text.replace(PATTERN, (id) => NAMES[id]![frontend === "mcp" ? 0 : 1]);
 }
 
-/** The same failure with operation IDs in its message and hint replaced by the caller's names. */
+/** Тот же отказ, где ID операций в сообщении и подсказке заменены именами вызывающего. */
 export function errorInFrontendTerms(result: OperationResult, frontend: Frontend): OperationResult {
-  // A batch carries the answers of its steps: a failed step is renamed the same way.
+  // Пакет несёт ответы своих шагов: упавший шаг переименовывается так же.
   const steps = (result.data as { results?: unknown } | null | undefined)?.results;
   if (result.meta.operationId === "runtime.batch" && Array.isArray(steps))
     result = {
@@ -52,7 +52,7 @@ export function errorInFrontendTerms(result: OperationResult, frontend: Frontend
         ),
       },
     };
-  // A hint in the answer names the operations to go on with; the caller knows them by its own names.
+  // Подсказка в ответе называет операции для продолжения; вызывающий знает их по своим именам.
   const stored = result.data as { hint?: unknown } | null | undefined;
   if (typeof stored?.hint === "string")
     result = {

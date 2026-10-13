@@ -30,7 +30,7 @@ async function runNode(entry: string, env: NodeJS.ProcessEnv, cwd: string, args:
 }
 
 test(
-  "actual package check ignores unrelated HCM profiles and Node preloads in its offline child smoke",
+  "настоящая проверка пакета не обращает внимания на посторонние подключения HCM и предзагрузки Node в дочернем проверочном прогоне без подключения",
   { timeout: 30000 },
   async (t) => {
     const root = realpathSync(await mkdtemp(join(tmpdir(), "hcm package check ")));
@@ -94,7 +94,7 @@ if ((process.argv[1] ?? '').endsWith(require('node:path').join('dist', 'cli', 'b
     assert.equal(stderr, "");
     assert.match(
       stdout,
-      /^Package validated: \d+ public files, self-contained command and SDK, no local state\.\r?\n$/,
+      /^Пакет проверен: открытых файлов — \d+, команда и SDK самодостаточны, локального состояния нет\.\r?\n$/,
     );
     assert.doesNotMatch(stdout, /synthetic-account|synthetic-password|ambient Node preload/);
   },

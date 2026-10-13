@@ -67,7 +67,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
     },
   };
 }
-test("all fixed probes succeed in order, including the script probe when server eval is disabled", async () => {
+test("все фиксированные пробы проходят по порядку, в том числе проба скрипта при отключённом eval на сервере", async () => {
   const f = fixture();
   const data = await checkServer(config, f.invoke);
   assert.deepEqual(
@@ -84,7 +84,7 @@ test("all fixed probes succeed in order, including the script probe when server 
   assert.deepEqual(f.calls.at(-1), { id: "execute.script", args: { code: "RESULT = [1 + 1];" } });
   assert.ok(Buffer.byteLength(JSON.stringify(data, null, 2)) < 3072);
 });
-test("one rejected probe retains later checks and never includes server error text or details", async () => {
+test("одна отклонённая проба сохраняет последующие проверки и не включает текст ошибки сервера и подробности", async () => {
   const secret = "response-body\nCookie=session-secret C:\\server\\private user:password";
   const f = fixture({
     "runtime.query": new WsHcmApiError("soap-fault", secret, {
@@ -99,7 +99,7 @@ test("one rejected probe retains later checks and never includes server error te
   assert.ok(!JSON.stringify(data).includes("session-secret"));
   assert.ok(data.checks.every((c) => !c.reason?.includes("\n")));
 });
-test("disabled execute is skipped and failed login skips every remaining probe", async () => {
+test("отключённый execute пропускается, а неудачный вход пропускает все оставшиеся пробы", async () => {
   const f = fixture();
   const readOnly = await checkServer(
     { ...config, permissions: { write: true, execute: false } },
@@ -112,7 +112,7 @@ test("disabled execute is skipped and failed login skips every remaining probe",
   assert.deepEqual(data.summary, { ok: 0, failed: 1, skipped: 10 });
   assert.equal(denied.calls.length, 1);
 });
-test("metadata, inheritance, library source and portal status are checked independently", async () => {
+test("метаданные, наследование, исходный код библиотеки и статус портала проверяются независимо", async () => {
   const f = fixture({
     "native.spxml2.getAppInfo": { ...appInfo, databases: [{ id: "other", catalogs: [{}] }] },
     "schema.get": { fields: [{ origin: "own" }] },
@@ -126,7 +126,7 @@ test("metadata, inheritance, library source and portal status are checked indepe
     ["appInfo", "schema", "libraries", "portal", "execute"],
   );
 });
-test("a stalled probe is reported at the deadline and later checks still run", async () => {
+test("зависшая проба сообщается по истечении срока, а последующие проверки всё равно выполняются", async () => {
   const f = fixture();
   const data = await checkServer({ ...config, timeoutMs: 20 }, (id, args) =>
     id === "runtime.query" ? new Promise(() => {}) : f.invoke(id, args),
@@ -134,7 +134,7 @@ test("a stalled probe is reported at the deadline and later checks still run", a
   assert.equal(data.checks[3]?.reason, "превышено время проверки");
   assert.equal(data.checks.at(-1)?.result, "ok");
 });
-test("portal uses one mounted manual request, cancels its body and accepts redirects", async () => {
+test("портал использует один смонтированный ручной запрос, отменяет его тело и принимает перенаправления", async () => {
   let cancelled = 0;
   const transport = new HttpTransport({
     ...config,
@@ -155,7 +155,7 @@ test("portal uses one mounted manual request, cancels its body and accepts redir
   assert.equal(cancelled, 1);
   transport.dispose();
 });
-test("SDK and CLI report a login timeout, retain the report, exit nonzero and never store checks", async () => {
+test("SDK и CLI сообщают о таймауте входа, сохраняют отчёт, завершаются с ненулевым кодом и не сохраняют проверки", async () => {
   const runtime = new HcmRuntime({
     ...config,
     timeoutMs: 20,

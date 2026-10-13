@@ -350,7 +350,7 @@ async function fixture() {
 }
 
 test(
-  "actual CLI workflow creates, patches, reads and deletes through a synthetic HTTP platform",
+  "настоящий CLI создаёт, правит, читает и удаляет через подставной HTTP-сервер",
   { timeout: 30000 },
   async () => {
     const f = await fixture();
@@ -378,7 +378,7 @@ test(
       );
       assert.match(f.source()!, /<name>AppliedBeforeExportFailure<\/name>/);
       assert.equal(f.methods.filter((method) => method === "PutDoc").length, writesBefore + 1);
-      // Include a future field as if the server or another client added an extension.
+      // Включить будущее поле, как если бы расширение добавил сервер или другой клиент.
       const put = await f.cli(
         ["doc", "put", "x-local://wt_data/synthetic.xml", "--stdin"],
         "<education_mode><id>" +
@@ -505,7 +505,7 @@ test(
 );
 
 test(
-  "actual CLI binary input, bad argv, password stdin and shared batch use exact boundaries",
+  "настоящий CLI: двоичный ввод, неверный argv, пароль через stdin и общий пакет работают на точных границах",
   { timeout: 30000 },
   async () => {
     const f = await fixture();
@@ -558,7 +558,7 @@ test(
 );
 
 test(
-  "actual CLI MCP entrypoint completes SDK stdio and synthetic backend calls",
+  "настоящая точка входа MCP в CLI выполняет вызовы SDK по stdio и вызовы к подставному серверу",
   { timeout: 15000 },
   async () => {
     const f = await fixture();
@@ -629,7 +629,7 @@ test(
 );
 
 test(
-  "actual CLI logs use audited read-only RPCs, multiline search and explicit follow cursors",
+  "логи настоящего CLI используют проверенные RPC только на чтение, многострочный поиск и явные курсоры слежения",
   { timeout: 30000 },
   async () => {
     const f = await fixture();
@@ -765,7 +765,7 @@ test(
 );
 
 test(
-  "actual CLI object targets match SDK addressing under read-only policy",
+  "адресация объектов в настоящем CLI совпадает с SDK при правах только на чтение",
   { timeout: 30000 },
   async () => {
     const f = await fixture();
@@ -868,7 +868,7 @@ test(
 );
 
 test(
-  "actual CLI discovery, permissions, preview and output files match the shared runtime",
+  "обзор, права, предпросмотр и файлы вывода настоящего CLI совпадают с общим runtime",
   { timeout: 30000 },
   async () => {
     const f = await fixture();
@@ -1000,7 +1000,7 @@ test(
 );
 
 test(
-  "actual CLI resumes saved JSON without rerunning the server operation and preserves batch failures",
+  "настоящий CLI продолжает с сохранённым JSON, не повторяя операцию на сервере, и сохраняет сбои пакета",
   { timeout: 30000 },
   async () => {
     const f = await fixture();

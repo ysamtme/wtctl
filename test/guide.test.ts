@@ -1,4 +1,4 @@
-// The guide is the skill's text served by the server and the command, for an agent without the skill.
+// Гайд — текст навыка, который отдают MCP-сервер и команда агенту без навыка.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runCli } from "../src/cli/run.js";
@@ -35,7 +35,7 @@ function cli() {
   return { state, io, dependencies };
 }
 
-test("the guide has an overview and one topic per reference of the skill, with no links to files", () => {
+test("гайд содержит обзор и по теме на каждый справочник навыка, без ссылок на файлы", () => {
   assert.deepEqual(guideTopics(), [
     "start",
     "queries",
@@ -59,7 +59,7 @@ test("the guide has an overview and one topic per reference of the skill, with n
   assert.match(guide("errors").text, /см\. тему `logs`/);
 });
 
-test("hcm_guide answers with the text itself and never calls the server", async () => {
+test("hcm_guide отвечает самим текстом и никогда не обращается к серверу", async () => {
   const tools = new HcmMcpTools(runtime);
   const definition = tools.list().find((tool) => tool.name === "hcm_guide")!;
   assert.deepEqual(
@@ -77,7 +77,7 @@ test("hcm_guide answers with the text itself and never calls the server", async 
   assert.equal(failed.error?.code, "mcp.invalid_arguments");
 });
 
-test("wtctl guide prints the text, saves it to a file, and names the topics for an unknown one", async () => {
+test("wtctl guide печатает текст, сохраняет его в файл, а для неизвестной темы называет существующие", async () => {
   const plain = cli();
   assert.equal(await runCli(["guide"], plain.io, plain.dependencies), 0);
   assert.equal(plain.state.stdout, `${guide().text}\n`);
@@ -107,7 +107,7 @@ test("wtctl guide prints the text, saves it to a file, and names the topics for 
   assert.match(failed.error?.hint ?? "", /queries, objects, scripts, logs, files, cli-sdk, errors/);
 });
 
-test("the command and SDK topic ends with where this program runs from, when that is known", async () => {
+test("тема про команду и SDK заканчивается местом, откуда запущена программа, если оно известно", async () => {
   const local = {
     node: "/opt/node/bin/node",
     script: "/opt/pkg/dist/cli/bin.js",
@@ -129,7 +129,7 @@ test("the command and SDK topic ends with where this program runs from, when tha
   );
   assert.doesNotMatch(guide("cli-sdk", { node: "n", script: "s" }).text, /SDK: `import/);
   assert.equal(guide("errors", local).text, guide("errors").text);
-  // A copy kept by npx or by a plugin host moves on update: the guide names what lasts.
+  // Копия, которую держит npx или хост плагина, при обновлении переезжает: гайд называет то, что остаётся.
   assert.doesNotMatch(page.text, /меняется при обновлении/);
   for (const script of [
     "/home/u/.npm/_npx/1a2b/node_modules/wtctl/dist/cli/bin.js",
@@ -152,7 +152,7 @@ test("the command and SDK topic ends with where this program runs from, when tha
   assert.equal(command.state.stdout, `${page.text}\n`);
 });
 
-test("the same topic says how the command and a program reach this process's connection", async () => {
+test("та же тема говорит, как команда и программа получают подключение этого процесса", async () => {
   const local = { node: "/opt/node/bin/node", script: "/opt/pkg/dist/cli/bin.js" };
   const last = (text: string): string => text.slice(text.lastIndexOf("\n") + 1);
   assert.equal(
@@ -173,7 +173,7 @@ test("the same topic says how the command and a program reach this process's con
     /задано переменными окружения.*WTCTL_URL.*config init/,
   );
 
-  // The command works out the settings from its own options and environment.
+  // Команда сама определяет настройки по своим флагам и окружению.
   const previous = { config: process.env.WTCTL_CONFIG, url: process.env.WTCTL_URL };
   delete process.env.WTCTL_CONFIG;
   delete process.env.WTCTL_URL;

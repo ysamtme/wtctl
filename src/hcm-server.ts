@@ -7,12 +7,12 @@ import { WsHcmApiError } from "./protocol/error.js";
 import { scriptResult, type ScriptData } from "./scripts.js";
 import { refusedAtDoor, type WriteOutcome } from "./write-outcome.js";
 
-/** The seam to the HCM server: one low-level operation of the explicit registry. NativeGateway is the production adapter. */
+/** Шов к серверу HCM: низкоуровневая операция явного реестра. Рабочий адаптер — NativeGateway. */
 export interface ServerPort {
   call(id: string, args: Record<string, unknown>): Promise<unknown>;
 }
 
-/** A request that may change the server must name the owner of its outcome or go through read. */
+/** Запрос, способный изменить сервер, называет владельца своего исхода либо идёт через read. */
 function refuseUnowned(
   id: string,
   args: Record<string, unknown>,
@@ -23,13 +23,13 @@ function refuseUnowned(
     throw new Error(`${id}: запрос, который может изменить сервер, без владельца исхода записи`);
 }
 
-/** The server as composite operations use it: every request to the port goes through here. */
+/** Сервер для составных операций: каждый запрос к порту проходит здесь. */
 export class HcmServer implements ServerPort {
   private appInfo: { expires: number; value: Promise<unknown> } | undefined;
 
   constructor(private readonly port: ServerPort) {}
 
-  /** A request of an operation the registry calls a read. Anything else must say what it is. */
+  /** Запрос операции, которую реестр считает чтением. Всё остальное обязано сказать, что это. */
   async call(id: string, args: Record<string, unknown>, outcome?: WriteOutcome): Promise<unknown> {
     if (!outcome) {
       refuseUnowned(id, args, (effect) => effect !== "read");
@@ -45,13 +45,13 @@ export class HcmServer implements ServerPort {
     }
   }
 
-  /** A request that only reads here though its operation can do more (xQuery, rpc.call); a registry write is refused. */
+  /** Только чтение, хотя операция умеет больше (xQuery, rpc.call); запись реестра отклоняется. */
   async read(id: string, args: Record<string, unknown>): Promise<unknown> {
     refuseUnowned(id, args, (effect) => effect === "write");
     return this.port.call(id, args);
   }
 
-  /** Application info, kept for 30 seconds; a refused request is not kept. */
+  /** Сведения о приложении, хранятся 30 секунд; отклонённый запрос не хранится. */
   async applicationInfo(): Promise<Record<string, unknown>> {
     if (!this.appInfo || this.appInfo.expires < Date.now()) {
       const value = this.call("native.spxml2.getAppInfo", { fastStart: true });
@@ -64,8 +64,8 @@ export class HcmServer implements ServerPort {
   }
 
   /**
-   * Code prepared by prepareScript, run on the server; the answer is checked for a caught error.
-   * `idle` tells from the answer that the code did nothing: the mark is withdrawn.
+   * Код, подготовленный prepareScript, выполняется на сервере; ответ проверяется на
+   * перехваченную ошибку. `idle` по ответу узнаёт, что код ничего не сделал: отметка снимается.
    */
   async runCode(
     script: { request: Record<string, unknown>; executionId: string },
@@ -83,7 +83,7 @@ export class HcmServer implements ServerPort {
       if (idle?.(data)) withdraw();
       return data;
     } catch (error) {
-      // The server refused to read the code, or turned the request away at the door: none of it ran.
+      // Сервер отказался читать код или отклонил запрос на входе: ничего не выполнилось.
       if (
         (error instanceof HcmError && error.mutationOutcome === "not_sent") ||
         refusedAtDoor(error)

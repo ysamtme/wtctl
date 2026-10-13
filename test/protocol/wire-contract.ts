@@ -1,6 +1,6 @@
 /**
- * Expected request shape of every supported protocol call: transport, HTTP method, path and
- * SOAP operation name. Used only by the request-construction test.
+ * Ожидаемый вид запроса каждого поддерживаемого вызова протокола: транспорт, метод HTTP, путь и
+ * имя операции SOAP. Используется только тестом построения запроса.
  */
 export const WIRE_CONTRACT = [
   {

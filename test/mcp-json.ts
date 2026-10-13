@@ -1,6 +1,6 @@
 import type { OperationResult } from "../src/contracts.js";
 
-/** The MCP frontend returns one JSON text block; this reads it back as the operation result. */
+/** Инструмент MCP возвращает один текстовый блок JSON; эта функция читает его обратно как результат операции. */
 export function mcpJson(response: unknown): OperationResult {
   const content = (response as { content: { type: string; text: string }[] }).content;
   if (content.length !== 1 || content[0]!.type !== "text")

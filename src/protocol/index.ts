@@ -1,7 +1,7 @@
 /**
- * TypeScript client for WebSoft HCM administrative API surfaces.
- * Prefer `WsHcmClient.with*Session()` for lifecycle safety. This protocol module
- * also exports XML helpers.
+ * Клиент TypeScript для административных API WebSoft HCM.
+ * Для надёжного жизненного цикла — `WsHcmClient.with*Session()`. Этот модуль протокола
+ * ещё экспортирует вспомогательные функции XML.
  *
  * @packageDocumentation
  */

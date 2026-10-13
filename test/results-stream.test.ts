@@ -42,7 +42,7 @@ async function entire(store: ResultStore, id: string, format?: "json"): Promise<
   return parts.join("");
 }
 
-test("indexed JSON pages reconstruct an oversized Unicode object exactly across sparse checkpoints", async () => {
+test("страницы JSON с индексом точно восстанавливают слишком большой объект с Unicode по разреженным контрольным точкам", async () => {
   await fixture(async (store) => {
     const data = {
       padding: "x".repeat(65521) + "😀Ж".repeat(20000),
@@ -61,7 +61,7 @@ test("indexed JSON pages reconstruct an oversized Unicode object exactly across 
   });
 });
 
-test("plain string pages preserve controls and lone surrogates, and reject splitting real surrogate pairs", async () => {
+test("страницы простой строки сохраняют управляющие символы и одиночные суррогаты и не позволяют разрезать настоящие суррогатные пары", async () => {
   await fixture(async (store) => {
     const source = "x".repeat(65535) + "😀\ud800X\udc00\n\u0000кириллица";
     const stored = await store.put(source);
@@ -74,7 +74,7 @@ test("plain string pages preserve controls and lone surrogates, and reject split
   });
 });
 
-test("fixed-size row indices support late array pages without reading oversized preceding rows", async () => {
+test("индексы строк фиксированного размера позволяют читать поздние страницы массива, не читая предшествующие слишком большие строки", async () => {
   await fixture(async (store) => {
     const rows = [
       { index: 0, text: "large".repeat(2000) },
@@ -103,7 +103,7 @@ test("fixed-size row indices support late array pages without reading oversized 
   });
 });
 
-test("serialization failure removes only its own unpublished files and preserves existing references", async () => {
+test("сбой сериализации удаляет только свои неопубликованные файлы и сохраняет существующие ссылки", async () => {
   await fixture(async (store) => {
     const valid = await store.put({ valid: true });
     const before = (await readdir(store.directory)).sort();
@@ -115,7 +115,7 @@ test("serialization failure removes only its own unpublished files and preserves
   });
 });
 
-test("metadata write failure after creation removes partial publication files and preserves prior references", async () => {
+test("сбой записи метаданных после создания удаляет файлы неполной публикации и сохраняет прежние ссылки", async () => {
   await fixture(async (store) => {
     const valid = await store.put({ valid: true });
     const before = (await readdir(store.directory)).sort();
@@ -125,8 +125,8 @@ test("metadata write failure after creation removes partial publication files an
       /[\\/][\da-f-]{36}\.json\.tmp$/.test(String(path));
     const diskFull = (): NodeJS.ErrnoException =>
       Object.assign(new Error("Synthetic metadata disk full after creation"), { code: "ENOSPC" });
-    // Exercise the filesystem boundary, including implementations using writeFile
-    // or an explicitly opened handle: each failure occurs after the file exists.
+    // Проверяется граница файловой системы, в том числе реализации через writeFile
+    // или явно открытый файл: каждый сбой происходит после появления файла.
     fs.promises.writeFile = async (path, data, options) => {
       if (metadataPath(path)) {
         await originalWriteFile(path, "partial", options);
@@ -169,7 +169,7 @@ test("metadata write failure after creation removes partial publication files an
   });
 });
 
-test("corrupt metadata and missing payloads fail explicitly instead of returning a nonadvancing page", async () => {
+test("повреждённые метаданные и отсутствующие payload дают явную ошибку, а не страницу без продвижения", async () => {
   await fixture(async (store) => {
     const stored = await store.put({ data: "bounded" });
     const path = store.path(stored.resultId);
@@ -187,7 +187,7 @@ test("corrupt metadata and missing payloads fail explicitly instead of returning
   });
 });
 
-test("legacy artifacts remain readable within their old bound and oversized legacy data has an explicit upgrade limitation", async () => {
+test("старые артефакты читаются в прежних границах, а у слишком больших старых данных есть явное ограничение при обновлении", async () => {
   await fixture(async (store) => {
     const stored = await store.put("temporary");
     await writeFile(store.path(stored.resultId), JSON.stringify({ version: 1, data: "😀value" }));
@@ -200,7 +200,7 @@ test("legacy artifacts remain readable within their old bound and oversized lega
   });
 });
 
-test("empty JSON values terminate paging and an unwritable result directory fails with a local storage error", async () => {
+test("пустые значения JSON завершают постраничное чтение, а недоступная для записи папка результатов даёт локальную ошибку хранилища", async () => {
   await fixture(async (store) => {
     const plain = await store.put("");
     assert.deepEqual(await store.read(plain.resultId), { text: "", format: "text", totalChars: 0 });
@@ -222,7 +222,7 @@ test("empty JSON values terminate paging and an unwritable result directory fail
   });
 });
 
-test("exports stream complete JSON, array/items JSONL and UTF-8 text with exact receipts", async () => {
+test("экспорт потоком записывает полный JSON, JSONL из array/items и текст UTF-8 с точными сводками", async () => {
   await fixture(async (store) => {
     const nested = [1, { items: [] }];
     const rows = [{ text: 'Ж😀\\"[,]'.repeat(12000), nested }, null, true, "tail"];
@@ -247,7 +247,7 @@ test("exports stream complete JSON, array/items JSONL and UTF-8 text with exact 
   });
 });
 
-test("export rejects incompatible formats and existing files without leaving temporary files", async () => {
+test("экспорт отклоняет несовместимые форматы и существующие файлы, не оставляя временных файлов", async () => {
   await fixture(async (store) => {
     const { resultId } = await store.put({ items: "not an array" });
     const path = join(store.config.runtimeDir, "exported");
@@ -266,7 +266,7 @@ test("export rejects incompatible formats and existing files without leaving tem
     await assert.rejects(store.export({ resultId, path: join(path + "-missing", "out") }), {
       code: "FOLDER_NOT_FOUND",
     });
-    // A folder given as the path is named as such, with and without overwrite.
+    // Папка, указанная как путь, названа папкой — с перезаписью и без неё.
     for (const overwrite of [false, true])
       await assert.rejects(store.export({ resultId, path: store.config.runtimeDir, overwrite }), {
         code: "INVALID_ARGUMENT",
@@ -274,7 +274,7 @@ test("export rejects incompatible formats and existing files without leaving tem
   });
 });
 
-test("partial export write failure leaves neither a target nor a temporary file", async () => {
+test("сбой посреди записи экспорта не оставляет ни целевого, ни временного файла", async () => {
   await fixture(async (store) => {
     const { resultId } = await store.put(["data"]);
     const path = join(store.config.runtimeDir, "failed-export");

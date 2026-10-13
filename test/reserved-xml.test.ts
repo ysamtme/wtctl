@@ -11,7 +11,7 @@ const names =
     " ",
   );
 
-test("reserved XML names remain own data through reading, patching, serialization and JSON projection", () => {
+test("зарезервированные имена XML остаются обычными данными при чтении, правке, сериализации и проекции в JSON", () => {
   const prototype = Object.getOwnPropertyDescriptors(Object.prototype);
   for (const name of names) {
     const source = `<sample ${name}="attribute"><${name}><polluted>old</polluted></${name}><__${name}>adjacent</__${name}></sample>`;
@@ -50,7 +50,7 @@ test("reserved XML names remain own data through reading, patching, serializatio
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
 });
 
-test("ordered and grouped parsing preserves reserved attributes, repeated and empty elements", () => {
+test("упорядоченный и сгруппированный разбор сохраняет зарезервированные атрибуты, повторяющиеся и пустые элементы", () => {
   const attributes = names.map((name) => `${name}="literal"`).join(" ");
   const fields = names.map((name) => `<${name}/><${name}>text</${name}>`).join("");
   for (const preserveOrder of [false, true]) {
@@ -83,7 +83,7 @@ test("ordered and grouped parsing preserves reserved attributes, repeated and em
   }
 });
 
-test("form descriptors expose all reserved field names", async () => {
+test("описания форм показывают все зарезервированные имена полей", async () => {
   const fields = names.map((name) => `<${name} TYPE="string"/>`).join("");
   const reader = new SchemaReader(
     async () => ({}),
@@ -97,7 +97,7 @@ test("form descriptors expose all reserved field names", async () => {
   );
 });
 
-test("document parser limits return a safe runtime error without document contents", async () => {
+test("превышение лимитов разбора документа даёт безопасную ошибку runtime без содержимого документа", async () => {
   const source = `<sample>${"<node>".repeat(101)}private-document-marker${"</node>".repeat(101)}</sample>`;
   const { runtime } = fakeRuntime(
     { "*": { kind: "binary", bytes: Buffer.from(source) } },

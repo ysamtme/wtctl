@@ -51,7 +51,7 @@ function frontendFailure(result: OperationResult, diagnostic: OperationResult, f
   return { ...result, ok: false, error, meta };
 }
 
-/** One line for programs and agents; indented only for a person at a terminal or a saved file. */
+/** Одна строка для программ и агентов; с отступами — для человека в терминале или в файле. */
 export function serializeResult(value: unknown, pretty = false): string {
   return `${JSON.stringify(value, (_key: string, item: unknown) => (typeof item === "bigint" ? item.toString(10) : item), pretty ? 2 : undefined)}\n`;
 }
@@ -60,7 +60,7 @@ async function safeDiagnostic(io: CliIo, value: OperationResult): Promise<void> 
   try {
     await io.writeError(serializeResult(value, io.pretty === true));
   } catch {
-    /* Closed diagnostics are not a second failure. */
+    /* Закрытая диагностика — не второй сбой. */
   }
 }
 
@@ -166,7 +166,7 @@ function objectTarget(args: CliArguments): Record<string, unknown> {
   };
 }
 
-/** The setup command in full: a server started by an agent host may have no wtctl in PATH. */
+/** Команда настройки целиком: у MCP-сервера от хоста агента wtctl может не быть в PATH. */
 function setupCommand(local: LocalInstall | undefined): string | undefined {
   if (!local) return undefined;
   const command = /[\\/]_npx[\\/]/.test(local.script)
@@ -175,7 +175,7 @@ function setupCommand(local: LocalInstall | undefined): string | undefined {
   return `Файл создаёт человек в своём терминале, полная команда: ${command} config init`;
 }
 
-/** The guide says how the command and a program reach the connection this process works with. */
+/** Гайд говорит, как команда и программа получают подключение, с которым работает процесс. */
 function withSettings(
   local: LocalInstall | undefined,
   args: CliArguments,
@@ -193,7 +193,7 @@ function withSettings(
   };
 }
 
-/** Add a connection to the connections file, asking the person for what was not given. */
+/** Добавляет подключение в файл подключений, спрашивая у человека то, что не задано. */
 async function initConnection(args: CliArguments, io: CliIo): Promise<OperationResult> {
   allowOptions(args, [
     "url",
@@ -272,7 +272,7 @@ async function initConnection(args: CliArguments, io: CliIo): Promise<OperationR
   });
 }
 
-/** Compile a command to one explicit registry call; no client-method reflection. */
+/** Компилирует команду в один явный вызов реестра; без поиска методов клиента по имени. */
 export async function commandInvocation(args: CliArguments, io: CliIo): Promise<Invocation> {
   const [command, action] = args.positionals;
   switch (command) {
@@ -326,7 +326,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         throw new CliInputError("Запрос задан и аргументом, и отдельным источником.");
       const catalog = stringOption(args, "catalog");
       const option = stringOption(args, "where");
-      // Without a catalog a JSON object in the separate source is the whole set of arguments, as for api call.
+      // Без каталога JSON-объект из отдельного источника — весь набор аргументов, как у api call.
       const whole =
         !catalog && source?.trimStart().startsWith("{") ? jsonObject(source) : undefined;
       if (whole && option)
@@ -335,7 +335,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         throw new CliInputError(
           "В объекте JSON нет ни catalog, ни query. Условия where передают вместе с --catalog.",
         );
-      // With a catalog the separate input source carries the conditions: shells mangle quotes in --where.
+      // С каталогом отдельный источник ввода несёт условия: оболочки портят кавычки в --where.
       const query = catalog || whole ? args.positionals[1] : (source ?? args.positionals[1]);
       if (!query?.trim() && !catalog && !whole)
         throw new CliInputError(
@@ -347,7 +347,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       const whereText = option ?? (catalog ? source : undefined);
       if (!catalog && whereText) throw new CliInputError("--where требует --catalog.");
       const where = whereText ? jsonObject(whereText) : undefined;
-      // The whole set of arguments given next to --catalog would be read as a condition on a field "where".
+      // Весь набор аргументов рядом с --catalog читался бы как условие на поле "where".
       const nested = where?.where;
       if (
         Array.isArray(where?.fields) ||
@@ -418,11 +418,11 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         ]);
         const target = objectTarget(args);
         const resave = args.options.resave ? { resave: true } : {};
-        // --resave alone saves the document as it is.
+        // Один --resave сохраняет документ как есть.
         const input = await inputJson(args, io, args.options.resave ? {} : undefined);
         if (input === null || typeof input !== "object")
           throw new CliInputError("Patch должен быть объектом полей или массивом операций.");
-        // The same file as the arguments of the MCP tool: {patch: {…}, remove: […]}.
+        // Тот же файл, что аргументы инструмента MCP: {patch: {…}, remove: […]}.
         const whole =
           !Array.isArray(input) &&
           Object.keys(input).length > 0 &&
@@ -558,7 +558,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         return {
           operationId: "rpc.describe",
           args: {
-            targetId: requirePositional(args, 2, "target LIBRARY.METHOD"),
+            targetId: requirePositional(args, 2, "аргумент БИБЛИОТЕКА.ФУНКЦИЯ"),
             ...(args.options["built-in"] ? { builtIn: true } : {}),
             ...(args.options.source ? { source: true } : {}),
           },
@@ -867,7 +867,7 @@ async function emit(
     let bytes: number | undefined;
     try {
       if (result.meta.truncated && result.meta.resultId) {
-        if (!runtime?.results) throw new Error("Result store unavailable");
+        if (!runtime?.results) throw new Error("Хранилище результатов недоступно");
         const input = { resultId: result.meta.resultId, path: output, overwrite: true };
         bytes = (await runtime.results.export(input, result)).bytes;
       } else await io.writeFile(output, serializeResult(result, true));
@@ -882,7 +882,7 @@ async function emit(
       await deliverOutput(failedExport, failedExport, io);
       return 1;
     }
-    // The file holds the whole answer, so the receipt does not call it cut; a write names its outcome.
+    // Файл содержит весь ответ, поэтому сводка не называет его обрезанным; запись называет исход.
     const { truncated: _, ...meta } = result.meta;
     const done = result.data as Record<string, unknown> | null;
     const written =
@@ -904,7 +904,7 @@ async function emit(
   return result.ok ? 0 : 1;
 }
 
-/** Help and the guide are read, not parsed: the text goes out as it is, to stdout or to the --output file. */
+/** Справка и гайд читаются, а не разбираются: текст уходит как есть в stdout или в --output. */
 async function emitText(text: string, args: CliArguments, io: CliIo): Promise<number> {
   const output = stringOption(args, "output");
   if (output) await io.writeFile(output, text);
@@ -925,9 +925,9 @@ export async function runCli(
     if (!command || command === "help") {
       if (parsed.options["password-stdin"])
         throw new CliInputError("Ввод пароля не нужен для help.");
-      // КОМАНДА … --help: the options typed before --help belong to the command and are not checked.
+      // КОМАНДА … --help: параметры, набранные до --help, относятся к команде и не проверяются.
       if (!parsed.options.help) allowOptions(parsed, []);
-      // help logs search: the help of a group covers its subcommands.
+      // help logs search: справка группы покрывает её подкоманды.
       exactPositionals(parsed, 0, 3);
       const topic = action === "help" ? undefined : action;
       if (parsed.options.json)
@@ -985,7 +985,7 @@ export async function runCli(
         io,
       );
     }
-    // Validate the complete command and its local inputs before opening a runtime.
+    // Полная команда и её локальные входные данные проверяются до открытия runtime.
     const discovery = command === "api" && (action === "list" || action === "describe");
     let discoveryFilter: OperationFilter = {};
     let invocation: Invocation | undefined;
@@ -1057,7 +1057,7 @@ export async function runCli(
         ...optional("password", password),
       });
     if (command === "mcp") {
-      // A server without settings still starts: its tools answer with what to set.
+      // MCP-сервер без настроек всё равно стартует: его инструменты отвечают, что настроить.
       let name = "unconfigured";
       let serving: RuntimePort;
       try {

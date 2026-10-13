@@ -1,22 +1,22 @@
-/** Stable high-level categories used for programmatic error handling. */
+/** Устойчивые высокоуровневые категории для программной обработки ошибок. */
 export type WsHcmErrorKind = "auth" | "permission" | "soap-fault" | "http" | "protocol" | "cleanup";
 
 /**
- * Normalized API/transport error with bounded, redacted diagnostics.
- * Operation and cleanup failures preserve the operation error and attach cleanup in `cleanupError`.
+ * Нормализованная ошибка API или транспорта с ограниченной, очищенной диагностикой.
+ * Сбой операции и сбой очистки: ошибка операции остаётся, очистка прикладывается в `cleanupError`.
  */
 export class WsHcmApiError extends Error {
-  /** Stable machine-readable category. */
+  /** Устойчивая машиночитаемая категория. */
   readonly kind: WsHcmErrorKind;
-  /** Wire operation/action name when known. */
+  /** Имя операции или действия в протоколе, если известно. */
   readonly operation?: string;
-  /** HTTP status when one was available. */
+  /** Статус HTTP, если он был. */
   readonly status?: number;
-  /** Bounded structured diagnostics; never a complete response body. */
+  /** Ограниченная структурированная диагностика; никогда не полное тело ответа. */
   readonly details?: Readonly<Record<string, unknown>>;
-  /** Explicit local preflight proof; absence leaves the mutation outcome uncertain. */
+  /** Явное локальное доказательство проверки до отправки; без него исход записи неопределённый. */
   readonly requestSent?: boolean;
-  /** Cleanup failure(s) attached without replacing this primary error. */
+  /** Сбои очистки, приложенные без замены этой основной ошибки. */
   cleanupError?: unknown;
 
   constructor(
@@ -40,8 +40,8 @@ export class WsHcmApiError extends Error {
   }
 }
 
-/** A status-bearing server rejection is distinct from an unobserved/lost HTTP response.
- * Walk only bounded error links; a local TypeError by itself is not network evidence. */
+/** Отказ сервера со статусом отличается от потерянного или не наблюдавшегося ответа HTTP.
+ * Идти только по ограниченным ссылкам ошибок; один локальный TypeError — не свидетельство сети. */
 export function isTransportFailure(error: unknown): boolean {
   const pending = [error];
   const seen = new Set<unknown>();
@@ -61,7 +61,7 @@ export function isTransportFailure(error: unknown): boolean {
   return false;
 }
 
-/** Preserves and aggregates cleanup failures without replacing the primary operation error. */
+/** Сохраняет и собирает сбои очистки, не заменяя основную ошибку операции. */
 export function attachCleanupError(operationError: unknown, cleanupError: unknown): void {
   if (!(operationError instanceof Error) || !Object.isExtensible(operationError)) return;
   const target = operationError as Error & { cleanupError?: unknown };
@@ -73,7 +73,7 @@ export function attachCleanupError(operationError: unknown, cleanupError: unknow
           previous instanceof AggregateError
             ? [...previous.errors, cleanupError]
             : [previous, cleanupError],
-          "Multiple cleanup failures",
+          "Несколько ошибок при очистке",
         );
   Object.defineProperty(target, "cleanupError", {
     configurable: true,

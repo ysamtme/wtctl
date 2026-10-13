@@ -33,7 +33,7 @@ type Mode =
   | "rotate-cookie"
   | "expire-cookie";
 
-/** Independent small-frame server oracle. Only the expected client heartbeat/Close are decoded. */
+/** Независимый эталонный сервер на малых кадрах. Декодируются только ожидаемые heartbeat и Close клиента. */
 function rawFrames(socket: Socket, onFrame: (opcode: number, data: Buffer) => void) {
   let pending = Buffer.alloc(0);
   socket.on("data", (part) => {
@@ -238,7 +238,7 @@ async function fixture(mode: Mode) {
 }
 
 for (const mode of ["ack", "fragmented", "eof-close"] as const) {
-  test(`actual fixed route heartbeat: ${mode} and honest close receipt`, async () => {
+  test(`настоящий heartbeat по фиксированному маршруту: ${mode} и честная сводка закрытия`, async () => {
     const f = await fixture(mode);
     try {
       const result = await f.client.withWebSession((session) =>
@@ -289,7 +289,7 @@ for (const [mode, code] of [
   ["rotate-cookie", "WS_SESSION_CHANGED"],
   ["expire-cookie", "WS_SESSION_CHANGED"],
 ] as const) {
-  test(`failure ${mode} retains bounded receipt and permits own HTTP cleanup`, async () => {
+  test(`сбой ${mode} сохраняет ограниченную сводку и допускает собственную очистку HTTP`, async () => {
     const f = await fixture(mode);
     try {
       await assert.rejects(
@@ -342,7 +342,7 @@ for (const [mode, code] of [
   });
 }
 
-test("accepted heartbeat without Close ACK is locally terminated at deadline with an explicit warning", async () => {
+test("принятый heartbeat без Close ACK завершается локально по истечении срока с явным предупреждением", async () => {
   const f = await fixture("no-ack");
   try {
     const result = await f.client.withWebSession((session) =>
@@ -368,7 +368,7 @@ test("accepted heartbeat without Close ACK is locally terminated at deadline wit
   }
 });
 
-test("reset after accepted heartbeat remains a failure and preserves acceptance before own HTTP cleanup", async () => {
+test("сброс после принятого heartbeat остаётся сбоем и сохраняет факт приёма до собственной очистки HTTP", async () => {
   const f = await fixture("reset-close");
   try {
     await assert.rejects(
@@ -394,7 +394,7 @@ test("reset after accepted heartbeat remains a failure and preserves acceptance 
   }
 });
 
-test("custom fetch-only guard and input validation are local before HTTP bootstrap", async () => {
+test("защита от своего fetch без фабрики WS и проверка ввода срабатывают локально до bootstrap по HTTP", async () => {
   let requests = 0;
   const gateway = new NativeGateway({
     baseUrl: "http://invalid.example/",
@@ -426,7 +426,7 @@ test("custom fetch-only guard and input validation are local before HTTP bootstr
   }
 });
 
-test("trusted factory sees only owned options; send and disposal-time transport failures retain their receipt", async () => {
+test("доверенная фабрика видит только собственные опции; сбои транспорта при отправке и при освобождении сохраняют свою сводку", async () => {
   const http = new HttpTransport({
     baseUrl: "http://invalid.example/prefix/",
     timeoutMs: 1000,
@@ -496,7 +496,7 @@ test("trusted factory sees only owned options; send and disposal-time transport 
   http.dispose();
 });
 
-test("typed receipt constructor whitelists fields and cannot publish arbitrary trusted-factory diagnostics", () => {
+test("конструктор типизированной сводки пропускает только поля из белого списка и не может опубликовать произвольную диагностику доверенной фабрики", () => {
   const injected = {
     route: "secret-route",
     phase: "secret-phase",

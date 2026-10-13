@@ -6,7 +6,7 @@ import { rawXml } from "../protocol/xml.js";
 import { NATIVE_ENTRIES, type NativeEntry } from "./generated.js";
 import { validate, prepare } from "./validation.js";
 import { freezeRegistry } from "../immutable.js";
-import { getEffectiveNativeEffect } from "./metadata.js";
+import { getEffectiveNativeEffect, isInternalNative } from "./metadata.js";
 
 const empty = { type: "object", properties: {}, required: [], additionalProperties: false };
 const managed: NativeEntry[] = [];
@@ -17,7 +17,7 @@ managed.push({
     group: "diagnostics",
     method: "portal",
     title: "Portal status",
-    description: "Read the portal landing status without redirects or body.",
+    description: "Прочитать статус стартовой страницы портала без перенаправлений и тела.",
     effect: "read",
     status: "implemented",
     inputSchema: empty,
@@ -32,7 +32,7 @@ managed.push({
     method: "heartbeat",
     title: "Stock WebSocket heartbeat",
     description:
-      "Sends one bounded $hbt on /services/main_ws_service and observes $ok. A receipt distinguishes peer Close from missing acknowledgement; app messages and browser /api/spxml2/ws are not covered.",
+      "Отправить один $hbt на /services/main_ws_service с ограничением по времени и дождаться $ok. Ответ различает закрытие со стороны сервера и отсутствие подтверждения; прикладные сообщения и браузерный /api/spxml2/ws не охвачены.",
     effect: "read",
     status: "implemented",
     inputSchema: {
@@ -57,7 +57,7 @@ for (const profile of ["native", "web"] as const) {
         method,
         title: `${profile} session ${method}`,
         description:
-          "Opens or closes the gateway-owned session. Cookies and LDS IDs remain private to this process.",
+          "Открыть или закрыть сессию, которой владеет клиент. Cookie и ID сессии LDS остаются внутри этого процесса.",
         effect: "read",
         status: "implemented",
         inputSchema: empty,
@@ -76,7 +76,7 @@ for (const profile of ["native", "web"] as const) {
     });
   }
 }
-// These closures are explicit and intentionally do not expose arbitrary instance members.
+// Замыкания явные и намеренно не дают доступа к произвольным полям и методам экземпляра.
 managed.push({
   operation: {
     id: "native.lds.closeSession",
@@ -84,7 +84,7 @@ managed.push({
     group: "lds",
     method: "closeSession",
     title: "Close native LDS context",
-    description: "Closes the LDS and HTTP context and removes it from the gateway session cache.",
+    description: "Закрыть сессию LDS и HTTP и убрать её из кэша сессий клиента.",
     effect: "read",
     status: "implemented",
     inputSchema: empty,
@@ -101,8 +101,7 @@ managed.push({
     group: "lds",
     method: "closeSession",
     title: "Close web LDS context",
-    description:
-      "Closes the web LDS and HTTP context and removes it from the gateway session cache.",
+    description: "Закрыть сессию web LDS и HTTP и убрать её из кэша сессий клиента.",
     effect: "read",
     status: "implemented",
     inputSchema: empty,
@@ -120,7 +119,7 @@ managed.push({
     method: "openSession",
     title: "Open native LDS context",
     description:
-      "Opens the gateway-owned native session. Internal session IDs remain in the gateway.",
+      "Открыть сессию native, которой владеет клиент. Внутренние ID сессии остаются в клиенте.",
     effect: "read",
     status: "implemented",
     inputSchema: empty,
@@ -137,7 +136,8 @@ managed.push({
     group: "lds",
     method: "openSession",
     title: "Open web LDS context",
-    description: "Opens the gateway-owned web session. Internal session IDs remain in the gateway.",
+    description:
+      "Открыть сессию web, которой владеет клиент. Внутренние ID сессии остаются в клиенте.",
     effect: "read",
     status: "implemented",
     inputSchema: empty,
@@ -155,7 +155,7 @@ managed.push({
     method: "createFromXml",
     title: "Create a physical XML document",
     description:
-      "Allocates an ID and replaces {{objectId}} in documentXmlTemplate, then PutDoc and LoadDoc verify its root ID. This does not reproduce client XMD lifecycle.",
+      "Выделить ID, подставить его вместо {{objectId}} в documentXmlTemplate, сохранить через PutDoc и сверить ID корня через LoadDoc. Обработка XMD, как в клиенте администратора, не воспроизводится.",
     effect: "write",
     status: "implemented",
     inputSchema: {
@@ -186,14 +186,12 @@ managed.push({
 
 const entries = freezeRegistry([...NATIVE_ENTRIES, ...managed]);
 const byId = new Map(entries.map((entry) => [entry.operation.id, entry]));
-if (byId.size !== entries.length) throw new Error("Duplicate native operation ID");
-/** The runtime calls these itself (files.read, files.write, files.delete); callers never see them. */
-const INTERNAL = new Set(["native.lds.loadUrl", "native.lds.putUrl", "native.lds.deleteUrl"]);
+if (byId.size !== entries.length) throw new Error("ID низкоуровневой операции повторяется");
 export function getNativeOperations(): readonly NativeOperation[] {
-  return entries.map((entry) => entry.operation).filter((item) => !INTERNAL.has(item.id));
+  return entries.map((entry) => entry.operation).filter((item) => !isInternalNative(item.id));
 }
 
-/** The effect of a registry operation for these arguments, internal operations included; undefined for an unknown ID. */
+/** Эффект операции реестра для этих аргументов (и внутренней); undefined для неизвестного ID. */
 export function nativeEffect(
   id: string,
   args: Record<string, unknown>,
@@ -202,7 +200,7 @@ export function nativeEffect(
   return entry && getEffectiveNativeEffect(entry.operation, args);
 }
 
-/** Every failure inside a cleanup error is the server's HTTP 401: it no longer knows the session. */
+/** Любой сбой внутри ошибки очистки — HTTP 401 сервера: он больше не знает сессию. */
 function sessionGone(error: unknown): boolean {
   if (!(error instanceof WsHcmApiError) || error.kind !== "cleanup") return false;
   const causes = error.cause instanceof AggregateError ? error.cause.errors : [error.cause];
@@ -210,12 +208,12 @@ function sessionGone(error: unknown): boolean {
 }
 
 const failedLogins = new WeakSet<object>();
-/** The failure happened while opening the session: the operation itself was not sent. */
+/** Сбой случился при открытии сессии: сама операция не отправлена. */
 export function loginFailed(error: unknown): boolean {
   return typeof error === "object" && error !== null && failedLogins.has(error);
 }
 
-/** Stateful owner shared by SDK, MCP and CLI. Calls are serialized to protect session/cursor identity. */
+/** Владелец состояния для SDK, MCP и CLI. Вызовы идут по очереди: сессия и курсор не путаются. */
 export class NativeGateway {
   readonly client: WsHcmClient;
   private nativeSession: Promise<NativeSession> | undefined;
@@ -242,7 +240,7 @@ export class NativeGateway {
     });
   }
   private assertOpen(): void {
-    if (this.closed) throw new WsHcmApiError("protocol", "Gateway is closed");
+    if (this.closed) throw new WsHcmApiError("protocol", "Шлюз закрыт");
   }
   native(): Promise<NativeSession> {
     this.assertOpen();
@@ -271,12 +269,13 @@ export class NativeGateway {
     if (session) await (await session).close();
   }
   call(id: string, args: Record<string, unknown>): Promise<unknown> {
-    if (!this.accepting) return Promise.reject(new WsHcmApiError("protocol", "Gateway is closed"));
+    if (!this.accepting) return Promise.reject(new WsHcmApiError("protocol", "Шлюз закрыт"));
     const entry = byId.get(id);
-    if (!entry) return Promise.reject(new WsHcmApiError("protocol", "Unknown native operation"));
+    if (!entry)
+      return Promise.reject(new WsHcmApiError("protocol", "Неизвестная низкоуровневая операция"));
     let snapshot: Record<string, unknown>;
-    // Validate an owned snapshot, so a caller cannot replace URLs or nested
-    // XML/binary boxes while an earlier accepted call occupies the queue.
+    // Проверяется собственный снимок, чтобы вызывающий не мог подменить URL или вложенные обёртки
+    // XML и двоичных данных, пока предыдущий принятый вызов занимает очередь.
     try {
       snapshot = structuredClone(args);
       prepare(snapshot, entry.operation.inputSchema);
@@ -311,10 +310,11 @@ export class NativeGateway {
     return run;
   }
   /**
-   * The server drops a session that stayed idle (within twenty minutes on the stands) or was closed
-   * from its side; every later request then gets HTTP 401. A long-lived owner would stay locked out,
-   * so the dropped session is replaced by a new login and the request is sent once more. The server
-   * rejects such a request before handling it, hence the repeat cannot run anything twice.
+   * Сервер сбрасывает сессию, простоявшую без дела (на стендах — в пределах двадцати минут),
+   * или закрытую с его стороны; каждый следующий запрос получает HTTP 401. Долгоживущий владелец
+   * остался бы без доступа, поэтому сброшенная сессия заменяется новым входом, и запрос
+   * отправляется ещё раз. Сервер отклоняет такой запрос до обработки, поэтому повтор не может
+   * выполнить что-либо дважды.
    */
   private async invoke(entry: NativeEntry, args: Record<string, unknown>): Promise<unknown> {
     const profile = entry.operation.profile;
@@ -323,7 +323,7 @@ export class NativeGateway {
     try {
       return await entry.invoke(this, args);
     } catch (error) {
-      // Without an earlier session this was the login itself: its refusal is final.
+      // Без предыдущей сессии это был сам вход: его отказ окончателен.
       if (
         session === undefined ||
         profile === "anonymous" ||
@@ -373,8 +373,8 @@ export class NativeGateway {
     this.closed = true;
     const errors: unknown[] = [];
     let transportLost = false;
-    // One profile's complete teardown must settle before another can send.
-    // This lets transport loss stop later cleanup without in-flight logout races.
+    // Закрытие одного профиля должно завершиться полностью, прежде чем другой сможет отправлять.
+    // Так потеря транспорта останавливает дальнейшую очистку без гонок выхода с запросами в полёте.
     for (const profile of ["native", "web"] as const) {
       try {
         if (transportLost) {
@@ -382,7 +382,7 @@ export class NativeGateway {
           if (session) (await session).disposeLocal();
         } else await this.closeProfile(profile);
       } catch (error) {
-        // A session the server has already dropped needs no closing.
+        // Сессию, которую сервер уже сбросил, закрывать не нужно.
         if (sessionGone(error)) continue;
         errors.push(error);
         transportLost ||= isTransportFailure(error);
@@ -390,10 +390,12 @@ export class NativeGateway {
     }
     this.client.close();
     if (errors.length)
-      throw new WsHcmApiError("cleanup", "Gateway session cleanup failed", {
+      throw new WsHcmApiError("cleanup", "Не удалось закрыть сессии шлюза", {
         details: { errorCount: errors.length, remoteCleanupStopped: transportLost },
         cause:
-          errors.length === 1 ? errors[0] : new AggregateError(errors, "Gateway cleanup failures"),
+          errors.length === 1
+            ? errors[0]
+            : new AggregateError(errors, "Ошибки при закрытии сессий шлюза"),
       });
   }
 }

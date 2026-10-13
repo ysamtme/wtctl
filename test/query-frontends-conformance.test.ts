@@ -125,7 +125,7 @@ async function fixture() {
       assert.ok([1, 2, 4].includes(start));
       context.starts.push(start);
       context.steps.push(method);
-      // These are predeclared server pages, not an implementation of runtime pagination.
+      // Это заранее заданные страницы сервера, а не реализация постраничного чтения в runtime.
       const page = start === 1 ? rows.slice(1, 2) : start === 2 ? rows.slice(2, 4) : rows.slice(4);
       const data = page
         .map(
@@ -255,7 +255,7 @@ async function follow(call: (start: number) => Promise<OperationResult>): Promis
 }
 
 test(
-  "actual SDK, CLI and MCP follow returned query offsets without losing lexical rows",
+  "настоящие SDK, CLI и MCP идут по возвращённым смещениям запроса, не теряя строк в записанном виде",
   { timeout: 30000 },
   async () => {
     const f = await fixture();

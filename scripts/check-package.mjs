@@ -8,10 +8,13 @@ import { join, resolve } from "node:path";
 const directory = fileURLToPath(new URL("..", import.meta.url));
 const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const npmEntry = process.env.npm_execpath;
-assert.ok(npmEntry, "Run this check through npm run package:check so the configured npm is used.");
-// Packaging smoke must not select an unrelated user's HCM connection or load
-// arbitrary Node preloads. The installed launchers intentionally preserve env;
-// this read-only, offline check uses its own environment instead.
+assert.ok(
+  npmEntry,
+  "Проверка запускается через npm run package:check, чтобы работал настроенный npm.",
+);
+// Дымовая проверка упаковки не должна выбирать подключение HCM чужого пользователя и загружать
+// произвольные предзагрузки Node. Установленные команды запуска намеренно сохраняют окружение;
+// эта проверка только читает и работает без сети, поэтому берёт собственное окружение.
 const smokeEnv = { ...process.env };
 for (const key of Object.keys(smokeEnv))
   if (/^WTCTL_/i.test(key) || key.toUpperCase() === "NODE_OPTIONS") delete smokeEnv[key];
@@ -27,20 +30,17 @@ assert.equal(packed.status, 0, packed.stderr);
 const [archive] = JSON.parse(packed.stdout);
 assert.equal(archive.name, manifest.name);
 const files = archive.files.map((file) => file.path.replaceAll("\\", "/"));
-assert.ok(
-  files.length > 30,
-  "The distributable should contain the compiled interfaces and documentation.",
-);
+assert.ok(files.length > 30, "В пакете должны быть собранные интерфейсы и документация.");
 for (const file of files) {
   assert.match(
     file,
     /^(?:package\.json|README\.md|CHANGELOG\.md|CONTRIBUTING\.md|SECURITY\.md|LICENSE|dist\/|docs\/|examples\/|skills\/|plugin\.json|mcp\.json|gemini-extension\.json|\.claude-plugin\/|\.agents\/plugins\/)/,
-    `Unexpected packaged file: ${file}`,
+    `Лишний файл в пакете: ${file}`,
   );
   assert.doesNotMatch(
     file,
     /(?:^|\/)(?:\.work|\.runtime|\.local|\.cache|dev|node_modules|task_context|\.git|\.env[^/]*|coverage)(?:\/|$)/,
-    `Private material in archive: ${file}`,
+    `Закрытый файл в архиве: ${file}`,
   );
   assert.doesNotMatch(
     file,
@@ -49,13 +49,13 @@ for (const file of files) {
 }
 for (const entry of Object.values(manifest.exports))
   for (const path of Object.values(entry))
-    assert.ok(files.includes(path.replace(/^\.\//, "")), `Export is missing from package: ${path}`);
-// The build inlines every dependency, so an install fetches this package and nothing else.
+    assert.ok(files.includes(path.replace(/^\.\//, "")), `В пакете нет экспорта: ${path}`);
+// Сборка встраивает все зависимости, поэтому установка получает этот пакет и больше ничего.
 assert.deepEqual(Object.keys(manifest.dependencies ?? {}), []);
-assert.ok(files.includes("dist/THIRD-PARTY-LICENSES.txt"), "Licences of the inlined packages.");
+assert.ok(files.includes("dist/THIRD-PARTY-LICENSES.txt"), "Лицензии встроенных пакетов.");
 const bin = Object.values(manifest.bin)[0];
 assert.ok(files.includes(bin.replace(/^\.\//, "")));
-// The package folder is also a plugin: every agent's description starts the same command file.
+// Папка пакета — ещё и плагин: описание каждого агента запускает один и тот же файл команды.
 const json = async (path) => JSON.parse(await readFile(resolve(directory, path), "utf8"));
 const plugin = await json("plugin.json");
 const servers = [
@@ -72,13 +72,13 @@ for (const path of [
   ".agents/plugins/marketplace.json",
   "skills/wtctl/SKILL.md",
 ])
-  assert.ok(files.includes(path), `Plugin file is missing from package: ${path}`);
-assert.equal(plugin.version, manifest.version, "plugin.json carries the package version.");
+  assert.ok(files.includes(path), `В пакете нет файла плагина: ${path}`);
+assert.equal(plugin.version, manifest.version, "В plugin.json — версия пакета.");
 assert.equal((await json("gemini-extension.json")).version, manifest.version);
-// Claude Code replaces an installed copy only when this version changes.
+// Claude Code заменяет установленную копию, только когда меняется эта версия.
 assert.equal((await json(".claude-plugin/plugin.json")).version, manifest.version);
-// This repository has no build in it: its catalogs send an application to the built package on the
-// branch "plugin". Over HTTPS, since an owner/repo source is cloned over SSH and fails without a key.
+// В этом репозитории сборки нет: файлы marketplace.json отправляют приложение к собранному пакету в
+// ветке "plugin". Через HTTPS: источник owner/repo клонируется по SSH, без ключа это падает.
 for (const path of [".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"])
   assert.deepEqual((await json(path)).plugins[0].source, {
     source: "url",
@@ -91,7 +91,7 @@ for (const name of [
   (await json(".claude-plugin/marketplace.json")).plugins[0].name,
   (await json(".agents/plugins/marketplace.json")).plugins[0].name,
 ])
-  assert.equal(name, plugin.name, "One plugin name in every description.");
+  assert.equal(name, plugin.name, "Имя плагина одно во всех описаниях.");
 for (const entry of servers) {
   const [server] = Object.values(entry);
   assert.equal(server.command, "node");
@@ -99,7 +99,7 @@ for (const entry of servers) {
   assert.equal(
     server.args[0].replace(/\$\{[^}]+\}\/?/g, "/").replace(/^\/+/, ""),
     bin.replace(/^\.\//, ""),
-    "The plugin starts the command file of the package.",
+    "Плагин запускает файл команды из пакета.",
   );
 }
 assert.match(await readFile(resolve(directory, bin), "utf8"), /^#!\/usr\/bin\/env node\r?\n/);
@@ -117,8 +117,8 @@ const api = spawnSync(
   { cwd: directory, env: smokeEnv, encoding: "utf8", timeout: 10000 },
 );
 assert.equal(api.status, 0, api.stderr);
-assert.ok(JSON.parse(api.stdout), "Compiled CLI must emit one valid JSON result.");
-// The command file alone, away from this folder and its node_modules.
+assert.ok(JSON.parse(api.stdout), "Собранный CLI должен вывести один корректный результат JSON.");
+// Файл команды отдельно, вне этой папки и её node_modules.
 const alone = await mkdtemp(join(tmpdir(), "wtctl-package-check-"));
 try {
   await copyFile(resolve(directory, bin), join(alone, "wtctl.mjs"));
@@ -139,5 +139,5 @@ assert.equal(typeof sdk.loadConfig, "function");
 for (const path of Object.values(manifest.exports).flatMap((entry) => Object.values(entry)))
   assert.ok((await stat(resolve(directory, path))).isFile());
 console.log(
-  `Package validated: ${files.length} public files, self-contained command and SDK, no local state.`,
+  `Пакет проверен: открытых файлов — ${files.length}, команда и SDK самодостаточны, локального состояния нет.`,
 );

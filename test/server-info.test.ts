@@ -28,7 +28,7 @@ const rpcResponse = (fields = metadataFields()) => ({
 const limitsXml = (name: string, limit: string): string =>
   `<catalogs><catalog><name>${escapeXml(name)}</name><max_records_num>${escapeXml(limit)}</max_records_num></catalog></catalogs>`;
 
-test("stock metadata preserves future history and exact signed64 lexemes without interpreting capabilities as rights", () => {
+test("штатные метаданные сохраняют будущую историю и точную запись чисел signed64, не трактуя возможности как права", () => {
   for (const [capability, limit] of [
     ["9223372036854775807", "-9223372036854775808"],
     ["0x7FFFFFFFFFFFFFFF", "0x10001"],
@@ -51,7 +51,7 @@ test("stock metadata preserves future history and exact signed64 lexemes without
   assert.equal(parseServerInfo(rpcResponse(metadataFields({ os: "linux" }))).osType, "linux");
 });
 
-test("the database is told by the flags the server tells it by, PostgreSQL by the bit seen on it", () => {
+test("базу определяют по флагам, по которым её называет сервер, PostgreSQL — по замеченному у него биту", () => {
   for (const [capability, database] of [
     ["118039011", "mssql"],
     ["252256739", "mssql"],
@@ -66,7 +66,7 @@ test("the database is told by the flags the server tells it by, PostgreSQL by th
     assert.equal(parseServerInfo(rpcResponse(metadataFields({ capability }))).database, database);
 });
 
-test("the nested XML byte ceiling permits its exact boundary and rejects oversize before accepting metadata", () => {
+test("потолок байтов вложенного XML пропускает ровно свою границу и отклоняет превышение до приёма метаданных", () => {
   const prefix = "<catalogs>";
   const suffix = "</catalogs>";
   const exact = prefix + " ".repeat(256 * 1024 - prefix.length - suffix.length) + suffix;
@@ -100,7 +100,7 @@ function safeError(error: unknown): boolean {
   return true;
 }
 
-test("unexpected typed fields, scalar shapes and ambiguous RPC chains fail with fixed diagnostics", () => {
+test("неожиданные типизированные поля, виды скаляров и неоднозначные цепочки RPC дают фиксированную диагностику", () => {
   const unknown =
     metadataFields() + '<PRIVATE_FIELD VALUE-TYPE="string">PRIVATE_SECRET</PRIVATE_FIELD>';
   const malformed = [
@@ -133,7 +133,7 @@ test("unexpected typed fields, scalar shapes and ambiguous RPC chains fail with 
   assert.equal(parseServerInfo(namespaces).versionServer, "2030.2.1500 (future history)");
 });
 
-test("catalog XML is inert, shape checked, unique and decoded once", () => {
+test("XML каталога инертен, проверен по структуре, уникален и декодируется один раз", () => {
   const malformed = [
     "&lt;catalogs/&gt;",
     '<!DOCTYPE catalogs [<!ENTITY x SYSTEM "PRIVATE_PATH">]><catalogs/>',
@@ -229,7 +229,7 @@ function fixture(
 }
 
 for (const profile of ["native", "web"] as const)
-  test(`server.info ${profile} uses one fixed no-argument RPC under read-only policy and exact owned teardown`, async () => {
+  test(`server.info ${profile} использует один фиксированный RPC без аргументов при правах только на чтение и точно закрывает собственные ресурсы`, async () => {
     const { runtime, calls } = fixture(profile);
     try {
       const before = await runtime.call("rpc.call", {
@@ -292,7 +292,7 @@ for (const profile of ["native", "web"] as const)
     assert.ok(!calls.some((value) => /PutDoc|Eval|CreateDoc|PutUrl/.test(value.body)));
   });
 
-test("invalid inputs never bootstrap and unexpected valid RPC content becomes a safe semantic error", async () => {
+test("неверный ввод не доходит до bootstrap, а неожиданное, но допустимое содержимое RPC становится безопасной смысловой ошибкой", async () => {
   const invalid = fixture("native");
   try {
     for (const args of [
@@ -321,7 +321,7 @@ test("invalid inputs never bootstrap and unexpected valid RPC content becomes a 
   }
 });
 
-test("server authorization and SOAP faults retain their upstream categories rather than becoming metadata shape errors", async () => {
+test("отказ в авторизации сервера и SOAP fault сохраняют свои исходные категории и не превращаются в ошибки структуры метаданных", async () => {
   for (const variant of ["auth", "permission", "soap"] as const) {
     const { calls, runtime } = fixture("native", undefined, {
       rpcResponse: () =>
@@ -355,7 +355,7 @@ test("server authorization and SOAP faults retain their upstream categories rath
   }
 });
 
-test("large metadata retains exact integers through the shared stored-result continuation without another server call", async () => {
+test("большие метаданные сохраняют точные целые числа в общем продолжении сохранённого результата без нового обращения к серверу", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-server-info-"));
   const limits = Array.from(
     { length: 200 },

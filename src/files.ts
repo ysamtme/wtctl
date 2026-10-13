@@ -3,31 +3,32 @@ import { freezeRegistry } from "./immutable.js";
 import type { HcmServer } from "./hcm-server.js";
 import type { WriteOutcome } from "./write-outcome.js";
 import { prepareScript, type ScriptData } from "./scripts.js";
+import { exactKeys, isType, rpcArgument, strictResponse } from "./server-value.js";
 
-/** One absolute platform URL; this predicate does not read its contents. */
+/** Один абсолютный URL платформы; предикат не читает содержимое. */
 export interface FileExistsInput {
   readonly url: string;
 }
 export interface FileExistsData {
-  /** A file, a directory or a configured storage address exists; contents and access are not checked. */
+  /** Существует файл, папка или адрес хранилища из настроек; содержимое и доступ не проверяются. */
   readonly exists: boolean;
 }
 
-/** One address of a file on the server. */
+/** Один адрес файла на сервере. */
 export interface FileReadInput {
   readonly url: string;
-  /** "base64" gives the bytes even when the file is text. */
+  /** "base64" отдаёт байты, даже если файл текстовый. */
   readonly encoding?: "base64";
 }
 export interface FileReadData {
-  /** The contents when they are UTF-8 text; a leading byte order mark is removed. */
+  /** Содержимое, если это текст UTF-8; метка порядка байтов в начале убирается. */
   readonly text?: string;
-  /** The contents when they are not text, or when base64 was asked for. */
+  /** Содержимое, если это не текст или запрошен base64. */
   readonly base64?: string;
   readonly bytes: number;
 }
 
-/** The loader answers with base64 broken into lines; a caller wants the file itself. */
+/** Загрузчик отвечает base64, разбитым на строки; вызывающему нужен сам файл. */
 export function fileContent(response: unknown, encoding?: unknown): FileReadData {
   if (encoding !== undefined && encoding !== "base64")
     throw new HcmError(
@@ -46,7 +47,7 @@ export function fileContent(response: unknown, encoding?: unknown): FileReadData
   if (encoding === "base64") return binary;
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(content);
-    // Bytes below 0x20 are valid UTF-8, but a file made of them is not text.
+    // Байты ниже 0x20 — допустимый UTF-8, но файл из них не текст.
     return /[\u0000-\u0008\u000b\u000e-\u001f]/.test(text)
       ? binary
       : { text, bytes: content.length };
@@ -56,13 +57,13 @@ export function fileContent(response: unknown, encoding?: unknown): FileReadData
 }
 
 const FILE_EXISTS_TARGET = "tools.file_url_exists_server";
-// The shipped provider attribute lookup binds its URL to a 256-character SQL
-// parameter. Keep the input within that declared bound instead of allowing a
-// longer URL to be silently truncated by this provider's parameter binding.
-// It is not a claim about every server's maximum filesystem path length.
+// Штатный поиск атрибута провайдера привязывает URL к параметру SQL на 256 символов.
+// Вход держится в этом объявленном пределе, чтобы длинный URL не был молча обрезан при
+// привязке параметра этим провайдером.
+// Это не утверждение о максимальной длине пути файловой системы на любом сервере.
 export const FILE_EXISTS_URL_MAX_LENGTH = 256;
 
-/** Validate without normalizing the URL passed to the stock predicate. */
+/** Проверяет, не нормализуя URL, который передаётся штатному предикату. */
 export function fileExistsUrl(value: unknown): string {
   const invalid = () =>
     new HcmError(
@@ -79,7 +80,7 @@ export function fileExistsUrl(value: unknown): string {
     throw invalid();
   const authority = value.slice("x-local://".length).split("/", 1)[0]!;
   if (!authority || /[\s@:\\]/u.test(authority)) throw invalid();
-  // XML cannot carry lone surrogate code units; reject them before bootstrap.
+  // XML не может нести одиночные суррогатные кодовые единицы; отказ до bootstrap.
   for (let index = 0; index < value.length; index++) {
     const unit = value.charCodeAt(index);
     if (unit >= 0xd800 && unit <= 0xdbff) {
@@ -91,7 +92,7 @@ export function fileExistsUrl(value: unknown): string {
   return value;
 }
 
-/** Exactly one of text (written in UTF-8) and base64. */
+/** Ровно одно из text (запись в UTF-8) и base64. */
 export type FileWriteInput = {
   readonly url: string;
   readonly text?: string;
@@ -101,9 +102,9 @@ export type FileWriteData = { readonly bytes: number; readonly mutationOutcome: 
 export type FileDeleteInput = { readonly url: string };
 export type FileDeleteData = { readonly deleted: true; readonly mutationOutcome: "confirmed" };
 
-/** Folders of the server: data ones take files through LDS, code ones only code on the server. */
+/** Папки сервера: в папки данных файлы идут через LDS, в папки кода — только код на сервере. */
 export type FileFolders = { readonly data: readonly string[]; readonly code: readonly string[] };
-/** Only the two folder lists of the application info are read; undefined when the server gave none. */
+/** Читаются только два списка папок из сведений о приложении; undefined, если сервер их не дал. */
 function fileFolders(info: Record<string, unknown> | undefined): FileFolders | undefined {
   const data = new Set<string>();
   const design = new Set<string>();
@@ -117,13 +118,13 @@ function fileFolders(info: Record<string, unknown> | undefined): FileFolders | u
   return { data: [...data], code: [...design].filter((name) => !data.has(name)) };
 }
 
-/** The folder is the first part of the address and decides the route: no part may get around it. */
+/** Папка — первая часть адреса и определяет маршрут: никакая часть не должна его обходить. */
 function fileTarget(value: unknown, listing = false): { url: string; folder: string } {
-  // A folder to list may end with a slash and have no path: x-local://share.
+  // Папка для списка файлов может оканчиваться косой чертой и не иметь пути: x-local://share.
   const text = listing && typeof value === "string" ? value.replace(/\/$/, "") : value;
   const [folder = "", ...path] = typeof text === "string" ? text.slice(10).split("/") : [];
-  // The server takes % as a plain character; the encoded dot, slashes and control characters are
-  // refused all the same, so that no reading of the address leaves the folder.
+  // Сервер принимает % как обычный символ, но закодированные точку, косые черты и управляющие
+  // символы всё равно отклоняет, чтобы никакое прочтение адреса не вышло из папки.
   const plain = (part: string) => !/^[. ]*$|%(?:2e|2f|5c|[01][0-9a-f]|7f)/i.test(part);
   if (
     typeof text !== "string" ||
@@ -143,7 +144,10 @@ function fileTarget(value: unknown, listing = false): { url: string; folder: str
   return { url: text, folder };
 }
 
-/** Folders of the server database delete by address with no error and remove nothing (2025.1.1333 - 2025.2.1535); refused before any request. */
+/**
+ * Папки базы: удаление по адресу молча ничего не удаляет (2025.1.1333 - 2025.2.1535);
+ * отказ до любого запроса.
+ */
 function assertFileDeletable(folder: string): void {
   if (folder === "wt_data" || folder === "trash")
     throw new HcmError(
@@ -153,7 +157,7 @@ function assertFileDeletable(folder: string): void {
     );
 }
 
-/** The route is chosen before anything is sent; "unlisted": the server did not say which folders take files. */
+/** Маршрут выбирается до отправки; "unlisted" — сервер не сообщил, какие папки принимают файлы. */
 function fileRoute(
   operation: "write" | "delete",
   folders: FileFolders | undefined,
@@ -161,7 +165,7 @@ function fileRoute(
   canExecute: boolean,
 ): "data" | "code" | "unlisted" {
   if (!folders) return "unlisted";
-  // The server compares the folder name exactly: SHARE is not share.
+  // Сервер сравнивает имя папки точно: SHARE — не share.
   if (folders.data.includes(folder)) return "data";
   if (!folders.code.includes(folder))
     throw new HcmError(
@@ -178,7 +182,7 @@ function fileRoute(
   return "code";
 }
 
-/** The bytes to write: text in UTF-8, or base64 without line breaks. */
+/** Байты для записи: текст в UTF-8 или base64 без переносов строк. */
 function fileWriteContent(args: Record<string, unknown>) {
   const { text, base64 } = args;
   const bytes =
@@ -203,7 +207,7 @@ function fileWriteContent(args: Record<string, unknown>) {
   };
 }
 
-/** Code for the server; a file that does not fit the script limit is refused with its size limits. */
+/** Код для сервера; файл, не умещающийся в лимит скрипта, отклоняется с указанием размеров. */
 function fileScript(code: string, params: Record<string, string>) {
   try {
     return prepareScript(code, params);
@@ -241,7 +245,7 @@ function fileRemains(): HcmError {
     "indeterminate",
   );
 }
-/** The code found a folder or nothing at the address and deleted nothing. */
+/** Код нашёл по адресу папку или ничего и ничего не удалил. */
 function codeDeleteRefusal(data: ScriptData): HcmError | undefined {
   if (data.result[0] === "directory")
     return new HcmError("FILE_IS_FOLDER", "Адрес — папка: в папке кода удаляется только файл.");
@@ -251,11 +255,11 @@ function codeDeleteRefusal(data: ScriptData): HcmError | undefined {
 }
 
 export interface FileListData {
-  /** By name; a file has its size in bytes, a folder has folder:true. */
+  /** По имени; у файла указан размер в байтах, у папки folder:true. */
   readonly items: readonly ({ name: string; bytes: number } | { name: string; folder: true })[];
   readonly total: number;
 }
-/** One level of a folder: the addresses ReadDirectory gives, which of them are folders, and the file sizes. */
+/** Один уровень папки: адреса из ReadDirectory, какие из них папки, и размеры файлов. */
 function codeList(url: string) {
   return fileScript(
     `var rows = [];
@@ -276,7 +280,7 @@ function fileList(data: ScriptData, folder: string, search = ""): FileListData {
       "Список показывает только папку; файл читает files.read, адрес проверяет files.exists.",
     );
   const rows = (data.result as { u?: unknown; f?: unknown; b?: unknown }[]).map((row) => {
-    // A row is an address one level inside the folder; anything else is not shown.
+    // Строка — адрес на один уровень внутри папки; всё остальное не показывается.
     const name =
       typeof row?.u === "string" && row.u.startsWith(`${folder}/`)
         ? row.u.slice(folder.length + 1).replace(/\/$/, "")
@@ -292,43 +296,14 @@ function fileList(data: ScriptData, folder: string, search = ""): FileListData {
   return { items, total: items.length };
 }
 
-function object(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error();
-  return value as Record<string, unknown>;
-}
-function wrapper(value: unknown, child: string): unknown {
-  const node = object(value);
-  if (
-    (node["#text"] !== undefined &&
-      (typeof node["#text"] !== "string" || node["#text"].trim() !== "")) ||
-    Object.keys(node).some((key) => {
-      if (key === child || key === "#text") return false;
-      return (
-        !/^@_xmlns(?::[A-Za-z_][\w.-]*)?$/.test(key) ||
-        typeof node[key] !== "string" ||
-        node[key].length > 1024
-      );
-    })
-  )
-    throw new Error();
-  return node[child];
-}
-
-/** Decode only the fixed stock predicate's direct ResultData/Result boolean. */
+/** Разбирает только прямой булев ResultData/Result фиксированного штатного предиката. */
 export function parseFileExists(response: unknown): FileExistsData {
   try {
-    const rpc = object(response);
+    const { rpc, result } = strictResponse(response);
+    exactKeys(result, ["@_VALUE-TYPE", "#text"]);
     if (
-      Object.keys(rpc).some((key) => !["xml", "valueType", "lexicalValue"].includes(key)) ||
-      typeof rpc.valueType !== "string" ||
-      rpc.valueType.toLowerCase() !== "bool"
-    )
-      throw new Error();
-    const result = object(wrapper(wrapper(rpc.xml, "ResultData"), "Result"));
-    if (
-      Object.keys(result).some((key) => !["@_VALUE-TYPE", "#text"].includes(key)) ||
-      typeof result["@_VALUE-TYPE"] !== "string" ||
-      result["@_VALUE-TYPE"].toLowerCase() !== "bool" ||
+      !isType(rpc.valueType, "bool") ||
+      !isType(result["@_VALUE-TYPE"], "bool") ||
       (result["#text"] !== "0" && result["#text"] !== "1") ||
       rpc.lexicalValue !== result["#text"]
     )
@@ -345,13 +320,13 @@ export function parseFileExists(response: unknown): FileExistsData {
   }
 }
 
-/** What an operation tells the runtime about one call: the outcome and the failure hint are built from it. */
+/** Что операция сообщает runtime об одном вызове: из этого строятся исход и подсказка при сбое. */
 export interface FileCall {
   outcome: WriteOutcome;
-  refusal?: string;
+  causeRuledOut?: true;
 }
 
-/** The file operations: a method is the whole sequence of one, from the address check to the check after the answer. */
+/** Файловые операции: метод — вся цепочка одной, от проверки адреса до проверки после ответа. */
 export class ServerFiles {
   constructor(
     private readonly server: Pick<HcmServer, "call" | "read" | "runCode" | "applicationInfo">,
@@ -362,7 +337,7 @@ export class ServerFiles {
     return parseFileExists(
       await this.server.read("native.rpc.call", {
         target: FILE_EXISTS_TARGET,
-        args: [{ valueType: "string", lexicalValue: fileExistsUrl(args.url) }],
+        args: [rpcArgument(fileExistsUrl(args.url))],
       }),
     );
   }
@@ -415,21 +390,21 @@ export class ServerFiles {
       return { deleted: true, mutationOutcome: "confirmed" };
     }
     await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
-    // An address the existence check does not accept (over 256 characters) is not checked.
+    // Адрес, который проверка существования не принимает (больше 256 символов), не проверяется.
     if (target.url.length <= FILE_EXISTS_URL_MAX_LENGTH)
       if ((await this.exists({ url: target.url })).exists) throw fileRemains();
     return { deleted: true, mutationOutcome: "confirmed" };
   }
 
-  /** A failure to read the application info means the server gave no folder lists. */
+  /** Сбой чтения сведений о приложении означает, что сервер не дал списков папок. */
   async folders(): Promise<FileFolders | undefined> {
     return fileFolders(await this.server.applicationInfo().catch(() => undefined));
   }
 
   private async route(operation: "write" | "delete", folder: string, call: FileCall) {
     const route = fileRoute(operation, await this.folders(), folder, this.permissions.execute);
-    // The usual cause of a refused write (an unlisted code folder) is named only where the server did not list folders.
-    if (operation === "write" && route !== "unlisted") call.refusal = "files.write:listed";
+    // Обычная причина отказа записи (папка кода не в списке) называется, только если списков нет.
+    if (operation === "write" && route !== "unlisted") call.causeRuledOut = true;
     return route;
   }
 }

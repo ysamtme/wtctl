@@ -1,4 +1,4 @@
-// files.write and files.delete: the client picks the path from the server's folder lists before sending.
+// files.write и files.delete: клиент выбирает путь по спискам папок сервера до отправки.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { HcmClient, unwrap } from "../src/sdk.js";
@@ -37,7 +37,7 @@ function fixture(
             ),
           };
         if (options.door) throw new WsHcmApiError("http", "unauthorized", { status: 401 });
-        // The existence check finds only the addresses that name "stays".
+        // Проверка существования находит только адреса, называющие "stays".
         const found = String(+JSON.stringify(args).includes("stays"));
         const xml = `<ResultData><Result VALUE-TYPE="bool">${found}</Result></ResultData>`;
         return { valueType: "bool", lexicalValue: found, xml: parseXml(xml) };
@@ -49,7 +49,7 @@ function fixture(
     },
     { permissions: { write: true, execute: options.execute ?? true } },
   );
-  // What was sent to write or delete: the lists and the existence checks are not counted.
+  // Что отправлено на запись или удаление: списки и проверки существования не считаются.
   const state = {
     answer: "0",
     get sent() {
@@ -62,7 +62,7 @@ function fixture(
 }
 const ids = (state: { sent: { id: string }[] }) => state.sent.map((call) => call.id);
 
-test("a data folder is written through LDS, a code folder by code on the server that returns the size", async () => {
+test("папка данных пишется через LDS, папка кода — кодом на сервере, который возвращает размер", async () => {
   const { runtime, state } = fixture();
   const text = "Привет\r\nмир";
   const data = unwrap(
@@ -71,7 +71,7 @@ test("a data folder is written through LDS, a code folder by code on the server 
   assert.deepEqual(data, { bytes: Buffer.byteLength(text), mutationOutcome: "confirmed" });
   assert.deepEqual(ids(state), ["native.lds.putUrl"]);
   assert.equal(state.sent[0]!.args.data.base64, Buffer.from(text).toString("base64"));
-  // A folder that is in both lists takes files through LDS too.
+  // Папка, которая есть в обоих списках, тоже принимает файлы через LDS.
   await runtime.call("files.write", { url: "x-local://source/a.txt", text: "x" });
   assert.equal(ids(state)[1], "native.lds.putUrl");
 
@@ -88,7 +88,7 @@ test("a data folder is written through LDS, a code folder by code on the server 
   await runtime.close();
 });
 
-test("a folder that takes no files, or a code folder without execute, is refused before anything is sent", async () => {
+test("папка, не принимающая файлов, или папка кода без execute отклоняется до любой отправки", async () => {
   const { runtime, state } = fixture({ execute: false });
   const none = await runtime.call("files.write", { url: "x-local://Logs/a.txt", text: "x" });
   assert.equal(none.error?.code, "FOLDER_NOT_WRITABLE");
@@ -106,7 +106,7 @@ test("a folder that takes no files, or a code folder without execute, is refused
     );
     assert.equal(refused.error?.mutationOutcome, "not_sent");
   }
-  // The server database folders do not delete by address: refused whatever the lists say.
+  // Папки базы данных сервера не удаляются по адресу: отказ, что бы ни говорили списки.
   for (const lists of [true, false])
     for (const folder of ["wt_data", "trash"]) {
       const f = fixture({ lists });
@@ -118,7 +118,7 @@ test("a folder that takes no files, or a code folder without execute, is refused
       await f.runtime.close();
     }
   assert.deepEqual(ids(state), []);
-  // The data folder needs no execute.
+  // Папке данных execute не нужен.
   assert.equal(
     (await runtime.call("files.write", { url: "x-local://share/a.txt", text: "x" })).ok,
     true,
@@ -128,7 +128,7 @@ test("a folder that takes no files, or a code folder without execute, is refused
   await runtime.close();
 });
 
-test("addresses that could get around the folder, wrong content and files too large for the script are refused unsent", async () => {
+test("адреса, которые могли бы выйти из папки, неверное содержимое и слишком большие для скрипта файлы отклоняются без отправки", async () => {
   const { runtime, state } = fixture();
   for (const url of [
     "x-local://share/../wt/a.txt",
@@ -165,7 +165,7 @@ test("addresses that could get around the folder, wrong content and files too la
   assert.equal(large.error?.code, "FILE_TOO_LARGE");
   assert.match(large.error!.hint!, /750 КБ.*580 КБ/);
   assert.deepEqual(ids(state), []);
-  // A lone % is a plain character of a file name.
+  // Одиночный % — обычный символ в имени файла.
   assert.equal(
     (await runtime.call("files.write", { url: "x-local://share/50%.txt", text: "x" })).ok,
     true,
@@ -173,7 +173,7 @@ test("addresses that could get around the folder, wrong content and files too la
   await runtime.close();
 });
 
-test("a file is deleted by code in a code folder; the address of a folder is refused and removes nothing", async () => {
+test("файл удаляется кодом в папке кода; адрес папки отклоняется и ничего не удаляет", async () => {
   const { runtime, state } = fixture();
   state.answer = "deleted";
   assert.deepEqual((await runtime.call("files.delete", { url: "x-local://wt/a.txt" })).data, {
@@ -195,16 +195,16 @@ test("a file is deleted by code in a code folder; the address of a folder is ref
   await runtime.close();
 });
 
-test("a deletion after which the address is still there is indeterminate, on both routes", async () => {
+test("удаление, после которого адрес остался, имеет исход indeterminate на обоих путях", async () => {
   const { runtime, state } = fixture();
   const data = await runtime.call("files.delete", { url: "x-local://share/stays.txt" });
   assert.equal(data.error?.code, "READ_BACK_MISMATCH");
   assert.equal(data.error?.mutationOutcome, "indeterminate");
   assert.deepEqual(ids(state), ["native.lds.deleteUrl"]);
-  // An address too long for the existence check is not checked.
+  // Слишком длинный для проверки существования адрес не проверяется.
   const long = `x-local://share/stays${"a".repeat(250)}`;
   assert.equal((await runtime.call("files.delete", { url: long })).ok, true);
-  // In a code folder the code itself looks at the address: the client asks nothing more.
+  // В папке кода сам код смотрит на адрес: клиент больше ничего не спрашивает.
   state.answer = "deleted";
   assert.equal((await runtime.call("files.delete", { url: "x-local://wt/stays.txt" })).ok, true);
   state.answer = "remains";
@@ -214,7 +214,7 @@ test("a deletion after which the address is still there is indeterminate, on bot
   await runtime.close();
 });
 
-test("a deletion accepted and then met by a refusal at the door in the check is indeterminate", async () => {
+test("удаление, принятое и затем встретившее в проверке отказ на входе, имеет исход indeterminate", async () => {
   const { runtime, state } = fixture({ door: true });
   const result = await runtime.call("files.delete", { url: "x-local://share/a.txt" });
   assert.deepEqual(ids(state), ["native.lds.deleteUrl"]);
@@ -223,7 +223,7 @@ test("a deletion accepted and then met by a refusal at the door in the check is 
   await runtime.close();
 });
 
-test("without the server's lists LDS is used, and an HTTP 500 hint names the code folder only then", async () => {
+test("без списков сервера используется LDS, и подсказка к HTTP 500 называет папку кода только тогда", async () => {
   const hint = async (options: { lists?: boolean }, url: string) => {
     const { runtime, state } = fixture({ ...options, refuse: true });
     const result = await runtime.call("files.write", { url, text: "x" });
@@ -239,7 +239,7 @@ test("without the server's lists LDS is used, and an HTTP 500 hint names the cod
   assert.doesNotMatch(await hint({}, "x-local://share/a.txt"), /сервер не сообщил/);
 });
 
-test("server.info lists the folders of the native profile, a folder of both lists among the data ones", async () => {
+test("server.info перечисляет папки профиля native, папку из обоих списков — среди папок данных", async () => {
   const { runtime } = fixture();
   const info = unwrap(await HcmClient.fromRuntime(runtime).serverInfo());
   assert.deepEqual([info.dataFolders, info.codeFolders], [["share", "source"], ["wt"]]);
@@ -253,7 +253,7 @@ test("server.info lists the folders of the native profile, a folder of both list
   await bare.close();
 });
 
-test("the command writes the bytes of a file and deletes an address", async () => {
+test("команда пишет байты файла и удаляет адрес", async () => {
   const { runtime, state } = fixture();
   let out = "";
   const io = {
@@ -277,7 +277,7 @@ test("the command writes the bytes of a file and deletes an address", async () =
   assert.equal(code, 0, out);
   assert.equal(JSON.parse(out).data.bytes, 3);
   assert.equal(state.sent[0]!.args.data.base64, "AAH/");
-  // The command closes its runtime: the next one is a new one.
+  // Команда закрывает свой runtime: следующая — новая.
   const next = fixture();
   out = "";
   const code2 = await runCli(["files", "delete", "x-local://share/a.bin"], io, {

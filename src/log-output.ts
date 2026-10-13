@@ -7,17 +7,17 @@ import type {
   LogSearchData,
 } from "./logs.js";
 
-// What a caller gets from the log operations. The reader keeps the complete bookkeeping it
-// needs for consistency checks; a result carries each fact once and no fixed remarks.
+// То, что вызывающий получает от операций с логами. Читатель хранит полный учёт, нужный
+// для проверок согласованности; результат несёт каждый факт один раз и без постоянных замечаний.
 //
-// A page of events is cut to a byte budget below the output limit. Past that limit the whole
-// result is stored locally, and the cursor or offset needed for the next call would be hidden in it.
+// Страница событий режется по бюджету в байтах ниже предела вывода. За пределом весь результат
+// сохраняется локально, и курсор или смещение для следующего вызова оказались бы спрятаны в нём.
 
 export interface LogFileSummary {
   readonly name: string;
   readonly type: string;
   readonly sizeBytes: number;
-  /** Server calendar date of the file, YYYY-MM-DD. */
+  /** Календарная дата файла по времени сервера, YYYY-MM-DD. */
   readonly date?: string;
 }
 export interface LogFiles {
@@ -29,7 +29,7 @@ export interface LogText {
   readonly file: string;
   readonly text: string;
   readonly sizeBytes: number;
-  /** The text is only the end of a longer file. Not the cut of a stored answer: that is meta.truncated. */
+  /** Текст — только конец длинного файла. Обрезка сохранённого ответа — это meta.truncated. */
   readonly tailOnly: boolean;
   readonly fingerprint: string;
 }
@@ -38,7 +38,7 @@ export interface LogEntry {
   readonly time?: string;
   readonly context?: string;
   readonly level: LogEvent["level"];
-  /** The message with its continuation lines; time and context are separate fields. */
+  /** Сообщение с продолжающими строками; время и контекст — отдельные поля. */
   readonly text: string;
   readonly partialBeginning?: true;
 }
@@ -48,16 +48,16 @@ export interface LogMatches {
   readonly totalEvents: number;
   readonly matches: number;
   readonly fingerprint: string;
-  /** Only the end of the file was searched: totalEvents and matches count that part. */
+  /** Искался только конец файла: totalEvents и matches считают эту часть. */
   readonly tailOnly: boolean;
   readonly nextOffset?: number;
-  /** The page holds fewer events than asked: more did not fit one answer. nextOffset continues. */
+  /** В странице меньше событий, чем просили: остальные не влезли в ответ. Продолжает nextOffset. */
   readonly cutBySize?: true;
 }
 export interface LogNews {
   readonly file: string;
   readonly events: readonly LogEntry[];
-  /** New events that did not fit; they are older than the returned ones. logs.search reads them. */
+  /** Новые события, которые не уместились; они старше возвращённых. Читает logs.search. */
   readonly omitted?: number;
   readonly cursor: string;
   readonly changed: boolean;
@@ -101,7 +101,7 @@ export function logText(data: LogReadData): LogText {
     fingerprint: data.fingerprint,
   };
 }
-/** How many entries fit the budget, counted from the start or from the end; at least one. */
+/** Сколько записей умещается в бюджет, считая с начала или с конца; не меньше одной. */
 function fitting(entries: readonly LogEntry[], budgetBytes: number, fromEnd: boolean): number {
   let bytes = 0;
   let count = 0;
@@ -117,7 +117,7 @@ function fitting(entries: readonly LogEntry[], budgetBytes: number, fromEnd: boo
 export function logMatches(data: LogSearchData, budgetBytes: number): LogMatches {
   const events = data.events.map(entry);
   const kept = fitting(events, budgetBytes, false);
-  // The reader's offset counts matches, so a shorter page moves the next offset back with it.
+  // Смещение читателя считает совпадения: короткая страница сдвигает следующее смещение назад.
   const offset = (data.nextOffset ?? data.matches) - events.length;
   const nextOffset = kept < events.length ? offset + kept : data.nextOffset;
   return {
@@ -131,7 +131,7 @@ export function logMatches(data: LogSearchData, budgetBytes: number): LogMatches
     ...(kept < events.length ? { cutBySize: true as const } : {}),
   };
 }
-/** first: the call that only takes a position; earlier events are not news, a few are shown. */
+/** first: вызов, который только берёт позицию; прежние события — не новости, часть показывается. */
 export function logNews(data: LogFollowData, first: boolean, budgetBytes: number): LogNews {
   const all = data.events.map(entry);
   const recent = first ? all.slice(-10) : all;

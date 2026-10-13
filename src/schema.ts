@@ -9,7 +9,7 @@ export interface SchemaInput {
   url?: string;
   search?: string;
   path?: string;
-  /** Nested fields of every depth in one listing, not one level per call. */
+  /** Вложенные поля всех глубин одним списком, а не по уровню за вызов. */
   deep?: boolean;
   origin?: ("own" | "inherited" | "custom" | "catalog")[];
   kind?: string;
@@ -38,12 +38,12 @@ export interface SchemaResult {
   type: string;
   catalog?: string;
   formUrl: string;
-  /** With path: the element whose fields are listed — is it a list, what is its key. */
+  /** С path: элемент, чьи поля перечислены — список ли он, какой у него ключ. */
   element?: SchemaField;
   fields: SchemaField[];
   total: number;
   nextCursor?: number;
-  /** The page is shorter than asked: more does not fit into one answer. */
+  /** Страница короче запрошенной: больше не умещается в один ответ. */
   cutBySize?: true;
   notes: string[];
   methods?: { name: string; parameters: string[] }[];
@@ -56,26 +56,26 @@ export interface SchemaTypesInput {
 export interface SchemaTypesResult {
   types: { type: string; catalog?: string; title?: string; customFields: number | "by kind" }[];
   total: number;
-  /** Catalogs of the server in all, the ones without an object type of their own included. */
+  /** Всего каталогов на сервере, включая те, у которых нет своего типа объекта. */
   catalogs: number;
   nextCursor?: number;
   notes?: string[];
 }
-/** What a reader needs to give data one form: the top-level field names and the repeated elements. */
+/** Чтобы привести данные к одному виду: имена полей верхнего уровня и повторяющиеся элементы. */
 export interface DataShape {
   readonly fields: Set<string>;
-  /** Paths of elements the form declares repeated, such as collaborators.collaborator. */
+  /** Пути элементов, объявленных формой повторяющимися, например collaborators.collaborator. */
   readonly repeated: Set<string>;
-  /** Top-level fields the form declares as dates. */
+  /** Поля верхнего уровня, которые форма объявляет датами. */
   readonly dates: Set<string>;
-  /** Top-level fields of a catalog row the form declares as integers: IDs and counters. */
+  /** Поля верхнего уровня строки каталога, которые форма объявляет целыми: ID и счётчики. */
   readonly integers?: Set<string>;
-  /** Top-level fields the server computes: a value written to one is not kept. */
+  /** Поля верхнего уровня, которые вычисляет сервер: записанное в них значение не сохраняется. */
   readonly computed?: Set<string>;
-  /** A base type of the form was not found, so the field names are not all of them. */
+  /** Базовый тип формы не найден, поэтому имена полей — не все. */
   partial?: boolean;
 }
-/** A repeated element is a list also when the data holds a single item. */
+/** Повторяющийся элемент — список и тогда, когда в данных один пункт. */
 export function withRepeated(value: unknown, repeated: ReadonlySet<string>, prefix = ""): unknown {
   if (Array.isArray(value)) return value.map((item) => withRepeated(item, repeated, prefix));
   if (value === null || typeof value !== "object") return value;
@@ -128,8 +128,8 @@ export function languageFileUrl(id: unknown, language?: string): string {
 }
 const folded = (value: string): string => value.toLowerCase().replaceAll("ё", "е");
 /**
- * Titles are searched by the words a person types, in any order. A Russian word is compared
- * without its case ending, so «должность» finds «Название должности»; four letters always stay.
+ * Заголовки ищутся по словам, которые вводит человек, в любом порядке. Русское слово берётся без
+ * падежного окончания: «должность» находит «Название должности»; четыре буквы остаются всегда.
  */
 const matches = (search: string | undefined, values: (string | undefined)[]): boolean => {
   if (search === undefined) return true;
@@ -149,7 +149,7 @@ const nothingFound = (where: string, examples: string, search = "", one = "по�
   `Ничего не найдено: search ищет слова ${where}.${/\S\s+\S/.test(search) ? ` Все слова должны быть в одном ${one}: искать нужно по одному слову.` : ""} Можно попробовать слово из заголовка на языке сервера, часть имени латиницей (${examples}) или вызов без search.`;
 const pageSize = (value: unknown): number => Buffer.byteLength(JSON.stringify(value));
 
-/** Reads live metadata through the runtime's fixed read operations; all caches stay in memory. */
+/** Читает живые метаданные через фиксированные операции чтения runtime; все кэши — в памяти. */
 export class SchemaReader {
   private forms = new Map<string, Promise<Node[]>>();
   private shapes = new Map<string, Promise<DataShape>>();
@@ -180,8 +180,8 @@ export class SchemaReader {
     return cached;
   }
   /**
-   * Field types for the check after a write. A base type gives its fields to the place that names
-   * it: without them a logical value the server stores as 1 would not equal the true that was sent.
+   * Типы полей для проверки после записи. Базовый тип отдаёт свои поля тому месту, которое его
+   * называет: без них логическое true, отправленное серверу, не равнялось бы хранимому им 1.
    */
   async documentForm(url: string): Promise<{ roots: string[]; fields: unknown[] }> {
     const samples = new Map<string, Node>();
@@ -227,7 +227,7 @@ export class SchemaReader {
     }
     return this.common;
   }
-  /** Object types the server declares; an empty list when the declaration cannot be read. */
+  /** Типы объектов, которые объявляет сервер; пустой список, если объявление не читается. */
   private async declaredTypes(info: Data): Promise<Data[]> {
     const common = await this.commonData(info).catch((): Data => ({}));
     return list(data(common.exchange_object_types).exchange_object_type);
@@ -279,8 +279,8 @@ export class SchemaReader {
     );
   }
   /**
-   * A name that is not an object type is refused before anything is written. The check needs the
-   * server's lists: when they cannot be read, the name is left to the server.
+   * Имя, не являющееся типом объекта, отклоняется до записи. Проверке нужны списки сервера:
+   * если их не прочитать, имя оставляется серверу.
    */
   async requireType(type: string): Promise<void> {
     const info = await this.applicationInfo().catch(() => undefined);
@@ -293,8 +293,8 @@ export class SchemaReader {
       throw this.unknownType(info, type, declared);
   }
   /**
-   * Whether rows of this type are documents. Rows of the other catalogs (group_collaborators)
-   * are built by the server and have no document; the answer is yes when it cannot be told.
+   * Являются ли строки этого типа документами. Строки других каталогов (group_collaborators)
+   * строит сервер, документа у них нет; если не определить, ответ — да.
    */
   private async hasDocuments(info: Data, type: string): Promise<boolean> {
     if (this.catalogs(info).some((item) => item.object_type === type)) return true;
@@ -302,8 +302,8 @@ export class SchemaReader {
     return !declared.length || declared.some((item) => item.name === type);
   }
   /**
-   * Catalogs of the main database. The server names the object type only for some of them. Next to
-   * them it lists its common lists (common.…): those are not catalogs and are left out.
+   * Каталоги основной базы. Тип объекта сервер называет только у части из них. Рядом он
+   * перечисляет общие списки (common.…): это не каталоги, и они пропускаются.
    */
   private catalogs(info: Data): Data[] {
     const databases = list(info.databases);
@@ -311,7 +311,7 @@ export class SchemaReader {
       (databases.find((db) => db.id === info.default_db_name) ?? databases[0])?.catalogs,
     ).filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)));
   }
-  /** Type of the rows of a catalog: named by the server or, failing that, by the catalog form. */
+  /** Тип строк каталога: названный сервером или, если нет, по форме каталога. */
   private async rowType(catalog: Data): Promise<string> {
     const named = text(catalog.object_type);
     if (named || !text(catalog.form_url)) return named;
@@ -322,8 +322,8 @@ export class SchemaReader {
     return row ? name(row) : "";
   }
   /**
-   * Catalogs whose rows are objects of the type. For some types (event) the server leaves the
-   * catalog unnamed: then the catalog called after the type counts, if its form agrees.
+   * Каталоги, строки которых — объекты этого типа. У некоторых типов (event) сервер оставляет
+   * каталог без имени: тогда засчитывается каталог, названный по типу, если форма согласна.
    */
   private async catalogsOf(info: Data, type: string): Promise<Data[]> {
     const catalogs = this.catalogs(info);
@@ -409,12 +409,12 @@ export class SchemaReader {
         );
       }
     }
-    // Included forms also expose named types without SAMPLE, observed on 1535.
+    // Включённые формы тоже показывают именованные типы без SAMPLE, замечено на 2025.2.1535.
     for (const node of nodes)
       if (!/^(USE|INCLUDE|On|DocDesc)/.test(name(node))) samples.set(name(node), node);
     return nodes;
   }
-  /** Fields of one catalog row by path, read from the catalog form. */
+  /** Поля одной строки каталога по пути, прочитанные из формы каталога. */
   private async catalogFields(
     catalog: Data | undefined,
     type: string,
@@ -424,7 +424,7 @@ export class SchemaReader {
     if (!catalog || !text(catalog.form_url)) return query;
     const catalogRoots = await this.samples(text(catalog.form_url), samples);
     const roots = catalogRoots.filter((node) => attr(node, "SAMPLE") !== "1");
-    // The row is usually named after the object type; when it is not, it is the list under the catalog.
+    // Строка обычно названа по типу объекта; если нет, это список под каталогом.
     const own = roots.find((node) => name(node) === text(catalog.id));
     const record =
       find(roots, type) ??
@@ -448,7 +448,7 @@ export class SchemaReader {
     if (record) collect(children(record));
     return query;
   }
-  /** Shape of a document of one type, with inherited fields; read once per form. */
+  /** Структура документа одного типа с унаследованными полями; читается один раз на форму. */
   documentShape(type: string, formUrl = `x-local://wtv/wtv_${type}.xmd`): Promise<DataShape> {
     return this.shape(`${formUrl}#${type}`, async () => {
       const samples = new Map<string, Node>();
@@ -484,12 +484,12 @@ export class SchemaReader {
         }
       };
       if (root) collect(children(root));
-      // A name a base type computes and the type itself stores is a stored field.
+      // Имя, которое вычисляет базовый тип, а сам тип хранит, — хранимое поле.
       for (const key of stored) computed.delete(key);
       return shape;
     });
   }
-  /** Shape of one catalog row; the catalog is named or found by the object type of its rows. */
+  /** Структура одной строки каталога; каталог назван или находится по типу объекта его строк. */
   async catalogShape(selector: {
     catalog?: string;
     type?: string;
@@ -529,8 +529,8 @@ export class SchemaReader {
     return cached;
   }
   /**
-   * The server answers a refused catalog query with a bare HTTP 500. After such a refusal this
-   * names the usual cause: a catalog that does not exist or a field that is not in the catalog.
+   * Сервер отвечает на отклонённый запрос к каталогу голым HTTP 500. После такого отказа здесь
+   * называется обычная причина: каталога не существует или поля нет в каталоге.
    */
   async explainQuery(catalogId: string, fields: readonly string[]): Promise<HcmError | undefined> {
     const info = await this.applicationInfo();
@@ -559,7 +559,7 @@ export class SchemaReader {
     const known = await this.catalogFields(catalog, type, new Map());
     const unknown = fields.filter((field) => !known.has(field));
     if (!known.size || !unknown.length) return undefined;
-    // The names the catalog does have: the wanted field is often among them under another name.
+    // Имена, которые в каталоге есть: нужное поле часто среди них под другим именем.
     const names = [...known.keys()].filter((name) => !name.includes("."));
     const listed = `${names.slice(0, 30).join(", ")}${names.length > 30 ? `… (всего ${names.length})` : ""}`;
     return new HcmError(
@@ -615,7 +615,7 @@ export class SchemaReader {
     const mistaken = this.catalogs(info).find((item) => item.id === requestedType);
     const rows = mistaken ? await this.rowType(mistaken).catch(() => "") : "";
     const byCatalog = !!rows && rows !== requestedType;
-    // Rows that are not documents have no type to ask instead: their fields are shown here.
+    // У строк, которые не документы, нет типа, чтобы спросить о нём взамен: показываются их поля.
     const rowsOnly = byCatalog && !(await this.hasDocuments(info, rows));
     if (byCatalog)
       notes.push(
@@ -701,13 +701,13 @@ export class SchemaReader {
       }
     };
     walk(children(root));
-    // The row fields of a catalog asked by its name are what a search goes by.
+    // Поля строки каталога, запрошенного по имени, — то, по чему идёт поиск.
     if (byCatalog)
       for (const key of (await this.catalogFields(mistaken, rows, samples)).keys()) {
         const field = fields.get(`${rows}.${key}`);
         if (field) field.query = true;
       }
-    // A catalog row also has fields the document lacks; they can be searched but not written.
+    // У строки каталога есть и поля, которых нет у документа; по ним можно искать, но не писать.
     for (const [path, node] of query) {
       if (path.includes(".") || fields.has(path) || methods.has(path)) continue;
       const property = attr(node, "PROPERTY") === "1";
@@ -772,8 +772,8 @@ export class SchemaReader {
         fields.set(field.path, field);
       }
     }
-    // The form of such a catalog is one list of rows: the row is opened at once, since the top
-    // level alone would be that single collapsed field.
+    // Форма такого каталога — один список строк: строка раскрывается сразу, иначе верхний
+    // уровень был бы единственным свёрнутым полем.
     const path =
       input.path ?? (rowsOnly && input.search === undefined && fields.has(rows) ? rows : undefined);
     const selected = [...fields.values()].filter(
@@ -822,7 +822,7 @@ export class SchemaReader {
       result.fields.push(field);
       result.nextCursor = cursor + result.fields.length;
       if (result.nextCursor >= selected.length) delete result.nextCursor;
-      // Room is left for the mark of a page cut by size.
+      // Оставляется место под отметку страницы, обрезанной по размеру.
       if (pageSize(result) > 16 * 1024 - 32) {
         result.fields.pop();
         break;
@@ -850,7 +850,7 @@ export class SchemaReader {
     const common = await this.commonData(info);
     const definitions = list(data(common.exchange_object_types).exchange_object_type);
     const named = this.catalogs(info).filter((item) => text(item.object_type));
-    // Types the server declares without naming their catalog (event) follow the rest.
+    // Типы, которые сервер объявляет без названия их каталога (event), идут после остальных.
     const unnamed: Data[] = [];
     for (const definition of definitions) {
       const type = text(definition.name);
@@ -873,7 +873,7 @@ export class SchemaReader {
         };
       })
       .filter((item) => matches(input.search, [item.type, item.catalog, item.title]));
-    // The name may belong to a catalog whose rows are not objects: such a catalog has no type to list.
+    // Имя может принадлежать каталогу, строки которого не объекты: типа для списка у него нет.
     const listed = new Set(types.map((item) => item.catalog));
     const untyped =
       input.search === undefined

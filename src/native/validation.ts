@@ -20,7 +20,7 @@ function sameJson(left: unknown, right: unknown): boolean {
   );
 }
 
-/** Small deterministic validator for the schema subset emitted by our declaration generator. */
+/** Небольшой детерминированный валидатор подмножества схем, которое выдаёт генератор объявлений. */
 export function validate(value: unknown, schema: Schema, path = "args"): void {
   if ("const" in schema && !sameJson(value, schema.const))
     throw new TypeError(`${path}: значение не совпадает с требуемым.`);
@@ -32,7 +32,7 @@ export function validate(value: unknown, schema: Schema, path = "args"): void {
         validate(value, option as Schema, path);
         return;
       } catch {
-        /* try other declared variant */
+        /* дальше — другой объявленный вариант */
       }
     }
     throw new TypeError(`${path}: значение не подходит ни под один из допустимых вариантов.`);

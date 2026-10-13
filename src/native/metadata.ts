@@ -1,41 +1,137 @@
 import type { NativeOperation } from "../contracts.js";
+import type { GeneratedNativeId } from "./generated.js";
 
 const compatibilityDescriptions: Readonly<Record<string, string>> = {
-  "web.websocket.heartbeat":
-    "One bounded raw $hbt/$ok exchange on the fixed stock /services/main_ws_service route. Uses the gateway-owned web cookie, closes the socket locally and reports peer EOF separately from a close acknowledgement. No business payload, event subscription, browser LDS WebSocket binding or automatic reconnect is implied. On server 2025.1.1171 the main service returned $ok and then EOF without a peer close frame.",
   "web.experimental.authenticate":
-    "Partial shipped browser JSON login shape requiring its own login-page token. Server 2025.1.1171 has no authenticate route in its built-in SPXML2 API; optional application hooks may differ. On the tested installation the stock login page returned HTTP 200 with a rendered error and no token, so no authenticate POST or managed-ticket revocation was exercised. Successful body and cookie semantics remain unverified.",
+    "Войти штатным способом браузера через JSON (поддержан частично); нужен свой токен страницы входа. На сервере 2025.1.1171 во встроенном API SPXML2 маршрута authenticate нет; расширения приложения могут его добавлять. На проверенной установке штатная страница входа вернула HTTP 200 с текстом ошибки и без токена, поэтому POST authenticate и отзыв выданного билета не проверялись. Тело и cookie успешного ответа не проверены.",
 };
 
-/** Replaces the generated description where the generic wording would mislead. */
-export function decorateOperation(operation: NativeOperation): NativeOperation {
-  const description = compatibilityDescriptions[operation.id];
-  return description === undefined ? operation : { ...operation, description };
+type Effect = NativeOperation["effect"];
+type ByArguments = (args: Readonly<Record<string, unknown>>) => Effect | undefined;
+interface Right {
+  effect: Effect;
+  /** Эффект для этих аргументов, если они его меняют. */
+  byArguments?: ByArguments;
+  /** Runtime вызывает её сам; вызывающий её не видит. */
+  internal?: true;
 }
 
-/** Lock flags change the effect even when the default document/URL retrieval is read-only. */
+const isReference = (value: unknown): boolean =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  Object.keys(value).length === 1 &&
+  typeof (value as Record<string, unknown>).$ref === "string";
+
+// Флаги блокировки меняют эффект, даже если получение документа или URL по умолчанию читает.
+// Права пакета вычисляются до разрешения ссылок. Неразрешённый флаг блокировки
+// или объект аргументов может превратить это чтение в блокирующую запись.
+const lockable: ByArguments = (args) =>
+  isReference(args) || args.tryLock === true || isReference(args.tryLock) ? "write" : undefined;
+
+// GET и HEAD читают; отсутствующий метод или ссылка остаются неизвестными.
+const byHttpVerb: ByArguments = (args) => {
+  if (typeof args.method !== "string") return undefined;
+  const verb = args.method.toUpperCase();
+  return verb === "GET" || verb === "HEAD" ? "read" : undefined;
+};
+
+/**
+ * Право каждой сгенерированной низкоуровневой операции названо явно, не выводится из имени метода.
+ * Компилятор следит за полнотой таблицы: метод слоя протокола без строки не соберётся.
+ */
+const RIGHTS = {
+  "native.lds.getCatalogsStat": "read",
+  "native.lds.getModObjects": "read",
+  "native.lds.releaseCursor": "read",
+  "native.lds.idle": "read",
+  "web.lds.releaseCursor": "read",
+  "web.spxml.getBackgroundTasksByName": "read",
+  "web.spxml.getAsyncMethodStatus": "read",
+  "native.spxml2.getAppInfo": "read",
+  "native.spxml2.getForm": "read",
+  "web.spxml2.getAppInfo": "read",
+  "web.spxml2.getForm": "read",
+  "web.spxml2.getImage": "read",
+  "web.spxml2.getPreloadedDesignFiles": "read",
+  "web.spxml2.stdEncrypt": "read",
+  "web.pages.filePreviewPdf": "read",
+  "web.pages.getForm": "read",
+  "web.pages.getScreenForm": "read",
+  "web.pages.getImage": "read",
+  "web.pages.getUiText": "read",
+  "web.pages.getUrl": "read",
+  "native.resources.getImage": "read",
+  "native.resources.getCompoundResource": "read",
+  "web.resources.getImage": "read",
+  "web.resources.getCompoundResource": "read",
+  "anonymous.diagnostics.xhttpInfo": "read",
+  "web.lifecycle.admin": "read",
+  "web.lifecycle.main": "read",
+  "web.lifecycle.logout": "read",
+  "native.lds.loadDoc": { effect: "read", byArguments: lockable },
+  "web.spxml.getDoc": { effect: "read", byArguments: lockable },
+  "native.lds.loadUrl": { effect: "read", internal: true },
+  "native.lds.putDoc": "write",
+  "native.lds.deleteDoc": "write",
+  "native.lds.getNewObjectId": "write",
+  "web.lds.deleteDoc": "write",
+  "web.spxml.killAsyncMethod": "write",
+  "web.spxml.putDoc": "write",
+  "web.pages.uploadFile": "write",
+  "web.pages.uploadChunk": "write",
+  "web.pages.clearUploadChunks": "write",
+  "native.lds.putUrl": { effect: "write", internal: true },
+  "native.lds.deleteUrl": { effect: "write", internal: true },
+  "native.lds.xQuery": "execute",
+  "native.lds.runMethod": "execute",
+  "web.lds.xQuery": "execute",
+  "web.lds.runMethod": "execute",
+  "native.rpc.call": "execute",
+  "web.rpc.call": "execute",
+  "native.spxml.call": "execute",
+  "web.spxml.callMethod": "execute",
+  "web.spxml.callMethodAsync": "execute",
+  "web.experimental.authenticate": "execute",
+  "anonymous.experimental.rawRequest": { effect: "unknown", byArguments: byHttpVerb },
+  "native.experimental.rawRequest": { effect: "unknown", byArguments: byHttpVerb },
+  "web.experimental.rawRequest": { effect: "unknown", byArguments: byHttpVerb },
+} satisfies Record<GeneratedNativeId, Effect | Right>;
+
+function rightOf(id: string): Right | undefined {
+  if (!Object.hasOwn(RIGHTS, id)) return undefined;
+  const row = (RIGHTS as Readonly<Record<string, Effect | Right>>)[id];
+  return typeof row === "string" ? { effect: row } : row;
+}
+
+/**
+ * Ставит названное право на сгенерированную операцию; где общая формулировка вводит
+ * в заблуждение, заменяет описание.
+ */
+export function decorateOperation(operation: Omit<NativeOperation, "effect">): NativeOperation {
+  const right = rightOf(operation.id);
+  if (!right) throw new Error(`Для ${operation.id} не указано право`);
+  const description = compatibilityDescriptions[operation.id];
+  // Право ставится туда, куда его кладёт порядок полей генерации: потребители видят прежний JSON.
+  const { status, inputSchema, ...head } = operation;
+  return {
+    ...head,
+    ...(description === undefined ? {} : { description }),
+    effect: right.effect,
+    status,
+    inputSchema,
+  };
+}
+
+/** Runtime вызывает их сам; вызывающий их не видит. */
+export function isInternalNative(id: string): boolean {
+  return rightOf(id)?.internal === true;
+}
+
+/** Эффект операции реестра для этих аргументов; у операции без строки остаётся собственный. */
 export function getEffectiveNativeEffect(
   operation: NativeOperation,
   args: Readonly<Record<string, unknown>>,
 ): NativeOperation["effect"] {
-  const isReference = (value: unknown): boolean =>
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Object.keys(value).length === 1 &&
-    typeof (value as Record<string, unknown>).$ref === "string";
-  const deferredArgs = isReference(args);
-  // Batch policy is evaluated before reference resolution. An unresolved lock
-  // flag or argument object can turn this read into a lock mutation.
-  if (
-    (operation.method === "loadDoc" || operation.method === "getDoc") &&
-    (deferredArgs || args.tryLock === true || isReference(args.tryLock))
-  )
-    return "write";
-  // GET and HEAD read; a missing method or a reference stays unknown.
-  if (operation.method === "rawRequest" && typeof args.method === "string") {
-    const verb = args.method.toUpperCase();
-    if (verb === "GET" || verb === "HEAD") return "read";
-  }
-  return operation.effect;
+  return rightOf(operation.id)?.byArguments?.(args) ?? operation.effect;
 }

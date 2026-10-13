@@ -1,4 +1,4 @@
-/** Shared WebSoft HCM SDK. Native and higher-level operations use the same runtime as CLI/MCP. */
+/** SDK WebSoft HCM: операции native и верхнего уровня идут через тот же runtime, что CLI и MCP. */
 export { HcmRuntime } from "./runtime.js";
 export { listHcmOperations, describeHcmOperation } from "./catalog.js";
 export { loadConfig, configExample, type ConfigOptions } from "./config.js";

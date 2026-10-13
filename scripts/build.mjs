@@ -1,5 +1,5 @@
-// Builds dist/: the command as one self-contained file, the library with its dependencies inlined,
-// type declarations, and the licence texts of everything that was inlined.
+// Собирает dist/: команду одним самодостаточным файлом, библиотеку со встроенными зависимостями,
+// объявления типов и тексты лицензий всего встроенного.
 import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
@@ -32,9 +32,9 @@ const shared = {
   metafile: true,
   legalComments: "none",
   charset: "utf8",
-  // ws loads these two only when they are installed; without them it uses its own code.
+  // ws загружает эти два модуля, только если они установлены; без них использует свой код.
   external: ["bufferutil", "utf-8-validate"],
-  // Inlined CommonJS dependencies call require() for Node's own modules.
+  // Встроенные зависимости CommonJS вызывают require() для собственных модулей Node.
   banner: {
     js: 'import { createRequire as __wtctlRequire } from "node:module";\nconst require = __wtctlRequire(import.meta.url);',
   },
@@ -57,15 +57,15 @@ const library = await build({
   chunkNames: "chunks/[name]-[hash]",
 });
 
-// An installed package has no dependencies: nothing but Node's own modules may be left to import.
+// У установленного пакета нет зависимостей: для импорта могут остаться только модули самого Node.
 const outside = new Set([...builtinModules, ...shared.external]);
 for (const result of [command, library])
   for (const [file, output] of Object.entries(result.metafile.outputs))
     for (const item of output.imports)
       if (item.external && !outside.has(item.path.replace(/^node:/, "")))
-        throw new Error(`${file} still imports ${item.path}.`);
+        throw new Error(`${file} всё ещё импортирует ${item.path}.`);
 
-// The same for the type declarations; those the three entries do not reach are dropped.
+// То же для объявлений типов; не достижимые из трёх точек входа отбрасываются.
 const reached = new Set();
 function reach(file) {
   if (reached.has(file)) return;
@@ -74,7 +74,7 @@ function reach(file) {
   for (const [, specifier] of text.matchAll(/\b(?:from\s*|import\s*\(\s*|import\s+)"([^"]+)"/g)) {
     if (specifier.startsWith("node:")) continue;
     if (!specifier.startsWith("."))
-      throw new Error(`${relative(root, file)} needs the types of ${specifier}.`);
+      throw new Error(`Файлу ${relative(root, file)} нужны типы ${specifier}.`);
     reach(resolve(dirname(file), specifier.replace(/\.js$/, ".d.ts")));
   }
 }
@@ -87,7 +87,7 @@ for (const name of readdirSync(dist, { recursive: true, withFileTypes: true }))
   if (name.isDirectory() && readdirSync(join(name.parentPath, name.name)).length === 0)
     rmdirSync(join(name.parentPath, name.name));
 
-// Licence texts of the inlined packages, found from the files the bundler actually read.
+// Тексты лицензий встроенных пакетов, найденные по файлам, которые сборщик действительно прочитал.
 const packages = new Map();
 for (const input of [
   ...Object.keys(command.metafile.inputs),
@@ -118,9 +118,9 @@ writeFileSync(join(dist, "THIRD-PARTY-LICENSES.txt"), notices.join("\n"));
 
 const bin = join(dist, "cli", "bin.js");
 if (!readFileSync(bin, "utf8").startsWith("#!/usr/bin/env node"))
-  throw new Error("The command file lost its first line.");
-if (!existsSync(join(dist, "index.d.ts"))) throw new Error("Type declarations were not written.");
+  throw new Error("Файл команды потерял первую строку.");
+if (!existsSync(join(dist, "index.d.ts"))) throw new Error("Объявления типов не записаны.");
 const size = (file) => `${Math.round(readFileSync(file).length / 1024)} KB`;
 console.log(
-  `dist: cli/bin.js ${size(bin)}, index.js ${size(join(dist, "index.js"))}, ${reached.size} declaration files, ${packages.size} bundled packages`,
+  `dist: cli/bin.js ${size(bin)}, index.js ${size(join(dist, "index.js"))}, файлов объявлений: ${reached.size}, встроенных пакетов: ${packages.size}`,
 );

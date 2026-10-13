@@ -44,11 +44,11 @@ export async function writeAtomicOutput(path: string, text: string): Promise<voi
   await writeResultFile(path, [text], true);
 }
 
-/** Questions go to stderr: stdout carries the command's JSON. */
+/** Вопросы идут в stderr: в stdout — JSON команды. */
 async function promptLine(question: string, secret = false): Promise<string> {
   const lines = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
   if (secret) {
-    // The line editor echoes every key through this method; keep the question, drop the keys.
+    // Редактор строки выводит каждую клавишу через этот метод: вопрос оставить, нажатия отбросить.
     const quiet = lines as unknown as { _writeToOutput(text: string): void };
     quiet._writeToOutput = (text) => {
       if (text.includes(question)) process.stderr.write(question);

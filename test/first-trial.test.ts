@@ -1,5 +1,5 @@
-// What the first trial on a real task found: a session the server dropped, answers whose form
-// depended on the data, and errors that pointed the wrong way.
+// Что нашла первая проба на настоящей задаче: сессия, которую сервер сбросил, ответы, форма которых
+// зависела от данных, и ошибки, указывавшие не туда.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -7,7 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeHcmOperation } from "../src/catalog.js";
 import { operationHelp } from "../src/operation-help.js";
-import { errorInFrontendTerms } from "../src/frontend-names.js";
+import { NAMES, errorInFrontendTerms } from "../src/frontend-names.js";
+import { cliHelp } from "../src/cli/help.js";
+import { operationDefinition } from "../src/operations.js";
+import { WsHcmApiError } from "../src/protocol/error.js";
 import { LogReader, logKind, parseLogEvents, type LogGateway } from "../src/logs.js";
 import { HcmMcpTools } from "../src/mcp/server.js";
 import { escapeXml, findXmlNode, parseXml } from "../src/protocol/xml.js";
@@ -30,7 +33,7 @@ const base = {
 } as const;
 const readOnly = { outputLimitBytes: 4096, permissions: { write: false, execute: false } };
 
-/** A server that knows only sessions opened at or after `validFrom`; older ones get HTTP 401. */
+/** Сервер, который знает только сессии, открытые не раньше `validFrom`; старые получают HTTP 401. */
 function sessionServer(options: { refuseLogin?: boolean } = {}) {
   const state = { opened: 0, validFrom: 1, calls: [] as string[] };
   const soap = (method: string, body = ""): Response =>
@@ -67,15 +70,15 @@ function sessionServer(options: { refuseLogin?: boolean } = {}) {
   return { config, state };
 }
 
-test("a session the server dropped is replaced by a new login and the request is sent again", async () => {
+test("сессия, которую сервер сбросил, заменяется новым входом, и запрос отправляется снова", async () => {
   const f = sessionServer();
   const runtime = new HcmRuntime(f.config);
   assert.equal((await runtime.call("runtime.status", {})).ok, true);
-  f.state.validFrom = 2; // the server forgets the first session, as it does after idle time
+  f.state.validFrom = 2; // сервер забывает первую сессию, как после простоя
   const again = await runtime.call("runtime.status", {});
   assert.equal(again.ok, true, JSON.stringify(again.error));
   assert.equal(f.state.opened, 2);
-  // status also asks the server who is signed in and what its database is.
+  // status дополнительно спрашивает сервер, кто вошёл и какая у него база данных.
   assert.deepEqual(f.state.calls, [
     "OpenSession",
     "CallMethod",
@@ -87,12 +90,12 @@ test("a session the server dropped is replaced by a new login and the request is
     "/api/spxml2/get_app_info",
     "CallMethod",
   ]);
-  // The server forgets the session again and nothing is called: closing must not fail on that.
+  // Сервер снова забывает сессию, и ничего не вызывается: закрытие не должно из-за этого падать.
   f.state.validFrom = 3;
   await runtime.close();
 });
 
-test("a refused login is final: one attempt, a hint about the credentials, nothing reported as run", async () => {
+test("отказ во входе окончателен: одна попытка, подсказка про учётные данные, ничего не сообщено как выполненное", async () => {
   const refused = sessionServer({ refuseLogin: true });
   const first = new HcmRuntime(refused.config);
   const login = await first.call("runtime.status", {});
@@ -101,7 +104,7 @@ test("a refused login is final: one attempt, a hint about the credentials, nothi
   assert.equal(refused.state.calls.filter((call) => call === "OpenSession").length, 1);
   await first.close();
 
-  // The session is refused even after a new login: the error is reported, without a loop.
+  // Сессию отклоняют и после нового входа: ошибка сообщается, без цикла.
   const f = sessionServer();
   const runtime = new HcmRuntime(f.config);
   await runtime.call("runtime.status", {});
@@ -113,7 +116,7 @@ test("a refused login is final: one attempt, a hint about the credentials, nothi
   await runtime.close();
 });
 
-test("a refusal the server logs in Russian is an error-level event", () => {
+test("отказ, который сервер пишет в лог по-русски, — событие уровня error", () => {
   const levels = parseLogEvents(
     [
       "16:42:08 [A:1] Неизвестная ошибка",
@@ -134,7 +137,7 @@ function logReport(files: readonly [name: string, serverType: string][]): string
   return `<data><rs>${files.map(row).join("")}</rs></data>`;
 }
 
-test("the list of logs starts with the newest files and names each log by its file name", async () => {
+test("список логов начинается с новейших файлов и называет каждый лог по имени файла", async () => {
   const gateway: LogGateway = {
     call: async () => ({
       valueType: "string",
@@ -167,7 +170,7 @@ test("the list of logs starts with the newest files and names each log by its fi
   assert.equal(logKind("plain.log"), "plain");
 });
 
-test("a stored log is read and exported as its text, and the answer shows how it begins", async () => {
+test("сохранённый лог читается и экспортируется как текст, а ответ показывает, как он начинается", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-trial-"));
   try {
     const text = Array.from({ length: 400 }, (_, index) => `12:00:00 line ${index} «ё»`).join("\n");
@@ -198,7 +201,7 @@ test("a stored log is read and exported as its text, and the answer shows how it
     assert.equal(await readFile(path, "utf8"), text);
     await runtime.close();
 
-    // A result without a text has no text form: the refusal says which forms fit.
+    // У результата без текста нет текстовой формы: отказ говорит, какие формы подходят.
     const store = new ResultStore({
       ...base,
       runtimeDir: directory,
@@ -264,7 +267,7 @@ function shapedRuntime(refuses?: (id: string, args: Record<string, unknown>) => 
   );
 }
 
-test("a repeated element is a list also when the object holds one item", async () => {
+test("повторяющийся элемент — список и тогда, когда у объекта один элемент", async () => {
   assert.deepEqual(
     withRepeated(
       { a: { b: { c: "1" } }, d: [{ e: "x" }, { e: ["y"] }], f: "" },
@@ -277,7 +280,7 @@ test("a repeated element is a list also when the object holds one item", async (
   assert.deepEqual(object.data.collaborators, { collaborator: [{ collaborator_id: "5" }] });
   assert.deepEqual(object.data.tags, { tag: [{ name: "a" }, { name: "b" }] }, "inherited");
   assert.equal(object.unknownFields, undefined);
-  // Scalar fields only: the form is not needed and is not requested again.
+  // Только скалярные поля: форма не нужна и повторно не запрашивается.
   const before = f.server.calls.length;
   const scalar = (await f.runtime.call("objects.get", { id: "1", fields: ["name"] })).data;
   assert.deepEqual((scalar as Record<string, unknown>).data, { name: "G" });
@@ -288,7 +291,7 @@ test("a repeated element is a list also when the object holds one item", async (
   await f.runtime.close();
 });
 
-test("a requested field the type does not have is named, an empty one too; a row of a search has every asked field", async () => {
+test("запрошенное поле, которого нет у типа, названо, пустое тоже; в строке поиска есть каждое запрошенное поле", async () => {
   const f = shapedRuntime();
   const object = (
     await f.runtime.call("objects.get", { id: "1", fields: ["name", "code", "nope"] })
@@ -300,7 +303,7 @@ test("a requested field the type does not have is named, an empty one too; a row
     { query: "for $e in people return $e", fields: ["id", "roles", "lastname", "nope"] },
   ]) {
     const page = (await f.runtime.call("runtime.query", args)).data as Record<string, any>;
-    // An empty field asked by name comes as ""; a structure is left as the server gave it.
+    // Пустое поле, запрошенное по имени, приходит как ""; структура остаётся такой, как её дал сервер.
     assert.deepEqual(page.items, [
       { id: "1", roles: { role: [{ role_id: "admin" }] }, lastname: "" },
       { id: "2", lastname: "" },
@@ -311,7 +314,7 @@ test("a requested field the type does not have is named, an empty one too; a row
   await f.runtime.close();
 });
 
-test("several objects are read in one call; one that is not read is named in its element", async () => {
+test("несколько объектов читаются одним вызовом; не прочитанный назван в своём элементе", async () => {
   let loads = 0;
   const f = shapedRuntime((id) => id === "native.lds.loadDoc" && ++loads === 2);
   const many = (await f.runtime.call("objects.get", { ids: ["1", "2", "1"], fields: ["name"] }))
@@ -327,7 +330,23 @@ test("several objects are read in one call; one that is not read is named in its
   await f.runtime.close();
 });
 
-test("status names the signed-in user when the server tells its document; a step of a batch keeps its name", async () => {
+test("сервер, который не отвечает или отказывает во входе, обрывает чтение нескольких объектов ошибкой вызова", async () => {
+  for (const kind of ["http", "auth"] as const) {
+    const f = shapedRuntime();
+    f.server.on("native.lds.loadDoc", () => {
+      throw new WsHcmApiError(kind, "нет связи");
+    });
+    const many = await f.runtime.call("objects.get", { ids: ["1", "2"], fields: ["name"] });
+    assert.equal(many.ok, false);
+    assert.equal(many.error?.code, `PLATFORM_${kind.toUpperCase()}`);
+    assert.equal(many.data, undefined);
+    // Второй объект не читался: вызов прерван на первом.
+    assert.equal(f.server.calls.filter(({ id }) => id === "native.lds.loadDoc").length, 1);
+    await f.runtime.close();
+  }
+});
+
+test("status называет вошедшего пользователя, когда сервер сообщает его документ; шаг пакета сохраняет своё имя", async () => {
   let user: string | undefined = "x-local://wt_data/objects/6aa1b2c3d4e5f6/07.xml";
   const { runtime, server } = fakeRuntime(
     { "native.rpc.call": { Result: "2025.2" }, "*": () => ({ auth_object_url: user }) },
@@ -354,7 +373,7 @@ test("status names the signed-in user when the server tells its document; a step
   await silent.close();
 });
 
-test("a condition on a date field is sent as date('…'); the form is read only for a value written as a date", async () => {
+test("условие по полю даты отправляется как date('…'); форма читается только для значения, записанного как дата", async () => {
   const f = shapedRuntime();
   const sent = () =>
     f.server.calls.filter(({ id }) => id === "native.lds.xQuery").map(({ args }) => args.query);
@@ -377,7 +396,7 @@ test("a condition on a date field is sent as date('…'); the form is read only 
     sent()[1],
     "for $elem in people where ($elem/hire_date >= date('2024-01-01')) and ($elem/lastname = '2024-01-01') return $elem",
   );
-  // A catalog the server does not have: the query goes as written and the server's refusal is explained.
+  // Каталог, которого у сервера нет: запрос уходит как написан, а отказ сервера объясняется.
   await f.runtime.call("runtime.query", { catalog: "nobody", where: { hire_date: "2024-01-01" } });
   assert.equal(
     sent()[2],
@@ -386,7 +405,7 @@ test("a condition on a date field is sent as date('…'); the form is read only 
   await f.runtime.close();
 });
 
-test("a wrong expected type names the actual one", async () => {
+test("неверный ожидаемый тип называет фактический", async () => {
   const f = shapedRuntime();
   const result = await f.runtime.call("objects.get", { id: "1", type: "collaborator" });
   assert.equal(result.error?.code, "TYPE_MISMATCH");
@@ -395,7 +414,7 @@ test("a wrong expected type names the actual one", async () => {
   await f.runtime.close();
 });
 
-test("a refused query is not reported as a possible write, unless it hands SQL to the database", async () => {
+test("отклонённый запрос не считается возможной записью, если только не передаёт SQL базе данных", async () => {
   const f = shapedRuntime((id) => id === "native.lds.xQuery");
   const query = await f.runtime.call("runtime.query", { query: "for $e in people retrun $e" });
   assert.equal(query.error?.code, "PLATFORM_SOAP-FAULT");
@@ -405,7 +424,7 @@ test("a refused query is not reported as a possible write, unless it hands SQL t
   await f.runtime.close();
 });
 
-test("an empty element of a raw answer is an empty string, not its indentation", async () => {
+test("пустой элемент сырого ответа — пустая строка, а не его отступ", async () => {
   const { runtime } = fakeRuntime(
     { "*": { Catalogs: "\n\t\t\t", note: " ", lines: "a\n\tb" } },
     readOnly,
@@ -415,7 +434,7 @@ test("an empty element of a raw answer is an empty string, not its indentation",
   await runtime.close();
 });
 
-test("several operations in one call: the steps are described, checked and classed by the strongest step", async () => {
+test("несколько операций в одном вызове: шаги описываются, проверяются и классифицируются по сильнейшему шагу", async () => {
   const help = operationHelp(describeHcmOperation("runtime.batch"));
   const steps = (help.inputSchema.properties as Record<string, any>).steps;
   assert.deepEqual(Object.keys(steps.items.properties), ["id", "args", "as"]);
@@ -440,7 +459,30 @@ test("several operations in one call: the steps are described, checked and class
   await runtime.close();
 });
 
-test("an error names the tool or the command of the front end, not the operation ID", async () => {
+test("пакет с записью и выполнением кода требует оба права; неизвестная операция шага отказывает раньше его аргументов", async () => {
+  const steps = [
+    { id: "objects.create", args: { type: "person", data: {} } },
+    { id: "execute.script", args: { code: "RESULT=[];" } },
+  ];
+  for (const [permissions, code] of [
+    [{ write: false, execute: true }, "WRITE_DISABLED"],
+    [{ write: true, execute: false }, "EXECUTE_DISABLED"],
+  ] as const) {
+    const { runtime, server } = fakeRuntime({}, { permissions });
+    assert.equal(runtime.getOperationEffect("runtime.batch", { steps }), "unknown");
+    assert.equal((await runtime.call("runtime.batch", { steps })).error?.code, code);
+    assert.equal(server.calls.length, 0);
+    await runtime.close();
+  }
+  const { runtime } = fakeRuntime();
+  assert.throws(
+    () => runtime.getOperationEffect("runtime.batch", { steps: [{ id: "no.such", args: "x" }] }),
+    { code: "UNKNOWN_OPERATION" },
+  );
+  await runtime.close();
+});
+
+test("ошибка называет инструмент MCP или команду CLI, а не ID операции", async () => {
   const failed: OperationResult = {
     ok: false,
     error: {
@@ -480,4 +522,21 @@ test("an error names the tool or the command of the front end, not the operation
     closing("См. schema.types.extra и schema.types.", "cli"),
     "См. schema.types.extra и wtctl types.",
   );
+});
+
+test("каждая строка словаря имён входов называет операцию реестра, инструмент MCP-сервера и команду CLI", async () => {
+  const { runtime } = fakeRuntime();
+  const tools = new Set(new HcmMcpTools(runtime).list().map((tool) => tool.name));
+  for (const [id, [tool, command]] of Object.entries(NAMES)) {
+    // Эти две операции отвечают сами входы, в реестре их нет.
+    if (id !== "api.list" && id !== "api.describe")
+      assert.ok(operationDefinition(id), `${id}: нет в реестре`);
+    assert.ok(tools.has(tool), `${id}: MCP-сервер не знает инструмента ${tool}`);
+    const usage = (cliHelp(command.split(" ")[1]).usage ?? []) as string[];
+    assert.ok(
+      usage.some((line) => line === command || line.startsWith(`${command} `)),
+      `${id}: справка CLI не знает команды ${command}`,
+    );
+  }
+  await runtime.close();
 });

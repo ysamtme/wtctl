@@ -13,11 +13,11 @@ const MAX_CONFIG_BYTES = 1024 * 1024;
 const SETUP_HINT =
   "Нужно задать WTCTL_URL, WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init.";
 
-/** The client's own folder in the user's profile: the connections file and locally stored results. */
+/** Папка клиента в профиле пользователя: файл подключений и сохранённые результаты. */
 export function homeDirectory(): string {
   return resolve(process.env.WTCTL_HOME || join(homedir(), ".wtctl"));
 }
-/** Where the connections file is looked for when neither --config nor WTCTL_CONFIG names one. */
+/** Где ищется файл подключений, если ни --config, ни WTCTL_CONFIG его не назвали. */
 export function defaultConfigPath(): string {
   return join(homeDirectory(), "connections.json");
 }
@@ -45,7 +45,7 @@ function readConfiguration(path: string): string {
       throw new HcmError("INVALID_CONFIG", `Файл подключений — не файл: ${path}.`);
     if (info.size > MAX_CONFIG_BYTES)
       throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
-    // Read one extra byte to bound growth after fstat as well as the initial size.
+    // Читается на один байт больше, чтобы ограничить и рост файла после fstat, и его размер.
     const bytes = Buffer.alloc(MAX_CONFIG_BYTES + 1);
     let used = 0;
     while (used < bytes.length) {
@@ -55,13 +55,13 @@ function readConfiguration(path: string): string {
     }
     if (used > MAX_CONFIG_BYTES)
       throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
-    // TextDecoder accepts the optional UTF-8 BOM used by Windows editors.
+    // TextDecoder принимает необязательный BOM UTF-8, который ставят редакторы Windows.
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, used));
   } finally {
     closeSync(file);
   }
 }
-/** The file as an object. A syntax error is reported by position only: the text may hold a password. */
+/** Файл как объект. Ошибка синтаксиса называется только позицией: в тексте может быть пароль. */
 export function parseConfiguration(text: string, path: string): Record<string, unknown> {
   let value: unknown;
   try {
@@ -132,10 +132,10 @@ function credential(
   );
 }
 
-/** Load named JSON profiles or WTCTL_* environment settings without exposing credentials. */
+/** Читает именованные подключения из JSON или переменные WTCTL_*, не раскрывая учётных данных. */
 export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
   const explicit = options.configPath ?? process.env.WTCTL_CONFIG;
-  // A connection given by variables stands on its own; the user's file is the fallback.
+  // Подключение из переменных самодостаточно; файл пользователя — запасной вариант.
   const path =
     explicit ??
     (process.env.WTCTL_URL === undefined && existsSync(defaultConfigPath())
@@ -262,7 +262,7 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
   };
 }
 
-/** A credential-free sample profile suitable for committing. */
+/** Образец подключения без учётных данных, который можно коммитить. */
 export function configExample(): Record<string, unknown> {
   return {
     defaultConnection: "dev",
@@ -281,14 +281,14 @@ export interface NewConnection {
   readonly name: string;
   readonly baseUrl: string;
   readonly username: string;
-  /** The password itself, kept in the file, or the name of the variable that holds it. */
+  /** Сам пароль, хранимый в файле, или имя переменной, в которой он лежит. */
   readonly password?: string;
   readonly passwordEnv?: string;
   readonly write: boolean;
   readonly execute: boolean;
 }
 
-/** The connections document with one connection added; the first one becomes the default. */
+/** Документ подключений с добавленным подключением; первое становится подключением по умолчанию. */
 export function withConnection(
   document: Record<string, unknown>,
   connection: NewConnection,

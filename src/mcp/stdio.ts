@@ -4,7 +4,7 @@ import type { RuntimePort } from "../runtime-port.js";
 import type { LocalInstall } from "../guide.js";
 import { createHcmMcpServer } from "./server.js";
 
-/** Keep the owning CLI/runtime alive until the MCP client disconnects. */
+/** Держит процесс владеющего CLI или runtime живым, пока клиент MCP не отключится. */
 export async function runMcpStdio(
   runtime: RuntimePort,
   connectionName: string,

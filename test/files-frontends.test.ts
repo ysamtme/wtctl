@@ -145,7 +145,7 @@ async function fixture() {
   };
 }
 
-test("SDK, CLI and MCP preserve a false predicate through exact real HTTP and their shared read policy", async () => {
+test("SDK, CLI и MCP доносят ложный ответ предиката через настоящий HTTP при общих правах на чтение", async () => {
   const f = await fixture();
   const sdk = new HcmClient(f.config("sdk"));
   const runtime = new HcmRuntime(f.config("mcp"));

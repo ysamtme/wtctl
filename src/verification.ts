@@ -3,7 +3,7 @@ import { patchSegments } from "./documents.js";
 import { parseXml } from "./protocol/xml.js";
 
 type Field = { path: string; type?: unknown; multiple?: unknown };
-/** The first place where a written branch and the saved one part, in short values. */
+/** Первое место, где записанная ветка и сохранённая расходятся, в коротких значениях. */
 type Difference = { path: string; requested: unknown; actual: unknown };
 const shown = (value: unknown): unknown =>
   value === undefined
@@ -28,14 +28,14 @@ function bool(value: unknown): boolean | undefined {
 const DATE =
   /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:\d{2})?$/;
 /**
- * The clock time a date value means to the server: it keeps the date and the time as written,
- * drops any offset and fraction, and gives the value back with seconds and +00:00.
+ * Время на часах, которое сервер понимает под значением даты: он хранит дату и время
+ * как записаны, отбрасывает смещение и доли секунды и отдаёт значение с секундами и +00:00.
  */
 function serverDate(value: unknown): string | undefined {
   const match = typeof value === "string" ? DATE.exec(value) : null;
   return match ? `${match[1]}T${match[2] ?? "00:00"}:${match[3] ?? "00"}` : undefined;
 }
-/** Whether the server reads the text as a date; other spellings it stores as something else. */
+/** Читает ли сервер текст как дату; другие записи он хранит как нечто другое. */
 export function isServerDate(value: string): boolean {
   return DATE.test(value);
 }
@@ -110,7 +110,7 @@ function equivalent(
   return String(expected) === String(actual) || differ();
 }
 
-/** Verify requested branches against read-back, allowing only known XMD scalar normalization. */
+/** Проверяет запрошенные ветки чтением обратно, допуская только известную нормализацию XMD. */
 export function verifyFields(
   expected: Record<string, unknown>,
   actual: Record<string, unknown>,
@@ -140,7 +140,10 @@ export function verifyFields(
     );
 }
 
-/** Missing nested children must be checked explicitly because server-added defaults are allowed elsewhere. */
+/**
+ * Отсутствующих вложенных потомков надо проверять явно: добавленные сервером значения
+ * по умолчанию допустимы в других местах.
+ */
 export function verifyRemovals(
   expected: Record<string, unknown>,
   actual: Record<string, unknown>,

@@ -1,20 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { HcmError, inputObject, requiredString } from "./errors.js";
 import { escapeXml, findXmlNode } from "./protocol/xml.js";
+import { decodeRpcValue } from "./server-value.js";
 
 const TARGET = "ms_tools.evaluate_remote_collection_obj";
 const FORM = "x-local://wtv/wtv_remote_collection.xmd";
 
 export interface ScriptData<T = unknown> {
   readonly result: readonly T[];
-  /** Column descriptions and extra data of the collection, when the server returned any. */
+  /** Описания столбцов и дополнительные данные коллекции, если сервер их вернул. */
   readonly columns?: readonly unknown[];
   readonly data?: Readonly<Record<string, unknown>>;
-  /** Name of the unsaved collection that carried the code; it appears in server log lines. */
+  /** Имя несохранённой коллекции, несшей код; оно попадает в строки лога сервера. */
   readonly executionId: string;
 }
 
-/** Existing Administrator RPC receives an unsaved XmElem with the shipped form attached. */
+/** Существующий RPC Administrator получает несохранённый XmElem с приложенной штатной формой. */
 export function prepareScript(
   value: unknown,
   params?: unknown,
@@ -22,8 +23,8 @@ export function prepareScript(
   request: Record<string, unknown>;
   executionId: string;
 } {
-  // Base64 keeps any text clear of the string rules of the language; the same line keeps the
-  // line numbers of the caller's code in error messages.
+  // Base64 защищает любой текст от правил строк языка; та же строка сохраняет номера
+  // строк кода вызывающего в сообщениях об ошибках.
   const code =
     (params === undefined
       ? ""
@@ -37,8 +38,8 @@ export function prepareScript(
 }
 
 const ID = /^(?:0x[0-9a-f]{1,16}|\d{1,20})$/i;
-// The stock method of the agent's form, the one the administrator interface starts an agent
-// with; its fourth argument makes the call wait for the end of the agent's code.
+// Штатный метод формы агента, которым интерфейс администратора запускает агента; его четвёртый
+// аргумент заставляет вызов ждать конца кода агента.
 const AGENT_RUN = `var doc = OpenDoc(UrlFromDocID(Int(PARAMS.id)));
 if (doc.TopElem.Name != 'server_agent') throw 'Объект с этим ID — не агент сервера (server_agent).';
 var from = StrXmlDate(Date());
@@ -47,15 +48,15 @@ if (started) doc.Save();
 RESULT = [{ started: started, from: from, to: StrXmlDate(Date()) }];`;
 
 export interface AgentRunData {
-  /** false: the server did not start the agent; its reason is in the log `agent`. */
+  /** false: сервер не запустил агента; причина — в логе `agent`. */
   readonly started: boolean;
-  /** Server local time around the run: the agent's lines in the logs lie between them. */
+  /** Местное время сервера вокруг запуска: строки агента в логах лежат между ними. */
   readonly startedAt: string;
   readonly finishedAt: string;
   readonly hint: string;
 }
 
-/** Code and parameters that run an agent in place. IDs go into the agent's code, so only IDs pass. */
+/** Код и параметры запуска агента на месте. ID идут в код агента, поэтому проходят только ID. */
 export function agentRun(args: Record<string, unknown>): { code: string; params: object } {
   const id = (value: unknown, path: string): string => {
     if (typeof value !== "string" || !ID.test(value))
@@ -89,73 +90,12 @@ export function agentRunResult(data: ScriptData): AgentRunData {
   };
 }
 
-/** Raw probes can use the same request without changing their low-level argument contract. */
+/** Сырые пробы могут идти тем же запросом, не меняя свой низкоуровневый контракт аргументов. */
 export function scriptRequest(value: unknown, params?: unknown): Record<string, unknown> {
   return prepareScript(value, params).request;
 }
 
-/** Preserve scalar lexical representations, including every 64-bit integer and date. */
-export function decodeRpcValue(value: unknown, depth = 0): unknown {
-  if (depth > 64) throw new HcmError("SCRIPT_RESPONSE", "Результат вложен глубже 64 уровней.");
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new HcmError("SCRIPT_RESPONSE", "В результате нет элемента с VALUE-TYPE.");
-  const node = value as Record<string, unknown>;
-  const typeValue = node["@_VALUE-TYPE"];
-  if (typeof typeValue !== "string" || typeValue === "")
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "В результате есть элемент XML без типа.",
-      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call.",
-    );
-  const type = typeValue.toLowerCase();
-  const children = Object.keys(node).filter((key) => !key.startsWith("@_") && key !== "#text");
-  const text = node["#text"] ?? "";
-  if (typeof text !== "string")
-    throw new HcmError("SCRIPT_RESPONSE", "Значение в результате — не текст.");
-  if (["array", "object", "null", "undefined"].includes(type) && text.trim() !== "")
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "В массиве, объекте или null результата есть посторонний текст.",
-    );
-  if (type === "array") {
-    if (children.some((key) => key !== "e"))
-      throw new HcmError("SCRIPT_RESPONSE", "В массиве результата есть посторонние элементы.");
-    const items = node.e === undefined ? [] : Array.isArray(node.e) ? node.e : [node.e];
-    return items.map((item) => decodeRpcValue(item, depth + 1));
-  }
-  if (type === "object") {
-    return Object.fromEntries(children.map((key) => [key, decodeRpcValue(node[key], depth + 1)]));
-  }
-  if (type === "null" || type === "undefined") {
-    if (children.length !== 0)
-      throw new HcmError("SCRIPT_RESPONSE", "В значении null результата есть вложенные элементы.");
-    return null;
-  }
-  if (!["string", "integer", "real", "bool", "date"].includes(type))
-    throw new HcmError(
-      "SCRIPT_RESPONSE",
-      "В результате есть значение неподдерживаемого типа (VALUE-TYPE).",
-      "Возвращать можно простые значения, массивы и обычные объекты. Элементы и документы XML (XmElem, XmDoc) нужно превращать в строку в самом коде. Ответ сервера как есть покажет web.rpc.call.",
-    );
-  if (children.length !== 0)
-    throw new HcmError("SCRIPT_RESPONSE", "В простом значении результата есть вложенные элементы.");
-  return text;
-}
-
-/**
- * What a library function returned, as plain JSON. A value the typed form cannot express
- * (a document, a form element) is left as the parsed response.
- */
-export function rpcValue(response: unknown): unknown {
-  try {
-    return { value: decodeRpcValue(findXmlNode(response, "Result")) };
-  } catch (error) {
-    if (error instanceof HcmError && error.code === "SCRIPT_RESPONSE") return response;
-    throw error;
-  }
-}
-
-/** A transport success is insufficient: the collection can report a caught script error. */
+/** Успешного транспорта мало: коллекция может сообщить о пойманной ошибке скрипта. */
 export function scriptResult(response: unknown, executionId: string): ScriptData {
   const decoded = decodeRpcValue(findXmlNode(response, "Result"));
   if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded))
@@ -170,8 +110,8 @@ export function scriptResult(response: unknown, executionId: string): ScriptData
       "Сервер вернул результат кода без числового кода ошибки.",
     );
   if (value.error !== "0") {
-    // The caller wrote this code and needs the reason to fix it. The first line only repeats the
-    // collection name and the last frames belong to the stock form that evaluated the code.
+    // Вызывающий написал этот код и должен узнать причину, чтобы исправить. Первая строка лишь
+    // повторяет имя коллекции, а последние кадры принадлежат штатной форме, выполнявшей код.
     const reason = (typeof value.error_text === "string" ? value.error_text : "")
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -182,8 +122,8 @@ export function scriptResult(response: unknown, executionId: string): ScriptData
           !line.includes("wtv_remote_collection.xmd"),
       )
       .join("\n");
-    // The server reads the whole code before it runs it: with a syntax error nothing was executed.
-    // A syntax error with call frames below it comes from eval() in running code.
+    // Сервер читает весь код до запуска: при синтаксической ошибке ничего не выполнилось.
+    // Синтаксическая ошибка с кадрами вызовов под ней приходит из eval() в выполняющемся коде.
     const unread = /syntax error/i.test(reason) && !/^\(/m.test(reason);
     throw new HcmError(
       "SCRIPT_FAILED",

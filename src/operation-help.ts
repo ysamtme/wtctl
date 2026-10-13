@@ -24,7 +24,7 @@ function concise(value: string, maximum: number): string {
   const line = value.replace(/\s+/g, " ").trim();
   return line.length <= maximum ? line : line.slice(0, maximum - 1) + "…";
 }
-/** Discovery stays small; exact contracts are obtained by explicit api describe. */
+/** Обзор остаётся небольшим; точные контракты даёт явный api describe. */
 export function compactOperationPage(page: OperationPage, cursor = 0): CompactOperationPage {
   const operations: OperationCard[] = [];
   let used = 512;
@@ -35,7 +35,7 @@ export function compactOperationPage(page: OperationPage, cursor = 0): CompactOp
       effect: operation.effect,
       description: operationSummary(operation.id) ?? concise(operation.description, 200),
     };
-    // Reserve indentation/commas for CLI pretty JSON as well as compact MCP JSON.
+    // Запас на отступы и запятые для CLI с форматированным JSON, а также для компактного JSON MCP.
     const bytes = Buffer.byteLength(JSON.stringify(card, null, 2), "utf8") + 64;
     if (operations.length > 0 && used + bytes > 16_000) break;
     operations.push(card);
@@ -55,7 +55,7 @@ export function compactOperationPage(page: OperationPage, cursor = 0): CompactOp
 }
 
 export interface OperationHelp extends OperationCard {
-  /** What the summary of the overview leaves out: notes for the caller, or the registry text when it is written for them. */
+  /** То, что строка обзора опускает: заметка определения, а без неё — описание реестра. */
   readonly details?: string;
   readonly inputSchema: Record<string, unknown>;
 }
@@ -73,7 +73,7 @@ function payloadKinds(schema: unknown, found = new Set<string>()): Set<string> {
   }
   return found;
 }
-/** Alternatives that differ only in how a payload is passed become one line the caller can follow. */
+/** Варианты, различающиеся только способом передачи payload, сводятся в одну строку для вызова. */
 function plainSchema(schema: unknown): unknown {
   if (Array.isArray(schema)) return schema.map(plainSchema);
   if (!schema || typeof schema !== "object") return schema;
@@ -85,14 +85,11 @@ function plainSchema(schema: unknown): unknown {
   }
   return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, plainSchema(child)]));
 }
-/** What a caller needs to invoke one operation; registry bookkeeping is left out. */
+/** Что нужно вызывающему для вызова одной операции; учёт реестра опущен. */
 export function operationHelp(operation: OperationDefinition): OperationHelp {
   const summary = operationSummary(operation.id);
   const text = operation.description.replace(/\s+/g, " ").trim();
-  // The registry text of a protocol call is written for the client's developer, in English.
-  const details =
-    operationNotes(operation.id) ??
-    (summary && text !== summary && /[а-яё]/i.test(text) ? text : undefined);
+  const details = operationNotes(operation.id) ?? (summary && text !== summary ? text : undefined);
   return {
     id: operation.id,
     topic: operationTopic(operation.id),
@@ -103,7 +100,7 @@ export function operationHelp(operation: OperationDefinition): OperationHelp {
   };
 }
 
-/** Without any selection the caller gets the fixed overview by task, not the first page of 128 cards. */
+/** Без выбора — фиксированный обзор по задачам, а не первая страница из 128 карточек. */
 export function discoverOperations(
   list: (filter: OperationFilter) => OperationPage,
   filter: OperationFilter,

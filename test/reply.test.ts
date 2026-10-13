@@ -31,7 +31,7 @@ const batchFail = (packer: ReplyPacker, batchRecovery: BatchRecovery) =>
 const failed = (result: OperationResult) => result.error!;
 const detailsOf = (result: OperationResult) => failed(result).details as Record<string, any>;
 
-test("results.read and runtime.check answers over the limit are returned whole, not stored", async () => {
+test("ответы results.read и runtime.check сверх предела возвращаются целиком и не сохраняются", async () => {
   const { packer, stored } = setup(1000);
   const filler = "x".repeat(3000);
   const read = await packer.success("results.read", 0, { text: filler }, true);
@@ -51,14 +51,14 @@ test("results.read and runtime.check answers over the limit are returned whole, 
   assert.equal(stored.calls, 1);
 });
 
-test("data written by pageBytes fits the answer without being stored", async () => {
+test("данные, записанные по pageBytes, помещаются в ответ и не сохраняются", async () => {
   const { packer, stored } = setup(2000);
   const reply = await packer.success("query.run", 0, { text: "x".repeat(packer.pageBytes) }, true);
   assert.equal(reply.meta.truncated, undefined);
   assert.equal(stored.calls, 0);
 });
 
-test("bigint becomes a string and bytes become base64 with their length", async () => {
+test("bigint становится строкой, а bytes — base64 с длиной", async () => {
   const { packer } = setup(65536);
   const reply = await packer.success(
     "x.y",
@@ -69,7 +69,7 @@ test("bigint becomes a string and bytes become base64 with their length", async 
   assert.deepEqual(reply.data, { n: "10", b: { base64: "AQID", bytes: 3 }, list: ["5"] });
 });
 
-test("server paths are replaced in message, hint and detail strings", () => {
+test("пути сервера заменяются в строках message, hint и detail", () => {
   const { packer } = setup(65536);
   const error = new HcmError(
     "X",
@@ -86,7 +86,7 @@ test("server paths are replaced in message, hint and detail strings", () => {
   }
 });
 
-test("session and authorization values are redacted from error text", () => {
+test("значения сессии и авторизации вычищаются из текста ошибки", () => {
   const { packer } = setup(65536);
   const error = new HcmError(
     "X",
@@ -100,14 +100,14 @@ test("session and authorization values are redacted from error text", () => {
   for (const secret of ["abc123", "tok456", "sid789"]) assert.ok(!text.includes(secret));
 });
 
-test("message and hint are cut to 500 characters", () => {
+test("message и hint обрезаются до 500 символов", () => {
   const { packer } = setup(65536);
   const reply = fail(packer, new HcmError("X", "m".repeat(2000), "h".repeat(2000)));
   assert.ok(failed(reply).message.length <= 500);
   assert.ok(failed(reply).hint!.length <= 500);
 });
 
-test("details over a quarter of the limit shrink to omitted with the exact IDs", () => {
+test("details больше четверти предела сжимаются до omitted с точными ID", () => {
   const { packer } = setup(2000);
   const ids = {
     mutationId: "0c1f6b9e-3a4d-4e5f-8a1b-2c3d4e5f6a7b",
@@ -121,14 +121,14 @@ test("details over a quarter of the limit shrink to omitted with the exact IDs",
   assert.deepEqual(failed(reply).details, { omitted: true, ...ids });
 });
 
-test("details nest at most three levels deep", () => {
+test("details вкладываются не глубже трёх уровней", () => {
   const { packer } = setup(65536);
   const reply = fail(packer, new HcmError("X", "m", "h", { a: { b: { c: { d: { e: 1 } } } } }));
   assert.equal(detailsOf(reply).a.b.c.d, "[details omitted]");
   assert.deepEqual(detailsOf(reply).a.b.c, { d: "[details omitted]" });
 });
 
-test("lists in details keep 12 elements and objects keep 12 keys", () => {
+test("списки в details сохраняют 12 элементов, а объекты — 12 ключей", () => {
   const { packer } = setup(65536);
   const wide = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, i]));
   const reply = fail(
@@ -139,7 +139,7 @@ test("lists in details keep 12 elements and objects keep 12 keys", () => {
   assert.equal(Object.keys(detailsOf(reply).wide).length, 12);
 });
 
-test("failed batch names 20 steps and counts the rest", async () => {
+test("упавший пакет называет 20 шагов и считает остальные", async () => {
   const { packer } = setup(65536);
   const step = (index: number) => ({
     ok: false,
@@ -160,7 +160,7 @@ test("failed batch names 20 steps and counts the rest", async () => {
   assert.equal(detailsOf(few).failedTotal, undefined);
 });
 
-test("a batch receipt answer stays within a third of the limit and counts what is left out", () => {
+test("сводка пакета в ответе укладывается в треть предела и считает то, что опущено", () => {
   const { packer } = setup(3000);
   const receipts = Array.from({ length: 100 }, (_, index) => ({
     index,
@@ -176,7 +176,7 @@ test("a batch receipt answer stays within a third of the limit and counts what i
   assert.deepEqual([data.completed, data.requested, data.sentMutationSteps], [100, 120, 100]);
 });
 
-test("a batch receipt drops a URL longer than 256 characters and keeps one of 256", () => {
+test("сводка пакета отбрасывает URL длиннее 256 символов и оставляет URL в 256 символов", () => {
   const { packer } = setup(65536);
   const long = `http://h/${"a".repeat(300)}`;
   const exact = "u".repeat(256);
@@ -190,7 +190,7 @@ test("a batch receipt drops a URL longer than 256 characters and keeps one of 25
   assert.deepEqual(kept[1], receipts[1]);
 });
 
-test("a heartbeat error at a small limit keeps a short receipt and a fixed hint", () => {
+test("ошибка heartbeat при малом пределе сохраняет короткую сводку и фиксированную подсказку", () => {
   const error = new WebSocketHeartbeatError("WS_UNAVAILABLE", {
     phase: "heartbeat",
     handshakeValidated: true,
@@ -209,7 +209,7 @@ test("a heartbeat error at a small limit keeps a short receipt and a fixed hint"
   assert.notEqual(failed(small).hint, error.hint);
 });
 
-test("an oversized error keeps a short connection name and omits a long one", () => {
+test("слишком большая ошибка сохраняет короткое имя подключения и опускает длинное", () => {
   const error = new HcmError("X", "m".repeat(600));
   const short = fail(setup(300, "t").packer, error);
   assert.equal(short.meta.connection, "t");

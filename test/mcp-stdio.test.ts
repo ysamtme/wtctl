@@ -7,7 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { mcpJson } from "./mcp-json.js";
 
 const cwd = fileURLToPath(new URL("..", import.meta.url));
-// Synthetic runtime only. This subprocess never creates a network client or reads config.
+// Только подставной runtime. Этот подпроцесс не создаёт сетевого клиента и не читает конфигурацию.
 const fixtureCode = [
   "import { runMcpStdio } from './src/mcp/stdio.ts';",
   "const runtime = {",
@@ -22,7 +22,7 @@ const fixtureCode = [
 ].join("\n");
 
 test(
-  "real stdio process speaks MCP exclusively and closes its runtime after EOF",
+  "настоящий процесс stdio говорит только по MCP и закрывает runtime после EOF",
   { timeout: 15000 },
   async () => {
     const transport = new StdioClientTransport({
@@ -55,7 +55,7 @@ test(
 );
 
 test(
-  "invalid stdio framing emits safe stderr diagnostics and clean EOF closure",
+  "неверное разбиение сообщений в stdio даёт безопасную диагностику в stderr и чистое закрытие по EOF",
   { timeout: 15000 },
   async () => {
     const child = spawn(

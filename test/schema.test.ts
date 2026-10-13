@@ -159,7 +159,7 @@ function fixture(options: { forms?: Map<string, string>; documents?: typeof docu
   return { reader, formCalls, documentCalls };
 }
 
-test("nested USE and inheritance preserve the main form's base origin and catalog semantics", async () => {
+test("вложенные USE и наследование сохраняют базовое происхождение основной формы и семантику каталога", async () => {
   const { reader, formCalls } = fixture();
   const result = await reader.get({ type: "person" });
   assert.equal(result.type, "person");
@@ -194,10 +194,10 @@ test("nested USE and inheritance preserve the main form's base origin and catalo
   assert.equal(manager?.query, true);
   assert.equal(result.fields.find((field) => field.path === "status")?.computed, true);
   assert.equal(result.fields.find((field) => field.path === "status")?.title, "Статус");
-  // A title the language file does not have is no title.
+  // Название, которого нет в языковом файле, названием не считается.
   assert.equal(result.fields.find((field) => field.path === "untranslated")?.title, undefined);
   assert.equal(result.fields.find((field) => field.path === "doc_info")?.children, 3);
-  // A structure given by a base type is a structure like the rest.
+  // Структура, заданная базовым типом, — такая же структура, как остальные.
   assert.equal(result.fields.find((field) => field.path === "doc_info")?.type, "element");
   const codes = result.fields.find((field) => field.path === "codes");
   assert.equal(codes?.multiple, true);
@@ -212,7 +212,7 @@ test("nested USE and inheritance preserve the main form's base origin and catalo
   assert.equal(formCalls.filter((url) => url === "x-local://wtv/base/name.xmd").length, 1);
 });
 
-test("path, case-insensitive deep search, origins and repeated method parameters are selectable", async () => {
+test("можно выбирать путь, глубокий поиск без учёта регистра, происхождение и повторяющиеся параметры метода", async () => {
   const { reader } = fixture();
   const children = await reader.get({ type: "person", path: "doc_info" });
   assert.deepEqual(
@@ -229,7 +229,7 @@ test("path, case-insensitive deep search, origins and repeated method parameters
   assert.equal(inherited.fields[0]?.query, true);
   assert.equal(inherited.fields[0]?.computed, undefined);
   assert.equal((await reader.get({ type: "person", origin: ["own"], search: "email" })).total, 0);
-  // search narrows the methods; a method found is not "nothing found".
+  // search сужает методы; найденный метод — это не «ничего не найдено».
   const sought = await reader.get({ type: "person", include: ["methods"], search: "assign" });
   assert.deepEqual([sought.methods?.map((method) => method.name), sought.notes], [["assign"], []]);
   const methods = await reader.get({ type: "person", include: ["methods"] });
@@ -250,14 +250,14 @@ test("path, case-insensitive deep search, origins and repeated method parameters
       ?.title,
     "Surname",
   );
-  // The short name of a language is the same folder.
+  // Короткое имя языка — та же папка.
   assert.equal(
     (await reader.get({ url: personUrl, search: "lastname", language: "en" })).fields[0]?.title,
     "Surname",
   );
 });
 
-test("custom fields include values and sheets; a lexical kind adds only its selected fields", async () => {
+test("настраиваемые поля включают значения и листы; kind, переданный как записан, добавляет только свои выбранные поля", async () => {
   const { reader } = fixture();
   const custom = await reader.get({ type: "person", search: "ТАБЕЛЬНЫЙ", origin: ["custom"] });
   assert.deepEqual(custom.fields, [
@@ -291,7 +291,7 @@ test("custom fields include values and sheets; a lexical kind adds only its sele
   assert.ok(!unknown.fields.some((field) => field.name === "position_name"));
 });
 
-test("type titles parse expressions without execution and cache optional JSON translations", async () => {
+test("названия типов разбирают выражения без выполнения и кэшируют необязательные переводы JSON", async () => {
   const definitions = new Map(documents);
   definitions.set(commonUrl, {
     exchange_object_types: {
@@ -327,7 +327,7 @@ test("type titles parse expressions without execution and cache optional JSON tr
   );
 });
 
-test("missing named bases add one note per type and retain fields and their own children", async () => {
+test("отсутствующие именованные базы добавляют по одному примечанию на тип и сохраняют поля и собственные дочерние элементы", async () => {
   const incomplete = new Map(forms);
   incomplete.set(
     personUrl,
@@ -344,7 +344,7 @@ test("missing named bases add one note per type and retain fields and their own 
   assert.match(result.notes[1]!, /another/);
 });
 
-test("type discovery uses connected metadata, localized titles and custom counts", async () => {
+test("обзор типов использует метаданные подключённого сервера, локализованные названия и числа настраиваемых полей", async () => {
   const { reader } = fixture();
   const result = await reader.types({ search: "PEOPLE" });
   assert.deepEqual(result.types, [
@@ -365,7 +365,7 @@ test("type discovery uses connected metadata, localized titles and custom counts
   );
 });
 
-test("forms outside the conventional folder fall back to common, while optional read failures become notes", async () => {
+test("формы вне обычной папки берутся из common, а необязательные сбои чтения становятся примечаниями", async () => {
   const { reader, formCalls } = fixture();
   const assessment = await reader.get({ type: "assessment" });
   assert.equal(assessment.formUrl, "x-local://qti/assessment.xmd");
@@ -380,7 +380,7 @@ test("forms outside the conventional folder fall back to common, while optional 
   assert.equal(result.fields.find((field) => field.path === "lastname")?.title, "const=c_last");
 });
 
-test("schema pages honor default counts and the 16 KiB UTF-8 ceiling without dropping fields", async () => {
+test("страницы схемы соблюдают числа по умолчанию и потолок 16 КиБ в UTF-8, не теряя поля", async () => {
   const many = new Map(forms);
   const fields = Array.from(
     { length: 100 },
@@ -416,7 +416,7 @@ test("schema pages honor default counts and the 16 KiB UTF-8 ceiling without dro
   assert.equal(short.nextCursor, 80);
 });
 
-test("form parsing rejects malformed XML and cyclic inheritance without executing expressions", async () => {
+test("разбор форм отклоняет неверный XML и циклическое наследование, не выполняя выражения", async () => {
   for (const source of [
     "<SPXML-FORM><person></SPXML-FORM>",
     '<!DOCTYPE SPXML-FORM [<!ENTITY x SYSTEM "fixture">]><SPXML-FORM><person/></SPXML-FORM>',
@@ -430,7 +430,7 @@ test("form parsing rejects malformed XML and cyclic inheritance without executin
   }
 });
 
-test("forms, language and common live for the reader lifetime; custom fields refresh after 60 seconds", async (t) => {
+test("формы, язык и common живут, пока жив reader; настраиваемые поля обновляются через 60 секунд", async (t) => {
   let now = 1000;
   t.mock.method(Date, "now", () => now);
   const { reader, formCalls, documentCalls } = fixture();
@@ -452,7 +452,7 @@ test("forms, language and common live for the reader lifetime; custom fields ref
   assert.equal(documentCalls.filter((url) => url === customUrl).length, 2);
 });
 
-test("repeated runtime schema.get reads each form and language file once in one process", async () => {
+test("повторные вызовы schema.get в runtime читают каждую форму и языковой файл один раз за процесс", async () => {
   const { runtime, server } = fakeRuntime(
     {
       "native.spxml2.getAppInfo": applicationInfo,

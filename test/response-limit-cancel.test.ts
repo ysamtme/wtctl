@@ -22,7 +22,7 @@ function oversizedResponse(maxBytes: number, cancellationError?: Error) {
   };
 }
 
-test("overflow retains its byte-limit error, cancellation evidence and releases the reader", async () => {
+test("переполнение сохраняет ошибку лимита в байтах и свидетельство отмены, reader освобождается", async () => {
   const cases = [
     { name: "successful disposal", cancellationError: undefined, unsafe: false },
     {
@@ -49,7 +49,7 @@ test("overflow retains its byte-limit error, cancellation evidence and releases 
     await assert.rejects(response.arrayBuffer(), (error: unknown) => {
       assert.ok(error instanceof WsHcmApiError, fixture.name);
       assert.equal(error.kind, "protocol", "the byte limit remains the primary category");
-      assert.equal(error.message, "Response exceeds configured byte limit");
+      assert.equal(error.message, "Ответ превышает заданный предел в байтах");
       assert.deepEqual(error.details, { maxResponseBytes: 32 });
       assert.equal(isTransportFailure(error), fixture.unsafe, fixture.name);
       if (fixture.cancellationError === undefined) assert.equal(error.cleanupError, undefined);
@@ -58,7 +58,7 @@ test("overflow retains its byte-limit error, cancellation evidence and releases 
       else {
         assert.ok(error.cleanupError instanceof WsHcmApiError);
         assert.equal(error.cleanupError.kind, "http");
-        assert.equal(error.cleanupError.message, "HTTP response cancellation failed");
+        assert.equal(error.cleanupError.message, "Не удалось отменить чтение HTTP-ответа");
         assert.equal(error.cleanupError.cause, fixture.cancellationError);
         assert.ok(!JSON.stringify(error.cleanupError).includes("secret-cookie-fixture"));
       }
@@ -86,7 +86,7 @@ for (const variant of [
   "known-cancel-failure",
   "unknown-cancel-failure",
 ] as const)
-  test(`two cached contexts stop further remote teardown after unsafe overflow disposal: ${variant}`, async () => {
+  test(`два кэшированных контекста прекращают дальнейшее удалённое закрытие после небезопасного освобождения при переполнении: ${variant}`, async () => {
     const requests: string[] = [];
     const cancellationError =
       variant === "known-cancel-failure"
@@ -156,7 +156,7 @@ for (const variant of [
         assert.equal(byteLimit.cleanupError, cancellationError);
       else if (variant === "unknown-cancel-failure") {
         assert.ok(byteLimit.cleanupError instanceof WsHcmApiError);
-        assert.equal(byteLimit.cleanupError.message, "HTTP response cancellation failed");
+        assert.equal(byteLimit.cleanupError.message, "Не удалось отменить чтение HTTP-ответа");
         assert.equal(byteLimit.cleanupError.cause, cancellationError);
       } else assert.equal(byteLimit.cleanupError, undefined);
       assert.ok(!JSON.stringify(error).includes("secret-cookie-fixture"));
@@ -179,11 +179,11 @@ for (const variant of [
     assert.equal(oversized.cancelCalls(), 1);
     assert.equal(oversized.source.locked, false);
     const completedRequests = requests.length;
-    await assert.rejects(native.rpc.call({ target: "tools.get_version", args: [] }), /closed/);
-    await assert.rejects(web.rpc.call({ target: "tools.get_version", args: [] }), /closed/);
+    await assert.rejects(native.rpc.call({ target: "tools.get_version", args: [] }), /закрыт/);
+    await assert.rejects(web.rpc.call({ target: "tools.get_version", args: [] }), /закрыт/);
     await assert.rejects(
       gateway.call("native.rpc.call", { target: "tools.get_version" }),
-      /closed/,
+      /закрыт/,
     );
     await assert.rejects(gateway.close());
     assert.equal(requests.length, completedRequests, "skipped contexts stay locally closed");

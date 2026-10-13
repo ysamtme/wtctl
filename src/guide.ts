@@ -3,31 +3,31 @@ import { GUIDE_PAGES, type GuidePage } from "./guide-texts.js";
 
 export type { GuidePage };
 
-/** How this very program was started: lets the guide name a command and an SDK that work here. */
+/** Как запущена эта же программа: позволяет гайду назвать команду и SDK, которые работают здесь. */
 export interface LocalInstall {
-  /** Node.js executable. */
+  /** Исполняемый файл Node.js. */
   readonly node: string;
-  /** The command's script file. */
+  /** Файл скрипта команды. */
   readonly script: string;
-  /** Import address of the SDK that lies next to the script, when it does. */
+  /** Адрес импорта SDK, лежащего рядом со скриптом, если он там есть. */
   readonly sdk?: string;
-  /** Where this process took its connection from, when that is not the default file. */
+  /** Откуда этот процесс взял подключение, если не из файла по умолчанию. */
   readonly settings?: {
-    /** A connections file named by --config or WTCTL_CONFIG. */
+    /** Файл подключений, названный через --config или WTCTL_CONFIG. */
     readonly configPath?: string;
-    /** A connection named by --connection or WTCTL_CONNECTION. */
+    /** Подключение, названное через --connection или WTCTL_CONNECTION. */
     readonly connection?: string;
-    /** The connection is made of WTCTL_* variables of this process. */
+    /** Подключение собрано из переменных WTCTL_* этого процесса. */
     readonly environment?: boolean;
   };
 }
 
-/** Topics of the built-in guide; the first one is the overview. */
+/** Темы встроенного гайда; первая — обзор. */
 export function guideTopics(): readonly string[] {
   return GUIDE_PAGES.map((page) => page.topic);
 }
 
-/** How the command and a program reach the connection this process works with. */
+/** Как команда и программа доходят до подключения, с которым работает этот процесс. */
 function connectionNote(settings: LocalInstall["settings"]): string[] {
   if (settings?.environment)
     return [
@@ -48,7 +48,7 @@ function connectionNote(settings: LocalInstall["settings"]): string[] {
   ];
 }
 
-/** A copy kept by npx or by a plugin host: its path is replaced by the next update. */
+/** Копия, которую держит npx или хост плагина: её путь заменит следующее обновление. */
 function movingCopy(script: string): string | undefined {
   if (/[\\/]_npx[\\/]/.test(script)) return "кэше npx";
   if (/[\\/]plugins[\\/]cache[\\/]/.test(script)) return "копии плагина";
@@ -75,7 +75,7 @@ function onThisComputer(local: LocalInstall): string {
   ].join("\n");
 }
 
-/** One page of the guide: the same text the skill carries, served without a skill installed. */
+/** Одна страница гайда: тот же текст, что в навыке, без установленного навыка. */
 export function guide(topic = "start", local?: LocalInstall): GuidePage {
   const page = GUIDE_PAGES.find((item) => item.topic === topic);
   if (!page)

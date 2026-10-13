@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { query } from "../../src/protocol/transport.js";
 
-// The inspected Datex query decoder percent-decodes without form-style '+'.
-// URLSearchParams.get would hide the compatibility defect in a test oracle.
+// Декодер запросов Datex декодирует проценты без '+' в стиле форм.
+// URLSearchParams.get скрыл бы дефект совместимости в эталоне теста.
 function datexQuery(path: string): Record<string, string> {
   return Object.fromEntries(
     path
@@ -19,7 +19,7 @@ function datexQuery(path: string): Record<string, string> {
   );
 }
 
-test("query wire encoding preserves spaces, literal plus, percent, Unicode and CRLF under Datex decoding", () => {
+test("кодирование запроса в протоколе сохраняет пробелы, обычный плюс, процент, Unicode и CRLF при декодировании Datex", () => {
   const values = {
     "key with +": "ASCII & = + % <xml>",
     unicode: "цвет 😀 + пробел\r\nsecond\tline",

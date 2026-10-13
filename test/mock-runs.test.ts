@@ -1,5 +1,5 @@
-// What agents ran into on mock tasks: an answer that left a fact out, a refusal that named no
-// cause, an outcome that sent the caller to check a write that never happened.
+// С чем агенты столкнулись на пробных задачах: ответ, в котором пропал факт, отказ без названной
+// причины, исход, который отправил вызывающего проверять запись, которой не было.
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -55,7 +55,7 @@ const manyRows = () => ({
   EOF: "true",
 });
 
-test("a requested field that only the catalog has comes from the catalog row, under its own name", async () => {
+test("запрошенное поле, которое есть только в каталоге, берётся из строки каталога под своим именем", async () => {
   const queries: string[] = [];
   const { runtime } = fakeRuntime({
     ...base,
@@ -76,11 +76,11 @@ test("a requested field that only the catalog has comes from the catalog row, un
     });
     const data = got.data as Record<string, unknown>;
     assert.deepEqual(data.data, { lastname: "Иванов" });
-    // boss_name is a field of the catalog with no value in this row; comment is empty in the document.
+    // boss_name — поле каталога без значения в этой строке; comment в документе пуст.
     assert.deepEqual(data.fromCatalog, { fullname: "Иванов Пётр" });
     assert.deepEqual(data.unknownFields, ["nope"]);
     assert.deepEqual(queries, ["for $elem in people where $elem/id = 1 return $elem"]);
-    // Nothing is asked of the catalog when the document answers everything.
+    // Каталог не запрашивается, когда документ отвечает на всё.
     await runtime.call("objects.get", { id: "1", fields: ["lastname"] });
     await runtime.call("objects.get", { id: "1" });
     assert.equal(queries.length, 1);
@@ -89,13 +89,13 @@ test("a requested field that only the catalog has comes from the catalog row, un
   }
 });
 
-test("a patch that changes nothing is not a preview; resave writes the document as it is", async () => {
+test("правка, которая ничего не меняет, — не предпросмотр; resave записывает документ как есть", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const written: string[] = [];
   const { runtime } = fakeRuntime(
     {
       ...base,
-      // After a save the server fills in a field of its own.
+      // После сохранения сервер сам заполняет своё поле.
       "native.lds.loadDoc": () =>
         xml(
           `<person><id>1</id><lastname>Иванов</lastname>${written.length ? "<comment>от сервера</comment>" : ""}</person>`,
@@ -113,7 +113,7 @@ test("a patch that changes nothing is not a preview; resave writes the document 
     assert.equal(answer.preview, false);
     assert.equal(answer.noop, true);
     assert.equal(written.length, 0);
-    // The tool takes resave alone, as the guide writes it.
+    // Инструмент принимает один resave, как записано в гайде.
     const asked = mcpJson(
       await new HcmMcpTools(runtime).invoke("hcm_object_patch", {
         id: "1",
@@ -121,7 +121,7 @@ test("a patch that changes nothing is not a preview; resave writes the document 
         preview: true,
       }),
     );
-    // A preview of a save without changes: nothing of the caller's changes, yet the document will be written.
+    // Предпросмотр сохранения без изменений: изменений вызывающего нет, но документ будет записан.
     assert.deepEqual(
       [(asked.data as any).preview, (asked.data as any).noop, written.length],
       [true, false, 0],
@@ -132,7 +132,7 @@ test("a patch that changes nothing is not a preview; resave writes the document 
     assert.deepEqual((saved.data as any).serverChanged, ["comment"]);
     assert.equal(written.length, 1);
     assert.match(written[0]!, /<lastname>Иванов<\/lastname>/);
-    // Without resave there must be something to change.
+    // Без resave должно быть что менять.
     const nothing = await runtime.call("objects.patch", { id: "1" });
     assert.equal(nothing.error?.code, "INVALID_ARGUMENT");
   } finally {
@@ -141,13 +141,13 @@ test("a patch that changes nothing is not a preview; resave writes the document 
   }
 });
 
-test("a reference that keeps a copy of the object under it survives a patch of another field", async () => {
+test("ссылка, под которой лежит копия объекта, сохраняется при правке другого поля", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const written: string[] = [];
   const { runtime } = fakeRuntime(
     {
       ...base,
-      // The server lays a document out with line breaks; under a reference it keeps sd.
+      // Сервер раскладывает документ по строкам; под ссылкой он оставляет sd.
       "native.lds.loadDoc": () =>
         xml(
           written.at(-1) ??
@@ -163,7 +163,7 @@ test("a reference that keeps a copy of the object under it survives a patch of a
   try {
     const saved = await runtime.call("objects.patch", { id: "1", patch: { lastname: "Петров" } });
     assert.equal((saved.data as any).mutationOutcome, "confirmed");
-    // A break written as a reference right after the value makes the server drop the field.
+    // Перенос строки, записанный ссылкой сразу после значения, заставляет сервер выбросить поле.
     assert.equal(
       written[0],
       "<person><id>1</id><lastname>Петров</lastname><boss_id>5<sd><name>Пётр</name></sd></boss_id><comment>первая&#10;вторая</comment></person>",
@@ -174,7 +174,7 @@ test("a reference that keeps a copy of the object under it survives a patch of a
   }
 });
 
-test("the check after a write knows the fields a base type gives; a mismatch says what differs", async () => {
+test("проверка после записи знает поля, которые даёт базовый тип; при расхождении называет, что отличается", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   let stored = "<person><id>1</id><lastname>Иванов</lastname></person>";
   const { runtime } = fakeRuntime(
@@ -182,7 +182,7 @@ test("the check after a write knows the fields a base type gives; a mismatch say
       ...base,
       "native.lds.loadDoc": () => xml(stored),
       "native.lds.putDoc": (args) => {
-        // The server keeps a logical value as 1 and, here, does not take the new last name.
+        // Сервер хранит логическое значение как 1 и здесь не принимает новую фамилию.
         stored = String(args.data)
           .replace("<is_admin>true<", "<is_admin>1<")
           .replace("Петров", "Иванов");
@@ -208,7 +208,7 @@ test("the check after a write knows the fields a base type gives; a mismatch say
   }
 });
 
-test("a field of a list element made by the same patch has no value before", async () => {
+test("у поля элемента списка, созданного той же правкой, нет прежнего значения", async () => {
   let document = "<person><id>1</id><roles></roles></person>";
   const { runtime } = fakeRuntime({ ...base, "native.lds.loadDoc": () => xml(document) });
   try {
@@ -240,7 +240,7 @@ test("a field of a list element made by the same patch has no value before", asy
   }
 });
 
-test("a refused XQuery text is explained by the catalog or the field it names", async () => {
+test("отклонённый текст XQuery объясняется каталогом или полем, которое в нём названо", async () => {
   assert.deepEqual(
     xqueryNames(
       "for $a in people, $b in groups where $a/id = $b/person_id and $a/name != '' return $a",
@@ -260,9 +260,9 @@ test("a refused XQuery text is explained by the catalog or the field it names", 
     (runtime as any).logs.serverWroteLog = () => logged++;
     const catalog = await query("for $e in persons return $e");
     assert.equal(catalog.error?.code, "UNKNOWN_CATALOG");
-    // The server wrote the refusal to its log: the next log read must wait for the file.
+    // Сервер записал отказ в свой лог: следующее чтение лога должно дождаться файла.
     assert.equal(logged, 1);
-    // The names are right: the cause is elsewhere and the server's refusal stays.
+    // Имена верны: причина в другом, и отказ сервера остаётся.
     const other = await query("for $e in people where no_such($e/lastname) return $e");
     assert.equal(other.error?.code, "PLATFORM_SOAP-FAULT");
   } finally {
@@ -270,7 +270,7 @@ test("a refused XQuery text is explained by the catalog or the field it names", 
   }
 });
 
-test("the reason of a script failure is kept long, and a cut text says it is cut", async () => {
+test("причина сбоя скрипта сохраняется длинной, а обрезанный текст говорит, что он обрезан", async () => {
   const { runtime } = fakeRuntime({
     "*": () => {
       throw new HcmError("SCRIPT_FAILED", "m", undefined, {
@@ -293,7 +293,7 @@ test("the reason of a script failure is kept long, and a cut text says it is cut
   }
 });
 
-test("a finished background task gives its result as a plain value, like the direct call", async () => {
+test("завершённая фоновая задача отдаёт результат простым значением, как прямой вызов", async () => {
   let answer: unknown = { IsRunning: "1" };
   const { runtime } = fakeRuntime({ "*": () => answer });
   try {
@@ -304,7 +304,7 @@ test("a finished background task gives its result as a plain value, like the dir
       ResultData: { Result: { "#text": "done", "@_VALUE-TYPE": "string" } },
     };
     assert.deepEqual((await status()).data, { IsRunning: "0", value: "done" });
-    // A document has no plain form: the answer stays as the server gave it.
+    // У документа нет простого вида: ответ остаётся таким, как его дал сервер.
     answer = { IsRunning: "0", ResultData: { Result: { "@_VALUE-TYPE": "XmDoc", root: "x" } } };
     assert.deepEqual((await status()).data, answer);
   } finally {
@@ -312,7 +312,7 @@ test("a finished background task gives its result as a plain value, like the dir
   }
 });
 
-test("schema for a path describes the element itself: a list, its key", async () => {
+test("схема по пути описывает сам элемент: список, его ключ", async () => {
   const reader = new SchemaReader(
     async () => info,
     form,
@@ -336,12 +336,12 @@ test("schema for a path describes the element itself: a list, its key", async ()
   assert.ok(missing.notes.includes("Поля roles.rol в типе person нет: путь ищет search."));
   const whole = await reader.get({ type: "person" });
   assert.equal(whole.element, undefined);
-  // attr is a kind of value, not a base type whose fields went missing.
+  // attr — вид значения, а не базовый тип, у которого пропали поля.
   assert.ok(!whole.notes.some((note) => note.includes("Базовый тип")));
   assert.equal(whole.fields.find((field) => field.path === "class")?.type, "attr");
 });
 
-test("a log search page shorter than asked says so; newest first is an option", async () => {
+test("страница поиска по логу короче запрошенной говорит об этом; сначала новые — параметр", async () => {
   const file = {
     name: "a.log",
     url: "x-local://Logs/a.log",
@@ -394,7 +394,7 @@ test("a log search page shorter than asked says so; newest first is an option", 
   }
 });
 
-test("CLI: a patch can be only --resave; help names the limits and the ways to pass JSON", async () => {
+test("CLI: правка может быть одним --resave; справка называет ограничения и способы передать JSON", async () => {
   const io = {} as CliIo;
   const patch = await commandInvocation(
     parseArguments(["object", "patch", "person", "0x1", "--resave"]),
@@ -427,7 +427,7 @@ test("CLI: a patch can be only --resave; help names the limits and the ways to p
     assert.match(JSON.stringify(cliHelp(command)), text, command);
 });
 
-test("a catalog query sorts by catalog fields; a wrong order is refused before the server", async () => {
+test("запрос по каталогу сортирует по полям каталога; неверный порядок отклоняется до сервера", async () => {
   assert.equal(
     catalogQuery("people", { lastname: "A" }, new Set(), ["fullname", "hire_date desc", "id ASC"]),
     "for $elem in people where ($elem/lastname = 'A') order by $elem/fullname, $elem/hire_date descending, $elem/id return $elem",
@@ -452,7 +452,7 @@ test("a catalog query sorts by catalog fields; a wrong order is refused before t
     },
   });
   try {
-    // The tool takes the order as a list, the way the guide writes it.
+    // Инструмент принимает порядок списком, как записано в гайде.
     const sorted = mcpJson(
       await new HcmMcpTools(runtime).invoke("hcm_query", {
         catalog: "people",
@@ -461,7 +461,7 @@ test("a catalog query sorts by catalog fields; a wrong order is refused before t
     );
     assert.equal(sorted.ok, true);
     assert.deepEqual(sent, ["for $elem in people order by $elem/lastname return $elem"]);
-    // A field the catalog does not have is named, as it is for a condition.
+    // Поле, которого нет в каталоге, названо, как и для условия.
     const unknown = await runtime.call("runtime.query", { catalog: "people", order: "comment" });
     assert.equal(unknown.error?.code, "UNKNOWN_CATALOG_FIELD");
     assert.deepEqual(unknown.error?.details, { fields: ["comment"] });
@@ -471,7 +471,7 @@ test("a catalog query sorts by catalog fields; a wrong order is refused before t
     });
     assert.equal(raw.error?.code, "QUERY_ARGUMENT");
     assert.match(raw.error!.hint!, /order by \$e\/поле/);
-    // MS SQL refuses a sort by a field of several values, PostgreSQL answers: neither is asked.
+    // MS SQL отказывает в сортировке по полю с несколькими значениями, PostgreSQL отвечает: не запрашивается ни то ни другое.
     const several = await runtime.call("runtime.query", { catalog: "people", order: ["role_id"] });
     assert.equal(several.error?.code, "INVALID_ARGUMENT");
     assert.deepEqual(several.error?.details, { fields: ["role_id"] });
@@ -481,7 +481,7 @@ test("a catalog query sorts by catalog fields; a wrong order is refused before t
   }
 });
 
-test("a date comes without the offset the server adds to its local time", async () => {
+test("дата приходит без смещения, которое сервер добавляет к своему местному времени", async () => {
   assert.deepEqual(
     withoutFalseOffset({
       a: "2026-10-02T16:42:00+00:00",
@@ -516,7 +516,7 @@ test("a date comes without the offset the server adds to its local time", async 
     assert.deepEqual((doc.data as any).data, {
       roles: { role: [{ role_id: "x", since: "2025-01-01T00:00:00" }] },
     });
-    // The date written back as it was read changes nothing; the value before is shown as it is read.
+    // Дата, записанная обратно как прочитана, ничего не меняет; значение до показано как прочитано.
     const since = async (value: string) =>
       (
         await runtime.call("objects.patch", {
@@ -539,7 +539,7 @@ test("a date comes without the offset the server adds to its local time", async 
   }
 });
 
-test("an answer that did not fit says which operations read it, in the caller's own names", async () => {
+test("ответ, который не поместился, называет операции, которые его читают, именами вызывающего", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const { runtime, server } = fakeRuntime(
     { "*": manyRows },
@@ -555,14 +555,14 @@ test("an answer that did not fit says which operations read it, in the caller's 
     assert.match(tool.hint, /hcm_result_read .* hcm_result_export/);
     const command = errorInFrontendTerms(big, "cli").data as { hint: string };
     assert.match(command.hint, /wtctl result read .* wtctl result export/);
-    // Rows too long even for a preview leave the counters of the answer in it.
+    // Слишком длинные даже для предпросмотра строки оставляют в нём счётчики ответа.
     server.on("*", () => ({
       Data: { person: ["1", "2"].map((id) => ({ id, lastname: "Ф".repeat(1500) })) },
       TotalCount: "2",
       EOF: "true",
     }));
     const long = await runtime.call("runtime.query", { catalog: "people", limit: 1000 });
-    // The preview of a stored answer names its keys: a list by its size.
+    // Предпросмотр сохранённого ответа называет его ключи: список — по размеру.
     assert.deepEqual((long.data as any).preview, {
       kind: "stored-result",
       items: "[список: 2]",
@@ -574,7 +574,7 @@ test("an answer that did not fit says which operations read it, in the caller's 
   }
 });
 
-test("a disabled right names who turns it on", async () => {
+test("отключённое право называет, кто его включает", async () => {
   const { runtime } = fakeRuntime(
     {},
     { outputLimitBytes: 4096, permissions: { write: false, execute: false } },
@@ -591,7 +591,7 @@ test("a disabled right names who turns it on", async () => {
   }
 });
 
-test("a batch that went on past failures names the failed steps in the error", async () => {
+test("пакет, который шёл дальше после сбоев, называет упавшие шаги в ошибке", async () => {
   const { runtime } = fakeRuntime({
     ...base,
     "native.lds.xQuery": (args, id) => {
@@ -643,7 +643,7 @@ test("a batch that went on past failures names the failed steps in the error", a
   }
 });
 
-test("a failed batch whose answer was stored says what reads the steps", async () => {
+test("упавший пакет с сохранённым ответом говорит, чем читать шаги", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const { runtime } = fakeRuntime(
     { "*": manyRows },
@@ -659,7 +659,7 @@ test("a failed batch whose answer was stored says what reads the steps", async (
     });
     assert.equal(batch.error?.code, "BATCH_FAILED");
     assert.equal(batch.meta.truncated, true);
-    // The preview says of every step whether it passed and how much it returned.
+    // Предпросмотр говорит про каждый шаг, прошёл ли он и сколько вернул.
     assert.deepEqual((batch.data as any).preview.results, [
       { ok: true, total: 200, rows: 200 },
       { ok: false, code: "INVALID_ARGUMENT" },
@@ -680,7 +680,7 @@ test("a failed batch whose answer was stored says what reads the steps", async (
   }
 });
 
-test("the list of a stored answer is read by elements and exported by lines", async () => {
+test("список сохранённого ответа читается по элементам и экспортируется по строкам", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const { runtime } = fakeRuntime(
     { "*": manyRows },
@@ -690,7 +690,7 @@ test("the list of a stored answer is read by elements and exported by lines", as
     const big = await runtime.call("runtime.query", { catalog: "people", limit: 1000 });
     assert.match((big.data as any).hint, /список items по элементам/);
     const resultId = big.meta.resultId!;
-    // A page holds whole rows; the one that is shorter than asked says the size cut it.
+    // Страница состоит из целых строк; та, что короче запрошенного, говорит, что её обрезал размер.
     const cut = (await runtime.call("results.read", { resultId, limit: 65536 })).data as any;
     assert.equal(cut.list, "items");
     assert.equal(cut.total, 200);
@@ -704,7 +704,7 @@ test("the list of a stored answer is read by elements and exported by lines", as
       ["198", "199"],
     );
     assert.equal(asked.cutBySize, undefined);
-    // The whole answer stays available as JSON text, with the fields that are not the list.
+    // Весь ответ остаётся доступен как текст JSON, вместе с полями, не входящими в список.
     const text = (await runtime.call("results.read", { resultId, format: "json", limit: 41 }))
       .data as any;
     assert.equal(text.text, '{"items":[{"id":"0","lastname":"Фамилия"}');
@@ -730,7 +730,7 @@ test("the list of a stored answer is read by elements and exported by lines", as
   }
 });
 
-test("a stored answer with a list under another name is read by that list", async () => {
+test("сохранённый ответ со списком под другим именем читается по этому списку", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const { runtime } = fakeRuntime({}, { runtimeDir: directory, outputLimitBytes: 2048 });
   try {
@@ -755,19 +755,19 @@ test("a stored answer with a list under another name is read by that list", asyn
       format: "jsonl",
     });
     assert.equal((exported.data as any).items, 300);
-    // An answer without a list of its own, and one made of a text, are read as before.
+    // Ответ без собственного списка и ответ из одного текста читаются как раньше.
     const plain = await runtime.results.put({
       data: { a: "x".repeat(50) },
       unknownFields: ["a", "b"],
     });
     assert.equal(plain.list, undefined);
-    // The list that is the bulk of the answer is taken, not the one with more elements.
+    // Берётся список, который составляет основную часть ответа, а не тот, где больше элементов.
     const rows = await runtime.results.put({
       items: [1, 2, 3].map((id) => ({ id, text: "x".repeat(40) })),
       unknownFields: ["a", "b", "c", "d"],
     });
     assert.equal(rows.list, "items");
-    // A list name the JSON text writes with an escape is still found.
+    // Имя списка, записанное в тексте JSON через escape-последовательность, всё равно находится.
     const odd = await runtime.results.put({ 'a"b': [{ n: 1 }, { n: 2 }] });
     const oddPath = join(directory, "odd.jsonl");
     await runtime.call("results.export", {
@@ -784,7 +784,7 @@ test("a stored answer with a list under another name is read by that list", asyn
   }
 });
 
-test("an answer the client could not read is not called an error HTTP 200", () => {
+test("ответ, который клиент не смог прочитать, не называется ошибкой HTTP 200", () => {
   const explained = platformFailure(
     new WsHcmApiError("protocol", "Unexpected response", {
       operation: "GetModObjects",
@@ -796,7 +796,7 @@ test("an answer the client could not read is not called an error HTTP 200", () =
   assert.equal(explained.message, "Сервер ответил HTTP 200, но разобрать ответ не удалось.");
 });
 
-test("the whole set of query arguments next to --catalog is refused with the way to pass it", async () => {
+test("весь набор аргументов запроса рядом с --catalog отклоняется с указанием, как его передать", async () => {
   const io = {} as CliIo;
   for (const source of [
     '{"catalog":"people","where":{"lastname":"A"}}',
@@ -815,7 +815,7 @@ test("the whole set of query arguments next to --catalog is refused with the way
   assert.deepEqual(plain.args, { catalog: "people", where: { where: { eq: "A" } } });
 });
 
-test("a file read as an object by its address says what reads it", async () => {
+test("файл, прочитанный как объект по адресу, говорит, чем его читать", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const { runtime } = fakeRuntime({ "*": xml("<!-- form --><a/><b/>") }, { runtimeDir: directory });
   try {
@@ -832,7 +832,7 @@ test("a file read as an object by its address says what reads it", async () => {
   }
 });
 
-test("the text of a file that fits in the answer is still kept and exported to a file", async () => {
+test("текст файла, который помещается в ответ, всё равно сохраняется и экспортируется в файл", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const { runtime } = fakeRuntime(
     { "*": { Data: Buffer.from("строка 1\nстрока 2\n").toString("base64") } },
@@ -844,6 +844,57 @@ test("the text of a file that fits in the answer is still kept and exported to a
     const path = join(directory, "a.log");
     await runtime.call("results.export", { resultId: read.meta.resultId, path, format: "text" });
     assert.equal(await readFile(path, "utf8"), "строка 1\nстрока 2\n");
+  } finally {
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+const logName = "xhttp_2026-09-30.log";
+/** Сервер логов: один файл заданного размера; requested собирает размеры прочитанных концов. */
+function logServer(size: number, requested: number[] = []): Script {
+  const cells = ["Основной журнал", "30.09.2026", logName, String(size), "xhttp", "false"];
+  const report = `<data><rs><r><cs>${[...cells, `x-local://Logs/${logName}`].map((value) => `<c><t>${value}</t></c>`).join("")}</cs></r></rs></data>`;
+  return {
+    "native.rpc.call": (args) => {
+      if (args.target === "tools_report.server_log_report")
+        return { valueType: "string", lexicalValue: report };
+      const bytes = Number((args.args as { lexicalValue: string }[])[1]!.lexicalValue);
+      requested.push(bytes);
+      return {
+        valueType: "string",
+        lexicalValue: `Показано последние ${bytes} байт файла. Для просмотра всего файла его нужно сохранить.\n10:00:01 text`,
+      };
+    },
+  };
+}
+
+test("текст лога сохраняется, даже когда помещается в ответ", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
+  const { runtime } = fakeRuntime(logServer(100), { runtimeDir: directory });
+  try {
+    const read = await runtime.call("logs.read", { file: logName, tailBytes: 512 });
+    assert.equal(read.ok, true);
+    assert.equal(read.meta.truncated, undefined);
+    assert.equal(typeof read.meta.resultId, "string");
+  } finally {
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("чтение лога без размера берёт конец файла размером в страницу ответа", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
+  const requested: number[] = [];
+  const { runtime } = fakeRuntime(logServer(100_000, requested), {
+    outputLimitBytes: 1000,
+    runtimeDir: directory,
+  });
+  try {
+    assert.equal((await runtime.call("logs.read", { file: logName })).ok, true);
+    assert.equal((await runtime.call("logs.read", { file: logName, tailBytes: 300 })).ok, true);
+    // Страница ответа — 60% предела: 600 байт; явный размер сильнее.
+    assert.deepEqual(requested, [600, 300]);
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });

@@ -1,5 +1,5 @@
-// The first fifteen minutes of a new user: nothing is set up, the address is wrong, the server is
-// down, the password is wrong. Each case has to say what happened and what to do.
+// Первые пятнадцать минут нового пользователя: ничего не настроено, адрес неверен, сервер
+// не работает, пароль неверен. В каждом случае нужно сказать, что случилось и что делать.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -25,7 +25,7 @@ const SETTINGS = [
   "WTCTL_ALLOW_WRITE",
   "WTCTL_ALLOW_EXECUTE",
 ];
-/** Run with a clean set of WTCTL_* variables and an empty client folder; restore both afterwards. */
+/** Запуск с чистым набором переменных WTCTL_* и пустой папкой клиента; после — вернуть оба. */
 async function cleanSettings<T>(
   run: (home: string) => Promise<T>,
   variables: Record<string, string> = {},
@@ -55,14 +55,14 @@ const base = {
   runtimeDir: ".unused",
   permissions: { write: true, execute: true },
 } as const;
-/** A network failure as Node's fetch reports it: a TypeError whose cause carries the system code. */
+/** Сбой сети в том виде, как его сообщает fetch в Node: TypeError, чья cause несёт системный код. */
 function failingFetch(code: string): NonNullable<ConnectionConfig["fetch"]> {
   return async () => {
     throw new TypeError("fetch failed", { cause: Object.assign(new Error(code), { code }) });
   };
 }
 
-test("without any settings the answer says what to set", async () => {
+test("без настроек ответ говорит, что задать", async () => {
   await cleanSettings(async () => {
     assert.throws(
       () => loadConfig(),
@@ -74,7 +74,7 @@ test("without any settings the answer says what to set", async () => {
   });
 });
 
-test("the connections file in the client folder is found without being named", async () => {
+test("файл подключений в папке клиента находится без указания имени", async () => {
   await cleanSettings(async (home) => {
     assert.equal(defaultConfigPath(), join(home, "connections.json"));
     await writeFile(
@@ -91,14 +91,14 @@ test("the connections file in the client folder is found without being named", a
     assert.equal(config.name, "main");
     assert.equal(config.runtimeDir, join(home, "runtime"));
     assert.deepEqual(config.permissions, { write: false, execute: false });
-    // Variables describe a connection of their own and do not mix with the file.
+    // Переменные описывают собственное подключение и не смешиваются с файлом.
     process.env.WTCTL_URL = "http://from-env.example/";
     assert.equal(loadConfig().baseUrl, "http://from-env.example/");
     assert.equal(loadConfig().username, undefined);
   });
 });
 
-test("configuration errors name the file, the line and the known connections", async () => {
+test("ошибки настройки называют файл, строку и известные подключения", async () => {
   await cleanSettings(async (home) => {
     const file = join(home, "bad.json");
     await writeFile(file, '{\n "connections": {\n  "a": {,\n');
@@ -122,7 +122,7 @@ test("configuration errors name the file, the line and the known connections", a
   });
 });
 
-test("a server that cannot be reached is named with the reason", async () => {
+test("сервер, до которого не достучаться, назван с причиной", async () => {
   const cases: [code: string, message: RegExp, hint: RegExp][] = [
     [
       "ECONNREFUSED",
@@ -146,13 +146,13 @@ test("a server that cannot be reached is named with the reason", async () => {
     assert.match(read.error!.message, message);
     assert.match(read.error!.hint!, hint);
     const write = await runtime.call("execute.script", { code: "RESULT = [];" });
-    // The session was never opened, so the code did not reach the server.
+    // Сессия не была открыта, поэтому код до сервера не дошёл.
     assert.equal(write.error?.mutationOutcome, "not_sent");
     await runtime.close();
   }
 });
 
-test("a missing or refused login says which of the two it is", async () => {
+test("отсутствующий или отклонённый вход говорит, который из двух", async () => {
   const anonymous = new HcmRuntime({ ...base, fetch: async () => new Response("") });
   const missing = await anonymous.call("runtime.status", {});
   assert.equal(missing.error?.code, "PLATFORM_AUTH");
@@ -172,7 +172,7 @@ test("a missing or refused login says which of the two it is", async () => {
   await refusedLogin.close();
 });
 
-test("the self-check puts the reason of a failed login into its error", async () => {
+test("самопроверка кладёт причину неудачного входа в свою ошибку", async () => {
   const runtime = new HcmRuntime({
     ...base,
     username: "u",
@@ -222,7 +222,7 @@ function cli(options: { stdin?: string; answers?: string[] } = {}) {
   return { state, io, dependencies, json };
 }
 
-test("version is a command and a flag", async () => {
+test("version — это команда и флаг", async () => {
   for (const argv of [["version"], ["--version"], ["-v"]]) {
     const f = cli();
     assert.equal(await runCli(argv, f.io, f.dependencies), 0);
@@ -232,7 +232,7 @@ test("version is a command and a flag", async () => {
   assert.equal(VERSION, packageJson.version);
 });
 
-test("config init writes a read-only connection and keeps the ones already there", async () => {
+test("config init пишет подключение только для чтения и сохраняет уже существующие", async () => {
   await cleanSettings(async (home) => {
     const first = cli({ stdin: "s3cret\n" });
     assert.equal(
@@ -292,7 +292,7 @@ test("config init writes a read-only connection and keeps the ones already there
   });
 });
 
-test("config init asks at a terminal and refuses to guess without one", async () => {
+test("config init спрашивает в терминале и отказывается угадывать без него", async () => {
   await cleanSettings(async () => {
     const asked = cli({ answers: ["http://localhost:8088", "admin", "typed"] });
     assert.equal(await runCli(["config", "init"], asked.io, asked.dependencies), 0);
@@ -310,7 +310,7 @@ test("config init asks at a terminal and refuses to guess without one", async ()
   });
 });
 
-test("an MCP server without settings starts and answers with what to set, then works once they exist", async () => {
+test("MCP-сервер без настроек запускается и отвечает, что задать, а после их появления работает", async () => {
   await cleanSettings(async () => {
     const calls: string[] = [];
     const real: RuntimePort = {
@@ -348,7 +348,7 @@ test("an MCP server without settings starts and answers with what to set, then w
   });
 });
 
-test("a server started through npx names the npx command, not a path inside its cache", async () => {
+test("сервер, запущенный через npx, называет команду npx, а не путь внутри её кэша", async () => {
   await cleanSettings(async () => {
     const f = cli();
     const dependencies: CliDependencies = {

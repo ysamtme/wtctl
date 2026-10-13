@@ -11,9 +11,10 @@ import { HcmError } from "../errors.js";
 import type { RuntimePort } from "../runtime-port.js";
 
 /**
- * A runtime for a server that starts before its connection is set up. An agent host shows a server
- * that exits at start as "failed" with no reason; this one starts, lists its tools and answers every
- * call with what to set. The settings are read again on each call, so fixing them needs no restart.
+ * Runtime для MCP-сервера, который стартует до настройки подключения. Хост агента показывает
+ * сервер, завершившийся при старте, как «failed» без причины; этот стартует, отдаёт список
+ * инструментов и на каждый вызов отвечает, что настроить. Настройки читаются заново при каждом
+ * вызове, поэтому после исправления перезапуск не нужен.
  */
 export class DeferredRuntime implements RuntimePort {
   #runtime: RuntimePort | undefined;
@@ -22,7 +23,7 @@ export class DeferredRuntime implements RuntimePort {
     private readonly load: () => ConnectionConfig | Promise<ConnectionConfig>,
     private readonly create: (config: ConnectionConfig) => RuntimePort,
     firstError: HcmError,
-    /** How a person sets the connection up on this computer; added to the hint of the refusal. */
+    /** Как человек настраивает подключение на этом компьютере; добавляется к подсказке отказа. */
     private readonly setup?: string,
   ) {
     this.#error = firstError;
@@ -47,7 +48,7 @@ export class DeferredRuntime implements RuntimePort {
     return this.#runtime ? this.#runtime.describe(id) : describeHcmOperation(id);
   }
   getOperationEffect(id: string, args?: Record<string, unknown>): OperationEffect {
-    // Without a connection every call ends in the same setup error, whatever its class.
+    // Без подключения любой вызов, какого бы он ни был класса, кончается одной ошибкой настройки.
     return this.#runtime ? this.#runtime.getOperationEffect(id, args) : this.describe(id).effect;
   }
   async call(id: string, args?: Record<string, unknown>): Promise<OperationResult> {

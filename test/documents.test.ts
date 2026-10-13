@@ -4,7 +4,7 @@ import { XmlDocument } from "../src/documents.js";
 import { catalogQuery } from "../src/query.js";
 import { verifyFields, verifyRemovals } from "../src/verification.js";
 
-test("patch preserves unknown ordered XML, attributes, comments, CDATA and escaped values", () => {
+test("правка сохраняет неизвестный упорядоченный XML, атрибуты, комментарии, CDATA и экранированные значения", () => {
   const source =
     '<sample legacy="yes"><id>0x123</id><!--keep--><extra flag="x"><child><![CDATA[a<b]]></child></extra><name>A</name><tail> </tail></sample>';
   const changed = XmlDocument.parse(source).patch({ name: 'B & "C"' });
@@ -16,7 +16,7 @@ test("patch preserves unknown ordered XML, attributes, comments, CDATA and escap
   assert.match(changed.after.xml, /<extra flag="x">/);
   assert.ok(changed.after.xml.indexOf("<extra") < changed.after.xml.indexOf("<name>"));
 });
-test("ID cannot be changed via indexed path; failed multi-change patch is atomic locally", () => {
+test("ID нельзя менять через путь с индексом; неудавшаяся правка из нескольких изменений локально атомарна", () => {
   const document = XmlDocument.parse("<sample><id>1</id><name>A</name></sample>");
   const original = document.snapshot();
   assert.throws(() => document.patch({ "id[0]": "2" }), /ID объекта изменить нельзя/);
@@ -30,7 +30,7 @@ test("ID cannot be changed via indexed path; failed multi-change patch is atomic
   );
   assert.deepEqual(document.snapshot(), original);
 });
-test("raw document Data fields are preserved; SOAP response unwrapping only uses direct Data", () => {
+test("сырые поля Data документа сохраняются; извлечение из ответа SOAP использует только прямой Data", () => {
   const raw = "<sample><id>1</id><Data><field>value</field></Data></sample>";
   assert.deepEqual(JSON.parse(JSON.stringify(XmlDocument.parse(raw).snapshot().data.Data)), {
     field: "value",
@@ -38,7 +38,7 @@ test("raw document Data fields are preserved; SOAP response unwrapping only uses
   const soap = `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope/"><s:Body><LoadDocResponse><Data>${raw}</Data></LoadDocResponse></s:Body></s:Envelope>`;
   assert.equal(XmlDocument.parse(soap).snapshot().type, "sample");
 });
-test("scalar whitespace affects fingerprint while document indentation does not", () => {
+test("пробелы в скаляре влияют на fingerprint, а отступы документа — нет", () => {
   assert.notEqual(
     XmlDocument.parse("<sample><text> </text></sample>").snapshot().fingerprint,
     XmlDocument.parse("<sample><text></text></sample>").snapshot().fingerprint,
@@ -48,7 +48,7 @@ test("scalar whitespace affects fingerprint while document indentation does not"
     XmlDocument.parse("<sample>\n  <text>x</text>\n</sample>").snapshot().fingerprint,
   );
 });
-test("a reference with the server's copy of the referenced object under it reads as the ID", () => {
+test("ссылка, под которой сервер положил копию объекта, читается как ID", () => {
   const source =
     "<position><id>1</id><basic_collaborator_id>0x65D0777BD9FBF8AD\n\t\t<sd><fullname>Лебедев Андрей</fullname></sd>\n\t</basic_collaborator_id><org_id>\n<sd><name>x</name></sd></org_id><doc_info>\n<creation><user_login>u</user_login></creation></doc_info></position>";
   const document = XmlDocument.parse(source);
@@ -56,8 +56,8 @@ test("a reference with the server's copy of the referenced object under it reads
   assert.equal(data.basic_collaborator_id, "0x65D0777BD9FBF8AD");
   assert.equal(data.org_id, "");
   assert.deepEqual(JSON.parse(JSON.stringify(data.doc_info)), { creation: { user_login: "u" } });
-  // The same value written again matches what is read back; a structure where a value was asked
-  // for is a mismatch, not a failure of the comparison itself.
+  // То же значение, записанное снова, совпадает с прочитанным; структура там, где просили
+  // значение, — это расхождение, а не сбой самого сравнения.
   const fields = [{ path: "basic_collaborator_id", type: "integer" }];
   verifyFields({ basic_collaborator_id: "0x65D0777BD9FBF8AD" }, data, fields);
   assert.throws(
@@ -68,7 +68,7 @@ test("a reference with the server's copy of the referenced object under it reads
   assert.equal(changed.after.data.basic_collaborator_id, "0x2");
   assert.doesNotMatch(changed.after.xml, /Лебедев/);
 });
-test("repeated list elements require an index and preserve adjacent elements", () => {
+test("повторяющиеся элементы списка требуют индекса и сохраняют соседние элементы", () => {
   const document = XmlDocument.parse(
     "<sample><id>1</id><params><param><value>A</value></param><param><value>B</value></param></params></sample>",
   );
@@ -80,7 +80,7 @@ test("repeated list elements require an index and preserve adjacent elements", (
   assert.deepEqual(JSON.parse(JSON.stringify(result.after.data.params)), { param: { value: "C" } });
 });
 
-test("read-back allows missing empty containers at any depth without losing text or attributes", () => {
+test("чтение после записи допускает отсутствие пустых контейнеров на любой глубине без потери текста и атрибутов", () => {
   const original =
     "<sample><id>1</id><group><items>\n<item><name>x</name></item>\n</items></group></sample>";
   const actual = XmlDocument.parse("<sample><id>1</id></sample>").snapshot();
@@ -110,7 +110,7 @@ test("read-back allows missing empty containers at any depth without losing text
   verifyFields({ field: "" }, {}, []);
 });
 
-test("keyed patch updates the same element and preserves unknown XML", () => {
+test("правка по ключу обновляет тот же элемент и сохраняет неизвестный XML", () => {
   const source =
     '<sample><custom_elems><!--keep--><custom_elem flag="x"><name>tub_num</name><value>A</value><unknown><![CDATA[a<b]]></unknown></custom_elem><custom_elem><name>other</name><value>B</value></custom_elem></custom_elems></sample>';
   const document = XmlDocument.parse(source);
@@ -126,7 +126,7 @@ test("keyed patch updates the same element and preserves unknown XML", () => {
   });
 });
 
-test("keyed set appends a missing element and creates its absent container", () => {
+test("set по ключу добавляет недостающий элемент и создаёт его отсутствующий контейнер", () => {
   for (const source of [
     "<sample><custom_elems><custom_elem><name>other</name><value>B</value></custom_elem></custom_elems></sample>",
     "<sample><title>A</title></sample>",
@@ -143,7 +143,7 @@ test("keyed set appends a missing element and creates its absent container", () 
         error.code === "PATCH_PATH_MISSING" &&
         error.hint.includes('{"custom_elems.custom_elem[name=tub_num].missing": {…}}'),
     );
-    // An element made by its key takes that key: another value for the key field is a mistake.
+    // Элемент, созданный по ключу, принимает этот ключ: другое значение поля-ключа — ошибка.
     assert.throws(() => document.patch({ "custom_elems.custom_elem[name=new].name": true }), {
       code: "INVALID_PATCH",
     });
@@ -161,7 +161,7 @@ test("keyed set appends a missing element and creates its absent container", () 
   }
 });
 
-test("keyed remove skips missing keys without changing the fingerprint", () => {
+test("remove по ключу пропускает отсутствующие ключи, не меняя fingerprint", () => {
   for (const source of [
     "<sample><custom_elems><custom_elem><name>tub_num</name><value>1</value></custom_elem><custom_elem><name>other</name></custom_elem></custom_elems></sample>",
     "<sample><title>A</title></sample>",
@@ -188,7 +188,7 @@ test("keyed remove skips missing keys without changing the fingerprint", () => {
   }
 });
 
-test("duplicate keys and mismatched replacement keys reject the entire patch", () => {
+test("повторяющиеся ключи и несовпадающие ключи замены отклоняют всю правку", () => {
   const duplicate = XmlDocument.parse(
     "<sample><title>A</title><items><item><name>x</name></item><item><name>x</name></item></items></sample>",
   );
@@ -204,7 +204,7 @@ test("duplicate keys and mismatched replacement keys reject the entire patch", (
     );
     assert.deepEqual(duplicate.snapshot(), before);
   }
-  // A key written the other way is the same ID: the element is found, not doubled.
+  // Ключ, записанный иначе, — тот же ID: элемент находится, а не дублируется.
   const members = XmlDocument.parse(
     "<group><members><member><person_id>0x1F</person_id><note>a</note></member></members></group>",
   );
@@ -216,7 +216,7 @@ test("duplicate keys and mismatched replacement keys reject the entire patch", (
     members.patch([{ op: "remove", path: "members.member[person_id=0x1f]" }]).changes.length,
     1,
   );
-  // Removing every element of a list is removing the list; a change record names what a structure holds.
+  // Удаление всех элементов списка — это удаление списка; запись об изменении называет то, что содержит структура.
   assert.throws(
     () => duplicate.patch([{ op: "remove", path: "items.item" }]),
     (error: any) =>
@@ -237,7 +237,7 @@ test("duplicate keys and mismatched replacement keys reject the entire patch", (
   }
 });
 
-test("whole keyed elements can be added and replaced with exact lexical keys", () => {
+test("целые элементы по ключу можно добавлять и заменять с точными лексическими ключами", () => {
   const document = XmlDocument.parse("<sample><items></items></sample>");
   for (const key of ["01", "1", " a.b=c[😀&\"' ", ""]) {
     const path = `items.item[name=${key}]`;
@@ -262,7 +262,7 @@ test("whole keyed elements can be added and replaced with exact lexical keys", (
     { code: "READ_BACK_MISMATCH" },
   );
 });
-test("invalid XML characters and unpaired surrogates fail before any patch is committed", () => {
+test("недопустимые символы XML и непарные суррогаты отказывают до применения любой правки", () => {
   const document = XmlDocument.parse("<sample><name>before</name></sample>");
   const before = document.snapshot();
   for (const value of ["\u0000", "\u000B", "\uD800", "\uDC00", "\uFFFE"]) {
@@ -283,7 +283,7 @@ test("invalid XML characters and unpaired surrogates fail before any patch is co
   }
   assert.equal(XmlDocument.create("sample", { name: "😀\t\n\r" }).snapshot().data.name, "😀\t\n\r");
 });
-test("creation adds an escaped SPXML-FORM attribute and keeps the platform type consistent", () => {
+test("создание добавляет экранированный атрибут SPXML-FORM и сохраняет согласованный тип платформы", () => {
   const formUrl = 'x-local://wtv/wtv_sample.xmd?test="quoted"&value=1';
   const snapshot = XmlDocument.create("sample", { id: "1", name: "Example" }, formUrl).snapshot();
   assert.equal(snapshot.type, "sample");
@@ -295,7 +295,7 @@ test("creation adds an escaped SPXML-FORM attribute and keeps the platform type 
   assert.throws(() => XmlDocument.create("prefix:sample", {}, formUrl), /имя типа объекта/);
   assert.throws(() => XmlDocument.create("sample", {}, "\u0000"), /недопустимый символ/);
 });
-test("query DSL escapes quotes and rejects expression injection, unsafe numbers and unknown operators", () => {
+test("DSL запроса экранирует кавычки и отклоняет инъекцию выражений, небезопасные числа и неизвестные операторы", () => {
   assert.equal(
     catalogQuery("collaborators", { fullname: "O'Connor" }),
     "for $elem in collaborators where ($elem/fullname = 'O''Connor') return $elem",
@@ -314,7 +314,7 @@ test("query DSL escapes quotes and rejects expression injection, unsafe numbers 
   assert.throws(() => catalogQuery("collaborators", { id: {} }), /нет оператора/);
 });
 
-test("catalog filters serialize small fractional numbers as decimal XQuery tokens", () => {
+test("фильтры каталога записывают малые дробные числа десятичными литералами XQuery", () => {
   for (const value of [1e-7, -2.5e-7, 1.23456789e-7, Number.MIN_VALUE, 0.000001, 1.5, -0]) {
     const query = catalogQuery("resources", { value });
     const token = /^for \$elem in resources where \(\$elem\/value = (.+)\) return \$elem$/.exec(
@@ -334,7 +334,7 @@ test("catalog filters serialize small fractional numbers as decimal XQuery token
     });
 });
 
-test("document XML shares exact once numeric-reference decoding and preserves literal CDATA", () => {
+test("XML документа использует общее точное однократное раскрытие числовых ссылок и сохраняет буквальный CDATA", () => {
   const source =
     '<sample a="&#9;&#x1F600;"><text>&#13;&#10;&amp;#10;&#38;#xA;&#x26;#10;</text><literal><![CDATA[&#10;&nbsp;]]></literal></sample>';
   const snapshot = XmlDocument.parse(source).snapshot();
@@ -365,7 +365,7 @@ test("document XML shares exact once numeric-reference decoding and preserves li
   assert.throws(() => XmlDocument.parse('<sample a="&#xD800;"/>'), /недопустимый символ/);
 });
 
-test("generic patch preserves untouched external descriptors and rejects stale metadata rewrites", () => {
+test("общая правка сохраняет нетронутые ссылки на внешние объекты и отклоняет перезапись по устаревшим метаданным", () => {
   const document = XmlDocument.parse(
     '<sample><group><title>old</title><html EXT-OBJECT-ID="123" SIZE="50000"/></group></sample>',
   );

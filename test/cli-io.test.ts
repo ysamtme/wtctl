@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { CliInputError } from "../src/cli/arguments.js";
 import { readBounded, readBoundedBytes, writeAtomicOutput } from "../src/cli/node-io.js";
 
-test("bounded UTF-8 input counts bytes, handles split code points and rejects invalid encoding", async () => {
+test("ограниченный ввод UTF-8 считает байты, справляется с разрезанными кодовыми точками и отклоняет неверную кодировку", async () => {
   const utf8 = Buffer.from("Привет", "utf8");
   assert.equal(
     await readBounded(Readable.from([utf8.subarray(0, 1), utf8.subarray(1)]), utf8.length),
@@ -19,7 +19,7 @@ test("bounded UTF-8 input counts bytes, handles split code points and rejects in
   assert.deepEqual(await readBoundedBytes(Readable.from([binary]), binary.length), binary);
 });
 
-test("input streams close on overflow and propagate source errors without printing", async () => {
+test("потоки ввода закрываются при переполнении и передают ошибки источника, ничего не печатая", async () => {
   const oversized = Readable.from([Buffer.alloc(11)]);
   await assert.rejects(readBounded(oversized, 10), CliInputError);
   assert.equal(oversized.destroyed, true);
@@ -32,7 +32,7 @@ test("input streams close on overflow and propagate source errors without printi
   assert.equal(broken.destroyed, true);
 });
 
-test("atomic output creates parents, replaces owned output and cleans staging after failure", async () => {
+test("атомарный вывод создаёт родительские папки, заменяет свой вывод и убирает промежуточный файл после сбоя", async () => {
   const directory = await mkdtemp(join(tmpdir(), "wtctl-cli-"));
   try {
     const file = join(directory, "nested", "result.json");
@@ -48,7 +48,7 @@ test("atomic output creates parents, replaces owned output and cleans staging af
       false,
     );
   } finally {
-    // Verify the computed recursive-delete target is this test's direct temporary child.
+    // Убедиться, что цель рекурсивного удаления — временная папка этого теста прямо в tmpdir.
     assert.equal(resolve(dirname(directory)), resolve(tmpdir()));
     assert.match(basename(directory), /^wtctl-cli-/);
     await rm(directory, { recursive: true, force: true });

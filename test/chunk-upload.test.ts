@@ -45,7 +45,7 @@ function fixture(maximumBytes = 4096) {
     if (url.pathname.endsWith("/main.htm")) {
       requests.push("main");
       assert.match(headers.get("authorization") ?? "", /^Basic /);
-      // This source branch does not use the f/session_token upload workflow.
+      // Эта ветка исходников не использует процесс загрузки f/session_token.
       return new Response("<html>No page upload token</html>", {
         headers: { "set-cookie": "SessionID=synthetic-chunk-cookie; Path=/" },
       });
@@ -116,7 +116,7 @@ function fixture(maximumBytes = 4096) {
 const notSent = (error: unknown): boolean =>
   error instanceof WsHcmApiError && error.requestSent === false;
 
-test("stock chunk framing preserves exact mixed bytes, names and per-part receipt semantics", async () => {
+test("штатная разбивка на части сохраняет точные смешанные байты, имена и семантику подтверждения каждой части", async () => {
   const f = fixture();
   try {
     await f.client.withWebSession(async (session) => {
@@ -200,7 +200,7 @@ test("stock chunk framing preserves exact mixed bytes, names and per-part receip
   }
 });
 
-test("upload preflight rejects impossible byte ranges and lexical inputs without any POST", async () => {
+test("проверка загрузки до отправки отклоняет невозможные диапазоны байтов и неверно записанный ввод без единого POST", async () => {
   let posts = 0;
   const transport = new HttpTransport({
     baseUrl: "http://synthetic.invalid/",
@@ -257,7 +257,7 @@ test("upload preflight rejects impossible byte ranges and lexical inputs without
         JSON.stringify(update),
       );
     assert.equal(posts, 0);
-    // The limit applies to decoded bytes, including UTF-8, before base64 expansion.
+    // Предел относится к декодированным байтам, включая UTF-8, до раздувания base64.
     await pages.uploadChunk({ ...onePart(), totalBytes: 8, data: "я".repeat(4) });
     await pages.uploadChunk({ ...onePart(), totalBytes: 4, data: rawXml("<x/>") });
     assert.equal(posts, 2);
@@ -266,7 +266,7 @@ test("upload preflight rejects impossible byte ranges and lexical inputs without
   }
 });
 
-test("clear sends a known legitimate ID without a local ledger and reports only an empty ACK", async () => {
+test("clear отправляет известный допустимый ID без локального журнала и сообщает только пустое ACK", async () => {
   const f = fixture();
   try {
     await f.client.withWebSession(async (session) => {
@@ -311,7 +311,7 @@ test("clear sends a known legitimate ID without a local ledger and reports only 
   }
 });
 
-test("SDK/native policy rejects individual malformed inputs before bootstrap and permits ordinary write", async () => {
+test("SDK в профиле native отклоняет каждый неверный ввод по отдельности до bootstrap и разрешает обычную запись", async () => {
   const f = fixture();
   const runtime = f.runtime();
   const client = new HcmClient(runtime);
@@ -378,7 +378,7 @@ test("SDK/native policy rejects individual malformed inputs before bootstrap and
   ]);
 });
 
-test("cross-field guards report not_sent even after the runtime creates its web context", async () => {
+test("проверки связей между полями дают not_sent, даже когда runtime уже создал веб-контекст", async () => {
   const f = fixture(1024);
   const runtime = f.runtime();
   try {
@@ -401,7 +401,7 @@ test("cross-field guards report not_sent even after the runtime creates its web 
   }
 });
 
-test("post-send error, malformed receipt, lost body and HTTP failures remain indeterminate without retry", async () => {
+test("ошибка после отправки, неверное подтверждение приёма, потерянное тело и сбои HTTP остаются indeterminate без повтора", async () => {
   const failures: [string, () => Response | Promise<Response>][] = [
     [
       "server error",
@@ -457,7 +457,7 @@ test("post-send error, malformed receipt, lost body and HTTP failures remain ind
   }
 });
 
-test("clear rejects content, HTTP and lost-response failures instead of inventing absence", async () => {
+test("clear отклоняет сбои по содержимому, HTTP и потерянному ответу, а не выдумывает отсутствие", async () => {
   for (const response of [
     () => new Response("{}"),
     () => new Response("<html>error</html>"),
@@ -485,7 +485,7 @@ test("clear rejects content, HTTP and lost-response failures instead of inventin
   }
 });
 
-test("oversized chunk responses cancel the body and preserve a single uncertain mutation", async () => {
+test("слишком большие ответы на часть отменяют тело и сохраняют одну неопределённую запись", async () => {
   const f = fixture(1024);
   let cancelled = false;
   f.setResponse(
@@ -515,7 +515,7 @@ test("oversized chunk responses cancel the body and preserve a single uncertain 
   }
 });
 
-test("chunk options pass caller cancellation through the stock POST without retry", async () => {
+test("параметры части передают отмену вызывающего через штатный POST без повтора", async () => {
   let posts = 0;
   const controller = new AbortController();
   const transport = new HttpTransport({
@@ -534,7 +534,7 @@ test("chunk options pass caller cancellation through the stock POST without retr
       (error: unknown) =>
         error instanceof WsHcmApiError &&
         error.requestSent !== false &&
-        /aborted/.test(error.message),
+        /прерван/.test(error.message),
     );
     assert.equal(posts, 1);
   } finally {

@@ -295,7 +295,7 @@ function success(result: OperationResult) {
 }
 
 test(
-  "SDK, foreign-cwd CLI and stdio MCP perform only the fixed heartbeat and close their own contexts",
+  "SDK, CLI из чужого cwd и MCP по stdio выполняют только фиксированный heartbeat и закрывают свои контексты",
   { timeout: 30000 },
   async () => {
     const f = await fixture();
@@ -318,7 +318,7 @@ test(
 );
 
 test(
-  "silent WS returns bounded failure receipts without retry and still closes healthy owned HTTP/LDS contexts",
+  "молчащий WS возвращает ограниченные сводки сбоя без повтора и всё равно закрывает исправные собственные контексты HTTP и LDS",
   { timeout: 30000 },
   async () => {
     const f = await fixture("silent");
@@ -383,7 +383,7 @@ test(
 );
 
 test(
-  "heartbeat rejects a custom HTTP mock without a WS factory before any network, and CLI rejects overrides locally",
+  "heartbeat отклоняет свой подставной HTTP без фабрики WS до любой сети, а CLI отклоняет переопределения локально",
   { timeout: 15000 },
   async () => {
     const f = await fixture();

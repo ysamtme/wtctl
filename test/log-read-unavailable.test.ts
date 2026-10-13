@@ -36,7 +36,7 @@ function fault(operation = "CallMethod", options: { requestSent?: boolean; cause
     ...options,
   });
 }
-/** refusals: how many content reads the server refuses before it gives the text. */
+/** refusals: сколько раз сервер отказывает в чтении содержимого, прежде чем отдаст текст. */
 function readerFixture(
   error: unknown,
   phase: "before" | "content" | "after" = "content",
@@ -64,7 +64,7 @@ function readerFixture(
   return { reader: new LogReader(gateway, { maxResponseBytes: 65536, logBusyMs: 20 }), calls };
 }
 
-test("a log the server refuses twice is reported as unavailable, without the server's own text", async () => {
+test("лог, в чтении которого сервер отказывает дважды, сообщается как недоступный, без собственного текста сервера", async () => {
   for (const full of [false, true]) {
     const original = fault();
     const inheritedCleanup = new WsHcmApiError("cleanup", "private inherited cleanup fault", {
@@ -98,7 +98,7 @@ test("a log the server refuses twice is reported as unavailable, without the ser
   }
 });
 
-test("a log the server refuses once is read on the repeated attempt after the busy pause", async () => {
+test("лог, в чтении которого сервер отказал один раз, читается повторной попыткой после паузы на занятость", async () => {
   const f = readerFixture(fault(), "content", 1);
   const started = Date.now();
   const read = await f.reader.read({ file: name, tailBytes: 512 });
@@ -113,7 +113,7 @@ test("a log the server refuses once is read on the repeated attempt after the bu
   ]);
 });
 
-test("a read right after a refused request waits before the first attempt", async () => {
+test("чтение сразу после отклонённого запроса ждёт перед первой попыткой", async () => {
   const f = readerFixture(fault(), "after", 0);
   const waited = new LogReader(
     {
@@ -132,7 +132,7 @@ test("a read right after a refused request waits before the first attempt", asyn
   assert.equal(f.calls.length, 0);
 });
 
-test("only the content SOAP500 is mapped; bootstrap, report, auth, transport, protocol and programming errors remain original", async () => {
+test("заменяется только SOAP500 при чтении содержимого; ошибки bootstrap, отчёта, авторизации, транспорта, протокола и программирования остаются прежними", async () => {
   const errors: unknown[] = [
     new WsHcmApiError("auth", "auth", { status: 401 }),
     new WsHcmApiError("permission", "permission", { status: 403 }),
@@ -271,7 +271,7 @@ async function frontend(
   return JSON.parse(stdout) as OperationResult;
 }
 
-test("SDK, CLI and MCP report the refused log the same way, repeat the read once and create no artifact", async () => {
+test("SDK, CLI и MCP одинаково сообщают о логе, в чтении которого отказано, повторяют чтение один раз и не создают артефактов", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-log-errors-"));
   const file = "collide_2026-09-30.log";
   try {
@@ -310,7 +310,7 @@ test("SDK, CLI and MCP report the refused log the same way, repeat the read once
   }
 });
 
-test("raw auth, permission, malformed SOAP, body loss and bootstrap faults keep their platform categories", async () => {
+test("исходные ошибки авторизации, прав, неверного SOAP, потери тела ответа и bootstrap сохраняют свои категории платформы", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-log-errors-platform-"));
   const codes: Record<Exclude<WireVariant, "fault">, string> = {
     auth: "PLATFORM_AUTH",
@@ -319,7 +319,7 @@ test("raw auth, permission, malformed SOAP, body loss and bootstrap faults keep 
     "lost-body": "PLATFORM_HTTP",
     bootstrap: "PLATFORM_SOAP-FAULT",
   };
-  // A 401 on an open session makes the gateway log in again and send the request once more.
+  // 401 на открытой сессии: шлюз входит заново и отправляет запрос ещё раз.
   const targets: Record<Exclude<WireVariant, "fault">, number> = {
     auth: 3,
     permission: 2,
@@ -346,8 +346,8 @@ test("raw auth, permission, malformed SOAP, body loss and bootstrap faults keep 
   }
 });
 
-test("a whole log is read on the repeat with the size it has after the refusal was logged", async () => {
-  // The refused read adds a line to the same log: the range of the repeat follows the new size.
+test("весь лог при повторе читается с тем размером, который он имеет после записи отказа", async () => {
+  // Отказ в чтении добавляет строку в тот же лог: диапазон повтора идёт по новому размеру.
   const sizes = ["76", "140", "140"];
   const ranges: string[] = [];
   const gateway: LogGateway = {

@@ -6,7 +6,7 @@ import { WsHcmApiError } from "../src/protocol/error.js";
 import { HcmRuntime } from "../src/runtime.js";
 import { HcmClient } from "../src/sdk.js";
 
-test("stock SVG page uses its distinct GET route with exact URL/state encoding and preserves returned bytes", async () => {
+test("штатная SVG-страница использует свой отдельный маршрут GET с точным кодированием URL и state и сохраняет возвращённые байты", async () => {
   const url = "x-app://local/pict/цвет & '😀.svg?variant=a&b=two";
   const source = '<svg xmlns="http://www.w3.org/2000/svg"><text>Текст 😀 &amp;</text></svg>\r\n';
   const bytes = new TextEncoder().encode(source);
@@ -29,8 +29,8 @@ test("stock SVG page uses its distinct GET route with exact URL/state encoding a
       const call = calls.at(-1)!;
       assert.equal(call.url.pathname, "/hcm/spxml_web/service/get_image.htm");
       assert.equal(call.url.searchParams.get("url"), url);
-      // The shipped handler directly reads Request.QueryString.state: absence
-      // throws before loading the SVG, so ergonomic omission sends state="".
+      // Штатный обработчик напрямую читает Request.QueryString.state: его отсутствие
+      // вызывает ошибку до загрузки SVG, поэтому при удобном пропуске отправляется state="".
       assert.equal(call.url.searchParams.get("state"), state ?? "");
       assert.equal(call.method, "GET");
       assert.equal(call.body, undefined);
@@ -41,7 +41,7 @@ test("stock SVG page uses its distinct GET route with exact URL/state encoding a
   }
 });
 
-test("SVG page access failure cancels the response rather than exposing a successful binary body", async () => {
+test("сбой доступа к SVG-странице отменяет ответ и не отдаёт успешное двоичное тело", async () => {
   let cancelled = false;
   const transport = new HttpTransport({
     baseUrl: "http://synthetic.invalid/",
@@ -68,7 +68,7 @@ test("SVG page access failure cancels the response rather than exposing a succes
   }
 });
 
-test("SVG descriptor reaches the existing SDK/runtime read route with exact bytes and owned web cleanup", async () => {
+test("описание SVG доходит до существующего маршрута чтения SDK и runtime с точными байтами и собственной очисткой web", async () => {
   const wire: string[] = [];
   const imageUrl = "x-app://local/pict/fixture.svg";
   const bytes = new TextEncoder().encode("<svg><text>Синтетический 😀</text></svg>");

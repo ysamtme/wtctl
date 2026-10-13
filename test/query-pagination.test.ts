@@ -58,12 +58,12 @@ async function fixture(
   }
 }
 
-test("SDK follows returned offsets across normal and short object pages, without losing lexical rows", async () => {
+test("SDK идёт по возвращённым смещениям через обычные и короткие страницы объектов, не теряя строк в записанном виде", async () => {
   const delivered: Row[] = [];
   await fixture(
     (start, limit, request) => {
       assert.equal(request.query, "for $elem in resources return $elem");
-      // A short nonterminal page must advance by actual progress, not by the requested limit.
+      // Короткая страница, не последняя, обязана двигаться на фактический прогресс, а не на запрошенный limit.
       const length = start === 2 ? 1 : limit;
       const rows = sourceRows.slice(start, start + length);
       return pageXml(
@@ -78,7 +78,7 @@ test("SDK follows returned offsets across normal and short object pages, without
         const page = unwrap(
           await client.query<Row>({ catalog: "resources", limit: 2, startPosition }),
         );
-        // Row EOF=1 / TotalCount=1 never becomes response metadata.
+        // Row EOF=1 / TotalCount=1 никогда не становится метаданными ответа.
         assert.equal(page.total, startPosition > 0 ? undefined : 7);
         delivered.push(...page.items);
         if (page.nextStartPosition === undefined) {
@@ -97,7 +97,7 @@ test("SDK follows returned offsets across normal and short object pages, without
   assert.deepEqual(delivered, sourceRows);
 });
 
-test("known global count stops an exact-sized last page without requiring EOF lookahead", async () => {
+test("известный общий счётчик останавливает точную по размеру последнюю страницу без чтения вперёд до EOF", async () => {
   await fixture(
     (start, limit) => pageXml(sourceRows.slice(start, start + limit), "<TotalCount>7</TotalCount>"),
     async (client, calls) => {
@@ -112,7 +112,7 @@ test("known global count stops an exact-sized last page without requiring EOF lo
   );
 });
 
-test("full first response is bounded, then continuation retains the server page prefix", async () => {
+test("полный первый ответ ограничивается, затем продолжение сохраняет начало страницы сервера", async () => {
   await fixture(
     (start, limit) =>
       start === 0
@@ -120,7 +120,7 @@ test("full first response is bounded, then continuation retains the server page 
         : pageXml(sourceRows.slice(start, start + limit), "<TotalCount>7</TotalCount>"),
     async (client) => {
       const first = unwrap(await client.query<Row>({ catalog: "resources", limit: 2 }));
-      // Rows the server sent beyond the page are withheld without a remark: the offset says it.
+      // Строки, которые сервер прислал сверх страницы, отбрасываются без замечания: об этом говорит смещение.
       assert.deepEqual(Object.keys(first), ["items", "total", "nextStartPosition"]);
       assert.equal(first.total, 7);
       assert.equal(first.nextStartPosition, 2);
@@ -136,7 +136,7 @@ test("full first response is bounded, then continuation retains the server page 
   );
 });
 
-test("EOF uses typed lexical booleans and applies only to a fully delivered page", async () => {
+test("EOF берётся из булевых значений как записаны и действует только на полностью выданную страницу", async () => {
   for (const value of ["0", "false", "1", "true"]) {
     await fixture(
       () => pageXml(sourceRows.slice(0, 1), `<EOF>${value}</EOF>`),
@@ -166,7 +166,7 @@ test("EOF uses typed lexical booleans and applies only to a fully delivered page
   );
 });
 
-test("stale global count never double slices or hides rows, while a received EOF can establish the end", async () => {
+test("устаревший общий счётчик не режет страницу дважды и не прячет строки, а полученный EOF может установить конец", async () => {
   await fixture(
     () => pageXml(sourceRows.slice(4, 6), "<TotalCount>2</TotalCount>"),
     async (client) => {
@@ -195,9 +195,9 @@ test("stale global count never double slices or hides rows, while a received EOF
   );
 });
 
-test("empty pages and offset ceiling say that the end was not established", async () => {
+test("пустые страницы и потолок смещения говорят, что конец не установлен", async () => {
   for (const [body, incomplete] of [
-    // No count: the database refused the query, which is not "no rows".
+    // Счётчика нет: база отклонила запрос, а это не «нет строк».
     ["<Data/><EOF>true</EOF>", true],
     ["<Data/><TotalCount>0</TotalCount><EOF>true</EOF>", undefined],
     ["<Data/><TotalCount>0</TotalCount>", undefined],
@@ -237,7 +237,7 @@ test("empty pages and offset ceiling say that the end was not established", asyn
   );
 });
 
-test("query metadata is direct, namespace aware and rejects repeated or malformed fields", async () => {
+test("метаданные запроса берутся напрямую, учитывают пространства имён и отклоняют повторные и искажённые поля", async () => {
   await fixture(
     () =>
       `<q:Data xmlns:q="urn:fixture">${rowXml(sourceRows[0]!)}</q:Data><q:TotalCount xmlns:q="urn:fixture"> 7 </q:TotalCount><q:EOF xmlns:q="urn:fixture"> false </q:EOF>`,
@@ -272,7 +272,7 @@ test("query metadata is direct, namespace aware and rejects repeated or malforme
   }
 });
 
-test("unframed scalars and order-losing mixed Data are explicit errors, with the original low-level result available", async () => {
+test("скаляры без обрамления и смешанные Data, теряющие порядок, дают явные ошибки, а исходный низкоуровневый результат доступен", async () => {
   for (const data of [
     "1\r\n2\r\n",
     "\r\n",
@@ -318,7 +318,7 @@ test("unframed scalars and order-losing mixed Data are explicit errors, with the
   }
 });
 
-test("an empty raw object sequence remains readable without inventing scalar boundaries", async () => {
+test("пустая сырая последовательность объектов читается, не выдумывая границ скаляров", async () => {
   await fixture(
     () => "<Data/><TotalCount>0</TotalCount><EOF>true</EOF>",
     async (client) => {
@@ -330,7 +330,7 @@ test("an empty raw object sequence remains readable without inventing scalar bou
   );
 });
 
-test("high-level zero limit, offset overflow and denied raw query never dispatch an unbounded native query", async () => {
+test("нулевой limit высокого уровня, переполнение смещения и отклонённый сырой запрос никогда не отправляют неограниченный запрос native", async () => {
   await fixture(
     () => {
       throw new Error("Invalid query must not dispatch");

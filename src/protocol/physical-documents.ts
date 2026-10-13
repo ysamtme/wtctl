@@ -4,29 +4,29 @@ import type { RequestOptions } from "./types.js";
 import { findXmlNode, isRawXml, localName, parseXml, type RawXml } from "./xml.js";
 
 export interface PhysicalDocumentLocation {
-  /** Canonical ID lexical form stored in the document. */
+  /** Каноническая запись ID, хранящаяся в документе. */
   objectId: string;
-  /** Physical x-local URL accepted by native LDS document operations. */
+  /** Физический URL x-local, который принимают операции документов native LDS. */
   url: string;
 }
 
 export interface CreatePhysicalDocumentRequest {
-  /** Target physical database. Defaults to the classic WebTutor database `wt_data`. */
+  /** Целевая физическая база. По умолчанию классическая база WebTutor `wt_data`. */
   dbName?: string;
-  /** Populate server-managed `doc_info` metadata. Defaults to `true`. */
+  /** Заполнить управляемые сервером метаданные `doc_info`. По умолчанию `true`. */
   writeDocInfo?: boolean;
-  /** Suppress server pre-save action processing. Defaults to `false`/omitted. */
+  /** Отключить обработку действий сервера перед сохранением. По умолчанию `false` или не задано. */
   skipActions?: boolean;
-  /** Set the server document-state `NeverSaved` marker. Defaults to `true`; broader semantics are form-dependent. */
+  /** Установить маркер документа `NeverSaved`. По умолчанию `true`; шире смысл зависит от формы. */
   neverSaved?: boolean;
-  /** Builds one complete XML document containing the exact supplied `objectId`. */
+  /** Строит один полный XML-документ с точно заданным `objectId`. */
   document: (location: PhysicalDocumentLocation) => RawXml;
 }
 
 export interface CreatedPhysicalDocument extends PhysicalDocumentLocation {
-  /** Buffered LDS `PutDoc` response proving transport success. */
+  /** Буферизованный ответ LDS `PutDoc`, подтверждающий успех транспорта. */
   putResponse: SoapResult;
-  /** Buffered LDS `LoadDoc` response whose direct root ID was verified against `objectId`. */
+  /** Буферизованный ответ LDS `LoadDoc`, у которого ID корня сверен с `objectId`. */
   loadResponse: SoapResult;
 }
 
@@ -36,7 +36,7 @@ function lexical(value: unknown, name: string, operation: string): string {
       ? (value as { "#text": unknown })["#text"]
       : value;
   if (typeof source !== "string" && typeof source !== "number" && typeof source !== "boolean") {
-    throw new WsHcmApiError("protocol", `Missing ${name}`, { operation });
+    throw new WsHcmApiError("protocol", `В ответе нет ${name}`, { operation });
   }
   return String(source).trim();
 }
@@ -55,17 +55,18 @@ function directDocumentId(value: unknown): string | undefined {
   const ids = children.filter(([name]) => localName(name) === "id");
   if (ids.length !== 1 || Array.isArray(ids[0]![1])) return undefined;
   try {
-    return lexical(ids[0]![1], "document id", "PhysicalDocuments.createFromXml");
+    return lexical(ids[0]![1], "ID документа", "PhysicalDocuments.createFromXml");
   } catch {
     return undefined;
   }
 }
 
 /**
- * Applies the shipped web `XmBuildMessObjectUrl` layout without converting the ID through `number`.
+ * Применяет штатную раскладку веб-версии `XmBuildMessObjectUrl`, не превращая ID в `number`.
  *
- * IDs below 4,000,000,000 use the decimal `/100` layout. All other IDs use the fixed 16-hex `14/2` layout.
- * This helper implements the shipped web layout; it does not claim to reproduce every internal `BindToDb` decision.
+ * ID меньше 4 000 000 000 идут по десятичной раскладке `/100`, остальные — по раскладке `14/2`
+ * из 16 шестнадцатеричных цифр. Это штатная раскладка веба; воспроизведения каждого решения
+ * `BindToDb` она не заявляет.
  */
 export function resolvePhysicalDocumentLocation(
   idLexeme: string,
@@ -108,17 +109,18 @@ function validateDbName(dbName: string): void {
 }
 
 /**
- * Composes native physical persistence primitives without executing a client XMD runtime or registering an object type.
- * Native LDS executes server pre-save processing unless `skipActions` is true.
- * A successful return verifies physical round-trip and root ID, not arbitrary catalog visibility or full XMD/business rules.
+ * Собирает примитивы физического сохранения native без клиентского XMD и регистрации типа объекта.
+ * LDS native выполняет серверную обработку перед сохранением, если не задан `skipActions`.
+ * Успешный возврат подтверждает, что документ записан и читается обратно, и ID корня,
+ * но не видимость в каталоге и не полные правила XMD и бизнес-правила.
  */
 export class NativePhysicalDocumentsApi {
   constructor(private readonly lds: NativeLdsApi) {}
 
   /**
-   * Allocates an ID, writes caller-built XML, and verifies it with `LoadDoc`.
-   * Defaults to `WriteDocInfo=true`, `NeverSaved=true`, and enabled server pre-save processing.
-   * A failed write/verification triggers best-effort `DeleteDoc` cleanup before the original error is rethrown.
+   * Выделяет ID, записывает XML, собранный вызывающим, и проверяет его через `LoadDoc`.
+   * По умолчанию `WriteDocInfo=true`, `NeverSaved=true`, обработка сервера до сохранения включена.
+   * Сбой записи или проверки запускает попытку очистки `DeleteDoc`; затем ошибка бросается снова.
    *
    * @mutating
    */
@@ -166,7 +168,7 @@ export class NativePhysicalDocumentsApi {
       if (loadedId?.toUpperCase() !== location.objectId.toUpperCase()) {
         throw new WsHcmApiError(
           "protocol",
-          "Loaded document id does not match allocated objectId",
+          "ID загруженного документа не совпадает с выделенным objectId",
           {
             operation: "LoadDoc",
             status: loadResponse.status,
@@ -179,13 +181,17 @@ export class NativePhysicalDocumentsApi {
         try {
           await this.lds.deleteDoc({ url: location.url, strictDelete: false });
         } catch (cause) {
-          const cleanupError = new WsHcmApiError("cleanup", "Physical document cleanup failed", {
-            operation: "DeleteDoc",
-            ...(cause instanceof WsHcmApiError && cause.status !== undefined
-              ? { status: cause.status }
-              : {}),
-            cause,
-          });
+          const cleanupError = new WsHcmApiError(
+            "cleanup",
+            "Не удалось удалить созданный документ",
+            {
+              operation: "DeleteDoc",
+              ...(cause instanceof WsHcmApiError && cause.status !== undefined
+                ? { status: cause.status }
+                : {}),
+              cause,
+            },
+          );
           attachCleanupError(operationError, cleanupError);
         }
       }

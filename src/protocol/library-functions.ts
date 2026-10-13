@@ -4,14 +4,14 @@ export interface LibraryFunction {
   readonly id: string;
   readonly parameters: readonly string[];
   readonly allowed: boolean;
-  /** Declared without the client gate: server code can call it, a client cannot. */
+  /** Объявлена без клиентского ограничения: код на сервере её вызовет, клиент — нет. */
   readonly serverOnly?: true;
   readonly code: string;
 }
 type Data = Record<string, unknown>;
 type SharedFile = { id: string; url: string };
 
-/** XMD repeats PARAM; libraries also repeat flags. Normalize attributes, preserving EXPR literals. */
+/** XMD повторяет PARAM, библиотеки — флаги. Атрибуты нормализуются, литералы EXPR сохраняются. */
 export function normalizeFormParams(source: string, library = false): string {
   return source.replace(
     /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<(?:[^<>"']|"[^"]*"|'[^']*')+>/g,
@@ -32,7 +32,7 @@ export function normalizeFormParams(source: string, library = false): string {
   );
 }
 
-/** Reads library declarations as data, without evaluating their expressions. */
+/** Читает объявления библиотек как данные, не вычисляя их выражения. */
 export class LibraryReader {
   private shared: Promise<SharedFile[] | undefined> | undefined;
   private files = new Map<string, Promise<LibraryFunction[] | undefined>>();
@@ -45,7 +45,7 @@ export class LibraryReader {
     if (!cached) {
       cached = this.readFile(url)
         .catch((error: unknown) => {
-          this.files.delete(url); // An unread file is requested again by the next call.
+          this.files.delete(url); // Непрочитанный файл запрашивается заново следующим вызовом.
           throw error;
         })
         .then((response) => {
@@ -58,14 +58,14 @@ export class LibraryReader {
             parseXml(normalizeFormParams(source, true)),
             "SPXML-INLINE-FORM",
           );
-          if (root === undefined) return []; // Shared forms and data are not libraries.
+          if (root === undefined) return []; // Общие формы и данные — не библиотеки.
           if (!root || typeof root !== "object" || Array.isArray(root)) throw new Error();
           return Object.values(root).flatMap((library) => {
             if (!library || typeof library !== "object" || Array.isArray(library)) return [];
             return Object.entries(library).flatMap(([method, value]) => {
               const attributes = value as Data | null;
               const gate = attributes?.["@_ALLOW-CALL-FROM-CLIENT"];
-              // A property with a body is a function; the gate decides who may call it.
+              // Свойство с телом — функция; кто может её вызвать, решает клиентское ограничение.
               const serverOnly =
                 gate === undefined &&
                 attributes?.["@_PROPERTY"] === "1" &&
