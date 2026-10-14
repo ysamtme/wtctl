@@ -211,6 +211,9 @@ while ($null -ne $start) {
   if ($LASTEXITCODE -ne 0) { throw "wtctl завершился с кодом ${LASTEXITCODE}: $out" }
   $page = ($out | ConvertFrom-Json).data
   if ($page.incomplete) { throw "База данных отвергла запрос: $($page.hint)" }
+  foreach ($row in $page.items) {
+    foreach ($field in $row.PSObject.Properties) { if ($field.Value -is [datetime]) { $field.Value = $field.Value.ToString('s') } }
+  }
   $rows += $page.items
   $start = $page.nextStartPosition
 }
@@ -221,6 +224,7 @@ $rows | Export-Csv collaborators.csv -NoTypeInformation -Encoding UTF8
 - Код 3 значит, что страница всё равно не поместилась: в `$out` только её начало, а не все строки.
 - `incomplete` — страница, которую отвергла база данных, а не конец строк.
 - Столбцы идут в порядке `--fields`.
+- PowerShell 7 `ConvertFrom-Json` делает из даты `DateTime`, а `Export-Csv` пишет его в формате культуры: `16.09.2019 0:00:00`. Цикл по полям возвращает запись сервера, `2019-09-16T00:00:00`; в Windows PowerShell 5.1 дата и так остаётся строкой.
 - `Export-Csv` в Windows PowerShell 5.1 без `-Encoding UTF8` пишет кириллицу знаками `?`. Excel узнаёт UTF-8 по BOM: в PowerShell 7 для него нужно `-Encoding utf8BOM`.
 
 Тот же скрипт с параметрами — [examples/export-csv.ps1](../examples/export-csv.ps1).

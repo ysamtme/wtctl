@@ -26,6 +26,10 @@ try {
     $page = ($out | ConvertFrom-Json).data
     # incomplete — страница, которую отвергла база данных, а не конец строк.
     if ($page.incomplete) { throw "База данных отвергла запрос: $($page.hint)" }
+    # PowerShell 7 делает из даты DateTime, а Export-Csv пишет его в формате культуры: возвращаем запись сервера.
+    foreach ($row in $page.items) {
+      foreach ($field in $row.PSObject.Properties) { if ($field.Value -is [datetime]) { $field.Value = $field.Value.ToString('s') } }
+    }
     $rows += $page.items
     $start = $page.nextStartPosition
   }
