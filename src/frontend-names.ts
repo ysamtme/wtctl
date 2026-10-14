@@ -30,6 +30,8 @@ const PATTERN = new RegExp(
   "g",
 );
 
+const SIMILAR = /^Похожие: (?:[\w.]+, )*[\w.]+\. /;
+
 export type Frontend = "mcp" | "cli";
 
 function renamed(text: string, frontend: Frontend): string {
@@ -61,12 +63,18 @@ export function errorInFrontendTerms(result: OperationResult, frontend: Frontend
     };
   const error = result.error;
   if (!error) return result;
+  // Неизвестный ID показывается так, как его передали, а похожие на него — ID операций:
+  // переименовывается только то, что идёт после списка похожих.
+  const unknown = error.code === "UNKNOWN_OPERATION";
+  const kept = unknown ? (error.hint?.match(SIMILAR)?.[0] ?? "") : "";
   return {
     ...result,
     error: {
       ...error,
-      message: renamed(error.message, frontend),
-      ...(error.hint === undefined ? {} : { hint: renamed(error.hint, frontend) }),
+      message: unknown ? error.message : renamed(error.message, frontend),
+      ...(error.hint === undefined
+        ? {}
+        : { hint: kept + renamed(error.hint.slice(kept.length), frontend) }),
     },
   };
 }

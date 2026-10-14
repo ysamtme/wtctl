@@ -524,6 +524,16 @@ test("ошибка называет инструмент MCP или команд
   );
 });
 
+test("неизвестный ID и похожие на него показываются как ID операций", async () => {
+  const { runtime } = fakeRuntime();
+  const unknown = await runtime.call("api.list");
+  await runtime.close();
+  const error = errorInFrontendTerms(unknown, "cli").error!;
+  assert.equal(error.message, "Операции api.list нет.");
+  assert.match(error.hint!, /^Похожие: (?:[a-z]+\.list, )*[a-z]+\.list\. /);
+  assert.match(error.hint!, /Список операций показывает wtctl api list\.$/);
+});
+
 test("каждая строка словаря имён входов называет операцию реестра, инструмент MCP-сервера и команду CLI", async () => {
   const { runtime } = fakeRuntime();
   const tools = new Set(new HcmMcpTools(runtime).list().map((tool) => tool.name));

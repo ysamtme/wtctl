@@ -652,6 +652,20 @@ async function offline(argv: string[]) {
   return f.state;
 }
 
+test("отказ до вызова операции называет команды CLI, а неизвестный ID — как его передали", async () => {
+  const f = fixture();
+  assert.equal(
+    await runCli(["api", "describe", "objects.gett", "--offline"], f.io, f.dependencies),
+    1,
+  );
+  const { error } = JSON.parse(f.state.stderr || f.state.stdout) as OperationResult;
+  assert.equal(error?.message, "Операции objects.gett нет.");
+  assert.equal(
+    error?.hint,
+    "Похожие: objects.get, schema.get. Список операций показывает wtctl api list.",
+  );
+});
+
 test("справка — текст для чтения: команды и параметры в колонках, использование и заметки команды по одной в строке", async () => {
   const top = (await offline([])).stdout;
   assert.equal((await offline(["help"])).stdout, top);

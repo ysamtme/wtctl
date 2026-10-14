@@ -1130,7 +1130,7 @@ export async function runCli(
               "Команда не завершена.",
               "Проверить конфигурацию и api describe; неизвестные ошибки не выводят реквизиты или серверный ответ.",
             );
-    await safeDiagnostic(io, result);
+    await safeDiagnostic(io, errorInFrontendTerms(result, "cli"));
     return error instanceof CliInputError ? 2 : 1;
   } finally {
     if (runtime) {
