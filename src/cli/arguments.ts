@@ -206,8 +206,8 @@ export function stringOption(args: CliArguments, name: string): string | undefin
 }
 
 /**
- * Список через запятую или пробел. PowerShell передаёт шиму npm `id,fullname` без кавычек
- * массивом, а шим склеивает его через пробел; в именах полей и ID пробелов нет.
+ * Список через запятую или пробел. PowerShell передаёт обёртке npm `id,fullname` без кавычек
+ * массивом, а обёртка склеивает его через пробел; в именах полей и ID пробелов нет.
  */
 export function listOption(args: CliArguments, name: string): string[] | undefined {
   return stringOption(args, name)

@@ -195,13 +195,13 @@ CLI печатает в stdout одну строку JSON:
 
 `wtctl` печатает в UTF-8, а PowerShell читает вывод команды в кодировке консоли. В консоли с кодовой страницей 866 кириллица в ответе портится, поэтому скрипт, который разбирает ответ, начинается с этой строки:
 
-```powershell
+```shell
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 ```
 
 ### Выгрузка в CSV
 
-```powershell
+```shell
 $env:WTCTL_OUTPUT_LIMIT_BYTES = 1048576
 $rows = @()
 $start = 0
@@ -229,7 +229,7 @@ $rows | Export-Csv collaborators.csv -NoTypeInformation -Encoding UTF8
 
 Группа с одним сотрудником, затем ещё один сотрудник в ней:
 
-```powershell
+```shell
 $created = wtctl object create group --input-file group.json | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw "wtctl завершился с кодом $LASTEXITCODE" }
 wtctl object patch $created.data.id --input-file add-member.json
@@ -254,9 +254,9 @@ wtctl object patch $created.data.id --input-file add-member.json
 
 ### Перевод сотрудника в другое подразделение
 
-Подразделение сотрудника — это подразделение его должности. Сначала меняется должность, затем карточка сотрудника сохраняется заново:
+Подразделение сотрудника — это подразделение его должности. Сначала меняется должность, затем сотрудник сохраняется заново:
 
-```powershell
+```shell
 $person = '0x65CCCE16EC975831'
 $subdivision = '0x66A4196000001003'
 $position = (wtctl object get $person --fields position_id | ConvertFrom-Json).data.data.position_id
@@ -265,7 +265,7 @@ wtctl object patch $position --input-file position.json
 wtctl object patch $person --resave
 ```
 
-Без `--resave` карточка сотрудника и каталог `collaborators` показывают прежнее подразделение: название должности и подразделения в них — копии, их сервер заполняет при сохранении сотрудника. Если должности нет, `position_id` придёт в `data.emptyFields`.
+Без `--resave` документ сотрудника и каталог `collaborators` показывают прежнее подразделение: название должности и подразделения в них — копии, их сервер заполняет при сохранении сотрудника. Если должности нет, `position_id` придёт в `data.emptyFields`.
 
 ### Код с параметрами из файла
 

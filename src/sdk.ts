@@ -531,7 +531,7 @@ export class HcmStoredResultError extends HcmOperationError {
   constructor(result: OperationResult, resultId: string) {
     super(result, {
       code: "RESULT_STORED",
-      message: "Результат сохранён локально; preview не является полными данными.",
+      message: "Результат сохранён локально; в data.preview только начало данных.",
       hint:
         "Ответ больше outputLimitBytes. Прочитать частями — client.readResult({ resultId }), " +
         "сохранить в файл — client.exportResult({ resultId, path }). " +
@@ -588,7 +588,7 @@ export function unwrap<T = unknown>(result: OperationResult): T {
     throw new HcmOperationError(result, {
       code: "RESULT_TRUNCATED",
       message: "Полный результат отсутствует в ответе.",
-      hint: "Проверить meta и настройку outputLimitBytes; preview не является полными данными.",
+      hint: "Проверить meta и настройку outputLimitBytes; в data.preview только начало данных.",
       retryable: false,
     });
   }

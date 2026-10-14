@@ -210,7 +210,7 @@ const commandCases: {
     id: "runtime.query",
     args: { catalog: "collaborators", order: ["fullname", "hire_date desc"] },
   },
-  // Шим npm в PowerShell получает id,fullname без кавычек как массив и склеивает его через пробел.
+  // Обёртка npm в PowerShell получает id,fullname без кавычек как массив и склеивает его через пробел.
   {
     argv: ["query", "--catalog", "collaborators", "--fields", "id fullname"],
     id: "runtime.query",
