@@ -532,6 +532,13 @@ test("неизвестный ID и похожие на него показыва
   assert.equal(error.message, "Операции api.list нет.");
   assert.match(error.hint!, /^Похожие: (?:[a-z]+\.list, )*[a-z]+\.list\. /);
   assert.match(error.hint!, /Список операций показывает wtctl api list\.$/);
+  // Подсказка строится по ID из details, а не разбором текста: другая формулировка ничего не меняет.
+  const reworded = {
+    ...unknown,
+    error: { ...unknown.error!, hint: "Похожие операции: logs.list." },
+  };
+  assert.equal(errorInFrontendTerms(reworded, "cli").error?.hint, error.hint);
+  assert.match(errorInFrontendTerms(unknown, "mcp").error!.hint!, /\.list\. .*hcm_api_list\.$/);
 });
 
 test("каждая строка словаря имён входов называет операцию реестра, инструмент MCP-сервера и команду CLI", async () => {

@@ -1,3 +1,4 @@
+import { unknownOperationHint } from "./catalog.js";
 import type { OperationResult } from "./contracts.js";
 
 // Тексты ошибок пишутся один раз, в runtime, с ID операций. Вызывающий MCP-сервер знает
@@ -30,12 +31,14 @@ const PATTERN = new RegExp(
   "g",
 );
 
-const SIMILAR = /^Похожие: (?:[\w.]+, )*[\w.]+\. /;
-
 export type Frontend = "mcp" | "cli";
 
+function name(id: string, frontend: Frontend): string {
+  return NAMES[id]?.[frontend === "mcp" ? 0 : 1] ?? id;
+}
+
 function renamed(text: string, frontend: Frontend): string {
-  return text.replace(PATTERN, (id) => NAMES[id]![frontend === "mcp" ? 0 : 1]);
+  return text.replace(PATTERN, (id) => name(id, frontend));
 }
 
 /** Тот же отказ, где ID операций в сообщении и подсказке заменены именами вызывающего. */
@@ -64,9 +67,9 @@ export function errorInFrontendTerms(result: OperationResult, frontend: Frontend
   const error = result.error;
   if (!error) return result;
   // Неизвестный ID показывается так, как его передали, а похожие на него — ID операций:
-  // переименовывается только то, что идёт после списка похожих.
+  // подсказка строится заново по ID из details.
   const unknown = error.code === "UNKNOWN_OPERATION";
-  const kept = unknown ? (error.hint?.match(SIMILAR)?.[0] ?? "") : "";
+  const asked = error.details?.operationId;
   return {
     ...result,
     error: {
@@ -74,7 +77,12 @@ export function errorInFrontendTerms(result: OperationResult, frontend: Frontend
       message: unknown ? error.message : renamed(error.message, frontend),
       ...(error.hint === undefined
         ? {}
-        : { hint: kept + renamed(error.hint.slice(kept.length), frontend) }),
+        : {
+            hint:
+              unknown && typeof asked === "string"
+                ? unknownOperationHint(asked, (id) => name(id, frontend))
+                : renamed(error.hint, frontend),
+          }),
     },
   };
 }

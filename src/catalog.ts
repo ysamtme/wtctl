@@ -46,22 +46,26 @@ export function describeHcmOperation(id: string): OperationDefinition {
       "ID операции записан неверно: допустимы латинские буквы, цифры, точка и _, первой идёт буква, не больше 128 знаков.",
     );
   const operation = operationDefinition(id);
-  if (!operation) {
-    // Имя сравнивается по последней части: loadDocs рядом с loadDoc, query — с xQuery.
-    const asked = id.split(".").at(-1)!.toLowerCase();
-    const near = operations
-      .map((item) => item.id)
-      .filter((known) => {
-        const last = known.split(".").at(-1)!.toLowerCase();
-        return last.includes(asked) || asked.includes(last);
-      })
-      .slice(0, 5);
-    throw new HcmError(
-      "UNKNOWN_OPERATION",
-      `Операции ${id} нет.`,
-      `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Список операций показывает api.list.`,
-      { operationId: id },
-    );
-  }
+  if (!operation)
+    throw new HcmError("UNKNOWN_OPERATION", `Операции ${id} нет.`, unknownOperationHint(id), {
+      operationId: id,
+    });
   return operation;
+}
+
+/**
+ * Подсказка к неизвестному ID: похожие называются ID операций, а список операций — так, как его
+ * называет вызывающий (`name`). CLI и MCP-сервер строят её заново, а не разбирают текст.
+ */
+export function unknownOperationHint(id: string, name = (known: string) => known): string {
+  // Имя сравнивается по последней части: loadDocs рядом с loadDoc, query — с xQuery.
+  const asked = id.split(".").at(-1)!.toLowerCase();
+  const near = operations
+    .map((item) => item.id)
+    .filter((known) => {
+      const last = known.split(".").at(-1)!.toLowerCase();
+      return last.includes(asked) || asked.includes(last);
+    })
+    .slice(0, 5);
+  return `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Список операций показывает ${name("api.list")}.`;
 }
