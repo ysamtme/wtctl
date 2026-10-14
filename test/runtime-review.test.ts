@@ -526,6 +526,7 @@ for (const idElement of ["", "<id/>"])
         });
         assert.equal(removed.ok, true, JSON.stringify(removed));
         assert.equal((removed.data as { id: string }).id, objectId);
+        assert.equal((removed.data as { verification: string }).verification, "catalog");
         assert.equal(deleted, true);
         const query = `for $elem in fixtures where $elem/id = ${objectId} return $elem`;
         assert.deepEqual(queries, [query, query]);

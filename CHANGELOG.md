@@ -9,6 +9,7 @@
 - Убраны пять низкоуровневых операций, которые повторяли другие: `native.lds.openSession` и `web.lds.openSession` — вместо них `native.session.open` и `web.session.open`; `native.lds.closeSession` и `web.lds.closeSession` — вместо них `native.session.close` и `web.session.close`; `native.spxml.call` — вместо неё `native.rpc.call`. Вызов убранного ID отвечает `UNKNOWN_OPERATION`. Ответ `*.session.*` содержит ещё поле `profile`. В `wtctl/protocol` у `NativeSession` убрано поле `spxml`: это был тот же объект, что `rpc`.
 - В SDK убрано поле `status` у операций: оно у всех было `implemented` и ничего не значило. Его больше нет в ответе `getNativeOperations()`, `listHcmOperations()` и `describeHcmOperation()` и в типе `OperationDefinition`; убраны фильтр `status` у `listHcmOperations()` и флаг `--status` у `wtctl api list`.
 - В SDK у `LogReader` убраны поля-константы с английскими пояснениями: `semantics` и `consistency` у ответа `read()`, `severityDetection` и `lineNumbers` у `search()`, `semantics` у `follow()`. Их нет и в типах `LogReadData`, `LogSearchData`, `LogFollowData`. В ответы `logs.*` они и раньше не попадали.
+- Поле `verification` в ответе `objects.delete` — `server` или `catalog`, как другие значения протокола клиента. Раньше было `server acknowledgement` и `catalog absence`. Тип `DeletedObjectData.verification` в SDK — `"server" | "catalog"`.
 
 Исправления:
 

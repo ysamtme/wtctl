@@ -107,7 +107,7 @@ export interface DeletedObjectData {
   readonly id?: string;
   readonly mutationId: string;
   readonly mutationOutcome: "confirmed";
-  readonly verification: string;
+  readonly verification: "server" | "catalog";
   readonly catalog?: string;
 }
 /** Объекты сервера: чтение, создание, правка и удаление одного документа, с журналом записей. */
@@ -559,7 +559,7 @@ export class ServerObjects {
       id: objectId,
       mutationId,
       mutationOutcome: "confirmed",
-      verification: catalog === undefined ? "server acknowledgement" : "catalog absence",
+      verification: catalog === undefined ? "server" : "catalog",
       ...(catalog === undefined ? {} : { catalog }),
     };
   }
