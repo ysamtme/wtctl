@@ -1,6 +1,6 @@
 {
   "name": "wtctl",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Неофициальный клиент WebSoft HCM (WebTutor): администрирование через штатные API сервера, MCP-сервер, CLI и SDK",
   "license": "MIT",
   "author": "ysamtme",

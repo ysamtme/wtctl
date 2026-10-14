@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wtctl",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Неофициальный клиент WebSoft HCM (WebTutor): администрирование через штатные API сервера, MCP-сервер с инструментами hcm_* и гайд для агента.",
   "author": { "name": "ysamtme" },
   "license": "MIT",
