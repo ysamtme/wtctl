@@ -22,7 +22,7 @@ await withHcmClient(config, async (client) => {
 });
 ```
 
-- `loadConfig` читает файл подключений или переменные окружения, см. [configuration.md](configuration.md). Без аргументов берёт то же подключение, что и CLI. `loadConfig({ connection: "prod" })` выбирает подключение по имени, `configPath` — другой файл.
+- `loadConfig` читает файл подключений или переменные окружения, см. [configuration.md](configuration.md). Без аргументов берёт то же подключение, что и CLI. `loadConfig({ connection: "prod" })` выбирает подключение по имени, `configPath` — другой файл, `settings` — поля подключения кодом, см. [ниже](#настройки-подключения-кодом).
 - `withHcmClient` открывает подключение, вызывает переданную функцию и закрывает подключение — и при успехе, и при ошибке.
 - Каждый метод возвращает `{ok, data, meta}` или `{ok:false, error, meta}`. Если сервер отказал, исключения не будет.
 - `unwrap` достаёт `data`. При `ok:false` он бросает `HcmOperationError` с полями `code`, `message`, `hint`, `details`, `mutationOutcome`.
@@ -31,6 +31,24 @@ await withHcmClient(config, async (client) => {
 
 - Поставить пакет в проект: `npm install wtctl`. После этого SDK импортируется как `wtctl`. Зависимостей пакет за собой не тянет.
 - Импортировать прямо из файла: `import { … } from "file:///…/dist/index.js"`. Точный адрес называет `wtctl guide cli-sdk` в разделе «На этом компьютере».
+
+## Настройки подключения кодом
+
+`settings` принимает поля подключения из [файла подключений](configuration.md#файл-подключений), кроме `usernameEnv` и `passwordEnv`. Значение проверяется так же, как в файле, и сильнее переменной и поля в файле:
+
+```javascript
+const config = loadConfig({ settings: { outputLimitBytes: 1024 * 1024 } });
+```
+
+Адрес, учётные данные и права подключения из файла или переменных `settings` не меняет: `username`, `password` или `permissions` без `baseUrl` отклоняются с `INVALID_CONFIG`.
+
+`settings` с `baseUrl` — отдельное подключение. Файл подключений и переменные адреса, учётных данных и прав не читаются; логин, пароль и `permissions` задаются в тех же `settings`, права по умолчанию выключены. Имя подключения — из `connection`, иначе `default`. Вместе с `configPath` или `WTCTL_CONFIG` такое `settings` отклоняется с `INVALID_CONFIG`.
+
+```javascript
+const config = loadConfig({
+  settings: { baseUrl: "http://localhost:8088", username: "admin", password: process.env.HCM_PASSWORD },
+});
+```
 
 ## Методы
 
@@ -70,7 +88,7 @@ while (startPosition !== undefined) {
 
 Ответ больше `outputLimitBytes` (по умолчанию 24 КБ) клиент сохраняет на диск, см. [configuration.md](configuration.md#сохранённые-результаты). `unwrap` в этом случае бросает `HcmStoredResultError` с полем `resultId` — чтобы кусок данных нельзя было принять за все данные. Дальше два варианта:
 
-- Поднять предел: `withHcmClient({ ...config, outputLimitBytes: 1024 * 1024 }, …)`. Больше 1 МБ поставить нельзя.
+- Поднять предел: `loadConfig({ settings: { outputLimitBytes: 1024 * 1024 } })`. Больше 1 МБ поставить нельзя.
 - Читать сохранённое частями: `client.readResult({ resultId, offset, limit })`.
   - Сохранённый текст (лог, файл) приходит текстом. `exportResult({ resultId, path, format: "text" })` пишет его в файл как есть.
   - Список (`items`, `types`, `fields`, шаги пакета) читается по элементам: они лежат в `items` страницы, имя списка — в `list`. `cutBySize` значит, что страница вышла короче запрошенной.

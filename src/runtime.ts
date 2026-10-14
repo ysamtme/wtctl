@@ -4,6 +4,7 @@ import { listHcmOperations, describeHcmOperation } from "./catalog.js";
 import { NativeGateway, WsHcmApiError } from "./native/index.js";
 import { validate } from "./native/validation.js";
 import { HcmError, inputObject, requiredString } from "./errors.js";
+import { LOCAL_LIMITS } from "./config.js";
 import { SchemaReader } from "./schema.js";
 import { ResultStore } from "./results.js";
 import { LogReader } from "./logs.js";
@@ -59,7 +60,10 @@ export class HcmRuntime implements RuntimePort {
         requiredString(await this.server.call("native.spxml2.getForm", { url }), "ответ с формой"),
       async (url) => (await this.objects.load({ url })).document.snapshot().data,
     );
-    this.objects = new ServerObjects(this.server, this.schemaReader, this.results.directory);
+    this.objects = new ServerObjects(this.server, this.schemaReader, {
+      directory: this.results.directory,
+      maxBytes: config.journalMaxBytes ?? LOCAL_LIMITS.journalMaxBytes,
+    });
     this.context = {
       config,
       server: this.server,

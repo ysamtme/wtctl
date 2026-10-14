@@ -182,8 +182,9 @@ test("повреждённые метаданные и отсутствующи�
     await writeFile(path, JSON.stringify({ ...metadata, checkpoints: -1 }));
     await assert.rejects(store.read(stored.resultId, 0, 10, "json"), /не читается/);
     await writeFile(path, original);
+    // Так выглядит результат, который чистка удалила не до конца.
     await unlink(join(store.directory, `${stored.resultId}.data.json`));
-    await assert.rejects(store.read(stored.resultId), /не читается/);
+    await assert.rejects(store.read(stored.resultId), { code: "RESULT_NOT_FOUND" });
   });
 });
 

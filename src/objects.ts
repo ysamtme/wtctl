@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, appendFile } from "node:fs/promises";
+import { appendFile, mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { patchSegments, XmlDocument, type PatchChange } from "./documents.js";
 import { HcmError, inputObject, requiredString, scalar } from "./errors.js";
@@ -119,8 +119,8 @@ export class ServerObjects {
       SchemaReader,
       "documentShape" | "catalogShape" | "requireType" | "documentForm"
     >,
-    /** Папка журнала записей, mutations.jsonl. */
-    private readonly journalDirectory: string,
+    /** Журнал записей: папка с mutations.jsonl и его предел в байтах, 0 — без предела. */
+    private readonly journalFile: { readonly directory: string; readonly maxBytes: number },
   ) {}
 
   /** Один объект по id или url, как отвечает objects.get. */
@@ -218,12 +218,18 @@ export class ServerObjects {
     return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
   }
   private async journal(entry: Record<string, unknown>): Promise<void> {
-    await mkdir(this.journalDirectory, { recursive: true });
-    await appendFile(
-      join(this.journalDirectory, "mutations.jsonl"),
-      `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`,
-      { encoding: "utf8", mode: 0o600 },
-    );
+    const { directory, maxBytes } = this.journalFile;
+    const path = join(directory, "mutations.jsonl");
+    await mkdir(directory, { recursive: true });
+    // Размер смотрится прямо перед переименованием, чтобы второй процесс, увидевший переполнение
+    // одновременно, не переименовал уже новый короткий файл. Процесс, который пишет в этот миг,
+    // допишет строку в mutations.1.jsonl: строки не теряются.
+    if (maxBytes && ((await stat(path).catch(() => undefined))?.size ?? 0) > maxBytes)
+      await rename(path, join(directory, "mutations.1.jsonl")).catch(() => {});
+    await appendFile(path, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
   }
   private async resolveCatalog(type: string, documentUrl?: string): Promise<string | undefined> {
     const info = await this.server.applicationInfo();

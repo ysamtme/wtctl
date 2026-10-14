@@ -1,7 +1,12 @@
 /** SDK WebSoft HCM: операции native и верхнего уровня идут через тот же runtime, что CLI и MCP. */
 export { HcmRuntime } from "./runtime.js";
 export { listHcmOperations, describeHcmOperation } from "./catalog.js";
-export { loadConfig, configExample, type ConfigOptions } from "./config.js";
+export {
+  loadConfig,
+  configExample,
+  type ConfigOptions,
+  type ConnectionSettings,
+} from "./config.js";
 export { HcmError } from "./errors.js";
 export { NativeGateway, getNativeOperations } from "./native/index.js";
 export type {

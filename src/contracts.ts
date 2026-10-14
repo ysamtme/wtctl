@@ -23,6 +23,12 @@ export interface ConnectionConfig extends NativeConfig {
   readonly outputLimitBytes: number;
   readonly runtimeDir: string;
   readonly permissions: { readonly write: boolean; readonly execute: boolean };
+  /** Предел сохранённых результатов подключения в байтах, приблизительный; 0 — без предела, по умолчанию 1 ГБ. */
+  readonly resultsMaxBytes?: number;
+  /** Сколько дней хранятся сохранённые результаты; 0 — без срока, по умолчанию 7. */
+  readonly resultsMaxAgeDays?: number;
+  /** Предел журнала записей mutations.jsonl в байтах; 0 — без предела, по умолчанию 10 МБ. */
+  readonly journalMaxBytes?: number;
   /** Сколько сервер держит лог нечитаемым после записи в него; по умолчанию 5500 мс. */
   readonly logBusyMs?: number;
 }

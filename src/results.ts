@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, stat, open, unlink, type FileHandle } from "node:fs/promises";
-import { constants, copyFile, link, writeFile } from "node:fs/promises";
+import { constants, copyFile, link, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { LOCAL_LIMITS } from "./config.js";
 import { HcmError, boundedInteger, requiredString } from "./errors.js";
 import type { ConnectionConfig, OperationResult } from "./contracts.js";
 
@@ -133,6 +134,12 @@ function listOf(data: unknown): { key: string; items: unknown[] } | undefined {
 const CHUNK_CHARS = 65536;
 const RECORD_BYTES = 16;
 const MAX_METADATA_BYTES = 4096;
+const HOUR = 3600 * 1000;
+const DAY = 24 * HOUR;
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+const RESULT_ID = new RegExp(`^${UUID}$`);
+/** Файлы сохранённого результата: описание <id>.json и данные рядом с ним. */
+const RESULT_FILE = new RegExp(`^(${UUID})\\.(json|data\\.json|data\\.idx|rows\\.idx|text\\.bin)$`);
 interface Metadata {
   version: 2;
   createdAt: string;
@@ -149,6 +156,13 @@ function invalid(): HcmError {
   return new HcmError(
     "RESULT_INVALID",
     "Сохранённый результат не читается: его файлы повреждены или неполны.",
+  );
+}
+function notFound(): HcmError {
+  return new HcmError(
+    "RESULT_NOT_FOUND",
+    "Результата с таким resultId нет, или он сохранён другим подключением.",
+    "Результат мог быть удалён по сроку хранения: нужно повторить запрос, который его вернул.",
   );
 }
 function natural(value: unknown): value is number {
@@ -253,7 +267,7 @@ export class ResultStore {
     this.directory = join(resolve(config.runtimeDir), scope, "results");
   }
   path(id: string): string {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id))
+    if (!RESULT_ID.test(id))
       throw new HcmError(
         "INVALID_RESULT_ID",
         "resultId неверен: нужен ID из meta.resultId ответа.",
@@ -304,7 +318,58 @@ export class ResultStore {
       return undefined;
     }
   }
+  /** Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. */
   async put(data: unknown): Promise<{ resultId: string; bytes: number; list?: string }> {
+    const saved = await this.write(data);
+    await this.prune().catch(() => {});
+    return saved;
+  }
+  /**
+   * Удаляет результаты старше resultsMaxAgeDays, затем самые старые сверх resultsMaxBytes.
+   * Результаты моложе часа остаются: их может читать другой процесс того же подключения.
+   */
+  private async prune(): Promise<void> {
+    const maxAge = (this.config.resultsMaxAgeDays ?? LOCAL_LIMITS.resultsMaxAgeDays) * DAY;
+    const maxBytes = this.config.resultsMaxBytes ?? LOCAL_LIMITS.resultsMaxBytes;
+    if (!maxAge && !maxBytes) return;
+    const found = new Map<string, { payloads: string[]; bytes: number; time?: number }>();
+    await Promise.all(
+      (await readdir(this.directory)).map(async (name) => {
+        // Журнал записей и файлы .tmp недописанных результатов под шаблон не подходят.
+        const [, id, extension] = RESULT_FILE.exec(name) ?? [];
+        if (id === undefined) return;
+        const info = await stat(join(this.directory, name)).catch(() => undefined);
+        if (!info) return;
+        const result = found.get(id) ?? { payloads: [], bytes: 0 };
+        found.set(id, result);
+        result.bytes += info.size;
+        if (extension === "json") result.time = info.mtimeMs;
+        else result.payloads.push(name);
+      }),
+    );
+    // Без описания результат ещё пишется: его файлы не трогаются.
+    const results = [...found]
+      .flatMap(([id, { time, ...files }]) => (time === undefined ? [] : [{ id, time, ...files }]))
+      .sort((left, right) => left.time - right.time);
+    let total = results.reduce((sum, result) => sum + result.bytes, 0);
+    const now = Date.now();
+    for (const { id, time, payloads, bytes } of results) {
+      const age = now - time;
+      if (age < HOUR || ((!maxAge || age <= maxAge) && (!maxBytes || total <= maxBytes))) break;
+      // Описание удаляется последним: недоудалённый результат удалится при следующей чистке.
+      // Он и не держит сумму: иначе ради него удалялись бы все остальные результаты.
+      total -= bytes;
+      try {
+        for (const name of [...payloads, `${id}.json`])
+          await unlink(join(this.directory, name)).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== "ENOENT") throw error;
+          });
+      } catch {
+        // Файл занят или не удаляется: остальные результаты чистятся дальше.
+      }
+    }
+  }
+  private async write(data: unknown): Promise<{ resultId: string; bytes: number; list?: string }> {
     const id = randomUUID();
     const created: string[] = [];
     const files: FileHandle[] = [];
@@ -413,17 +478,16 @@ export class ResultStore {
     try {
       size = (await stat(manifest)).size;
     } catch {
-      throw new HcmError(
-        "RESULT_NOT_FOUND",
-        "Результата с таким resultId нет, или он сохранён другим подключением.",
-      );
+      throw notFound();
     }
     if (size > MAX_METADATA_BYTES)
       return this.legacy(manifest, size, offsetValue, limitValue, formatValue);
     let envelope: unknown;
     try {
       envelope = JSON.parse(await readFile(manifest, "utf8"));
-    } catch {
+    } catch (error) {
+      // Чистка удалила результат между stat и чтением.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw notFound();
       throw invalid();
     }
     if (
@@ -455,6 +519,8 @@ export class ResultStore {
       return this.textPage(text, offset, total, limit, plain ? "text" : "json");
     } catch (error) {
       if (error instanceof HcmError) throw error;
+      // Чистка удаляет описание последним: описание без данных — результат, удалённый не до конца.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw notFound();
       throw invalid();
     }
   }

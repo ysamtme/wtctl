@@ -3,7 +3,7 @@
 import { loadConfig, withHcmClient, unwrap } from 'wtctl';
 
 // Скрипту нужен ответ целиком, поэтому предел размера ответа поднят до наибольшего.
-const config = { ...loadConfig(), outputLimitBytes: 1024 * 1024 };
+const config = loadConfig({ settings: { outputLimitBytes: 1024 * 1024 } });
 
 await withHcmClient(config, async (client) => {
   let startPosition = 0;
