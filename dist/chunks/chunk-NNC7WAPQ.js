@@ -3739,6 +3739,8 @@ var WsHcmApiError = class extends Error {
     if (options.requestSent !== void 0) this.requestSent = options.requestSent;
   }
 };
+var ArgumentError = class extends TypeError {
+};
 function isTransportFailure(error) {
   const pending = [error];
   const seen = /* @__PURE__ */ new Set();
@@ -8698,27 +8700,27 @@ function validXmlCodePoint(code) {
 function assertXmlCharacters(source) {
   for (const character of source)
     if (!validXmlCodePoint(character.codePointAt(0)))
-      throw new TypeError("В XML есть недопустимый символ.");
+      throw new ArgumentError("В XML есть недопустимый символ.");
 }
 function assertSafe(source) {
   assertXmlCharacters(source);
   const referenced = source.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>/g, "");
   if (unsafeDeclaration.test(referenced)) {
-    throw new TypeError("Объявления DOCTYPE и ENTITY в XML не допускаются.");
+    throw new ArgumentError("Объявления DOCTYPE и ENTITY в XML не допускаются.");
   }
   for (const match of referenced.matchAll(/&#(?:x([0-9a-f]+)|(\d+));/gi)) {
     const code = Number.parseInt(match[1] ?? match[2], match[1] === void 0 ? 10 : 16);
     if (!validXmlCodePoint(code))
-      throw new TypeError("В XML есть ссылка на недопустимый символ (&#…;).");
+      throw new ArgumentError("В XML есть ссылка на недопустимый символ (&#…;).");
   }
   for (const match of referenced.matchAll(/&([^;\s<&]+);/g)) {
     if (!/^(?:amp|lt|gt|apos|quot|#\d+|#x[\da-fA-F]+)$/.test(match[1]))
-      throw new TypeError(
+      throw new ArgumentError(
         "В XML есть сущность, которой нет среди допустимых: amp, lt, gt, apos, quot и числовые."
       );
   }
   if (/&(?!(?:amp|lt|gt|apos|quot|#\d+|#x[\da-fA-F]+);)/.test(referenced))
-    throw new TypeError("В XML есть одиночный знак &; сам знак записывается как &amp;.");
+    throw new ArgumentError("В XML есть одиночный знак &; сам знак записывается как &amp;.");
 }
 function createPlatformXmlParser(options = {}) {
   const attributePrefix = options.attributeNamePrefix ?? "@_";
@@ -8762,7 +8764,7 @@ function createPlatformXmlBuilder(options = {}) {
 }
 function assertWellFormed(source) {
   const validation = XMLValidator.validate(source);
-  if (validation !== true) throw new TypeError("Неверный XML: ошибка в разметке.");
+  if (validation !== true) throw new ArgumentError("Неверный XML: ошибка в разметке.");
 }
 function validatePlatformXmlSource(source) {
   assertSafe(source);
@@ -8790,7 +8792,7 @@ function rawXmlElement(source) {
     (key) => !key.startsWith("?") && !key.startsWith("@_") && key !== "#text"
   );
   if (elements.length !== 1 || Array.isArray(value[elements[0]]) || typeof value["#text"] === "string" && value["#text"].trim() !== "")
-    throw new TypeError("Аргумент XML должен быть ровно одним элементом.");
+    throw new ArgumentError("Аргумент XML должен быть ровно одним элементом.");
   return rawXml(source);
 }
 function isRawXml(value) {
@@ -8968,21 +8970,24 @@ var HttpTransport = class {
     return this.#auth !== void 0;
   }
   constructor(options) {
-    this.baseUrl = new URL(options.baseUrl.endsWith("/") ? options.baseUrl : `${options.baseUrl}/`);
-    if (!["http:", "https:"].includes(this.baseUrl.protocol) || this.baseUrl.username !== "" || this.baseUrl.password !== "") {
-      throw new TypeError("baseUrl: нужен URL HTTP(S) без имени и пароля в адресе");
+    const baseUrl = URL.parse(
+      options.baseUrl.endsWith("/") ? options.baseUrl : `${options.baseUrl}/`
+    );
+    if (!baseUrl || !["http:", "https:"].includes(baseUrl.protocol) || baseUrl.username !== "" || baseUrl.password !== "") {
+      throw new ArgumentError("baseUrl: нужен URL HTTP(S) без имени и пароля в адресе");
     }
+    this.baseUrl = baseUrl;
     this.#auth = options.auth;
     this.#timeoutMs = options.timeoutMs;
     if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1)
-      throw new TypeError("timeoutMs: нужно положительное целое число");
+      throw new ArgumentError("timeoutMs: нужно положительное целое число");
     this.#fetch = options.fetch;
     this.#webHeaders = options.webHeaders ?? false;
     this.#maxResponseBytes = options.maxResponseBytes ?? 16 * 1024 * 1024;
     if (!Number.isSafeInteger(this.#maxResponseBytes) || this.#maxResponseBytes < 1)
-      throw new TypeError("maxResponseBytes: нужно положительное целое число");
+      throw new ArgumentError("maxResponseBytes: нужно положительное целое число");
     if (this.baseUrl.search || this.baseUrl.hash)
-      throw new TypeError("baseUrl: строка запроса и фрагмент не допускаются");
+      throw new ArgumentError("baseUrl: строка запроса и фрагмент не допускаются");
   }
   assertOpen() {
     if (this.#disposed) throw new WsHcmApiError("protocol", "Сессия закрыта");
@@ -8993,10 +8998,11 @@ var HttpTransport = class {
   }
   resolve(path, relativeTo = this.baseUrl) {
     const absolute = /^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith("//");
-    const url = new URL(
+    const url = URL.parse(
       absolute ? path : relativeTo === this.baseUrl ? path.replace(/^\/+/, "") : path,
       relativeTo
     );
+    if (!url) throw new ArgumentError("path: адрес записан неверно.");
     if (url.origin !== this.baseUrl.origin || url.username || url.password || !url.pathname.startsWith(this.baseUrl.pathname)) {
       throw new WsHcmApiError("protocol", "Запрос за пределы адреса подключения запрещён");
     }
@@ -9004,7 +9010,12 @@ var HttpTransport = class {
   }
   async send(path, init = {}, options = {}) {
     this.assertOpen();
-    const headers = new Headers(init.headers);
+    let headers;
+    try {
+      headers = new Headers(init.headers);
+    } catch {
+      throw new ArgumentError("headers: имя или значение заголовка записано неверно.");
+    }
     if (options.basic) {
       if (this.#auth === void 0)
         throw new WsHcmApiError("auth", "Нужны имя пользователя и пароль");
@@ -9186,19 +9197,19 @@ function query(path, values) {
 // src/protocol/api.ts
 function decimal(value, name) {
   if (value !== void 0 && !/^\d+$/.test(value))
-    throw new TypeError(`${name}: нужна строка из десятичных цифр.`);
+    throw new ArgumentError(`${name}: нужна строка из десятичных цифр.`);
   return value;
 }
 function tracking(value, name) {
   if (!/^(?:\d+|0x[0-9a-f]+)$/i.test(value))
-    throw new TypeError(
+    throw new ArgumentError(
       `${name}: нужно целое число строкой — десятичное или шестнадцатеричное с 0x.`
     );
   return value;
 }
 function validateRpcTarget(target) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(target))
-    throw new TypeError("target: нужно имя библиотеки и имя функции через точку.");
+    throw new ArgumentError("target: нужно имя библиотеки и имя функции через точку.");
 }
 async function soapCall(transport2, profile, path, method, fields, options = {}) {
   const source = soapEnvelope(method, fields, profile);
@@ -9428,7 +9439,7 @@ var LdsCaller = class {
 };
 function safeInteger(value, name) {
   if (value !== void 0 && !Number.isSafeInteger(value))
-    throw new TypeError(`${name}: нужно целое число.`);
+    throw new ArgumentError(`${name}: нужно целое число.`);
   return value;
 }
 var NativeLdsApi = class {
@@ -9521,7 +9532,7 @@ var NativeLdsApi = class {
    * @mutating
    */
   putDoc(request, options) {
-    if (!isRawXml(request.data)) throw new TypeError("data: нужен проверенный XML (RawXml).");
+    if (!isRawXml(request.data)) throw new ArgumentError("data: нужен проверенный XML (RawXml).");
     return soapMultipartCall(
       this.caller.getTransport(),
       "native",
@@ -9616,7 +9627,8 @@ var NativeLdsApi = class {
   }
 };
 function runLdsMethod(caller, request, options) {
-  if (!isRawXml(request.argData)) throw new TypeError("argData: нужен проверенный XML (RawXml).");
+  if (!isRawXml(request.argData))
+    throw new ArgumentError("argData: нужен проверенный XML (RawXml).");
   return caller.call(
     "RunMethod",
     [
@@ -9698,12 +9710,12 @@ var rpc = Object.freeze({
     return { valueType: "string", lexicalValue: value };
   },
   typed(valueType, lexicalValue) {
-    if (valueType.trim() === "") throw new TypeError("valueType: нужна непустая строка.");
+    if (valueType.trim() === "") throw new ArgumentError("valueType: нужна непустая строка.");
     return { valueType, lexicalValue };
   },
   /** Повторяет штатный сериализатор XmElem: проверенный дочерний XML без выдуманного VALUE-TYPE. */
   xml(value) {
-    if (!isRawXml(value)) throw new TypeError("Аргумент XML: нужен проверенный XML (RawXml).");
+    if (!isRawXml(value)) throw new ArgumentError("Аргумент XML: нужен проверенный XML (RawXml).");
     return { lexicalValue: rawXmlElement(value.xml) };
   }
 });
@@ -9711,7 +9723,7 @@ function rpcArgs(args) {
   return rawXml(
     args.map((arg, index) => {
       if (arg.valueType === void 0 && !isRawXml(arg.lexicalValue))
-        throw new TypeError(
+        throw new ArgumentError(
           "Аргументу функции нужен valueType; без него передаётся только XML: {lexicalValue: {xml: …}}."
         );
       const value = arg.valueType === void 0 ? rawXmlElement(arg.lexicalValue.xml).xml : isRawXml(arg.lexicalValue) ? arg.lexicalValue.xml : escapeXml(arg.lexicalValue);
@@ -9963,7 +9975,7 @@ var WebPageApi = class {
     this.uploadToken = uploadToken;
     this.maximumUploadBytes = maximumUploadBytes;
     if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
-      throw new TypeError("maximumUploadBytes: нужно целое число больше нуля.");
+      throw new ArgumentError("maximumUploadBytes: нужно целое число больше нуля.");
   }
   /** Прочитать штатную страницу предпросмотра PDF как текст. */
   async filePreviewPdf(options) {
@@ -10230,7 +10242,9 @@ var ResourceApi = class {
         resource_id: decimal(request.resourceId, "resourceId"),
         image_type: request.imageType
       }),
-      {},
+      // Сервер закрывает соединение после этой страницы, не сообщая об этом; только что запущенный —
+      // с задержкой, и следующий запрос в том же соединении обрывался.
+      { headers: { connection: "close" } },
       options
     );
     return binaryResponse(response, "get_resource_image");
@@ -10252,21 +10266,23 @@ var ResourceApi = class {
     const text = (field) => {
       const candidate = value[field];
       if (typeof candidate !== "string" || candidate.length === 0 || /[\u0000-\u001f\u007f]/u.test(candidate))
-        throw new TypeError(`${field}: нужна непустая строка без управляющих символов.`);
+        throw new ArgumentError(`${field}: нужна непустая строка без управляющих символов.`);
       return candidate;
     };
     if (!value || typeof value !== "object" || Array.isArray(value))
-      throw new TypeError("Не задан источник ресурса: нужен объект с url или с docUrl и elemPath.");
+      throw new ArgumentError(
+        "Не задан источник ресурса: нужен объект с url или с docUrl и elemPath."
+      );
     const urlBranch = Object.hasOwn(value, "url");
     const fields = urlBranch ? ["url", "resId"] : ["docUrl", "elemPath", "resId"];
     if (Object.keys(value).some((field) => !fields.includes(field)))
-      throw new TypeError(
+      throw new ArgumentError(
         "Источник ресурса — это url и resId либо docUrl, elemPath и resId; других полей быть не должно."
       );
     const source = text(urlBranch ? "url" : "docUrl");
     const allowedScheme = urlBranch ? /^(?:x-local|x-app):\/\//u : /^(?:x-local|x-app|x-db-obj):\/\//u;
     if (!allowedScheme.test(source))
-      throw new TypeError(
+      throw new ArgumentError(
         "Источник ресурса: url начинается с x-local:// или x-app://, docUrl — ещё и с x-db-obj://."
       );
     const resId = text("resId");
@@ -10318,10 +10334,19 @@ var ExperimentalApi = class {
   async rawRequest(request, options) {
     if (request.unsafe !== true)
       throw new WsHcmApiError("protocol", "Экспериментальный rawRequest требует unsafe: true");
+    const method = request.method ?? "GET";
+    try {
+      new Request(this.transport.baseUrl, {
+        method,
+        ...request.body === void 0 ? {} : { body: "" }
+      });
+    } catch {
+      throw new ArgumentError("method: метод HTTP записан неверно или не допускает тела (body).");
+    }
     const response = await this.transport.send(
       request.path,
       {
-        method: request.method ?? "GET",
+        method,
         ...request.headers === void 0 ? {} : { headers: request.headers },
         ...request.body === void 0 ? {} : { body: request.body }
       },
@@ -10390,7 +10415,7 @@ function directDocumentId(value) {
 function resolvePhysicalDocumentLocation(idLexeme, dbName = "wt_data") {
   validateDbName(dbName);
   if (!/^(?:\d+|0x[0-9a-f]+)$/i.test(idLexeme))
-    throw new TypeError(
+    throw new ArgumentError(
       "ID объекта записан неверно: нужна строка 0x… или десятичное число без знака."
     );
   const id = BigInt(idLexeme);
@@ -10400,7 +10425,7 @@ function resolvePhysicalDocumentLocation(idLexeme, dbName = "wt_data") {
     return { objectId: id.toString(10), url: `x-local://${dbName}/objects/${base}/${index}.xml` };
   }
   const hex = id.toString(16).toUpperCase().padStart(16, "0");
-  if (hex.length !== 16) throw new TypeError("ID объекта не помещается в 64 бита.");
+  if (hex.length !== 16) throw new ArgumentError("ID объекта не помещается в 64 бита.");
   return {
     objectId: `0x${hex}`,
     url: `x-local://${dbName}/objects/${hex.slice(0, 14)}/${hex.slice(14)}.xml`
@@ -10419,7 +10444,7 @@ function parsePhysicalDocumentId(url) {
 }
 function validateDbName(dbName) {
   if (!/^[A-Za-z0-9_.-]+$/.test(dbName))
-    throw new TypeError("dbName: нужно имя базы из латинских букв, цифр и знаков . _ -");
+    throw new ArgumentError("dbName: нужно имя базы из латинских букв, цифр и знаков . _ -");
 }
 var NativePhysicalDocumentsApi = class {
   constructor(lds) {
@@ -10440,15 +10465,15 @@ var NativePhysicalDocumentsApi = class {
     const location = resolvePhysicalDocumentLocation(rawId, dbName);
     const document = request.document(location);
     if (!isRawXml(document))
-      throw new TypeError("document: функция должна вернуть проверенный XML (RawXml).");
+      throw new ArgumentError("document: функция должна вернуть проверенный XML (RawXml).");
     const parsed = parseXml2(document.xml);
     const documentId = directDocumentId(parsed);
     if (documentId === void 0)
-      throw new TypeError(
+      throw new ArgumentError(
         "document: в XML нужен один корневой элемент и в нём ровно один элемент id."
       );
     if (documentId.toUpperCase() !== location.objectId.toUpperCase()) {
-      throw new TypeError("document: id в XML должен совпадать с выданным ID объекта.");
+      throw new ArgumentError("document: id в XML должен совпадать с выданным ID объекта.");
     }
     let putStarted = false;
     try {
@@ -10887,7 +10912,6 @@ var NativeSession = class _NativeSession {
     this.lds = createNativeLdsApi(transport2, () => this.sessionId);
     this.physicalDocuments = new NativePhysicalDocumentsApi(this.lds);
     this.rpc = new RpcApi(transport2, "native");
-    this.spxml = this.rpc;
     this.spxml2 = new NativeSpXml2Api(transport2);
     this.resources = new ResourceApi(transport2);
     this.experimental = new NativeExperimentalApi(transport2);
@@ -10895,7 +10919,6 @@ var NativeSession = class _NativeSession {
   lds;
   physicalDocuments;
   rpc;
-  spxml;
   spxml2;
   resources;
   experimental;
@@ -11307,6 +11330,7 @@ var WsHcmClient = class {
 
 export {
   WsHcmApiError,
+  ArgumentError,
   isTransportFailure,
   attachCleanupError,
   assertXmlCharacters,

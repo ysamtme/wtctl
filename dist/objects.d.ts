@@ -4,47 +4,74 @@ import type { WriteOutcome } from "./write-outcome.js";
 import { type SchemaReader } from "./schema.js";
 /** Запись возвращает сводку, а не копию документа; нужны поля — прочитать объект. */
 export interface CreatedObjectData {
+    /** ID нового объекта, 0x…. */
     readonly id: string;
+    /** Тип объекта. */
     readonly type: string;
+    /** Адрес документа. */
     readonly url: string;
+    /** Отпечаток записанного документа: expectedFingerprint для правки. */
     readonly fingerprint: string;
+    /** ID записи в журнале записей mutations.jsonl. */
     readonly mutationId: string;
+    /** Исход записи: подтверждена. */
     readonly mutationOutcome: "confirmed";
 }
 /** Ничего не записано: запрошен предпросмотр или правка ничего не меняет (noop). */
 export interface PatchPreviewData {
+    /** Запрошен предпросмотр. */
     readonly preview: boolean;
+    /** Правка ничего не меняет, и resave не задан. */
     readonly noop: boolean;
+    /** Что изменила бы правка. */
     readonly changes: PatchChange[];
+    /** Отпечаток документа сейчас: expectedFingerprint для записи. */
     readonly fingerprint: string;
 }
+/** Ответ patch, когда правка записана. */
 export interface PatchedObjectData {
+    /** ID объекта. */
     readonly id?: string;
+    /** Тип объекта. */
     readonly type: string;
+    /** Адрес документа. */
     readonly url: string;
+    /** Отпечаток записанного документа. */
     readonly fingerprint: string;
+    /** Что изменено. */
     readonly changes: PatchChange[];
     /** Поля верхнего уровня вне правки, которые сервер сам изменил при сохранении. */
     readonly serverChanged?: string[];
+    /** ID записи в журнале записей mutations.jsonl. */
     readonly mutationId: string;
+    /** Исход записи: подтверждена. */
     readonly mutationOutcome: "confirmed";
 }
+/** Ответ delete. */
 export interface DeletedObjectData {
+    /** ID удалённого объекта. */
     readonly id?: string;
+    /** ID записи в журнале записей mutations.jsonl. */
     readonly mutationId: string;
+    /** Исход записи: подтверждена. */
     readonly mutationOutcome: "confirmed";
-    readonly verification: string;
+    /** Чем проверено удаление: server — ответом сервера, catalog — объекта больше нет в каталоге. */
+    readonly verification: "server" | "catalog";
+    /** Каталог, по которому проверено удаление. */
     readonly catalog?: string;
 }
 /** Объекты сервера: чтение, создание, правка и удаление одного документа, с журналом записей. */
 export declare class ServerObjects {
     private readonly server;
     private readonly schema;
-    /** Папка журнала записей, mutations.jsonl. */
-    private readonly journalDirectory;
+    /** Журнал записей: папка с mutations.jsonl и его предел в байтах, 0 — без предела. */
+    private readonly journalFile;
     constructor(server: Pick<HcmServer, "call" | "read" | "applicationInfo">, schema: Pick<SchemaReader, "documentShape" | "catalogShape" | "requireType" | "documentForm">, 
-    /** Папка журнала записей, mutations.jsonl. */
-    journalDirectory: string);
+    /** Журнал записей: папка с mutations.jsonl и его предел в байтах, 0 — без предела. */
+    journalFile: {
+        readonly directory: string;
+        readonly maxBytes: number;
+    });
     /** Один объект по id или url, как отвечает objects.get. */
     get(args: Record<string, unknown>): Promise<Record<string, unknown>>;
     load(args: Record<string, unknown>): Promise<{

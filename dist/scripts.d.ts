@@ -1,7 +1,10 @@
+/** Ответ execute. */
 export interface ScriptData<T = unknown> {
+    /** Массив RESULT из кода; числа, даты и логические значения — строками. */
     readonly result: readonly T[];
-    /** Описания столбцов и дополнительные данные коллекции, если сервер их вернул. */
+    /** Описания столбцов, если сервер их вернул. */
     readonly columns?: readonly unknown[];
+    /** Дополнительные данные коллекции, если сервер их вернул. */
     readonly data?: Readonly<Record<string, unknown>>;
     /** Имя несохранённой коллекции, несшей код; оно попадает в строки лога сервера. */
     readonly executionId: string;
@@ -11,12 +14,15 @@ export declare function prepareScript(value: unknown, params?: unknown): {
     request: Record<string, unknown>;
     executionId: string;
 };
+/** Ответ runAgent. */
 export interface AgentRunData {
     /** false: сервер не запустил агента; причина — в логе `agent`. */
     readonly started: boolean;
-    /** Местное время сервера вокруг запуска: строки агента в логах лежат между ними. */
+    /** Местное время сервера перед запуском: строки агента в логах лежат после него. */
     readonly startedAt: string;
+    /** Местное время сервера после конца кода агента. */
     readonly finishedAt: string;
+    /** В каком логе искать строки и ошибки агента. */
     readonly hint: string;
 }
 /** Код и параметры запуска агента на месте. ID идут в код агента, поэтому проходят только ID. */

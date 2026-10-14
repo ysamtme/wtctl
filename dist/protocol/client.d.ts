@@ -20,7 +20,6 @@ export declare class NativeSession {
     readonly lds: NativeLdsApi;
     readonly physicalDocuments: NativePhysicalDocumentsApi;
     readonly rpc: RpcApi;
-    readonly spxml: RpcApi;
     readonly spxml2: NativeSpXml2Api;
     readonly resources: ResourceApi;
     readonly experimental: NativeExperimentalApi;

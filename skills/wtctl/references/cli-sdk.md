@@ -2,7 +2,7 @@
 
 ## Как запустить
 
-Если `wtctl` есть в `PATH`, вызывай `wtctl`. Если нет, команду для этого компьютера называет гайд сервера: `hcm_guide {topic:"cli-sdk"}`, раздел «На этом компьютере» в конце.
+Если `wtctl` есть в `PATH`, вызывай `wtctl`. Если нет, команду для этого компьютера называет раздел «На этом компьютере» в конце этой темы. В тексте навыка этого раздела нет: там прочитай тему через `hcm_guide {topic:"cli-sdk"}`.
 
 Подключение команда и SDK берут из файла подключений (какой файл — показывает `wtctl config path`) или из переменных `WTCTL_URL`, `WTCTL_USERNAME`, `WTCTL_PASSWORD` своей оболочки. Переменные, заданные в записи MCP-сервера, им не видны. `--connection ИМЯ` выбирает подключение из файла; без него берётся подключение по умолчанию.
 
@@ -30,9 +30,10 @@
 - JSON и код передавай файлом (`--input-file`) или через stdin (`--stdin`). `--args '…'` и `--where '…'` годятся для короткого JSON. Оболочки по-разному обрабатывают кавычки внутри аргумента; запись `\"` команда понимает в любой из них: `--where '{\"is_dismiss\":false}'`. В cmd весь JSON берут в двойные кавычки.
 - Файл для `query` без `--catalog`: объект JSON — это все аргументы сразу (`{"catalog":"…","where":{…},"fields":[…],"order":[…],"limit":20,"startPosition":0}` или `{"query":"…","fields":[…],"limit":20,"startPosition":0}`), иначе — текст запроса XQuery. `--limit`, `--start-position`, `--fields` и `--order` в командной строке сильнее значений из файла.
 - Ответ — одна строка JSON в stdout: `{"ok":true,"data":…,"meta":…}` или `{"ok":false,"error":{"code","message","hint"},"meta":…}`. `help` и `guide` печатают текст; с `--json` — такой же ответ JSON.
-- Код выхода: 0 — успех, 1 — операция не выполнена, 2 — неверные аргументы команды.
+- Код выхода: 0 — успех, 1 — операция не выполнена, 2 — неверные аргументы команды, 3 — ответ не поместился и сохранён локально: `result read`, `result export` или `--output`.
 - `--output ФАЙЛ.json` сохраняет полный ответ в файл, какого бы размера он ни был; в stdout остаётся короткая сводка (у записи в ней `id` и `mutationOutcome`). Табличных форматов (CSV) команда не пишет. Используй для больших ответов. Если операция не выполнена, код выхода 1, в сводке есть `error`, в файле — полный ответ с `"ok":false`. Ошибка аргументов (код 2) и ошибка настроек подключения (код 1) печатаются в stderr; файл не создаётся, а файл от прошлого запуска остаётся как был. Сначала проверяй код выхода.
-- Без `--output` ответ больше лимита обрезается: `meta.truncated` и `meta.resultId`, в `data.preview` — начало. Дочитать: `wtctl result read ID` (список ответа читается по элементам) или `wtctl result export ID --to ФАЙЛ` (`--format jsonl` — по строке на элемент списка). Сохранённый текст лога или файла выгружается текстом: `--format text`. Страница короче запрошенной помечена `cutBySize`.
+- В PowerShell 7 `ConvertFrom-Json` делает из даты `DateTime`, и `Export-Csv` пишет её в формате культуры. Запись сервера (`2019-09-16T00:00:00`) возвращает `.ToString('s')`.
+- Без `--output` ответ больше предела обрезается: `meta.truncated` и `meta.resultId`, в `data.preview` — начало, код выхода 3. Операция при этом выполнена: запись или код не повторяй. Дочитать: `wtctl result read ID` (список ответа читается по элементам) или `wtctl result export ID --to ФАЙЛ` (`--format jsonl` — по строке на элемент списка). Сохранённый текст лога или файла выгружается текстом: `--format text`. Страница короче запрошенной помечена `cutBySize`.
 
 ## Несколько операций одним вызовом
 
@@ -62,22 +63,24 @@ SDK нужен, когда задачу удобнее решить скрипт
 
 ```javascript
 // script.mjs
-import { loadConfig, withHcmClient, unwrap } from "wtctl";
+import { loadConfig, withHcmClient } from "wtctl";
 
 await withHcmClient(loadConfig(), async (client) => {
-  const page = unwrap(
-    await client.query({ catalog: "collaborators", where: { is_dismiss: false }, fields: ["id", "fullname"] }),
-  );
-  for (const row of page.items) console.log(row.id, row.fullname);
+  const rows = client.queryRows({
+    catalog: "collaborators",
+    where: { is_dismiss: false },
+    fields: ["id", "fullname"],
+  });
+  for await (const row of rows) console.log(row.id, row.fullname);
 });
 ```
 
-Так пишут в проекте, где пакет установлен. Без установки SDK импортируют по адресу из гайда сервера: `hcm_guide {topic:"cli-sdk"}`, раздел «На этом компьютере». `loadConfig()` без аргументов берёт то же подключение, что и команда.
+Так пишут в проекте, где пакет установлен. Без установки SDK импортируют по адресу из раздела «На этом компьютере». `loadConfig()` без аргументов берёт то же подключение, что и команда.
 
 - `withHcmClient` открывает подключение и закрывает его после функции.
 - Каждый метод возвращает тот же ответ `{ok, data, meta}` или `{ok:false, error}`. `unwrap` достаёт `data` или бросает ошибку с полями `code`, `hint`, `mutationOutcome`.
-- Методы: `status`, `check`, `types`, `schema`, `query`, `get`, `create`, `patch`, `delete`, `execute` (код), `runAgent`, `rpc`, `listRpc`, `describeRpc`, `batch`, `listLogs`, `searchLogs`, `readLog`, `followLog`, `readFile`, `fileExists`, `listFiles`, `writeFile`, `deleteFile`, `uploadFile`, `readResult`, `exportResult`. Любая операция по ID: `client.call("native.lds.loadDoc", { url })`.
+- Методы: `status`, `check`, `types`, `schema`, `query`, `queryRows`, `get`, `create`, `patch`, `delete`, `execute` (код), `runAgent`, `rpc`, `listRpc`, `describeRpc`, `batch`, `listLogs`, `searchLogs`, `readLog`, `followLog`, `readFile`, `fileExists`, `listFiles`, `writeFile`, `deleteFile`, `uploadFile`, `readResult`, `exportResult`. Любая операция по ID: `client.call("native.lds.loadDoc", { url })`.
 - Аргументы методов те же, что у инструментов MCP: `client.patch({ id, patch: { name: "…" }, preview: true })`; код принимается и строкой, параметры кода — вторым аргументом: `client.execute("RESULT = [PARAMS.n];", { n: 1 })`. Код из файла: `client.execute(await readFile("check.js", "utf8"), params)`. Запустить агента и дождаться конца: `client.runAgent({ id })`. Запрос XQuery — тот же `query`: `client.query({ query: "for $e in … return $e", fields: ["id"] })`.
-- В цикле по страницам проверяй `page.incomplete`: пустая страница с `incomplete:true` — отвергнутый запрос, а не конец данных.
-- Ответ больше 24 КБ сохраняется на диск, и `unwrap` бросает ошибку `RESULT_STORED`. В скрипте подними предел: `withHcmClient({ ...loadConfig(), outputLimitBytes: 1024 * 1024 }, …)`, задавай `fields` и читай страницами: `startPosition: page.nextStartPosition`, пока оно есть.
+- `queryRows` принимает те же аргументы, что `query`, и сам листает страницы. Страница с `incomplete:true` (запрос отвергнут, а не конец данных) — ошибка `QUERY_INCOMPLETE`. Массив строк — `await Array.fromAsync(client.queryRows(…))`.
+- Ответ больше 24 КБ сохраняется на диск, и `unwrap` и `queryRows` бросают `HcmStoredResultError` (`RESULT_STORED`). В скрипте подними предел — `loadConfig({ settings: { outputLimitBytes: 1024 * 1024 } })`, больше 1 МБ нельзя — и задавай `fields`.
 - `loadConfig({ connection: "имя" })` выбирает подключение, `configPath` — другой файл подключений. Права `write` и `execute` заданы в подключении, скрипт их не расширяет.

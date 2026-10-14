@@ -9,8 +9,9 @@ import {
   nativeEffect,
   prepare,
   validate
-} from "./chunks/chunk-4SWCC5UR.js";
+} from "./chunks/chunk-7HGZVYS3.js";
 import {
+  ArgumentError,
   WebSocketHeartbeatError,
   WsHcmApiError,
   assertXmlCharacters,
@@ -26,7 +27,7 @@ import {
   parseXml,
   resolvePhysicalDocumentLocation,
   validatePlatformXmlSource
-} from "./chunks/chunk-ZUGZZAWL.js";
+} from "./chunks/chunk-NNC7WAPQ.js";
 
 // src/operation.ts
 function operation(spec) {
@@ -39,7 +40,6 @@ function definitionOf(spec) {
     title: spec.id,
     description: spec.description,
     effect: spec.effect,
-    status: "implemented",
     inputSchema: spec.inputSchema
   };
 }
@@ -60,8 +60,9 @@ var HcmError = class extends Error {
     this.hint = hint;
     this.details = details;
     this.mutationOutcome = mutationOutcome;
-    this.name = "HcmError";
+    this.name = new.target.name;
   }
+  /** Ошибка в виде error ответа. */
   toJSON() {
     return {
       code: this.code,
@@ -396,8 +397,8 @@ function looksLikeDate(value) {
 function looksLikeDecimalId(value) {
   return typeof value === "string" && /^[1-9]\d{0,18}$/.test(value);
 }
-function literal(value, date2 = false, integer2 = false) {
-  if (integer2 && looksLikeDecimalId(value)) return value;
+function literal(value, date2 = false, integer3 = false) {
+  if (integer3 && looksLikeDecimalId(value)) return value;
   if (date2 && looksLikeDate(value) && value.length <= 40 && !value.includes("'"))
     return `date('${value}')`;
   if (value === null) return "null()";
@@ -433,8 +434,8 @@ function catalogQuery(catalog, where = {}, dates = /* @__PURE__ */ new Set(), or
   for (const [field, condition] of Object.entries(inputObject(where, "where"))) {
     const path = `$elem/${identifier(field, "поле условия")}`;
     const date2 = dates.has(field);
-    const integer2 = integers.has(field);
-    const equals = (value) => value === "" || value === null ? `(${path} = '' or IsEmpty(${path}) = true())` : `${path} = ${literal(value, date2, integer2)}`;
+    const integer3 = integers.has(field);
+    const equals = (value) => value === "" || value === null ? `(${path} = '' or IsEmpty(${path}) = true())` : `${path} = ${literal(value, date2, integer3)}`;
     if (condition !== null && typeof condition === "object") {
       const operators = Object.entries(inputObject(condition, "условие"));
       if (operators.length === 0)
@@ -450,7 +451,7 @@ function catalogQuery(catalog, where = {}, dates = /* @__PURE__ */ new Set(), or
           if (operation2 === "eq") conditions.push(equals(value));
           else if (operation2 === "ne" && (value === "" || value === null))
             conditions.push(`IsEmpty(${path}) = false()`);
-          else conditions.push(`${path} ${operator} ${literal(value, date2, integer2)}`);
+          else conditions.push(`${path} ${operator} ${literal(value, date2, integer3)}`);
         } else if (operation2 === "contains")
           conditions.push(`contains(${path}, ${literal(value)})`);
         else if (operation2 === "in" && Array.isArray(value) && value.length > 0 && value.length <= 100)
@@ -682,8 +683,8 @@ var WriteOutcome = class {
       if (value !== void 0) this.ids[key] = value;
   }
   /**
-   * Первая подходящая строка: нет ошибки, чтение, отказ на входе, неснятая отметка,
-   * иначе not_sent.
+   * Первая подходящая строка: нет ошибки или чтение — исхода нет; отказ на входе, неснятая
+   * отметка; иначе not_sent.
    */
   verdict(effect, error) {
     const { mutationId, objectId, executionId } = this.ids;
@@ -694,10 +695,9 @@ var WriteOutcome = class {
     };
     const sent = effect !== "read" && this.marks > 0;
     const verdict = { sent, ids: { ...this.ids }, exactIds };
-    if (error === void 0) return verdict;
+    if (error === void 0 || effect === "read") return verdict;
     const turnedAway = error instanceof HcmError && (error.code === "RPC_SERVER_ONLY" || error.code === "UNKNOWN_RPC_TARGET");
-    const mutationOutcome = effect === "read" ? error instanceof HcmError ? error.mutationOutcome : void 0 : sent && !turnedAway ? "indeterminate" : "not_sent";
-    if (mutationOutcome === void 0) return verdict;
+    const mutationOutcome = sent && !turnedAway ? "indeterminate" : "not_sent";
     const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error);
     return { ...verdict, mutationOutcome, ...refusedAfterSend && { refusedAfterSend } };
   }
@@ -800,8 +800,7 @@ var batchOperations = [
               "DUPLICATE_STEP",
               `${at}.as: имя ${label} уже дано другому шагу; имена шагов пакета не повторяются.`,
               void 0,
-              { path: `${at}.as` },
-              "not_sent"
+              { path: `${at}.as` }
             );
           labels.add(label);
         }
@@ -1152,8 +1151,7 @@ var XmlDocument = class _XmlDocument {
             "EXTERNAL_FIELD_REQUIRES_API",
             "Поле хранится отдельно от документа как большое поле.",
             "Клиент большие поля не меняет; обычное изменение документа сведения о таком поле не переписывает.",
-            { path },
-            "not_sent"
+            { path }
           );
         if (index < segments.length - 1) {
           if (!chosen && position === void 0 && (createdKeyedElement || segments.slice(index).some((part) => part[3] !== void 0))) {
@@ -1363,6 +1361,11 @@ var parser2 = createPlatformXmlParser({
 });
 var list = (value) => (Array.isArray(value) ? value : [value]).filter((v) => !!v && typeof v === "object");
 var data = (value) => list(value)[0] ?? {};
+function serverDatabases(info) {
+  return list(info.databases).flatMap(
+    (db) => typeof db.id === "string" ? [{ id: db.id, catalogs: list(db.catalogs) }] : []
+  );
+}
 var text = (value) => typeof value === "string" ? value : "";
 var name2 = (node) => Object.keys(node).find((key) => !/^[#?:]/.test(key)) ?? "";
 var children2 = (node) => Array.isArray(node[name2(node)]) ? node[name2(node)] : [];
@@ -1386,8 +1389,8 @@ var languages = {
   tr: "turkish"
 };
 function languageFileUrl(id, language) {
-  const folder = language === void 0 ? languages[text(id)] ?? "russian" : languages[language] ?? language;
-  return `x-local://lngs/${identifier(folder, "language")}/const.xml`;
+  const folder2 = language === void 0 ? languages[text(id)] ?? "russian" : languages[language] ?? language;
+  return `x-local://lngs/${identifier(folder2, "language")}/const.xml`;
 }
 var folded = (value) => value.toLowerCase().replaceAll("ё", "е");
 var matches = (search, values) => {
@@ -1489,10 +1492,10 @@ var SchemaReader = class {
     return this.custom.value;
   }
   language(info, language) {
-    const folder = languageFileUrl(info.ui_lang_id, language);
-    let cached = this.dictionaries.get(folder);
+    const folder2 = languageFileUrl(info.ui_lang_id, language);
+    let cached = this.dictionaries.get(folder2);
     if (!cached) {
-      cached = this.readDocument(folder).then(
+      cached = this.readDocument(folder2).then(
         (value) => new Map(
           list(data(value.items).item ?? value.item).map((item) => [
             text(item.id),
@@ -1500,7 +1503,7 @@ var SchemaReader = class {
           ])
         )
       );
-      this.dictionaries.set(folder, cached);
+      this.dictionaries.set(folder2, cached);
     }
     return cached;
   }
@@ -1553,10 +1556,8 @@ var SchemaReader = class {
    * перечисляет общие списки (common.…): это не каталоги, и они пропускаются.
    */
   catalogs(info) {
-    const databases = list(info.databases);
-    return list(
-      (databases.find((db) => db.id === info.default_db_name) ?? databases[0])?.catalogs
-    ).filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)));
+    const databases = serverDatabases(info);
+    return ((databases.find((db) => db.id === info.default_db_name) ?? databases[0])?.catalogs ?? []).filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)));
   }
   /** Тип строк каталога: названный сервером или, если нет, по форме каталога. */
   async rowType(catalog) {
@@ -2212,8 +2213,8 @@ async function checkServer(config, invoke) {
   await probe("appInfo", "native.spxml2.getAppInfo", { fastStart: true }, (v) => {
     info = inputObject(v);
     if (typeof info.ui_lang_id === "string") report.language = text3(info.ui_lang_id, 16);
-    const database2 = rows(info.databases).find((db) => db.id === text3(info.default_db_name));
-    if (!rows(database2?.catalogs).length) throw new Error();
+    const database2 = serverDatabases(info).find((db) => db.id === text3(info.default_db_name));
+    if (!database2?.catalogs.length) throw new Error();
   });
   await probe("query", "runtime.query", { catalog: "collaborators", limit: 1, fields: ["id"] });
   await probe("document", "objects.get", {
@@ -2249,8 +2250,8 @@ var maxCatalogXmlBytes = 256 * 1024;
 var maxCatalogRows = 4096;
 function signedInteger(value) {
   if (!/^(?:0x[0-9a-fA-F]{1,16}|[+-]?\d{1,20})$/.test(value)) throw new Error();
-  const integer2 = BigInt(value);
-  if (integer2 < -0x8000000000000000n || integer2 > 0x7fffffffffffffffn) throw new Error();
+  const integer3 = BigInt(value);
+  if (integer3 < -0x8000000000000000n || integer3 > 0x7fffffffffffffffn) throw new Error();
   return value;
 }
 function database(mask) {
@@ -2313,6 +2314,15 @@ function parseServerInfo(response, profile = "native") {
     );
   }
 }
+async function readServerInfo(server, profile = "native") {
+  return parseServerInfo(
+    await server.read(`${profile}.rpc.call`, {
+      target: "ms_tools.get_admin_init_server_data",
+      args: []
+    }),
+    profile
+  );
+}
 
 // src/operations/connection.ts
 var checkFailed = (data2) => {
@@ -2325,15 +2335,6 @@ var checkFailed = (data2) => {
     retryable: false
   };
 };
-async function serverInfo(context, profile) {
-  return parseServerInfo(
-    await context.server.read(`${profile}.rpc.call`, {
-      target: "ms_tools.get_admin_init_server_data",
-      args: []
-    }),
-    profile
-  );
-}
 var connectionOperations = [
   operation({
     id: "server.info",
@@ -2342,7 +2343,7 @@ var connectionOperations = [
     inputSchema: schema({ profile: { type: "string", enum: ["native", "web"] } }),
     summary: "Версия, операционная система и ограничения сервера.",
     run: async (context, args) => {
-      const info = await serverInfo(context, args.profile === "web" ? "web" : "native");
+      const info = await readServerInfo(context.server, args.profile === "web" ? "web" : "native");
       const folders = info.profile === "native" ? await context.files.folders() : void 0;
       return folders ? { ...info, dataFolders: folders.data, codeFolders: folders.code } : info;
     }
@@ -2359,7 +2360,7 @@ var connectionOperations = [
       });
       const info = await context.server.applicationInfo().catch(() => void 0);
       const userId = typeof info?.auth_object_url === "string" ? parsePhysicalDocumentId(info.auth_object_url) : void 0;
-      const database2 = (await serverInfo(context, "native").catch(() => void 0))?.database;
+      const database2 = (await readServerInfo(context.server).catch(() => void 0))?.database;
       return {
         connection: context.config.name,
         baseUrl: context.config.baseUrl,
@@ -2381,12 +2382,314 @@ var connectionOperations = [
   })
 ];
 
+// src/config.ts
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+var KIB = 1024;
+var MIB = 1024 * KIB;
+var GIB = 1024 * MIB;
+var MAX_CONFIG_BYTES = MIB;
+var SETUP_HINT = "Нужно задать WTCTL_URL, WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init.";
+function homeDirectory() {
+  return resolve(process.env.WTCTL_HOME || join(homedir(), ".wtctl"));
+}
+function defaultConfigPath() {
+  return join(homeDirectory(), "connections.json");
+}
+function readConfiguration(path) {
+  let file;
+  try {
+    file = openSync(path, "r");
+  } catch (error) {
+    if (error.code === "ENOENT")
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `Файл подключений не найден: ${path}.`,
+        "Нужно проверить --config и WTCTL_CONFIG или создать файл: wtctl config init."
+      );
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Файл подключений не открывается: ${path}.`,
+      "Проверить права на файл."
+    );
+  }
+  try {
+    const info = fstatSync(file);
+    if (!info.isFile())
+      throw new HcmError("INVALID_CONFIG", `Файл подключений — не файл: ${path}.`);
+    if (info.size > MAX_CONFIG_BYTES)
+      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
+    const bytes = Buffer.alloc(MAX_CONFIG_BYTES + 1);
+    let used = 0;
+    while (used < bytes.length) {
+      const count = readSync(file, bytes, used, bytes.length - used, null);
+      if (!count) break;
+      used += count;
+    }
+    if (used > MAX_CONFIG_BYTES)
+      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, used));
+  } finally {
+    closeSync(file);
+  }
+}
+function parseConfiguration(text3, path) {
+  let value;
+  try {
+    value = JSON.parse(text3);
+  } catch (error) {
+    const position = /position (\d+)/.exec(error instanceof Error ? error.message : "")?.[1];
+    const line = position === void 0 ? void 0 : text3.slice(0, Number(position)).split("\n").length;
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Файл подключений ${path} — не JSON${line === void 0 ? "" : `: ошибка в строке ${line}`}.`,
+      "Образец файла показывает wtctl config example."
+    );
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Файл подключений ${path} должен содержать объект JSON.`,
+      "Образец файла показывает wtctl config example."
+    );
+  return value;
+}
+function bool(value, fallback, field) {
+  if (value === void 0) return fallback;
+  if (value === true || value === "true" || value === "1") return true;
+  if (value === false || value === "false" || value === "0") return false;
+  throw new HcmError("INVALID_CONFIG", `${field}: нужно true или false.`);
+}
+function string2(value, field) {
+  if (value === void 0) return void 0;
+  if (typeof value !== "string" || value.length === 0)
+    throw new HcmError("INVALID_CONFIG", `${field}: нужна непустая строка.`);
+  return value;
+}
+function object3(value, field) {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new HcmError("INVALID_CONFIG", `${field}: нужен объект.`);
+  return value;
+}
+function integer2(fallback, minimum, maximum, unlimited = false) {
+  return (value, field) => {
+    if (value === void 0) return fallback;
+    const parsed = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+    if (typeof parsed !== "number" || !Number.isSafeInteger(parsed) || parsed < minimum && !(unlimited && parsed === 0) || parsed > maximum)
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `${field}: нужно целое число от ${minimum} до ${maximum}${unlimited ? "; 0 — без предела" : ""}.`
+      );
+    return parsed;
+  };
+}
+var folder = (value, field) => resolve(string2(value, field) ?? join(homeDirectory(), "runtime"));
+var LOCAL_LIMITS = {
+  resultsMaxBytes: GIB,
+  resultsMaxAgeDays: 7,
+  journalMaxBytes: 10 * MIB
+};
+var SETTINGS = {
+  timeoutMs: ["WTCTL_TIMEOUT_MS", integer2(3e4, 1, 6e5)],
+  maxResponseBytes: ["WTCTL_MAX_RESPONSE_BYTES", integer2(32 * MIB, KIB, 512 * MIB)],
+  outputLimitBytes: ["WTCTL_OUTPUT_LIMIT_BYTES", integer2(24 * KIB, KIB, MIB)],
+  runtimeDir: ["WTCTL_RUNTIME_DIR", folder],
+  resultsMaxBytes: [
+    "WTCTL_RESULTS_MAX_BYTES",
+    integer2(LOCAL_LIMITS.resultsMaxBytes, KIB, 1024 * GIB, true)
+  ],
+  resultsMaxAgeDays: [
+    "WTCTL_RESULTS_MAX_AGE_DAYS",
+    integer2(LOCAL_LIMITS.resultsMaxAgeDays, 1, 3650, true)
+  ],
+  journalMaxBytes: [
+    "WTCTL_JOURNAL_MAX_BYTES",
+    integer2(LOCAL_LIMITS.journalMaxBytes, KIB, GIB, true)
+  ]
+};
+var OWN_FIELDS = ["baseUrl", "username", "password", "permissions"];
+function credential(profile, field, globalOverrides) {
+  const envName = string2(profile[`${field}Env`], `${field}Env`);
+  if (envName !== void 0 && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName))
+    throw new HcmError("INVALID_CONFIG", `${field}Env: это не имя переменной окружения.`);
+  return string2(
+    (globalOverrides ? process.env[`WTCTL_${field.toUpperCase()}`] : void 0) ?? (envName === void 0 ? profile[field] : process.env[envName]),
+    field
+  );
+}
+function loadConfig(options = {}) {
+  const settings = object3(options.settings ?? {}, "settings");
+  for (const key of Object.keys(settings))
+    if (!Object.hasOwn(SETTINGS, key) && !OWN_FIELDS.includes(key))
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `settings.${key}: такого поля нет.`,
+        `Поля settings: ${[...OWN_FIELDS, ...Object.keys(SETTINGS)].join(", ")}.`
+      );
+  const standalone = settings.baseUrl !== void 0;
+  if (standalone && options.configPath !== void 0)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "settings.baseUrl задаёт подключение целиком, а configPath называет файл подключений.",
+      "Нужно оставить что-то одно: settings.baseUrl или configPath."
+    );
+  const explicit = options.configPath ?? process.env.WTCTL_CONFIG;
+  const own = standalone ? void 0 : OWN_FIELDS.find((key) => settings[key] !== void 0);
+  if (own !== void 0)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `settings.${own}: адрес, учётные данные и права подключения из файла или переменных кодом не меняются.`,
+      "Отдельное подключение задаёт settings с baseUrl, а с ним username, password и permissions."
+    );
+  const path = standalone ? void 0 : explicit ?? (process.env.WTCTL_URL === void 0 && existsSync(defaultConfigPath()) ? defaultConfigPath() : void 0);
+  let document = {};
+  if (path !== void 0) {
+    let text3;
+    try {
+      text3 = readConfiguration(path);
+    } catch (error) {
+      if (error instanceof HcmError) throw error;
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `Файл подключений не читается: ${path}.`,
+        "Файл должен быть текстом UTF-8."
+      );
+    }
+    document = parseConfiguration(text3, path);
+  }
+  let name3 = options.connection;
+  let chosen = "Имя задано в --connection или аргументе connection.";
+  if (name3 === void 0 && !standalone) {
+    name3 = process.env.WTCTL_CONNECTION;
+    chosen = "Имя взято из переменной WTCTL_CONNECTION.";
+    if (name3 === void 0) {
+      name3 = string2(document.defaultConnection, "defaultConnection");
+      chosen = "Имя взято из defaultConnection файла.";
+    }
+  }
+  if (name3 === void 0) {
+    name3 = "default";
+    chosen = "Имя по умолчанию: --connection, WTCTL_CONNECTION и defaultConnection не заданы.";
+  }
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name3))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Имя подключения: до 64 латинских букв, цифр и знаков . _ -",
+      chosen
+    );
+  let profile = standalone ? settings : {};
+  const globalOverrides = !standalone && document.connections === void 0;
+  if (document.connections !== void 0) {
+    const connections = object3(document.connections, "connections");
+    if (connections[name3] === void 0)
+      throw new HcmError(
+        "UNKNOWN_CONNECTION",
+        `В файле подключений ${path} нет подключения ${name3}. ${chosen}`,
+        `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}. Имя задают --connection, WTCTL_CONNECTION или defaultConnection файла; первое заданное сильнее.`,
+        { connection: name3 }
+      );
+    profile = object3(connections[name3], "connection");
+  } else if (Object.keys(document).length > 0) profile = document;
+  const baseUrl = string2(
+    (globalOverrides ? process.env.WTCTL_URL : void 0) ?? profile.baseUrl,
+    "baseUrl"
+  );
+  if (baseUrl === void 0)
+    throw path === void 0 ? new HcmError("NOT_CONFIGURED", "Подключение к серверу не настроено.", SETUP_HINT) : new HcmError(
+      "INVALID_CONFIG",
+      `В подключении ${name3} не задан адрес сервера (baseUrl).`,
+      "Образец файла показывает wtctl config example."
+    );
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера должен быть полным: http://сервер:порт или https://сервер."
+    );
+  }
+  if (!/^(https?:)$/.test(url.protocol) || url.username || url.password || url.search || url.hash)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера: только http или https, без имени и пароля, без ? и #."
+    );
+  const username = credential(profile, "username", globalOverrides);
+  const password = options.password ?? credential(profile, "password", globalOverrides);
+  if (username === void 0 !== (password === void 0))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Имя пользователя и пароль задают вместе: не задан${username === void 0 ? "о имя пользователя" : " пароль"}.`,
+      globalOverrides ? "Переменные WTCTL_USERNAME и WTCTL_PASSWORD." : standalone ? "Поля username и password в settings." : "Поля username и password подключения либо переменные, названные в usernameEnv и passwordEnv."
+    );
+  const permissions = profile.permissions === void 0 ? {} : object3(profile.permissions, "permissions");
+  const values = Object.fromEntries(
+    Object.entries(SETTINGS).map(([field, [variable, parse]]) => [
+      field,
+      parse(settings[field] ?? process.env[variable] ?? profile[field], `${field} (${variable})`)
+    ])
+  );
+  const config = {
+    name: name3,
+    baseUrl: url.href,
+    ...username === void 0 ? {} : { username },
+    ...password === void 0 ? {} : { password },
+    ...values,
+    permissions: {
+      write: bool(
+        (globalOverrides ? process.env.WTCTL_ALLOW_WRITE : void 0) ?? permissions.write,
+        false,
+        "permissions.write"
+      ),
+      execute: bool(
+        (globalOverrides ? process.env.WTCTL_ALLOW_EXECUTE : void 0) ?? permissions.execute,
+        false,
+        "permissions.execute"
+      )
+    }
+  };
+  origins.set(
+    config,
+    standalone ? "settings" : path === void 0 ? "environment" : { listed: !globalOverrides, named: explicit !== void 0 }
+  );
+  return config;
+}
+var origins = /* @__PURE__ */ new WeakMap();
+function permissionHint(config, right) {
+  const origin = origins.get(config);
+  const field = `permissions.${right}: true`;
+  const variable = `WTCTL_ALLOW_${right.toUpperCase()}=true`;
+  if (origin === void 0)
+    return `Право ${right} включает владелец подключения в его настройках (permissions.${right}).`;
+  if (origin === "settings")
+    return `Право ${right} подключению из settings даёт settings.${field} в loadConfig.`;
+  let where = `переменная ${variable} рядом с WTCTL_URL (у MCP-сервера — в env его записи)`;
+  if (origin !== "environment") {
+    const file = origin.named ? "в файле подключений из --config или WTCTL_CONFIG" : "в файле подключений (путь показывает wtctl config path)";
+    where = origin.listed ? `${field} у подключения ${config.name} ${file}` : `${field} ${file} или переменная ${variable}`;
+  }
+  return `Право ${right} включает владелец подключения: ${where}. MCP-сервер видит правку после перезапуска.`;
+}
+
 // src/scripts.ts
 import { randomUUID } from "node:crypto";
 var TARGET = "ms_tools.evaluate_remote_collection_obj";
 var FORM = "x-local://wtv/wtv_remote_collection.xmd";
+function paramsJson(params) {
+  const value = inputObject(params, "params");
+  try {
+    return JSON.stringify(value);
+  } catch {
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "params: значение нельзя записать как JSON.",
+      "Большое целое передаётся строкой; объект не может ссылаться на самого себя."
+    );
+  }
+}
 function prepareScript(value, params) {
-  const code = (params === void 0 ? "" : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(JSON.stringify(inputObject(params, "params"))).toString("base64")}"), "utf-8")); `) + requiredString(value, "code");
+  const code = (params === void 0 ? "" : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(paramsJson(params)).toString("base64")}"), "utf-8")); `) + requiredString(value, "code");
   if (Buffer.byteLength(code) > 1024 * 1024)
     throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");
   const marker = `hcm_inline_${randomUUID().replaceAll("-", "")}`;
@@ -2538,38 +2841,38 @@ function fileFolders(info) {
 }
 function fileTarget(value, listing = false) {
   const text3 = listing && typeof value === "string" ? value.replace(/\/$/, "") : value;
-  const [folder = "", ...path] = typeof text3 === "string" ? text3.slice(10).split("/") : [];
+  const [folder2 = "", ...path] = typeof text3 === "string" ? text3.slice(10).split("/") : [];
   const plain = (part) => !/^[. ]*$|%(?:2e|2f|5c|[01][0-9a-f]|7f)/i.test(part);
-  if (typeof text3 !== "string" || !text3.startsWith("x-local://") || /[\\?#\p{Cc}\p{Cs}]/u.test(text3) || !/^[\w-]+$/.test(folder) || !(listing || path.length) || !path.every(plain))
+  if (typeof text3 !== "string" || !text3.startsWith("x-local://") || /[\\?#\p{Cc}\p{Cs}]/u.test(text3) || !/^[\w-]+$/.test(folder2) || !(listing || path.length) || !path.every(plain))
     throw new HcmError(
       "INVALID_ARGUMENT",
       listing ? "url: нужен адрес x-local://папка или x-local://папка/путь." : "url: нужен адрес x-local://папка/путь.",
       `${listing ? "Без" : "Путь не пустой, без"} частей из одних точек и пробелов, без %2e, %2f, %5c, знаков \\ ? #. Например, x-local://share/report.txt.`
     );
-  return { url: text3, folder };
+  return { url: text3, folder: folder2 };
 }
-function assertFileDeletable(folder) {
-  if (folder === "wt_data" || folder === "trash")
+function assertFileDeletable(folder2) {
+  if (folder2 === "wt_data" || folder2 === "trash")
     throw new HcmError(
       "FILE_NOT_DELETABLE",
-      `В папке ${folder} сервер не удаляет файлы и папки по адресу.`,
+      `В папке ${folder2} сервер не удаляет файлы и папки по адресу.`,
       "Это папка базы сервера. Документ объекта удаляет objects.delete; обычный файл клиент здесь не удаляет."
     );
 }
-function fileRoute(operation2, folders, folder, canExecute) {
+function fileRoute(operation2, folders, folder2, config) {
   if (!folders) return "unlisted";
-  if (folders.data.includes(folder)) return "data";
-  if (!folders.code.includes(folder))
+  if (folders.data.includes(folder2)) return "data";
+  if (!folders.code.includes(folder2))
     throw new HcmError(
       "FOLDER_NOT_WRITABLE",
-      `Папка ${folder} не принимает файлы.`,
+      `Папка ${folder2} не принимает файлы.`,
       `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`
     );
-  if (!canExecute)
+  if (!config.permissions.execute)
     throw new HcmError(
       "EXECUTE_DISABLED",
-      `Папка ${folder} на этом сервере принимает ${operation2 === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
-      "Право execute включает владелец подключения в настройках подключения (permissions.execute)."
+      `Папка ${folder2} на этом сервере принимает ${operation2 === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
+      permissionHint(config, "execute")
     );
   return "code";
 }
@@ -2619,9 +2922,7 @@ function fileRemains() {
   return new HcmError(
     "READ_BACK_MISMATCH",
     "Сервер ответил на удаление без ошибки, но файл или папка по адресу остались.",
-    "Адрес нужно проверить через files.exists перед повтором.",
-    void 0,
-    "indeterminate"
+    "Адрес нужно проверить через files.exists перед повтором."
   );
 }
 function codeDeleteRefusal(data2) {
@@ -2643,7 +2944,7 @@ RESULT = dir ? rows : ['none'];`,
     { url }
   );
 }
-function fileList(data2, folder, search = "") {
+function fileList(data2, folder2, search = "") {
   if (data2.result[0] === "none")
     throw new HcmError(
       "FOLDER_NOT_FOUND",
@@ -2651,7 +2952,7 @@ function fileList(data2, folder, search = "") {
       "Список показывает только папку; файл читает files.read, адрес проверяет files.exists."
     );
   const rows = data2.result.map((row) => {
-    const name3 = typeof row?.u === "string" && row.u.startsWith(`${folder}/`) ? row.u.slice(folder.length + 1).replace(/\/$/, "") : "";
+    const name3 = typeof row?.u === "string" && row.u.startsWith(`${folder2}/`) ? row.u.slice(folder2.length + 1).replace(/\/$/, "") : "";
     const bytes = Number(row?.b);
     if (!name3 || /[/\\]/.test(name3) || row.f !== "1" && !Number.isFinite(bytes))
       throw new HcmError("SCRIPT_RESPONSE", "Сервер вернул список папки в неожиданном виде.");
@@ -2680,9 +2981,9 @@ function parseFileExists(response) {
   }
 }
 var ServerFiles = class {
-  constructor(server, permissions) {
+  constructor(server, config) {
     this.server = server;
-    this.permissions = permissions;
+    this.config = config;
   }
   async exists(args) {
     return parseFileExists(
@@ -2699,14 +3000,14 @@ var ServerFiles = class {
     );
   }
   async list(args, call) {
-    const folder = fileTarget(args.url, true).url;
+    const folder2 = fileTarget(args.url, true).url;
     const search = args.search === void 0 ? "" : requiredString(args.search, "search");
     const data2 = await this.server.runCode(
-      codeList(folder),
+      codeList(folder2),
       call.outcome,
       (answer) => answer.result[0] === "none"
     );
-    return fileList(data2, folder, search);
+    return fileList(data2, folder2, search);
   }
   async write(args, call) {
     const target = fileTarget(args.url);
@@ -2746,8 +3047,8 @@ var ServerFiles = class {
   async folders() {
     return fileFolders(await this.server.applicationInfo().catch(() => void 0));
   }
-  async route(operation2, folder, call) {
-    const route = fileRoute(operation2, await this.folders(), folder, this.permissions.execute);
+  async route(operation2, folder2, call) {
+    const route = fileRoute(operation2, await this.folders(), folder2, this.config);
     if (operation2 === "write" && route !== "unlisted") call.causeRuledOut = true;
     return route;
   }
@@ -3149,7 +3450,7 @@ var queryOperations = [
           const row = withRepeated(item, shape.repeated);
           for (const field of asked)
             if (!Object.hasOwn(row, field)) row[field] = shape.repeated.has(field) ? [] : "";
-          return row;
+          return projectFields(row, args.fields);
         }),
         ...unknownFields.length ? {
           unknownFields,
@@ -3223,7 +3524,7 @@ var rpcOperations = [
       try {
         prepare(nativeArgs, context.pipeline.describe(operationId).inputSchema);
       } catch (error) {
-        const index = error instanceof TypeError && /^args\.args\[(\d+)\]/.exec(error.message);
+        const index = error instanceof ArgumentError && /^args\.args\[(\d+)\]/.exec(error.message);
         if (!index) throw error;
         throw new HcmError(
           "INVALID_RPC_ARGUMENT",
@@ -3529,7 +3830,7 @@ function listHcmOperations(filter = {}) {
   const query = effect && effect === asked ? void 0 : asked;
   const topic = filter.topic === void 0 ? void 0 : requireTopic(filter.topic);
   const selected = operations.filter(
-    (operation2) => (!topic || operationTopic(operation2.id) === topic) && (!filter.group || operation2.group === filter.group) && (!effect || operation2.effect === effect) && (!filter.status || operation2.status === filter.status) && (!query || operationSearchRank(operation2, query) > 0 || overviewMatches(operation2.id, query))
+    (operation2) => (!topic || operationTopic(operation2.id) === topic) && (!filter.group || operation2.group === filter.group) && (!effect || operation2.effect === effect) && (!query || operationSearchRank(operation2, query) > 0 || overviewMatches(operation2.id, query))
   );
   if (topic && !query)
     selected.sort((left, right) => operationOrder(left.id) - operationOrder(right.id));
@@ -3556,29 +3857,30 @@ function describeHcmOperation(id) {
       "ID операции записан неверно: допустимы латинские буквы, цифры, точка и _, первой идёт буква, не больше 128 знаков."
     );
   const operation2 = operationDefinition(id);
-  if (!operation2) {
-    const asked = id.split(".").at(-1).toLowerCase();
-    const near = operations.map((item) => item.id).filter((known) => {
-      const last = known.split(".").at(-1).toLowerCase();
-      return last.includes(asked) || asked.includes(last);
-    }).slice(0, 5);
-    throw new HcmError(
-      "UNKNOWN_OPERATION",
-      `Операции ${id} нет.`,
-      `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Список операций показывает api.list.`,
-      { operationId: id }
-    );
-  }
+  if (!operation2)
+    throw new HcmError("UNKNOWN_OPERATION", `Операции ${id} нет.`, unknownOperationHint(id), {
+      operationId: id
+    });
   return operation2;
+}
+function unknownOperationHint(id, name3 = (known) => known) {
+  const asked = id.split(".").at(-1).toLowerCase();
+  const near = operations.map((item) => item.id).filter((known) => {
+    const last = known.split(".").at(-1).toLowerCase();
+    return last.includes(asked) || asked.includes(last);
+  }).slice(0, 5);
+  return `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Список операций показывает ${name3("api.list")}.`;
 }
 
 // src/results.ts
 import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
 import { mkdir, readFile, rename, stat, open, unlink } from "node:fs/promises";
-import { constants, copyFile, link, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { constants, copyFile, link, readdir, writeFile } from "node:fs/promises";
+import { dirname, join as join2, resolve as resolve2 } from "node:path";
 async function writeResultFile(path, chunks, overwrite = false) {
-  const target = resolve(path);
+  if (path.includes("\0"))
+    throw new HcmError("INVALID_ARGUMENT", "path: в пути есть нулевой символ.");
+  const target = resolve2(path);
   if ((await stat(target).catch(() => void 0))?.isDirectory())
     throw new HcmError(
       "INVALID_ARGUMENT",
@@ -3672,10 +3974,22 @@ function listOf(data2) {
 var CHUNK_CHARS = 65536;
 var RECORD_BYTES = 16;
 var MAX_METADATA_BYTES = 4096;
+var HOUR = 3600 * 1e3;
+var DAY = 24 * HOUR;
+var UUID = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+var RESULT_ID = new RegExp(`^${UUID}$`);
+var RESULT_FILE = new RegExp(`^(${UUID})\\.(json|data\\.json|data\\.idx|rows\\.idx|text\\.bin)$`);
 function invalid() {
   return new HcmError(
     "RESULT_INVALID",
     "Сохранённый результат не читается: его файлы повреждены или неполны."
+  );
+}
+function notFound() {
+  return new HcmError(
+    "RESULT_NOT_FOUND",
+    "Результата с таким resultId нет, или он сохранён другим подключением.",
+    "Результат мог быть удалён по сроку хранения: нужно повторить запрос, который его вернул."
   );
 }
 function natural(value) {
@@ -3766,26 +4080,26 @@ var ResultStore = class {
     const scope = createHash2("sha256").update(`${config.name}
 ${config.baseUrl}
 ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
-    this.directory = join(resolve(config.runtimeDir), scope, "results");
+    this.directory = join2(resolve2(config.runtimeDir), scope, "results");
   }
   directory;
   path(id) {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id))
+    if (!RESULT_ID.test(id))
       throw new HcmError(
         "INVALID_RESULT_ID",
         "resultId неверен: нужен ID из meta.resultId ответа."
       );
-    return join(this.directory, `${id}.json`);
+    return join2(this.directory, `${id}.json`);
   }
   payload(id, extension) {
     this.path(id);
-    return join(this.directory, `${id}.${extension}`);
+    return join2(this.directory, `${id}.${extension}`);
   }
   async export(input2, envelope) {
     const id = requiredString(input2.resultId, "resultId"), path = requiredString(input2.path, "path");
     const format = input2.format ?? "json";
     if (!["json", "jsonl", "text"].includes(format)) throw exportFormatError();
-    if (envelope) await mkdir(dirname(resolve(path)), { recursive: true });
+    if (envelope) await mkdir(dirname(resolve2(path)), { recursive: true });
     const count = { items: 0 };
     const store = this;
     const source = async function* () {
@@ -3817,7 +4131,52 @@ ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
       return void 0;
     }
   }
+  /** Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. */
   async put(data2) {
+    const saved = await this.write(data2);
+    await this.prune().catch(() => {
+    });
+    return saved;
+  }
+  /**
+   * Удаляет результаты старше resultsMaxAgeDays, затем самые старые сверх resultsMaxBytes.
+   * Результаты моложе часа остаются: их может читать другой процесс того же подключения.
+   */
+  async prune() {
+    const maxAge = (this.config.resultsMaxAgeDays ?? LOCAL_LIMITS.resultsMaxAgeDays) * DAY;
+    const maxBytes = this.config.resultsMaxBytes ?? LOCAL_LIMITS.resultsMaxBytes;
+    if (!maxAge && !maxBytes) return;
+    const found = /* @__PURE__ */ new Map();
+    await Promise.all(
+      (await readdir(this.directory)).map(async (name3) => {
+        const [, id, extension] = RESULT_FILE.exec(name3) ?? [];
+        if (id === void 0) return;
+        const info = await stat(join2(this.directory, name3)).catch(() => void 0);
+        if (!info) return;
+        const result = found.get(id) ?? { payloads: [], bytes: 0 };
+        found.set(id, result);
+        result.bytes += info.size;
+        if (extension === "json") result.time = info.mtimeMs;
+        else result.payloads.push(name3);
+      })
+    );
+    const results = [...found].flatMap(([id, { time, ...files }]) => time === void 0 ? [] : [{ id, time, ...files }]).sort((left, right) => left.time - right.time);
+    let total = results.reduce((sum, result) => sum + result.bytes, 0);
+    const now = Date.now();
+    for (const { id, time, payloads, bytes } of results) {
+      const age = now - time;
+      if (age < HOUR || (!maxAge || age <= maxAge) && (!maxBytes || total <= maxBytes)) break;
+      total -= bytes;
+      try {
+        for (const name3 of [...payloads, `${id}.json`])
+          await unlink(join2(this.directory, name3)).catch((error) => {
+            if (error.code !== "ENOENT") throw error;
+          });
+      } catch {
+      }
+    }
+  }
+  async write(data2) {
     const id = randomUUID2();
     const created = [];
     const files = [];
@@ -3919,17 +4278,15 @@ ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
     try {
       size = (await stat(manifest)).size;
     } catch {
-      throw new HcmError(
-        "RESULT_NOT_FOUND",
-        "Результата с таким resultId нет, или он сохранён другим подключением."
-      );
+      throw notFound();
     }
     if (size > MAX_METADATA_BYTES)
       return this.legacy(manifest, size, offsetValue, limitValue, formatValue);
     let envelope;
     try {
       envelope = JSON.parse(await readFile(manifest, "utf8"));
-    } catch {
+    } catch (error) {
+      if (error.code === "ENOENT") throw notFound();
       throw invalid();
     }
     if (envelope !== null && typeof envelope === "object" && "version" in envelope && envelope.version === 1)
@@ -3951,6 +4308,7 @@ ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
       return this.textPage(text3, offset, total, limit, plain ? "text" : "json");
     } catch (error) {
       if (error instanceof HcmError) throw error;
+      if (error.code === "ENOENT") throw notFound();
       throw invalid();
     }
   }
@@ -4475,9 +4833,7 @@ var LogReader = class {
       serverTailNotice: !!notice,
       truncated: sizeBefore > BigInt(effectiveTailBytes) || BigInt(after.sizeBytes) > BigInt(effectiveTailBytes),
       returnedChars: body.length,
-      fingerprint: hash(body),
-      semantics: "server RPC text; byte offsets and original encoding are not preserved",
-      consistency: sizeBefore === 0n ? "empty file reported before and after; zero range does not open file or flush pending log writes" : "file size checked before and after; full reads also compare available date metadata; no atomic snapshot or same-size rewrite guarantee"
+      fingerprint: hash(body)
     };
   }
   async search(input2) {
@@ -4510,9 +4866,7 @@ var LogReader = class {
       matches: events.length,
       fingerprint: read.fingerprint,
       truncated: read.truncated,
-      ...offset + limit < events.length ? { nextOffset: offset + limit } : {},
-      severityDetection: "text heuristic",
-      lineNumbers: "relative to fetched text"
+      ...offset + limit < events.length ? { nextOffset: offset + limit } : {}
     };
   }
   async follow(input2) {
@@ -4576,8 +4930,7 @@ var LogReader = class {
       changed,
       gapPossible: !!resetReason,
       windowTruncated: read.truncated,
-      ...resetReason === void 0 ? {} : { resetReason },
-      semantics: "tail overlap; updated final events may be repeated; no byte cursor or exactly-once guarantee"
+      ...resetReason === void 0 ? {} : { resetReason }
     };
   }
 };
@@ -5324,15 +5677,15 @@ var RpcCatalog = class {
 
 // src/objects.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { mkdir as mkdir2, appendFile } from "node:fs/promises";
-import { join as join2 } from "node:path";
+import { appendFile, mkdir as mkdir2, rename as rename2, stat as stat2 } from "node:fs/promises";
+import { join as join3 } from "node:path";
 
 // src/verification.ts
 var shown = (value) => value === void 0 ? null : typeof value === "string" ? value.length > 200 ? `${value.slice(0, 200)}…` : value : Array.isArray(value) ? `[список: ${value.length}]` : value !== null && typeof value === "object" ? "{структура}" : value;
 function record2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function bool(value) {
+function bool2(value) {
   if (value === true || value === "true" || value === "1" || value === 1) return true;
   if (value === false || value === "false" || value === "0" || value === 0) return false;
   return void 0;
@@ -5390,7 +5743,7 @@ function equivalent(expected, actual, path, fields3, prior, inCollection = false
     return actual === void 0 || actual === "" || actual === null || differ();
   if (actual !== null && typeof actual === "object") return differ();
   if (field?.type === "bool")
-    return bool(expected) !== void 0 && bool(expected) === bool(actual) || differ();
+    return bool2(expected) !== void 0 && bool2(expected) === bool2(actual) || differ();
   if (field?.type === "integer" && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(expected)) && /^(?:-?\d+|0x[0-9a-f]+)$/i.test(String(actual)))
     return BigInt(String(expected)) === BigInt(String(actual)) || differ();
   const date2 = serverDate(expected);
@@ -5413,8 +5766,7 @@ function verifyFields(expected, actual, descriptors, names = Object.keys(expecte
       "READ_BACK_MISMATCH",
       "Документ сохранён, но поля из details.fields не приняли запрошенные значения.",
       "Что не совпало — в details.differences. Остальные поля запроса сохранены: заново объект не создавать. Обычная причина: сервер переписывает значение или внутри структуры нет такого поля; поля показывает schema.get.",
-      { fields: mismatches, differences },
-      "indeterminate"
+      { fields: mismatches, differences }
     );
 }
 function verifyRemovals(expected, actual, changes, descriptors) {
@@ -5445,8 +5797,7 @@ function verifyRemovals(expected, actual, changes, descriptors) {
         "READ_BACK_MISMATCH",
         "Поле, которое нужно было удалить, осталось в документе.",
         "До повтора проверить, не задаёт ли форма этому полю значение по умолчанию.",
-        { fields: [raw.path] },
-        "indeterminate"
+        { fields: [raw.path] }
       );
   }
 }
@@ -5454,6 +5805,13 @@ function verifyRemovals(expected, actual, changes, descriptors) {
 // src/objects.ts
 function isBinary(value) {
   return !!value && typeof value === "object" && "kind" in value && value.kind === "binary" && "bytes" in value && value.bytes instanceof Uint8Array;
+}
+function documentText(bytes) {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new HcmError("INVALID_XML", "XML документа — не текст UTF-8.");
+  }
 }
 function oneEditApart(a, b) {
   if (Math.abs(a.length - b.length) > 1) return false;
@@ -5484,10 +5842,10 @@ function patchInput(patch, remove, resave = false) {
   return [...set, ...remove.map((path) => ({ op: "remove", path }))];
 }
 var ServerObjects = class {
-  constructor(server, schema2, journalDirectory) {
+  constructor(server, schema2, journalFile) {
     this.server = server;
     this.schema = schema2;
-    this.journalDirectory = journalDirectory;
+    this.journalFile = journalFile;
   }
   /** Один объект по id или url, как отвечает objects.get. */
   async get(args) {
@@ -5519,10 +5877,11 @@ var ServerObjects = class {
       url,
       useBinaryResponse: true
     });
-    const source = isBinary(response) ? new TextDecoder("utf-8", { fatal: true }).decode(response.bytes) : buildXml(findXmlNode(response, "Data"));
     let document;
     try {
-      document = XmlDocument.parse(source);
+      document = XmlDocument.parse(
+        isBinary(response) ? documentText(response.bytes) : buildXml(findXmlNode(response, "Data"))
+      );
     } catch (error) {
       if (args.url === void 0 || !(error instanceof HcmError)) throw error;
       throw new HcmError(
@@ -5538,9 +5897,7 @@ var ServerObjects = class {
       throw new HcmError(
         "TARGET_MISMATCH",
         "ID в прочитанном документе не совпадает с запрошенным.",
-        "Нужно передать id и url одного объекта или что-то одно. Запись не отправлена.",
-        void 0,
-        "not_sent"
+        "Нужно передать id и url одного объекта или что-то одно."
       );
     if (args.type !== void 0 && snapshot.type !== identifier(args.type, "type"))
       throw new HcmError(
@@ -5552,31 +5909,27 @@ var ServerObjects = class {
     return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
   }
   async journal(entry2) {
-    await mkdir2(this.journalDirectory, { recursive: true });
-    await appendFile(
-      join2(this.journalDirectory, "mutations.jsonl"),
-      `${JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), ...entry2 })}
-`,
-      { encoding: "utf8", mode: 384 }
-    );
+    const { directory, maxBytes } = this.journalFile;
+    const path = join3(directory, "mutations.jsonl");
+    await mkdir2(directory, { recursive: true });
+    if (maxBytes && ((await stat2(path).catch(() => void 0))?.size ?? 0) > maxBytes)
+      await rename2(path, join3(directory, "mutations.1.jsonl")).catch(() => {
+      });
+    await appendFile(path, `${JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), ...entry2 })}
+`, {
+      encoding: "utf8",
+      mode: 384
+    });
   }
   async resolveCatalog(type, documentUrl) {
     const info = await this.server.applicationInfo();
     let dbName = typeof info.default_db_name === "string" ? info.default_db_name : void 0;
-    if (documentUrl) {
-      const url = new URL(documentUrl);
-      if (url.protocol === "x-local:") dbName = url.hostname;
-    }
-    if (dbName === void 0 || !Array.isArray(info.databases)) return void 0;
-    const db = info.databases.find(
-      (value) => value && typeof value === "object" && "id" in value && value.id === dbName
-    );
-    if (!db || typeof db !== "object" || !("catalogs" in db) || !Array.isArray(db.catalogs))
-      return void 0;
-    const named = (value, objectType, id) => !!value && typeof value === "object" && "object_type" in value && value.object_type === objectType && "id" in value && typeof value.id === "string" && (id === void 0 || value.id === id);
-    let matches2 = db.catalogs.filter((value) => named(value, type));
-    if (!matches2.length)
-      matches2 = db.catalogs.filter((value) => named(value, "", `${type}s`));
+    const url = documentUrl ? URL.parse(documentUrl) : null;
+    if (url?.protocol === "x-local:") dbName = url.hostname;
+    const catalogs = serverDatabases(info).find((db) => db.id === dbName)?.catalogs ?? [];
+    const named = (value, objectType, id) => value.object_type === objectType && typeof value.id === "string" && (id === void 0 || value.id === id);
+    let matches2 = catalogs.filter((value) => named(value, type));
+    if (!matches2.length) matches2 = catalogs.filter((value) => named(value, "", `${type}s`));
     return matches2.length === 1 ? identifier(inputObject(matches2[0]).id, "catalog") : void 0;
   }
   /**
@@ -5685,6 +6038,14 @@ var ServerObjects = class {
       throw new HcmError("FORM_TYPE_MISMATCH", "В форме нет запрошенного типа объекта.");
     await this.requireFields(type, formUrl, data2, Object.keys(data2));
     const dbName = args.dbName === void 0 ? "wt_data" : identifier(args.dbName, "dbName");
+    const info = await this.server.applicationInfo().catch(() => void 0);
+    const databases = serverDatabases(info ?? {}).map((db) => db.id);
+    if (databases.length && !databases.includes(dbName))
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        `dbName: базы ${dbName} на сервере нет.`,
+        `Базы сервера: ${databases.join(", ")}.`
+      );
     const mutationId = randomUUID3();
     out.note({ mutationId });
     await this.journal({ mutationId, operation: "objects.create", stage: "allocating", type });
@@ -5717,8 +6078,7 @@ var ServerObjects = class {
         "READ_BACK_MISMATCH",
         "При проверочном чтении ID созданного объекта не совпал с выданным.",
         void 0,
-        { mutationId },
-        "indeterminate"
+        { mutationId }
       );
     verifyFields(snapshot.data, result.data, form.fields, Object.keys(data2));
     await this.journal({
@@ -5745,9 +6105,7 @@ var ServerObjects = class {
       throw new HcmError(
         "CONFLICT",
         "Объект изменился после чтения: его fingerprint не равен expectedFingerprint.",
-        "Прочитать объект заново и составить изменение по его текущему состоянию.",
-        void 0,
-        "not_sent"
+        "Прочитать объект заново и составить изменение по его текущему состоянию."
       );
     await this.requireFields(
       changes.before.type,
@@ -5765,13 +6123,7 @@ var ServerObjects = class {
       };
     const current = await this.load(args);
     if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
-      throw new HcmError(
-        "CONFLICT",
-        "Объект изменился, пока готовилась запись.",
-        void 0,
-        void 0,
-        "not_sent"
-      );
+      throw new HcmError("CONFLICT", "Объект изменился, пока готовилась запись.");
     const form = await this.schema.documentForm(
       changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`
     );
@@ -5822,9 +6174,7 @@ var ServerObjects = class {
       throw new HcmError(
         "DELETE_MODE_REQUIRED",
         "Объект удаляется безвозвратно: для этого нужен permanent:true.",
-        "Корзины у этой операции нет.",
-        void 0,
-        "not_sent"
+        "Корзины у этой операции нет."
       );
     const loaded = await this.load(args);
     const snapshot = loaded.document.snapshot();
@@ -5834,22 +6184,20 @@ var ServerObjects = class {
       throw new HcmError(
         "CATALOG_MISMATCH",
         "Объекта нет в каталоге, по которому проверяется удаление.",
-        "Нужно указать каталог, в котором объект есть. Запрос на удаление не отправлен.",
-        void 0,
-        "not_sent"
+        "Нужно указать каталог, в котором объект есть."
       );
     const mutationId = randomUUID3();
     await this.journal({ mutationId, operation: "objects.delete", stage: "prepared", objectId });
     out.note({ mutationId, objectId, url: loaded.url });
     await this.server.call("native.lds.deleteDoc", { url: loaded.url, strictDelete: true }, out);
-    if (catalog !== void 0 && await this.catalogHasId(catalog, objectId))
+    if (catalog !== void 0 && await this.catalogHasId(catalog, objectId)) {
+      const info = await readServerInfo(this.server).catch(() => void 0);
       throw new HcmError(
         "READ_BACK_MISMATCH",
         "После удаления объект всё ещё есть в каталоге.",
-        "Перед повтором удаления прочитать объект. Причину сервер пишет в лог spxml_unibridge.",
-        void 0,
-        "indeterminate"
+        info?.database === "mssql" && info.versionServer.startsWith("2025.2.") ? "Сервер 2025.2 с MS SQL не удаляет документы, пока после запуска или простоя не сохранён ни один документ. Сохранить любой документ (objects.patch с resave) и повторить удаление." : "Перед повтором удаления прочитать объект. Причину сервер пишет в лог spxml_unibridge."
       );
+    }
     await this.journal({
       mutationId,
       operation: "objects.delete",
@@ -5860,7 +6208,7 @@ var ServerObjects = class {
       id: objectId,
       mutationId,
       mutationOutcome: "confirmed",
-      verification: catalog === void 0 ? "server acknowledgement" : "catalog absence",
+      verification: catalog === void 0 ? "server" : "catalog",
       ...catalog === void 0 ? {} : { catalog }
     };
   }
@@ -5887,7 +6235,7 @@ var HcmServer = class {
     try {
       return await this.port.call(id, args);
     } catch (error) {
-      if (error instanceof WsHcmApiError && error.requestSent === false || refusedAtDoor(error))
+      if (error instanceof WsHcmApiError && error.requestSent === false || error instanceof ArgumentError || refusedAtDoor(error))
         withdraw();
       throw error;
     }
@@ -6063,7 +6411,7 @@ var ReplyPacker = class {
       ),
       retryable: false,
       ...error.status === void 0 ? {} : { details: { status: error.status } }
-    } : error instanceof TypeError ? {
+    } : error instanceof ArgumentError ? {
       code: "INVALID_ARGUMENT",
       message: error.message,
       hint: "Аргументы операции описывает api.describe.",
@@ -6071,7 +6419,7 @@ var ReplyPacker = class {
     } : {
       code: "INTERNAL_ERROR",
       message: "Операция не выполнена: внутренняя ошибка клиента.",
-      hint: "Проверить аргументы по api.describe. Если ошибка повторяется при верных аргументах, это дефект клиента.",
+      hint: "Это дефект клиента: подбирать аргументы не нужно.",
       retryable: false
     };
     if (refusedAfterSend)
@@ -6184,7 +6532,7 @@ var HcmRuntime = class {
     this.gateway = new NativeGateway(config);
     this.server = new HcmServer(port ?? this.gateway);
     this.logs = new LogReader({ call: (id, args) => this.server.read(id, args) }, config);
-    this.files = new ServerFiles(this.server, config.permissions);
+    this.files = new ServerFiles(this.server, config);
     this.rpcCatalog = new RpcCatalog(
       () => this.server.applicationInfo(),
       (url) => this.server.call("native.lds.loadUrl", { url })
@@ -6194,7 +6542,10 @@ var HcmRuntime = class {
       async (url) => requiredString(await this.server.call("native.spxml2.getForm", { url }), "ответ с формой"),
       async (url) => (await this.objects.load({ url })).document.snapshot().data
     );
-    this.objects = new ServerObjects(this.server, this.schemaReader, this.results.directory);
+    this.objects = new ServerObjects(this.server, this.schemaReader, {
+      directory: this.results.directory,
+      maxBytes: config.journalMaxBytes ?? LOCAL_LIMITS.journalMaxBytes
+    });
     this.context = {
       config,
       server: this.server,
@@ -6251,9 +6602,13 @@ var HcmRuntime = class {
   }
   call(id, args = {}) {
     const start = performance.now();
+    const unsent = {
+      outcome: new WriteOutcome(),
+      effect: operationDefinition(id)?.effect ?? "unknown"
+    };
     if (this.closed)
       return Promise.resolve(
-        this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто."))
+        this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто."), unsent)
       );
     let snapshot;
     try {
@@ -6268,7 +6623,7 @@ var HcmRuntime = class {
             "Аргументы операции — не объект, или в них есть значение, которое нельзя скопировать.",
             "Нужно передать значения, совместимые с JSON; двоичные данные — как {base64: …}, XML — как {xml: …}."
           ),
-          { outcome: new WriteOutcome(), effect: operationDefinition(id)?.effect ?? "unknown" }
+          unsent
         )
       );
     }
@@ -6287,17 +6642,13 @@ var HcmRuntime = class {
       throw new HcmError(
         "WRITE_DISABLED",
         "Подключение не разрешает запись.",
-        "Нужно право write: его включает владелец подключения в настройках подключения (permissions.write).",
-        void 0,
-        "not_sent"
+        permissionHint(this.config, "write")
       );
     if ((effect === "execute" || effect === "unknown") && !this.config.permissions.execute)
       throw new HcmError(
         "EXECUTE_DISABLED",
         "Подключение не разрешает выполнять код, функции и запросы XQuery на сервере.",
-        "Нужно право execute: его включает владелец подключения в настройках подключения (permissions.execute).",
-        void 0,
-        "not_sent"
+        permissionHint(this.config, "execute")
       );
   }
   async perform(id, args, start, boundOutput = true, state = { outcome: new WriteOutcome(), effect: "read" }) {
@@ -6331,234 +6682,6 @@ var HcmRuntime = class {
   }
 };
 
-// src/config.ts
-import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
-import { homedir } from "node:os";
-import { join as join3, resolve as resolve2 } from "node:path";
-var MAX_CONFIG_BYTES = 1024 * 1024;
-var SETUP_HINT = "Нужно задать WTCTL_URL, WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init.";
-function homeDirectory() {
-  return resolve2(process.env.WTCTL_HOME || join3(homedir(), ".wtctl"));
-}
-function defaultConfigPath() {
-  return join3(homeDirectory(), "connections.json");
-}
-function readConfiguration(path) {
-  let file;
-  try {
-    file = openSync(path, "r");
-  } catch (error) {
-    if (error.code === "ENOENT")
-      throw new HcmError(
-        "INVALID_CONFIG",
-        `Файл подключений не найден: ${path}.`,
-        "Нужно проверить --config и WTCTL_CONFIG или создать файл: wtctl config init."
-      );
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `Файл подключений не открывается: ${path}.`,
-      "Проверить права на файл."
-    );
-  }
-  try {
-    const info = fstatSync(file);
-    if (!info.isFile())
-      throw new HcmError("INVALID_CONFIG", `Файл подключений — не файл: ${path}.`);
-    if (info.size > MAX_CONFIG_BYTES)
-      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
-    const bytes = Buffer.alloc(MAX_CONFIG_BYTES + 1);
-    let used = 0;
-    while (used < bytes.length) {
-      const count = readSync(file, bytes, used, bytes.length - used, null);
-      if (!count) break;
-      used += count;
-    }
-    if (used > MAX_CONFIG_BYTES)
-      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, used));
-  } finally {
-    closeSync(file);
-  }
-}
-function parseConfiguration(text3, path) {
-  let value;
-  try {
-    value = JSON.parse(text3);
-  } catch (error) {
-    const position = /position (\d+)/.exec(error instanceof Error ? error.message : "")?.[1];
-    const line = position === void 0 ? void 0 : text3.slice(0, Number(position)).split("\n").length;
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `Файл подключений ${path} — не JSON${line === void 0 ? "" : `: ошибка в строке ${line}`}.`,
-      "Образец файла показывает wtctl config example."
-    );
-  }
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `Файл подключений ${path} должен содержать объект JSON.`,
-      "Образец файла показывает wtctl config example."
-    );
-  return value;
-}
-function bool2(value, fallback, field) {
-  if (value === void 0) return fallback;
-  if (value === true || value === "true" || value === "1") return true;
-  if (value === false || value === "false" || value === "0") return false;
-  throw new HcmError("INVALID_CONFIG", `${field}: нужно true или false.`);
-}
-function number(value, fallback, minimum, maximum, field) {
-  if (value === void 0) return fallback;
-  const parsed = typeof value === "string" ? Number(value) : value;
-  if (typeof parsed !== "number" || !Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum)
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `${field}: нужно целое число от ${minimum} до ${maximum}.`
-    );
-  return parsed;
-}
-function string2(value, field) {
-  if (value === void 0) return void 0;
-  if (typeof value !== "string" || value.length === 0)
-    throw new HcmError("INVALID_CONFIG", `${field}: нужна непустая строка.`);
-  return value;
-}
-function credential(profile, field, globalOverrides) {
-  const envName = string2(profile[`${field}Env`], `${field}Env`);
-  if (envName !== void 0 && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName))
-    throw new HcmError("INVALID_CONFIG", `${field}Env: это не имя переменной окружения.`);
-  return string2(
-    (globalOverrides ? process.env[`WTCTL_${field.toUpperCase()}`] : void 0) ?? (envName === void 0 ? profile[field] : process.env[envName]),
-    field
-  );
-}
-function loadConfig(options = {}) {
-  const explicit = options.configPath ?? process.env.WTCTL_CONFIG;
-  const path = explicit ?? (process.env.WTCTL_URL === void 0 && existsSync(defaultConfigPath()) ? defaultConfigPath() : void 0);
-  let document = {};
-  if (path !== void 0) {
-    let text3;
-    try {
-      text3 = readConfiguration(path);
-    } catch (error) {
-      if (error instanceof HcmError) throw error;
-      throw new HcmError(
-        "INVALID_CONFIG",
-        `Файл подключений не читается: ${path}.`,
-        "Файл должен быть текстом UTF-8."
-      );
-    }
-    document = parseConfiguration(text3, path);
-  }
-  const name3 = options.connection ?? process.env.WTCTL_CONNECTION ?? string2(document.defaultConnection, "defaultConnection") ?? "default";
-  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name3))
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Имя подключения: до 64 латинских букв, цифр и знаков . _ -"
-    );
-  let profile = {};
-  const globalOverrides = document.connections === void 0;
-  if (document.connections !== void 0) {
-    const connections = inputObject(document.connections, "connections");
-    if (connections[name3] === void 0)
-      throw new HcmError(
-        "UNKNOWN_CONNECTION",
-        `В файле подключений нет подключения ${name3}.`,
-        `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}. Имя задают --connection, WTCTL_CONNECTION или defaultConnection в файле.`,
-        { connection: name3 }
-      );
-    profile = inputObject(connections[name3], "connection");
-  } else if (Object.keys(document).length > 0) profile = document;
-  const baseUrl = string2(
-    (globalOverrides ? process.env.WTCTL_URL : void 0) ?? profile.baseUrl,
-    "baseUrl"
-  );
-  if (baseUrl === void 0)
-    throw path === void 0 ? new HcmError("NOT_CONFIGURED", "Подключение к серверу не настроено.", SETUP_HINT) : new HcmError(
-      "INVALID_CONFIG",
-      `В подключении ${name3} не задан адрес сервера (baseUrl).`,
-      "Образец файла показывает wtctl config example."
-    );
-  let url;
-  try {
-    url = new URL(baseUrl);
-  } catch {
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Адрес сервера должен быть полным: http://сервер:порт или https://сервер."
-    );
-  }
-  if (!/^(https?:)$/.test(url.protocol) || url.username || url.password || url.search || url.hash)
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Адрес сервера: только http или https, без имени и пароля, без ? и #."
-    );
-  const username = credential(profile, "username", globalOverrides);
-  const password = options.password ?? credential(profile, "password", globalOverrides);
-  if (username === void 0 !== (password === void 0))
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `Имя пользователя и пароль задают вместе: не задан${username === void 0 ? "о имя пользователя" : " пароль"}.`,
-      globalOverrides ? "Переменные WTCTL_USERNAME и WTCTL_PASSWORD." : "Поля username и password подключения либо переменные, названные в usernameEnv и passwordEnv."
-    );
-  const permissions = profile.permissions === void 0 ? {} : inputObject(profile.permissions, "permissions");
-  return {
-    name: name3,
-    baseUrl: url.href,
-    ...username === void 0 ? {} : { username },
-    ...password === void 0 ? {} : { password },
-    timeoutMs: number(
-      process.env.WTCTL_TIMEOUT_MS ?? profile.timeoutMs,
-      3e4,
-      1,
-      6e5,
-      "timeoutMs"
-    ),
-    maxResponseBytes: number(
-      profile.maxResponseBytes,
-      32 * 1024 * 1024,
-      1024,
-      512 * 1024 * 1024,
-      "maxResponseBytes"
-    ),
-    outputLimitBytes: number(
-      profile.outputLimitBytes,
-      24 * 1024,
-      1024,
-      1024 * 1024,
-      "outputLimitBytes"
-    ),
-    runtimeDir: resolve2(
-      string2(process.env.WTCTL_RUNTIME_DIR ?? profile.runtimeDir, "runtimeDir") ?? join3(homeDirectory(), "runtime")
-    ),
-    permissions: {
-      write: bool2(
-        (globalOverrides ? process.env.WTCTL_ALLOW_WRITE : void 0) ?? permissions.write,
-        false,
-        "permissions.write"
-      ),
-      execute: bool2(
-        (globalOverrides ? process.env.WTCTL_ALLOW_EXECUTE : void 0) ?? permissions.execute,
-        false,
-        "permissions.execute"
-      )
-    }
-  };
-}
-function configExample() {
-  return {
-    defaultConnection: "dev",
-    connections: {
-      dev: {
-        baseUrl: "http://localhost:8088/",
-        usernameEnv: "WTCTL_USERNAME",
-        passwordEnv: "WTCTL_PASSWORD",
-        permissions: { write: false, execute: false }
-      }
-    }
-  };
-}
-
 // src/sdk.ts
 var HcmOperationError = class extends HcmError {
   operationError;
@@ -6573,17 +6696,19 @@ var HcmOperationError = class extends HcmError {
     Object.defineProperty(this, "result", { value: result, enumerable: false });
     this.operationError = operationError;
   }
+  /** error ответа, как его вернула операция. */
   toJSON() {
     return this.operationError ?? super.toJSON();
   }
 };
 var HcmStoredResultError = class extends HcmOperationError {
+  /** ID сохранённого результата: его читают readResult и exportResult. */
   resultId;
   constructor(result, resultId) {
     super(result, {
       code: "RESULT_STORED",
-      message: "Результат сохранён локально; preview не является полными данными.",
-      hint: "Читать resultId через readResult/results.read, при необходимости format:'json'.",
+      message: "Результат сохранён локально; в data.preview только начало данных.",
+      hint: "Ответ больше outputLimitBytes. Прочитать частями — client.readResult({ resultId }), сохранить в файл — client.exportResult({ resultId, path }). Поднять предел — loadConfig({ settings: { outputLimitBytes } }).",
       retryable: false,
       details: { resultId }
     });
@@ -6616,7 +6741,7 @@ function unwrap(result) {
     throw new HcmOperationError(result, {
       code: "RESULT_TRUNCATED",
       message: "Полный результат отсутствует в ответе.",
-      hint: "Проверить meta и настройку outputLimitBytes; preview не является полными данными.",
+      hint: "Проверить meta и настройку outputLimitBytes; в data.preview только начало данных.",
       retryable: false
     });
   }
@@ -6625,86 +6750,146 @@ function unwrap(result) {
 function callOperation(client, id, args = {}) {
   return client.call(id, args);
 }
-var HcmClient = class _HcmClient {
+var HcmClient = class {
+  /** @internal */
   runtime;
   constructor(connection) {
     this.runtime = "call" in connection ? connection : new HcmRuntime(connection);
   }
-  static fromRuntime(runtime) {
-    return new _HcmClient(runtime);
-  }
+  /** Операции клиента, по странице: поиск по словам, теме, группе, эффекту. Сервер не вызывается. */
   listOperations(filter) {
     return this.runtime.listOperations(filter);
   }
+  /** Описание операции по ID со схемой аргументов; неизвестный ID — HcmError UNKNOWN_OPERATION. */
   describe(id) {
     return this.runtime.describe(id);
   }
+  /**
+   * Любая операция по ID: call("native.lds.loadDoc", {url}). Аргументы — как в describe(id).
+   * Тип data задаёт параметр T; клиент его не проверяет.
+   */
   call(id, args = {}) {
     return this.runtime.call(id, args);
   }
   // Методы с параметром-типом и методы на низкоуровневые операции зовут this.call: тип ответа
   // здесь утверждается, обработчик общий и не знает типа вызывающего.
-  /** Несколько объектов за один вызов; у непрочитанного объекта в его элементе стоит error. */
+  /** Несколько объектов за один вызов, до 100; у непрочитанного объекта в его элементе стоит error. */
   getMany(input2) {
     return this.call("objects.get", { ...input2 });
   }
+  /** Связь с сервером: версия сервера и права подключения. Ничего не меняет. */
   status() {
     return callOperation(this, "runtime.status");
   }
+  /**
+   * Проверка подключения по шагам: вход, версия, запрос, документ, схема, библиотеки, логи, портал;
+   * при праве execute — ещё код на сервере. Запись не проверяется.
+   */
   check() {
     return callOperation(this, "runtime.check");
   }
+  /** Сведения о сервере, которые он отдаёт админке при запуске: версия, ОС, база, папки. */
   serverInfo(input2 = {}) {
     return callOperation(this, "server.info", { ...input2 });
   }
+  /** Есть ли файл или папка по адресу x-local://…; о содержимом и правах ответ ничего не говорит. */
   fileExists(input2) {
     return callOperation(this, "files.exists", { ...input2 });
   }
+  /** Файл по адресу сервера: text, если это текст в UTF-8, иначе base64. */
   readFile(input2) {
     return callOperation(this, "files.read", { ...input2 });
   }
+  /** Один уровень папки сервера: файлы с размером и вложенные папки. Нужно право execute. */
   listFiles(input2) {
     return callOperation(this, "files.list", { ...input2 });
   }
+  /**
+   * Записывает файл по адресу x-local://… целиком; папки сервер создаёт сам. Нужно право write,
+   * в папку кода (wt, wtv, custom…) — ещё execute.
+   */
   writeFile(input2) {
     return callOperation(this, "files.write", { ...input2 });
   }
+  /** Удаляет файл по адресу x-local://…. Нужно право write, в папке кода — ещё execute. */
   deleteFile(input2) {
     return callOperation(this, "files.delete", { ...input2 });
   }
+  /**
+   * Одна страница поиска: в каталоге по условиям или запросом XQuery (ему нужно право execute).
+   * Дальше — startPosition: nextStartPosition; все страницы сразу перебирает queryRows.
+   */
   query(input2) {
     return this.call("runtime.query", { ...input2 });
   }
+  /**
+   * Строки каталога или запроса XQuery со всех страниц по порядку; страницы листает сам.
+   * Аргументы те же, что у query. Неполная страница (incomplete) — ошибка QUERY_INCOMPLETE
+   * после её строк, большой ответ — HcmStoredResultError, как в unwrap.
+   */
+  async *queryRows(input2) {
+    let args = input2;
+    for (; ; ) {
+      const result = await this.query(args);
+      const page = unwrap(result);
+      yield* page.items;
+      if (page.incomplete)
+        throw new HcmOperationError(result, {
+          code: "QUERY_INCOMPLETE",
+          message: "Страница запроса неполная: строки после неё не прочитаны.",
+          ...page.hint === void 0 ? {} : { hint: page.hint },
+          retryable: false
+        });
+      if (page.nextStartPosition === void 0) return;
+      args = { ...input2, startPosition: page.nextStartPosition };
+    }
+  }
+  /** Документ объекта по id или url; fields — только эти поля верхнего уровня. */
   get(input2) {
     return this.call("objects.get", { ...input2 });
   }
+  /**
+   * Создаёт объект; ID выдаёт сервер, после записи объект перечитывается и сверяется. Нужно право
+   * write. Обработчики, которые админка выполняет при создании, не запускаются.
+   */
   create(input2) {
     return callOperation(this, "objects.create", { ...input2 });
   }
+  /**
+   * Меняет поля объекта, остальное содержимое документа сохраняется. Нужно право write.
+   * С preview:true или правкой без изменений ничего не записывает: ответ — PatchPreviewData.
+   */
   patch(input2) {
     return callOperation(this, "objects.patch", { ...input2 });
   }
+  /** Удаляет документ объекта безвозвратно; нужны permanent:true и право write. */
   delete(input2) {
     return callOperation(this, "objects.delete", { ...input2 });
   }
+  /** Поля типа объекта по странице: свои, унаследованные, настраиваемые и поля каталога. */
   schema(input2) {
     return callOperation(this, "schema.get", { ...input2 });
   }
+  /** Типы объектов сервера: тип, каталог, заголовок, число настраиваемых полей. */
   types(input2 = {}) {
     return callOperation(this, "schema.types", { ...input2 });
   }
+  /** Вызывает функцию библиотеки сервера. Нужно право execute; функция может менять данные. */
   rpc(input2) {
     return this.call("rpc.call", { ...input2 });
   }
+  /** Функции библиотек сервера по странице: имя и параметры. Сами функции не вызываются. */
   listRpc(input2 = {}) {
     return callOperation(this, "rpc.list", { ...input2 });
   }
+  /** Параметры функции «библиотека.функция», с source:true — и её код. Функция не вызывается. */
   describeRpc(targetId, options = {}) {
     return callOperation(this, "rpc.describe", { targetId, ...options });
   }
   /**
-   * Код строкой или, как принимает инструмент hcm_script, в виде {code, params}.
-   * Код читает params как готовую переменную PARAMS.
+   * Выполняет код SP-XML Script на сервере; нужно право execute, отката нет. Код присваивает
+   * массив переменной RESULT, params доступен в коде как PARAMS. Код и params можно передать
+   * и одним объектом {code, params}.
    */
   execute(code, params) {
     return this.call(
@@ -6712,47 +6897,71 @@ var HcmClient = class _HcmClient {
       typeof code === "string" ? { code, ...params ? { params } : {} } : { ...code }
     );
   }
-  /** Запускает агента на сервере и ждёт конца его кода; ошибки кода — только в логе. */
+  /**
+   * Запускает агента сервера и ждёт конца его кода; нужно право execute. Ошибки кода агента —
+   * только в логе xhttp между startedAt и finishedAt.
+   */
   runAgent(input2) {
     return callOperation(this, "agents.run", { ...input2 });
   }
+  /**
+   * Несколько операций одним вызовом; права проверяются для каждого шага. Не транзакция:
+   * выполненные шаги не откатываются.
+   */
   batch(input2) {
     return callOperation(this, "runtime.batch", { ...input2 });
   }
+  /** Страница сохранённого результата: список — по элементам, текст — по символам. */
   readResult(input2) {
     return this.call("results.read", { ...input2 });
   }
+  /** Записывает сохранённый результат целиком в файл на этом компьютере. */
   exportResult(input2) {
     return callOperation(this, "results.export", { ...input2 });
   }
+  /** Загружает файл до 8 МБ так же, как админка; нужно право write. */
   uploadFile(input2) {
     return this.call("web.pages.uploadFile", { ...input2 });
   }
+  /**
+   * Отправляет одну часть загрузки по частям; последняя часть собирает файл. Нужно право write.
+   * Перед последней частью загруженное проверить чтением; после ошибки на последней части не повторять.
+   */
   uploadChunk(input2) {
     return this.call("web.pages.uploadChunk", { ...input2 });
   }
+  /** Просит сервер удалить части загрузки fileId; нужно право write. Удаление ответ не подтверждает. */
   clearUploadChunks(input2) {
     return this.call("web.pages.clearUploadChunks", { ...input2 });
   }
+  /** Проверка WebSocket сервера: одно сообщение $hbt и ожидание $ok. */
   heartbeat(input2 = {}) {
     return this.call("web.websocket.heartbeat", { ...input2 });
   }
+  /** Логи сервера, сначала свежие. */
   listLogs(input2 = {}) {
     return callOperation(this, "logs.list", { ...input2 });
   }
+  /** Текст лога: конец файла или весь файл. */
   readLog(input2) {
     return callOperation(this, "logs.read", { ...input2 });
   }
+  /** События лога по тексту, уровню или потоку; многострочное событие приходит целиком. */
   searchLogs(input2) {
     return callOperation(this, "logs.search", { ...input2 });
   }
+  /** Новые события лога с прошлого вызова: cursor из прошлого ответа. */
   followLog(input2) {
     return callOperation(this, "logs.follow", { ...input2 });
   }
+  /** Закрывает сессию на сервере. После close методы отвечают ошибкой RUNTIME_CLOSED. */
   close() {
     return this.runtime.close();
   }
-  /** Клиент владеет областью и закрывает её ровно один раз после обратного вызова, и при сбое. */
+  /**
+   * Вызывает action с этим клиентом и закрывает подключение ровно один раз — и после успеха,
+   * и после ошибки. Как withHcmClient, но для уже созданного клиента.
+   */
   use(action) {
     return scoped(this.runtime, () => action(this));
   }
@@ -6813,30 +7022,16 @@ async function scoped(runtime, action) {
 async function withHcmClient(config, action) {
   return new HcmClient(config).use(action);
 }
-async function withHcm(config, action) {
-  const runtime = new HcmRuntime(config);
-  return scoped(runtime, () => action(runtime));
-}
 export {
   HcmCleanupError,
   HcmClient,
   HcmError,
   HcmOperationError,
-  HcmRuntime,
   HcmStoredResultError,
-  LogReadUnavailableError,
-  LogReader,
-  NativeGateway,
-  RpcCatalog,
-  configExample,
   describeHcmOperation,
   getCleanupError,
-  getNativeOperations,
   listHcmOperations,
   loadConfig,
-  parseFileExists,
-  parseServerInfo,
   unwrap,
-  withHcm,
   withHcmClient
 };

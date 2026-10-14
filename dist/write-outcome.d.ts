@@ -28,8 +28,8 @@ export declare class WriteOutcome {
     sending(): () => void;
     note(ids: WriteIds): void;
     /**
-     * Первая подходящая строка: нет ошибки, чтение, отказ на входе, неснятая отметка,
-     * иначе not_sent.
+     * Первая подходящая строка: нет ошибки или чтение — исхода нет; отказ на входе, неснятая
+     * отметка; иначе not_sent.
      */
     verdict(effect: OperationEffect, error?: unknown): Verdict;
 }
