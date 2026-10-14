@@ -4,6 +4,10 @@
 
 ## Не выпущено
 
+Несовместимые изменения:
+
+- Убраны пять низкоуровневых операций, которые повторяли другие: `native.lds.openSession` и `web.lds.openSession` — вместо них `native.session.open` и `web.session.open`; `native.lds.closeSession` и `web.lds.closeSession` — вместо них `native.session.close` и `web.session.close`; `native.spxml.call` — вместо неё `native.rpc.call`. Вызов убранного ID отвечает `UNKNOWN_OPERATION`. Ответ `*.session.*` содержит ещё поле `profile`. В `wtctl/protocol` у `NativeSession` убрано поле `spxml`: это был тот же объект, что `rpc`.
+
 Исправления:
 
 - Сбой в коде самого клиента отвечает `INTERNAL_ERROR`. Раньше часть таких сбоев приходила как `INVALID_ARGUMENT` с английским сообщением движка JavaScript и подсказкой про аргументы, хотя аргументы были в порядке. Отказы по аргументам остались `INVALID_ARGUMENT` с прежними текстами. Подсказка у `INTERNAL_ERROR` говорит, что это дефект клиента и подбирать аргументы не нужно; то же сказано в теме гайда `errors`.

@@ -82,7 +82,6 @@ export class NativeSession {
   readonly lds: NativeLdsApi;
   readonly physicalDocuments: NativePhysicalDocumentsApi;
   readonly rpc: RpcApi;
-  readonly spxml: RpcApi;
   readonly spxml2: NativeSpXml2Api;
   readonly resources: ResourceApi;
   readonly experimental: NativeExperimentalApi;
@@ -97,7 +96,6 @@ export class NativeSession {
     this.lds = createNativeLdsApi(transport, () => this.sessionId);
     this.physicalDocuments = new NativePhysicalDocumentsApi(this.lds);
     this.rpc = new RpcApi(transport, "native");
-    this.spxml = this.rpc;
     this.spxml2 = new NativeSpXml2Api(transport);
     this.resources = new ResourceApi(transport);
     this.experimental = new NativeExperimentalApi(transport);

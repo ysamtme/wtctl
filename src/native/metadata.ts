@@ -89,7 +89,6 @@ const RIGHTS = {
   "web.lds.runMethod": "execute",
   "native.rpc.call": "execute",
   "web.rpc.call": "execute",
-  "native.spxml.call": "execute",
   "web.spxml.callMethod": "execute",
   "web.spxml.callMethodAsync": "execute",
   "web.experimental.authenticate": "execute",

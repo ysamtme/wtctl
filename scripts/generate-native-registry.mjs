@@ -164,7 +164,6 @@ const surfaces = [
   ["web", "lds", "WebLdsApi", "lds"],
   ["native", "rpc", "RpcApi", "rpc"],
   ["web", "rpc", "RpcApi", "rpc"],
-  ["native", "spxml", "RpcApi", "spxml"],
   ["web", "spxml", "WebSpXmlApi", "spxml"],
   ["native", "spxml2", "NativeSpXml2Api", "spxml2"],
   ["web", "spxml2", "WebSpXml2Api", "spxml2"],
@@ -185,7 +184,7 @@ source +=
   "export interface NativeEntry { operation: NativeOperation; invoke: (gateway: NativeGateway, args: Record<string, unknown>) => Promise<unknown>; }\nexport const NATIVE_ENTRIES: readonly NativeEntry[] = [\n";
 for (const [profile, group, klass, member] of surfaces)
   for (const method of methods(klass)) {
-    if (method.name === "closeSession") continue; // управляемое закрытие — явно в gateway.ts
+    if (method.name === "closeSession") continue; // закрытие — *.session.close в gateway.ts
     if (group === "diagnostics" && method.name === "portal") continue; // определён в gateway.ts
     if (!method.docs)
       throw new Error(

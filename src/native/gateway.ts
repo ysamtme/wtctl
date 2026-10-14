@@ -14,6 +14,7 @@ import { freezeRegistry } from "../immutable.js";
 import { getEffectiveNativeEffect, isInternalNative } from "./metadata.js";
 
 const empty = { type: "object", properties: {}, required: [], additionalProperties: false };
+// Замыкания явные и намеренно не дают доступа к произвольным полям и методам экземпляра.
 const managed: NativeEntry[] = [];
 managed.push({
   operation: {
@@ -52,6 +53,11 @@ managed.push({
     return (await gateway.web()).heartbeat(args);
   },
 });
+const sessionDescriptions = {
+  open: "Открыть сессию, которой владеет клиент; уже открытая используется повторно. Cookie и ID сессии LDS остаются внутри этого процесса.",
+  close:
+    "Закрыть сессию на сервере и убрать её из клиента; следующий вызов этого профиля откроет новую.",
+};
 for (const profile of ["native", "web"] as const) {
   for (const method of ["open", "close"] as const) {
     managed.push({
@@ -61,8 +67,7 @@ for (const profile of ["native", "web"] as const) {
         group: "session",
         method,
         title: `${profile} session ${method}`,
-        description:
-          "Открыть или закрыть сессию, которой владеет клиент. Cookie и ID сессии LDS остаются внутри этого процесса.",
+        description: sessionDescriptions[method],
         effect: "read",
         status: "implemented",
         inputSchema: empty,
@@ -81,77 +86,6 @@ for (const profile of ["native", "web"] as const) {
     });
   }
 }
-// Замыкания явные и намеренно не дают доступа к произвольным полям и методам экземпляра.
-managed.push({
-  operation: {
-    id: "native.lds.closeSession",
-    profile: "native",
-    group: "lds",
-    method: "closeSession",
-    title: "Close native LDS context",
-    description: "Закрыть сессию LDS и HTTP и убрать её из кэша сессий клиента.",
-    effect: "read",
-    status: "implemented",
-    inputSchema: empty,
-  },
-  invoke: async (gateway) => {
-    await gateway.closeProfile("native");
-    return { closed: true };
-  },
-});
-managed.push({
-  operation: {
-    id: "web.lds.closeSession",
-    profile: "web",
-    group: "lds",
-    method: "closeSession",
-    title: "Close web LDS context",
-    description: "Закрыть сессию web LDS и HTTP и убрать её из кэша сессий клиента.",
-    effect: "read",
-    status: "implemented",
-    inputSchema: empty,
-  },
-  invoke: async (gateway) => {
-    await gateway.closeProfile("web");
-    return { closed: true };
-  },
-});
-managed.push({
-  operation: {
-    id: "native.lds.openSession",
-    profile: "native",
-    group: "lds",
-    method: "openSession",
-    title: "Open native LDS context",
-    description:
-      "Открыть сессию native, которой владеет клиент. Внутренние ID сессии остаются в клиенте.",
-    effect: "read",
-    status: "implemented",
-    inputSchema: empty,
-  },
-  invoke: async (gateway) => {
-    await gateway.native();
-    return { opened: true };
-  },
-});
-managed.push({
-  operation: {
-    id: "web.lds.openSession",
-    profile: "web",
-    group: "lds",
-    method: "openSession",
-    title: "Open web LDS context",
-    description:
-      "Открыть сессию web, которой владеет клиент. Внутренние ID сессии остаются в клиенте.",
-    effect: "read",
-    status: "implemented",
-    inputSchema: empty,
-  },
-  invoke: async (gateway) => {
-    await gateway.web();
-    return { opened: true };
-  },
-});
 managed.push({
   operation: {
     id: "native.physicalDocuments.createFromXml",
@@ -335,7 +269,7 @@ export class NativeGateway {
         !(error instanceof WsHcmApiError) ||
         error.kind !== "auth" ||
         error.status !== 401 ||
-        /(?:^|[.])(?:session|lifecycle)[.]|[.](?:open|close)Session$/.test(entry.operation.id)
+        /[.](?:session|lifecycle)[.]/.test(entry.operation.id)
       )
         throw error;
       const current = profile === "native" ? this.nativeSession : this.webSession;
