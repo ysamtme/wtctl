@@ -278,6 +278,13 @@ function known(command: string): CommandHelp | undefined {
   return Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
 }
 
+/** Команда справки к ошибке разбора: справка самой команды, если она есть. */
+export function helpCommand(command: string | undefined): string {
+  return command !== undefined && command !== "help" && known(command)
+    ? `wtctl help ${command}`
+    : "wtctl help";
+}
+
 export function cliHelp(command?: string): Record<string, unknown> {
   if (command === undefined)
     return {

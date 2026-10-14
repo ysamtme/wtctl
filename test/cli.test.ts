@@ -1141,7 +1141,48 @@ test("неверные команда, ввод и пределы отказыв
   await runCli(["schema", "--type", "collaborator", "--deep"], named.io, named.dependencies);
   const refusal = JSON.parse(named.state.stderr).error;
   assert.equal(refusal.message, "Команда schema не принимает: --type.");
-  assert.equal(refusal.hint, "Параметры команды: wtctl help schema.");
+  assert.equal(refusal.hint, "Справка: wtctl help schema.");
+});
+
+test("ошибка разбора называет неизвестный флаг без значения, похожий настоящий и справку команды", async () => {
+  const refuse = async (argv: string[]) => {
+    const f = fixture();
+    assert.equal(await runCli(argv, f.io, f.dependencies), 2, argv.join(" "));
+    assert.doesNotMatch(f.state.stderr, /synthetic-secret/);
+    const { error } = JSON.parse(f.state.stderr) as { error: Record<string, string> };
+    assert.equal(error.code, "cli.invalid_input");
+    return error;
+  };
+  const typo = await refuse(["query", "--catalog", "groups", "--feilds=synthetic-secret"]);
+  assert.equal(typo.message, "Неизвестный флаг --feilds.");
+  assert.equal(typo.hint, "Похожий: --fields. Справка: wtctl help query.");
+  // Пароль в argv назван по имени флага, о паролях подсказка есть только здесь.
+  const secret = await refuse(["--connection", "x", "status", "--password", "synthetic-secret"]);
+  assert.equal(secret.message, "Неизвестный флаг --password.");
+  assert.match(
+    secret.hint!,
+    /^Пароль в командной строке не принимается: .+ Справка: wtctl help status\.$/,
+  );
+  assert.doesNotMatch(typo.hint!, /Пароль/);
+  // То, что не похоже на имя флага, не печатается.
+  for (const odd of ["--synthetic-secret!", "--a3f9c07e1b"]) {
+    const error = await refuse(["status", odd]);
+    assert.equal(error.message, "Неизвестный флаг.");
+    assert.equal(error.hint, "Справка: wtctl help status.");
+  }
+  assert.doesNotMatch((await refuse(["query", "--author"])).hint!, /Пароль/);
+
+  const remove = await refuse(["object", "delete", "0x1"]);
+  assert.equal(
+    remove.hint,
+    "Корзины нет: удалённый объект не вернуть. Справка: wtctl help object.",
+  );
+  const get = await refuse(["object", "get"]);
+  assert.equal(get.message, "Не задан объект: ID, ТИП ID, --id ID или --url АДРЕС.");
+  assert.equal(get.hint, "Справка: wtctl help object.");
+  const both = await refuse(["query", "for $e in groups return $e", "--catalog", "groups"]);
+  assert.equal(both.message, "Задан и текст XQuery, и --catalog: нужно что-то одно.");
+  assert.equal((await refuse(["unknown"])).hint, "Справка: wtctl help.");
 });
 
 test("неверный синтаксис files exists и неверные URL отказывают до ввода, пароля, настроек и runtime", async () => {

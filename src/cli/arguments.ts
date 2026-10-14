@@ -1,8 +1,9 @@
 export class CliInputError extends Error {
   readonly code = "cli.invalid_input";
+  /** Команду справки к подсказке добавляет runCli: здесь команда ещё не известна. */
   constructor(
     message: string,
-    readonly hint = "Справка: wtctl help или wtctl help <группа>.",
+    readonly hint?: string,
   ) {
     super(message);
     this.name = "CliInputError";
@@ -91,6 +92,57 @@ const VALUE_OPTIONS = new Set([
   "password-env",
 ]);
 
+/** Расстояние правки с перестановкой соседних букв: --feilds в одном шаге от --fields. */
+function distance(a: string, b: string): number {
+  const rows = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let best = Math.min(rows[i - 1]![j]! + 1, rows[i]![j - 1]! + 1, rows[i - 1]![j - 1]! + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        best = Math.min(best, rows[i - 2]![j - 2]! + 1);
+      rows[i]![j] = best;
+    }
+  return rows[a.length]![b.length]!;
+}
+
+/**
+ * Значение флага не печатается никогда, имя — только если похоже на имя флага: слова из букв
+ * через дефис. В argv может оказаться пароль или токен, а цифр в именах флагов нет.
+ */
+function unknownOption(name: string): CliInputError {
+  if (name.length > 30 || !/^[a-z]+(?:-[a-z]+)*$/i.test(name))
+    return new CliInputError("Неизвестный флаг.");
+  const lower = name.toLowerCase();
+  const [near] = [...BOOLEAN_OPTIONS, ...VALUE_OPTIONS]
+    .map((known) => ({ known, steps: distance(lower, known) }))
+    .filter(({ steps }) => steps <= (lower.length > 4 ? 2 : 1))
+    .sort((a, b) => a.steps - b.steps);
+  const hint = [
+    near ? `Похожий: --${near.known}.` : "",
+    /(?:^|-)(?:pass|password|passwd|pwd|token|secret|key|apikey|auth|cookie|credentials?)(?:-|$)/i.test(
+      name,
+    )
+      ? "Пароль в командной строке не принимается: его читают из переменной окружения, названной в подключении, или из stdin с --password-stdin."
+      : "",
+  ].filter(Boolean);
+  return new CliInputError(`Неизвестный флаг --${name}.`, hint.join(" ") || undefined);
+}
+
+/** Команда, к которой относится argv: первый аргумент, который не флаг и не значение флага. */
+export function commandOf(argv: readonly string[]): string | undefined {
+  for (let index = 0; index < argv.length; index++) {
+    const value = argv[index]!;
+    if (value === "--") return argv[index + 1];
+    if (value === "-h" || value === "-v") continue;
+    if (!value.startsWith("--")) return value;
+    if (!value.includes("=") && VALUE_OPTIONS.has(value.slice(2))) index++;
+  }
+  return undefined;
+}
+
 /** Разбирается один раз; секреты намеренно не принимаются как параметры командной строки. */
 export function parseArguments(argv: readonly string[]): CliArguments {
   const result: CliArguments = { positionals: [], options: {} };
@@ -103,7 +155,7 @@ export function parseArguments(argv: readonly string[]): CliArguments {
     }
     if (!positionalOnly && (value === "-h" || value === "--help")) {
       if (Object.hasOwn(result.options, "help"))
-        throw new CliInputError("Параметр --help повторяется.");
+        throw new CliInputError("Флаг --help повторяется.");
       result.options.help = true;
       continue;
     }
@@ -117,23 +169,17 @@ export function parseArguments(argv: readonly string[]): CliArguments {
     }
     const equals = value.indexOf("=");
     const name = value.slice(2, equals < 0 ? undefined : equals);
-    if (Object.hasOwn(result.options, name))
-      throw new CliInputError(`Параметр --${name} повторяется.`);
+    if (!BOOLEAN_OPTIONS.has(name) && !VALUE_OPTIONS.has(name)) throw unknownOption(name);
+    if (Object.hasOwn(result.options, name)) throw new CliInputError(`Флаг --${name} повторяется.`);
     if (BOOLEAN_OPTIONS.has(name)) {
-      if (equals >= 0) throw new CliInputError(`Параметр --${name} не принимает значения.`);
+      if (equals >= 0) throw new CliInputError(`Флаг --${name} пишется без значения.`);
       result.options[name] = true;
-    } else if (VALUE_OPTIONS.has(name)) {
+    } else {
       const next = equals < 0 ? argv[++index] : value.slice(equals + 1);
       if (next === undefined || next.length === 0 || (equals < 0 && next.startsWith("--"))) {
         throw new CliInputError(`Для --${name} требуется значение.`);
       }
       result.options[name] = next;
-    } else {
-      // Неизвестные аргументы не выводятся: в них могут случайно оказаться учётные данные.
-      throw new CliInputError(
-        "Неизвестный параметр командной строки.",
-        "Пароли и токены задаются через конфигурацию и переменные окружения; параметры доступа не принимаются в argv.",
-      );
     }
   }
   const sources = [result.options["input-file"], result.options.stdin, result.options.args].filter(
@@ -143,8 +189,8 @@ export function parseArguments(argv: readonly string[]): CliArguments {
     throw new CliInputError("Нужно выбрать один источник: --input-file, --stdin или --args.");
   if (result.options["password-stdin"] && result.options.stdin)
     throw new CliInputError(
-      "--password-stdin несовместим с --stdin ввода операции.",
-      "Ввод операции передаётся через --input-file; пароль — отдельным stdin.",
+      "--password-stdin и --stdin вместе не работают: stdin один.",
+      "Ввод команды передаётся через --input-file или --args.",
     );
   if (result.options.help) result.positionals = ["help", ...result.positionals.slice(0, 1)];
   else if (result.options.version) {
@@ -222,7 +268,7 @@ export function parseJson(text: string): unknown {
 export function jsonObject(text: string): Record<string, unknown> {
   const value = parseJson(text);
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new CliInputError("Ожидается объект JSON, а не массив или скаляр.");
+    throw new CliInputError("Нужен объект JSON, а не массив, строка или число.");
   }
   return value as Record<string, unknown>;
 }

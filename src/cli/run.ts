@@ -8,12 +8,13 @@ import {
   listOption,
   orderOption,
   parseJson,
+  commandOf,
   parseArguments,
   requirePositional,
   stringOption,
   type CliArguments,
 } from "./arguments.js";
-import { cliHelp, cliHelpText } from "./help.js";
+import { cliHelp, cliHelpText, helpCommand } from "./help.js";
 import { discoverOperations, operationHelp } from "../operation-help.js";
 import { configExample, defaultConfigPath, parseConfiguration, withConnection } from "../config.js";
 import { DeferredRuntime } from "./deferred-runtime.js";
@@ -75,13 +76,17 @@ function allowOptions(args: CliArguments, allowed: readonly string[]): void {
   const command = first && first !== "help" ? ` ${first}` : "";
   throw new CliInputError(
     `Команда${command} не принимает: ${extra.map((key) => `--${key}`).join(", ")}.`,
-    `Параметры команды: wtctl help${command}.`,
   );
 }
 
 function exactPositionals(args: CliArguments, minimum: number, maximum = minimum): void {
   if (args.positionals.length < minimum || args.positionals.length > maximum) {
-    throw new CliInputError("Неверное число аргументов команды.");
+    if (args.positionals.length < minimum)
+      throw new CliInputError("Не хватает аргументов команды.");
+    throw new CliInputError(
+      "Лишние аргументы команды.",
+      "Текст с пробелами, например запрос XQuery, берут в кавычки целиком.",
+    );
   }
 }
 
@@ -139,11 +144,7 @@ async function putData(
   if (file && io.readBinaryFile) bytes = await io.readBinaryFile(file, MAX_INPUT_BYTES);
   else if (args.options.stdin && io.readBinaryStdin)
     bytes = await io.readBinaryStdin(MAX_INPUT_BYTES);
-  else
-    throw new CliInputError(
-      "Нужен двоичный источник через --input-file или --stdin.",
-      "Адаптер ввода должен поддерживать точные байты; преобразование файла в текст не допускается.",
-    );
+  else throw new CliInputError("Нужен файл через --input-file или двоичный ввод через --stdin.");
   if (bytes.byteLength > MAX_INPUT_BYTES) throw new CliInputError("Ввод превышает 8 МиБ.");
   return { data: { base64: Buffer.from(bytes).toString("base64") } };
 }
@@ -157,6 +158,8 @@ function objectTarget(args: CliArguments): Record<string, unknown> {
     if (value !== undefined && !value.trim())
       throw new CliInputError("Адрес и тип объекта должны быть непустыми строками.");
   if (id === undefined && url === undefined) {
+    if (args.positionals.length === 2)
+      throw new CliInputError("Не задан объект: ID, ТИП ID, --id ID или --url АДРЕС.");
     exactPositionals(args, 3, 4);
     const typed = args.positionals.length === 4;
     if (typed && type !== undefined) throw new CliInputError("Тип задан и аргументом, и в --type.");
@@ -166,10 +169,7 @@ function objectTarget(args: CliArguments): Record<string, unknown> {
       resolvePhysicalDocumentLocation(given);
     } catch (error) {
       if (!(error instanceof ArgumentError)) throw error;
-      throw new CliInputError(
-        error.message,
-        "Объект задают [ТИП] ID, --id ID или --url АДРЕС; справка: wtctl help object.",
-      );
+      throw new CliInputError(error.message, "Объект задают [ТИП] ID, --id ID или --url АДРЕС.");
     }
     return {
       id: given,
@@ -179,7 +179,7 @@ function objectTarget(args: CliArguments): Record<string, unknown> {
   if (args.positionals.length !== 2)
     throw new CliInputError("Объект задан и аргументом, и через --id или --url.");
   if (id !== undefined && url !== undefined)
-    throw new CliInputError("Нужно выбрать один адрес объекта: --id ID или --url URL.");
+    throw new CliInputError("Нужен один из --id и --url, а не оба.");
   return { ...optional("id", id), ...optional("url", url), ...optional("type", type) };
 }
 
@@ -324,7 +324,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       allowOptions(args, INPUT);
       exactPositionals(args, 3);
       return {
-        operationId: requirePositional(args, 2, "id операции"),
+        operationId: requirePositional(args, 2, "ID операции"),
         args: await inputObject(args, io),
       };
     case "query": {
@@ -355,10 +355,9 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       // С каталогом отдельный источник ввода несёт условия: оболочки портят кавычки в --where.
       const query = catalog || whole ? args.positionals[1] : (source ?? args.positionals[1]);
       if (!query?.trim() && !catalog && !whole)
-        throw new CliInputError(
-          "Нужен --catalog для структурированного поиска или непустой XQuery.",
-        );
-      if (query && catalog) throw new CliInputError("Нужно выбрать сырой XQuery или --catalog.");
+        throw new CliInputError("Нужен --catalog или текст запроса XQuery.");
+      if (query && catalog)
+        throw new CliInputError("Задан и текст XQuery, и --catalog: нужно что-то одно.");
       if (catalog && option && source !== undefined)
         throw new CliInputError("Условия заданы и в --where, и отдельным источником.");
       const whereText = option ?? (catalog ? source : undefined);
@@ -438,7 +437,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         // Один --resave сохраняет документ как есть.
         const input = await inputJson(args, io, args.options.resave ? {} : undefined);
         if (input === null || typeof input !== "object")
-          throw new CliInputError("Patch должен быть объектом полей или массивом операций.");
+          throw new CliInputError("Правка — объект {поле: значение} или массив операций.");
         // Тот же файл, что аргументы инструмента MCP: {patch: {…}, remove: […]}.
         const whole =
           !Array.isArray(input) &&
@@ -466,8 +465,8 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         const target = objectTarget(args);
         if (!args.options.permanent)
           throw new CliInputError(
-            "Эта операция физически удаляет документ и требует --permanent.",
-            "Договор корзины этим shortcut не подразумевается.",
+            "object delete удаляет объект насовсем и требует --permanent.",
+            "Корзины нет: удалённый объект не вернуть.",
           );
         return {
           operationId: "objects.delete",
@@ -538,7 +537,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
     }
     case "doc": {
       if (!action || !["get", "put", "delete"].includes(action))
-        throw new CliInputError("Неизвестная команда документа.");
+        throw new CliInputError("Неизвестная команда doc.");
       allowOptions(args, action === "put" ? INPUT : []);
       exactPositionals(args, 3);
       const url = requirePositional(args, 2, "серверный URL");
@@ -586,8 +585,8 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       const supplied = await inputJson(args, io, []);
       if (!Array.isArray(supplied))
         throw new CliInputError(
-          "Аргументы RPC должны быть массивом JSON.",
-          "Допустимы строки/boolean/точные малые числа или {valueType,lexicalValue} для специальных значений.",
+          "Аргументы функции — массив JSON.",
+          "Элемент — строка, true, false, null, целое число; дробное и большое число, дату задают явно: {valueType, lexicalValue}.",
         );
       return {
         operationId: "rpc.call",
@@ -607,7 +606,9 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         throw new CliInputError("Код задан и аргументом, и отдельным источником.");
       const code = source ?? args.positionals[1];
       if (!code?.trim())
-        throw new CliInputError("Нужен непустой SP-XML Script через --input-file или --stdin.");
+        throw new CliInputError(
+          "Нужен код SP-XML Script: аргументом, через --input-file или --stdin.",
+        );
       const inline = stringOption(args, "params");
       const file = stringOption(args, "params-file");
       if (inline !== undefined && file !== undefined)
@@ -623,12 +624,12 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       allowOptions(args, exporting ? ["to", "format", "overwrite"] : ["offset", "limit", "format"]);
       exactPositionals(args, 3);
       if (action !== "read" && !exporting)
-        throw new CliInputError("Поддерживаются result read и export.");
+        throw new CliInputError("Неизвестная команда result: есть read и export.");
       const format = stringOption(args, "format");
       if (!exporting && format !== undefined && !["auto", "json", "text"].includes(format))
         throw new CliInputError("--format должен быть auto, json или text.");
       const path = stringOption(args, "to");
-      if (exporting && !path) throw new CliInputError("Для экспорта требуется --to PATH.");
+      if (exporting && !path) throw new CliInputError("result export требует --to ФАЙЛ.");
       return {
         operationId: exporting ? "results.export" : "results.read",
         args: {
@@ -685,7 +686,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         exactPositionals(args, 2);
         const date = stringOption(args, "date");
         if (date !== undefined && (args.options["start-date"] || args.options["end-date"]))
-          throw new CliInputError("--date несовместим с диапазоном --start-date/--end-date.");
+          throw new CliInputError("--date и --start-date или --end-date вместе не задаются.");
         return {
           operationId: "logs.list",
           args: {
@@ -699,7 +700,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         };
       }
       if (!action || !["read", "tail", "search", "follow"].includes(action))
-        throw new CliInputError("Поддерживаются logs list/read/tail/search/follow.");
+        throw new CliInputError("Неизвестная команда logs: есть list, read, tail, search, follow.");
       const options =
         action === "search"
           ? [
@@ -738,9 +739,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         level !== undefined &&
         !["normal", "debug", "info", "warning", "error", "critical"].includes(level)
       )
-        throw new CliInputError(
-          "--level должен быть normal/debug/info/warning/error/critical; уровни определяются по тексту.",
-        );
+        throw new CliInputError("--level: normal, debug, info, warning, error или critical.");
       return {
         operationId: "logs.search",
         args: {
@@ -1010,7 +1009,7 @@ export async function runCli(
       allowOptions(parsed, []);
       exactPositionals(parsed, 1);
       if (parsed.options.output)
-        throw new CliInputError("--output не поддерживается для MCP stdio.");
+        throw new CliInputError("wtctl mcp не принимает --output: stdout занят протоколом MCP.");
       if (parsed.options["password-stdin"])
         throw new CliInputError(
           "--password-stdin несовместим с MCP: stdin занят протоколом.",
@@ -1043,10 +1042,10 @@ export async function runCli(
     }
     if (discovery && parsed.options.offline) {
       if (parsed.options["password-stdin"])
-        throw new CliInputError("Ввод пароля не поддерживается для offline discovery.");
+        throw new CliInputError("Пароль с --offline не нужен: команда не обращается к серверу.");
       const data =
         action === "describe"
-          ? operationHelp(describeHcmOperation(requirePositional(parsed, 2, "id операции")))
+          ? operationHelp(describeHcmOperation(requirePositional(parsed, 2, "ID операции")))
           : discoverOperations(listHcmOperations, discoveryFilter);
       return await emit(frontendResult(`api.${action}`, "unselected", data), parsed, io);
     }
@@ -1093,7 +1092,7 @@ export async function runCli(
       result = frontendResult(
         "api.describe",
         config.name,
-        operationHelp(runtime.describe(requirePositional(parsed, 2, "id операции"))),
+        operationHelp(runtime.describe(requirePositional(parsed, 2, "ID операции"))),
       );
     else if (discovery) {
       result = frontendResult(
@@ -1122,7 +1121,11 @@ export async function runCli(
   } catch (error) {
     const result =
       error instanceof CliInputError
-        ? failure(error.code, error.message, error.hint)
+        ? failure(
+            error.code,
+            error.message,
+            [error.hint, `Справка: ${helpCommand(commandOf(argv))}.`].filter(Boolean).join(" "),
+          )
         : error instanceof HcmError
           ? {
               ...failure(
