@@ -537,7 +537,7 @@ export class ServerObjects {
       throw new HcmError(
         "CATALOG_MISMATCH",
         "Объекта нет в каталоге, по которому проверяется удаление.",
-        "Нужно указать каталог, в котором объект есть. Запрос на удаление не отправлен.",
+        "Нужно указать каталог, в котором объект есть.",
       );
     const mutationId = randomUUID();
     await this.journal({ mutationId, operation: "objects.delete", stage: "prepared", objectId });
