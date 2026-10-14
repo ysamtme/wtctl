@@ -1,2 +1,4 @@
 src/native/generated.ts
 src/guide-texts.ts
+# Markdown пишется вручную: выравнивание таблиц раздувает тексты для агента
+*.md
