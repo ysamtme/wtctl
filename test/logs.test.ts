@@ -399,7 +399,7 @@ test("замечание о диапазоне сверяется с факти�
   assert.equal(missing.reports, 2);
 });
 
-test("пустые логи дают RPC с нулевым диапазоном при двух совпавших отчётах и не утверждают, что отложенные байты записи сброшены", async () => {
+test("пустые логи дают RPC с нулевым диапазоном при двух совпавших отчётах", async () => {
   const mock = rangeOnlyLog("");
   const read = await mock.reader.read({ file, full: true });
   assert.equal(read.text, "");
@@ -408,7 +408,6 @@ test("пустые логи дают RPC с нулевым диапазоном 
   assert.equal(read.truncated, false);
   assert.equal(read.sizeBytesBefore, "0");
   assert.equal(read.sizeBytesAfter, "0");
-  assert.match(read.consistency, /does not open file or flush/);
   assert.deepEqual(mock.ranges, [{ valueType: "integer", lexicalValue: "0" }]);
   assert.equal(mock.fileOpens, 0);
   assert.equal(mock.reports, 2);

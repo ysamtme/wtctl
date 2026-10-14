@@ -62,10 +62,6 @@ export interface LogReadData {
   readonly truncated: boolean;
   readonly returnedChars: number;
   readonly fingerprint: string;
-  readonly semantics: "server RPC text; byte offsets and original encoding are not preserved";
-  readonly consistency:
-    | "file size checked before and after; full reads also compare available date metadata; no atomic snapshot or same-size rewrite guarantee"
-    | "empty file reported before and after; zero range does not open file or flush pending log writes";
 }
 export type LogLevel = "normal" | "debug" | "info" | "warning" | "error" | "critical";
 export interface LogEvent {
@@ -98,8 +94,6 @@ export interface LogSearchData {
   readonly fingerprint: string;
   readonly truncated: boolean;
   readonly nextOffset?: number;
-  readonly severityDetection: "text heuristic";
-  readonly lineNumbers: "relative to fetched text";
 }
 export interface LogFollowInput extends LogReadInput {
   readonly cursor?: string;
@@ -112,7 +106,6 @@ export interface LogFollowData {
   readonly gapPossible: boolean;
   readonly windowTruncated: boolean;
   readonly resetReason?: "overlap-not-found" | "file-size-decreased" | "ambiguous-overlap";
-  readonly semantics: "tail overlap; updated final events may be repeated; no byte cursor or exactly-once guarantee";
 }
 
 const LEVELS: readonly LogLevel[] = ["normal", "debug", "info", "warning", "error", "critical"];
@@ -518,11 +511,6 @@ export class LogReader {
         BigInt(after.sizeBytes) > BigInt(effectiveTailBytes),
       returnedChars: body.length,
       fingerprint: hash(body),
-      semantics: "server RPC text; byte offsets and original encoding are not preserved",
-      consistency:
-        sizeBefore === 0n
-          ? "empty file reported before and after; zero range does not open file or flush pending log writes"
-          : "file size checked before and after; full reads also compare available date metadata; no atomic snapshot or same-size rewrite guarantee",
     };
   }
   async search(input: LogSearchInput): Promise<LogSearchData> {
@@ -563,8 +551,6 @@ export class LogReader {
       fingerprint: read.fingerprint,
       truncated: read.truncated,
       ...(offset + limit < events.length ? { nextOffset: offset + limit } : {}),
-      severityDetection: "text heuristic",
-      lineNumbers: "relative to fetched text",
     };
   }
   async follow(input: LogFollowInput): Promise<LogFollowData> {
@@ -647,8 +633,6 @@ export class LogReader {
       gapPossible: !!resetReason,
       windowTruncated: read.truncated,
       ...(resetReason === undefined ? {} : { resetReason }),
-      semantics:
-        "tail overlap; updated final events may be repeated; no byte cursor or exactly-once guarantee",
     };
   }
 }
