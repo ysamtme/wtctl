@@ -313,9 +313,11 @@ test("settings с baseUrl — подключение без файла и без
       });
       assert.throws(() => loadConfig({ configPath: join(home, "connections.json"), settings }), {
         code: "INVALID_CONFIG",
+        message: /configPath/,
       });
+      // WTCTL_CONFIG из окружения файл не навязывает: в названном файле тоже неверный JSON.
       process.env.WTCTL_CONFIG = join(home, "connections.json");
-      assert.throws(() => loadConfig({ settings }), { code: "INVALID_CONFIG" });
+      assert.equal(loadConfig({ settings }).baseUrl, "http://hcm.test/");
     },
   );
 });

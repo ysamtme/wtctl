@@ -42,7 +42,7 @@ const config = loadConfig({ settings: { outputLimitBytes: 1024 * 1024 } });
 
 Адрес, учётные данные и права подключения из файла или переменных `settings` не меняет: `username`, `password` или `permissions` без `baseUrl` отклоняются с `INVALID_CONFIG`.
 
-`settings` с `baseUrl` — отдельное подключение. Файл подключений и переменные адреса, учётных данных и прав не читаются; логин, пароль и `permissions` задаются в тех же `settings`, права по умолчанию выключены. Имя подключения — из `connection`, иначе `default`. Вместе с `configPath` или `WTCTL_CONFIG` такое `settings` отклоняется с `INVALID_CONFIG`.
+`settings` с `baseUrl` — отдельное подключение. Файл подключений не читается, даже если его называет `WTCTL_CONFIG`; переменные адреса, учётных данных и прав не действуют. Логин, пароль и `permissions` задаются в тех же `settings`, права по умолчанию выключены. Имя подключения — из `connection`, иначе `default`. Вместе с `configPath` такое `settings` отклоняется с `INVALID_CONFIG`.
 
 ```javascript
 const config = loadConfig({

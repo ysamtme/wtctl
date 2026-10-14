@@ -199,13 +199,15 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
         `Поля settings: ${[...OWN_FIELDS, ...Object.keys(SETTINGS)].join(", ")}.`,
       );
   const standalone = settings.baseUrl !== undefined;
-  const explicit = options.configPath ?? process.env.WTCTL_CONFIG;
-  if (standalone && explicit !== undefined)
+  // WTCTL_CONFIG приходит из окружения, а не из вызова: при settings.baseUrl он, как и переменные
+  // адреса, учётных данных и прав, не действует. configPath в том же вызове — противоречие.
+  if (standalone && options.configPath !== undefined)
     throw new HcmError(
       "INVALID_CONFIG",
-      "settings.baseUrl задаёт подключение целиком, а файл подключений назван тоже.",
-      "Нужно оставить что-то одно: settings.baseUrl или configPath и WTCTL_CONFIG.",
+      "settings.baseUrl задаёт подключение целиком, а configPath называет файл подключений.",
+      "Нужно оставить что-то одно: settings.baseUrl или configPath.",
     );
+  const explicit = options.configPath ?? process.env.WTCTL_CONFIG;
   const own = standalone ? undefined : OWN_FIELDS.find((key) => settings[key] !== undefined);
   // Иначе код, который пишет агент, поднимал бы права подключения, запрещающего запись.
   if (own !== undefined)
