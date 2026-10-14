@@ -65,7 +65,7 @@ const config = loadConfig({
 | Большой результат | `readResult({resultId, offset, limit})`, `exportResult({resultId, path, format})` |
 | Любая операция по ID | `call("native.lds.loadDoc", {url})` |
 
-Аргументы и ответы такие же, как у инструментов MCP. Правила по задачам описаны в гайде, его темы перечислены в [README.md](../README.md#документация).
+Аргументы и ответы такие же, как у инструментов MCP; каждый метод с аргументами и полями ответа описан в [справочнике SDK](sdk-reference.md). Правила по задачам описаны в гайде, его темы перечислены в [README.md](../README.md#документация).
 
 Список операций для `call` возвращает `client.listOperations({query})`, аргументы одной операции — `client.describe(id)`. Без подключения к серверу то же делают `listHcmOperations()` и `describeHcmOperation(id)`.
 
@@ -143,38 +143,7 @@ try {
 - `HcmCleanupError` — операция выполнена, но подключение не закрылось; её результат — в `value`.
 - `listHcmOperations(filter)` и `describeHcmOperation(id)` — список операций и описание одной без подключения к серверу.
 
-Типы аргументов и ответов методов:
-
-| Метод | Аргументы | Ответ (`data`) |
-| --- | --- | --- |
-| `status()`, `check()` | — | `StatusData`, `CheckData` |
-| `serverInfo` | `ServerInfoInput` | `ServerInfoData`, в нём `ServerDatabase`, `ServerCatalogLimit`, `ServerInfoProfile` |
-| `types`, `schema` | `SchemaTypesInput`, `SchemaInput` | `SchemaTypesResult`, `SchemaResult` из `SchemaField` |
-| `query`, `queryRows` | `QueryInput`: `QueryOptions`, `FilterValue`, `FilterCondition` | `QueryData<T>`; `queryRows` выдаёт строки `T` по одной |
-| `get`, `getMany` | `ObjectTarget` и `GetOptions`, `GetManyInput` | `ObjectData<T>`, `GetManyData<T>` |
-| `create` | `CreateInput<T>` | `CreatedObjectData` |
-| `patch` | `ObjectTarget` и `PatchOptions`, `PatchOperation` | `PatchedObjectData` или `PatchPreviewData`, в них `PatchChange` |
-| `delete` | `ObjectTarget` и `DeleteOptions` | `DeletedObjectData` |
-| `execute`, `runAgent` | код и `params`, `RunAgentInput` | `ScriptData<T>`, `AgentRunData` |
-| `rpc` | `RpcInput`, `RpcArgument`: `RpcTypedArgument`, `RpcXmlArgument` | значение функции |
-| `listRpc`, `describeRpc` | `RpcCatalogFilter`, `RpcDescribeOptions` | `RpcCatalogPage` из `RpcTargetCard`, `RpcTargetDescription` |
-| `batch` | `BatchInput` из `BatchStep` | `BatchData` |
-| `readResult`, `exportResult` | `ResultReadInput`, `ResultExportInput` | `ResultPage<T>`, `ResultExportData` |
-| `fileExists`, `readFile`, `listFiles` | `FileExistsInput`, `FileReadInput`, `FileListInput` | `FileExistsData`, `FileReadData`, `FileListData` |
-| `writeFile`, `deleteFile` | `FileWriteInput`, `FileDeleteInput` | `FileWriteData`, `FileDeleteData` |
-| `uploadFile`, `uploadChunk`, `clearUploadChunks` | `UploadFileInput`, `UploadChunkInput`, `ClearUploadChunksInput` | `UploadedFileData`, `UploadedChunkData`, `ClearedUploadChunksData` |
-| `heartbeat` | `WebSocketHeartbeatInput` | `WebSocketHeartbeatData` |
-| `listLogs`, `readLog` | `LogListInput`, `LogReadInput` | `LogFiles` из `LogFileSummary`, `LogText` |
-| `searchLogs`, `followLog` | `LogSearchInput` с `LogLevel`, `LogFollowInput` | `LogMatches`, `LogNews` с `LogResetReason`, оба из `LogEntry` |
-| `listOperations`, `describe` | `OperationFilter` | `OperationPage`, `OperationDefinition` с `OperationEffect`, `NativeProfile`, `JsonSchema` |
-
-Общие типы:
-
-- `HcmResult<T>` — ответ метода: данные целиком, сохранённый ответ (`StoredResultData`) или ошибка (`OperationError`); `meta` — `ResultMeta`.
-- `OperationResult` — ответ операции без типа данных: его возвращает `call` и принимает `unwrap`.
-- `MutationOutcome` — исход записи: `not_sent`, `confirmed`, `indeterminate`.
-- `HcmData` — поля объекта или строки каталога.
-- `ConnectionConfig` — подключение из `loadConfig`; `ConfigOptions` — аргументы `loadConfig`, `ConnectionSettings` — его `settings`.
+Аргументы, поля ответа и описание каждого метода, функции и типа — в [справочнике SDK](sdk-reference.md). Тип строки или документа задаёт параметр-тип метода:
 
 ```typescript
 interface Person { id: string; fullname: string }
