@@ -1,8 +1,6 @@
 /**
- * Клиент TypeScript для административных API WebSoft HCM.
- * Для надёжного жизненного цикла — `WsHcmClient.with*Session()`. Этот модуль протокола
- * ещё экспортирует вспомогательные функции XML.
- *
+ * wtctl/protocol: вызовы API сервера напрямую, без проверок и удобств клиента. Точка входа для
+ * разработки клиента; в своём коде — HcmClient из wtctl.
  * @packageDocumentation
  */
 export { NativeSession, WebSession, WsHcmClient } from "./client.js";

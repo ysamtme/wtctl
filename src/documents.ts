@@ -212,11 +212,15 @@ export interface DocumentSnapshot {
   readonly data: Record<string, unknown>;
   readonly formUrl?: string;
 }
-/** Скалярные значения показаны как были и как записаны; структура названа, а не скопирована. */
+/** Одно изменение документа. Значения показаны как были и как записаны; структура названа, а не скопирована. */
 export interface PatchChange {
+  /** set — значение записано, remove — путь удалён. */
   readonly op: "set" | "remove";
+  /** Путь в документе. */
   readonly path: string;
+  /** Значение до правки. */
   readonly before?: unknown;
+  /** Значение после правки. */
   readonly after?: unknown;
 }
 /** Сохраняет по порядку неизвестные элементы, атрибуты, комментарии и CDATA при правке путей. */

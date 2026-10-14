@@ -17,12 +17,19 @@ export interface LogFile {
   readonly rawDateSeconds?: string;
   readonly redFlag: boolean;
 }
+/** Аргументы listLogs. */
 export interface LogListInput {
+  /** Имя лога без даты: xhttp, agent… */
   readonly type?: string;
+  /** Часть имени файла; регистр не важен. */
   readonly nameContains?: string;
+  /** Файлы не раньше этой даты сервера, ГГГГ-ММ-ДД. */
   readonly startDate?: string;
+  /** Файлы не позже этой даты сервера, ГГГГ-ММ-ДД. */
   readonly endDate?: string;
+  /** Сколько файлов пропустить: nextOffset прошлой страницы. */
   readonly offset?: number;
+  /** Файлов на странице, 1–1000; по умолчанию 30. */
   readonly limit?: number;
 }
 export interface LogListData {
@@ -31,9 +38,13 @@ export interface LogListData {
   readonly nextOffset?: number;
   readonly dateSemantics: "server calendar date; timezone unspecified";
 }
+/** Аргументы readLog: файл и сколько читать. */
 export interface LogReadInput {
+  /** Имя файла лога из listLogs. */
   readonly file: string;
+  /** Сколько байт с конца файла читать; по умолчанию 512 КБ. Вместе с full не задаётся. */
   readonly tailBytes?: number;
+  /** Читать весь файл, а не конец. */
   readonly full?: boolean;
 }
 /**
@@ -63,6 +74,12 @@ export interface LogReadData {
   readonly returnedChars: number;
   readonly fingerprint: string;
 }
+/**
+ * Почему followLog начал заново: overlap-not-found — прошлых событий в файле не найдено,
+ * file-size-decreased — файл стал короче, ambiguous-overlap — прошлое событие встречается дважды.
+ */
+export type LogResetReason = "overlap-not-found" | "file-size-decreased" | "ambiguous-overlap";
+/** Уровень события; определяется по словам в тексте. */
 export type LogLevel = "normal" | "debug" | "info" | "warning" | "error" | "critical";
 export interface LogEvent {
   readonly sequence: number;
@@ -76,14 +93,21 @@ export interface LogEvent {
   readonly lineEnd: number;
   readonly partialBeginning?: boolean;
 }
+/** Аргументы searchLogs. */
 export interface LogSearchInput extends LogReadInput {
+  /** Часть текста события; регистр не важен. */
   readonly text?: string;
+  /** Только события этого уровня. */
   readonly level?: LogLevel;
+  /** Часть потока события — текста в квадратных скобках в начале сообщения. */
   readonly context?: string;
+  /** Сколько подходящих событий пропустить: nextOffset прошлой страницы. */
   readonly offset?: number;
+  /** Событий на странице, 1–1000; по умолчанию 100. */
   readonly limit?: number;
   /** Сначала новейшие совпадения; offset тогда считается с конца файла. */
   readonly newestFirst?: boolean;
+  /** fingerprint прошлой страницы: если файл изменился, ошибка LOG_CHANGED. */
   readonly expectedFingerprint?: string;
 }
 export interface LogSearchData {
@@ -95,7 +119,9 @@ export interface LogSearchData {
   readonly truncated: boolean;
   readonly nextOffset?: number;
 }
+/** Аргументы followLog. */
 export interface LogFollowInput extends LogReadInput {
+  /** cursor прошлого ответа; без него — события в прочитанной части файла. */
   readonly cursor?: string;
 }
 export interface LogFollowData {
@@ -105,7 +131,7 @@ export interface LogFollowData {
   readonly changed: boolean;
   readonly gapPossible: boolean;
   readonly windowTruncated: boolean;
-  readonly resetReason?: "overlap-not-found" | "file-size-decreased" | "ambiguous-overlap";
+  readonly resetReason?: LogResetReason;
 }
 
 const LEVELS: readonly LogLevel[] = ["normal", "debug", "info", "warning", "error", "critical"];
@@ -592,7 +618,7 @@ export class LogReader {
     const hashes = events.map((event) => hash(event.text.replace(/\n+$/, "")).slice(0, 16));
     const fingerprint = read.fingerprint.slice(0, 16);
     let start = 0;
-    let resetReason: LogFollowData["resetReason"];
+    let resetReason: LogResetReason | undefined;
     const changed =
       !previous ||
       previous.fingerprint !== fingerprint ||

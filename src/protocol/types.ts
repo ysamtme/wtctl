@@ -30,38 +30,70 @@ export type WebSocketFactory = (
   options: WebSocketConnectOptions,
 ) => WebSocketConnection;
 
+/** Аргументы heartbeat. */
 export interface WebSocketHeartbeatInput {
-  /** Только предел фазы WS, целое 250..10000 миллисекунд. По умолчанию 5000. */
+  /** Срок проверки WebSocket, 250–10000 мс; по умолчанию 5000. */
   readonly timeoutMs?: number;
 }
-/** Ограниченные наблюдения; из них не выводится доставка ни закрытия, ни прикладных сообщений. */
+/**
+ * Что клиент наблюдал при проверке WebSocket. Доставку закрытия и прикладных сообщений
+ * из этого вывести нельзя.
+ */
 export interface WebSocketHeartbeatReceipt {
+  /** Адрес WebSocket на сервере. */
   readonly route: "/services/main_ws_service";
+  /** До какой фазы дошла проверка. */
   readonly phase: "preflight" | "connecting" | "heartbeat" | "closing" | "disposed";
+  /** Сервер принял подключение WebSocket. */
   readonly handshakeValidated: boolean;
   /** Статус HTTP при повышении протокола или отказе, если был; без него ответа не наблюдали. */
   readonly httpStatus?: number;
+  /** Сообщение $hbt отправлено. */
   readonly heartbeatWritten: boolean;
+  /** Получен ответ $ok. */
   readonly heartbeatObserved: boolean;
+  /** Клиент запросил закрытие. */
   readonly closeRequested: boolean;
+  /** Сервер прислал кадр закрытия. */
   readonly peerCloseObserved: boolean;
+  /** Сервер закрыл соединение. */
   readonly peerEofObserved: boolean;
+  /** Код закрытия WebSocket, если был. */
   readonly libraryCloseCode?: number;
+  /** Всегда false: что кадр закрытия дошёл до сервера, не проверить. */
   readonly closeWriteVerified: false;
+  /** Соединение на стороне клиента закрыто. */
   readonly localSocketDisposed: boolean;
+  /** Клиент оборвал соединение сам: истёк срок или превышен предел. */
   readonly forcedLocalTermination: boolean;
+  /** Ответа сервера на закрытие не было; $ok при этом получен. */
   readonly warning?: "PEER_CLOSE_ACK_NOT_OBSERVED";
+  /** Время проверки, мс. */
   readonly durationMs: number;
+  /** Пределы проверки. */
   readonly limits: {
+    /** Срок проверки, мс. */
     readonly timeoutMs: number;
+    /** Предел одного сообщения в байтах. */
     readonly maxMessageBytes: number;
+    /** Предел числа сообщений. */
     readonly maxMessages: number;
+    /** Предел всех полученных байт. */
     readonly maxTotalBytes: number;
   };
-  readonly counts: { readonly messages: number; readonly receivedBytes: number };
+  /** Сколько получено. */
+  readonly counts: {
+    /** Сообщений. */
+    readonly messages: number;
+    /** Байт. */
+    readonly receivedBytes: number;
+  };
 }
+/** Проверка прошла: подключение принято, $ok получен. */
 export interface WebSocketHeartbeatData extends WebSocketHeartbeatReceipt {
+  /** Всегда true. */
   readonly handshakeValidated: true;
+  /** Всегда true. */
   readonly heartbeatObserved: true;
 }
 

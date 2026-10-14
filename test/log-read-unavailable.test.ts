@@ -236,7 +236,7 @@ async function frontend(
   config: ConnectionConfig,
   file: string,
 ): Promise<OperationResult> {
-  if (name === "sdk") return HcmClient.fromRuntime(runtime).readLog({ file, tailBytes: 512 });
+  if (name === "sdk") return new HcmClient(runtime).readLog({ file, tailBytes: 512 });
   if (name === "mcp") {
     const response = await new HcmMcpTools(runtime).invoke("hcm_log_read", {
       file,
@@ -332,7 +332,7 @@ test("исходные ошибки авторизации, прав, невер
       const f = wireFixture(directory, name, variant);
       const runtime = new HcmRuntime(f.config);
       try {
-        const result = await HcmClient.fromRuntime(runtime).readLog({ file: name });
+        const result = await new HcmClient(runtime).readLog({ file: name });
         assert.equal(result.ok, false);
         assert.equal(result.error?.code, codes[variant]);
         if (variant === "lost-body") assert.equal(result.error?.details?.status, undefined);

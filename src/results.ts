@@ -6,11 +6,30 @@ import { LOCAL_LIMITS } from "./config.js";
 import { HcmError, boundedInteger, requiredString } from "./errors.js";
 import type { ConnectionConfig, OperationResult } from "./contracts.js";
 
+/** Аргументы exportResult. */
 export interface ResultExportInput {
-  resultId: string;
-  path: string;
-  format?: "json" | "jsonl" | "text";
-  overwrite?: boolean;
+  /** ID сохранённого результата: meta.resultId ответа. */
+  readonly resultId: string;
+  /** Путь к файлу на этом компьютере; папка должна быть, иначе FOLDER_NOT_FOUND. */
+  readonly path: string;
+  /**
+   * json — ответ целиком одним JSON (по умолчанию); jsonl — элементы списка, по строке на элемент;
+   * text — сохранённый текст как есть.
+   */
+  readonly format?: "json" | "jsonl" | "text";
+  /** Заменить файл, если он уже есть; иначе FILE_EXISTS. */
+  readonly overwrite?: boolean;
+}
+/** Ответ exportResult. */
+export interface ResultExportData {
+  /** Путь к файлу, как передан. */
+  readonly path: string;
+  /** Размер файла в байтах. */
+  readonly bytes: number;
+  /** Формат записи. */
+  readonly format: "json" | "jsonl" | "text";
+  /** Сколько элементов записано; только у jsonl. */
+  readonly items?: number;
 }
 export async function writeResultFile(
   path: string,
@@ -281,7 +300,7 @@ export class ResultStore {
     this.path(id);
     return join(this.directory, `${id}.${extension}`);
   }
-  async export(input: ResultExportInput, envelope?: OperationResult) {
+  async export(input: ResultExportInput, envelope?: OperationResult): Promise<ResultExportData> {
     const id = requiredString(input.resultId, "resultId"),
       path = requiredString(input.path, "path");
     const format = input.format ?? "json";

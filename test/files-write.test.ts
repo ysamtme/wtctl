@@ -66,7 +66,7 @@ test("папка данных пишется через LDS, папка кода
   const { runtime, state } = fixture();
   const text = "Привет\r\nмир";
   const data = unwrap(
-    await HcmClient.fromRuntime(runtime).writeFile({ url: "x-local://share/a/b.txt", text }),
+    await new HcmClient(runtime).writeFile({ url: "x-local://share/a/b.txt", text }),
   );
   assert.deepEqual(data, { bytes: Buffer.byteLength(text), mutationOutcome: "confirmed" });
   assert.deepEqual(ids(state), ["native.lds.putUrl"]);
@@ -241,14 +241,11 @@ test("без списков сервера используется LDS, и по
 
 test("server.info перечисляет папки профиля native, папку из обоих списков — среди папок данных", async () => {
   const { runtime } = fixture();
-  const info = unwrap(await HcmClient.fromRuntime(runtime).serverInfo());
+  const info = unwrap(await new HcmClient(runtime).serverInfo());
   assert.deepEqual([info.dataFolders, info.codeFolders], [["share", "source"], ["wt"]]);
   assert.doesNotMatch(JSON.stringify(info), /never read/);
   const bare = fixture({ lists: false }).runtime;
-  assert.equal(
-    Object.hasOwn(unwrap(await HcmClient.fromRuntime(bare).serverInfo()), "dataFolders"),
-    false,
-  );
+  assert.equal(Object.hasOwn(unwrap(await new HcmClient(bare).serverInfo()), "dataFolders"), false);
   await runtime.close();
   await bare.close();
 });

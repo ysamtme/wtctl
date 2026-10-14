@@ -242,7 +242,7 @@ for (const profile of ["native", "web"] as const)
       assert.deepEqual(runtime.describe("server.info").inputSchema.properties, {
         profile: { type: "string", enum: ["native", "web"] },
       });
-      const sdk = HcmClient.fromRuntime(runtime);
+      const sdk = new HcmClient(runtime);
       const data = unwrap(await sdk.serverInfo(profile === "native" ? {} : { profile }));
       assert.equal(data.profile, profile);
       assert.equal(data.capabilityMask, "0x10001");
@@ -368,7 +368,7 @@ test("большие метаданные сохраняют точные цел
     { outputLimitBytes: 1024, runtimeDir: directory },
   );
   try {
-    const sdk = HcmClient.fromRuntime(runtime);
+    const sdk = new HcmClient(runtime);
     const result = await sdk.serverInfo();
     assert.equal(result.ok, true);
     assert.equal(result.meta.truncated, true);

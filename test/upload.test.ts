@@ -523,7 +523,7 @@ test(
     try {
       const descriptor = runtime.describe("web.pages.uploadFile");
       assert.equal(descriptor.effect, "write");
-      const result = await HcmClient.fromRuntime(runtime).uploadFile({
+      const result = await new HcmClient(runtime).uploadFile({
         filename,
         data: { base64: Buffer.from(bytes).toString("base64") },
         contentType: "application/octet-stream",

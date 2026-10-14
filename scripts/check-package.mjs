@@ -133,9 +133,21 @@ try {
 } finally {
   await rm(alone, { recursive: true, force: true });
 }
+// Точка входа wtctl отдаёт только описанное для вызывающего; остальное — для разработки клиента.
 const sdk = await import(new URL("../dist/index.js", import.meta.url));
-assert.equal(typeof sdk.HcmRuntime, "function");
-assert.equal(typeof sdk.loadConfig, "function");
+assert.deepEqual(Object.keys(sdk).sort(), [
+  "HcmCleanupError",
+  "HcmClient",
+  "HcmError",
+  "HcmOperationError",
+  "HcmStoredResultError",
+  "describeHcmOperation",
+  "getCleanupError",
+  "listHcmOperations",
+  "loadConfig",
+  "unwrap",
+  "withHcmClient",
+]);
 for (const path of Object.values(manifest.exports).flatMap((entry) => Object.values(entry)))
   assert.ok((await stat(resolve(directory, path))).isFile());
 console.log(

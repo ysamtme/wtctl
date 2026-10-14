@@ -32,7 +32,7 @@ test("обзор в runtime и SDK отклоняет нулевые лимит�
       throw new Error("Offline discovery must not contact HCM");
     },
   });
-  const sdk = HcmClient.fromRuntime(runtime);
+  const sdk = new HcmClient(runtime);
   try {
     for (const owner of [runtime, sdk])
       assert.throws(

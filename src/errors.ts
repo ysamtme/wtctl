@@ -1,17 +1,25 @@
 import type { MutationOutcome, OperationError } from "./contracts.js";
 
-/** Ошибка с подсказкой, сериализуемая; тело запроса и учётные данные в неё никогда не попадают. */
+/**
+ * Ошибка клиента: её бросает loadConfig, от неё наследуют остальные ошибки SDK. Тело запроса
+ * и учётные данные в неё не попадают.
+ */
 export class HcmError extends Error {
   constructor(
+    /** Код ошибки: INVALID_CONFIG, WRITE_DISABLED… Программа сравнивает его, а не текст. */
     readonly code: string,
     message: string,
+    /** Что сделать дальше. */
     readonly hint?: string,
+    /** Подробности: путь к неверному аргументу, ID, похожие имена. */
     readonly details?: Readonly<Record<string, unknown>>,
+    /** Исход записи; только у операций записи и выполнения кода. */
     readonly mutationOutcome?: MutationOutcome,
   ) {
     super(message);
     this.name = new.target.name;
   }
+  /** Ошибка в виде error ответа. */
   toJSON(): OperationError {
     return {
       code: this.code,

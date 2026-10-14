@@ -128,9 +128,53 @@ try {
 
 `withHcmClient` закрывает подключение сам. Клиент, созданный через `new HcmClient(config)`, закрывается вручную: `await client.close()` в `finally`. Если ошибкой закончились и операция, и закрытие, бросается ошибка операции, а ошибку закрытия вернёт `getCleanupError(error)`.
 
-## Типы
+## Что экспортирует пакет
 
-В пакете есть типы TypeScript. Основные: `ConnectionConfig`, `HcmResult<T>`, `QueryData<T>`, `ObjectData<T>`, `PatchedObjectData`, `ScriptData<T>`, `HcmOperationError`.
+У каждого имени в типах пакета есть описание, его показывает подсказка редактора и в JavaScript, и в TypeScript.
+
+- `HcmClient` — клиент по подключению из `loadConfig`, методы перечислены [выше](#методы).
+- `withHcmClient(config, action)` — создаёт клиент, вызывает `action` и закрывает подключение.
+- `loadConfig(options)` — подключение из файла подключений, переменных окружения или `settings`.
+- `unwrap(result)` — `data` ответа; бросает `HcmOperationError` или `HcmStoredResultError`.
+- `getCleanupError(error)` — ошибка закрытия подключения, если оно не закрылось после ошибки операции.
+- `HcmError` — ошибка клиента с `code`, `message`, `hint`, `details`, `mutationOutcome`; её бросает `loadConfig`, от неё наследуют остальные.
+- `HcmOperationError` — ошибка операции из `unwrap`; ответ целиком — в `result`.
+- `HcmStoredResultError` — ответ сохранён локально, ID — в `resultId`.
+- `HcmCleanupError` — операция выполнена, но подключение не закрылось; её результат — в `value`.
+- `listHcmOperations(filter)` и `describeHcmOperation(id)` — список операций и описание одной без подключения к серверу.
+
+Типы аргументов и ответов методов:
+
+| Метод | Аргументы | Ответ (`data`) |
+| --- | --- | --- |
+| `status()`, `check()` | — | `StatusData`, `CheckData` |
+| `serverInfo` | `ServerInfoInput` | `ServerInfoData`, в нём `ServerDatabase`, `ServerCatalogLimit`, `ServerInfoProfile` |
+| `types`, `schema` | `SchemaTypesInput`, `SchemaInput` | `SchemaTypesResult`, `SchemaResult` из `SchemaField` |
+| `query`, `queryRows` | `QueryInput`: `QueryOptions`, `FilterValue`, `FilterCondition` | `QueryData<T>`; `queryRows` выдаёт строки `T` по одной |
+| `get`, `getMany` | `ObjectTarget` и `GetOptions`, `GetManyInput` | `ObjectData<T>`, `GetManyData<T>` |
+| `create` | `CreateInput<T>` | `CreatedObjectData` |
+| `patch` | `ObjectTarget` и `PatchOptions`, `PatchOperation` | `PatchedObjectData` или `PatchPreviewData`, в них `PatchChange` |
+| `delete` | `ObjectTarget` и `DeleteOptions` | `DeletedObjectData` |
+| `execute`, `runAgent` | код и `params`, `RunAgentInput` | `ScriptData<T>`, `AgentRunData` |
+| `rpc` | `RpcInput`, `RpcArgument`: `RpcTypedArgument`, `RpcXmlArgument` | значение функции |
+| `listRpc`, `describeRpc` | `RpcCatalogFilter`, `RpcDescribeOptions` | `RpcCatalogPage` из `RpcTargetCard`, `RpcTargetDescription` |
+| `batch` | `BatchInput` из `BatchStep` | `BatchData` |
+| `readResult`, `exportResult` | `ResultReadInput`, `ResultExportInput` | `ResultPage<T>`, `ResultExportData` |
+| `fileExists`, `readFile`, `listFiles` | `FileExistsInput`, `FileReadInput`, `FileListInput` | `FileExistsData`, `FileReadData`, `FileListData` |
+| `writeFile`, `deleteFile` | `FileWriteInput`, `FileDeleteInput` | `FileWriteData`, `FileDeleteData` |
+| `uploadFile`, `uploadChunk`, `clearUploadChunks` | `UploadFileInput`, `UploadChunkInput`, `ClearUploadChunksInput` | `UploadedFileData`, `UploadedChunkData`, `ClearedUploadChunksData` |
+| `heartbeat` | `WebSocketHeartbeatInput` | `WebSocketHeartbeatData` |
+| `listLogs`, `readLog` | `LogListInput`, `LogReadInput` | `LogFiles` из `LogFileSummary`, `LogText` |
+| `searchLogs`, `followLog` | `LogSearchInput` с `LogLevel`, `LogFollowInput` | `LogMatches`, `LogNews` с `LogResetReason`, оба из `LogEntry` |
+| `listOperations`, `describe` | `OperationFilter` | `OperationPage`, `OperationDefinition` с `OperationEffect`, `NativeProfile`, `JsonSchema` |
+
+Общие типы:
+
+- `HcmResult<T>` — ответ метода: данные целиком, сохранённый ответ (`StoredResultData`) или ошибка (`OperationError`); `meta` — `ResultMeta`.
+- `OperationResult` — ответ операции без типа данных: его возвращает `call` и принимает `unwrap`.
+- `MutationOutcome` — исход записи: `not_sent`, `confirmed`, `indeterminate`.
+- `HcmData` — поля объекта или строки каталога.
+- `ConnectionConfig` — подключение из `loadConfig`; `ConfigOptions` — аргументы `loadConfig`, `ConnectionSettings` — его `settings`.
 
 ```typescript
 interface Person { id: string; fullname: string }

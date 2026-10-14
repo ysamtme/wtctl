@@ -3,7 +3,7 @@ import { HcmError, boundedInteger } from "./errors.js";
 import { operationOrder, operationTopic, requireTopic, overviewMatches } from "./operation-map.js";
 import type { OperationDefinition, OperationFilter, OperationPage } from "./contracts.js";
 
-/** Только упакованные метаданные операций: без подключения, учётных данных и проверки сервера. */
+/** Операции клиента по странице, без подключения к серверу: то же, что client.listOperations. */
 export function listHcmOperations(filter: OperationFilter = {}): OperationPage {
   const asked = filter.query?.toLowerCase().trim();
   // Запрос целиком read, write или execute выбирает операции с таким эффектом.
@@ -38,7 +38,10 @@ export function listHcmOperations(filter: OperationFilter = {}): OperationPage {
   };
 }
 
-/** Точное описание одной операции; без подключения и проверки сервера. */
+/**
+ * Описание операции по ID, без подключения к серверу: то же, что client.describe. Неизвестный
+ * ID — HcmError UNKNOWN_OPERATION.
+ */
 export function describeHcmOperation(id: string): OperationDefinition {
   if (typeof id !== "string" || id.length > 128 || !/^[A-Za-z][A-Za-z0-9_.]*$/.test(id))
     throw new HcmError(

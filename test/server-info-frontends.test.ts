@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import { StringDecoder } from "node:string_decoder";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { HcmClient, unwrap, withHcmClient, type ServerInfoData } from "../src/sdk.js";
+import { HcmClient, unwrap, withHcmClient } from "../src/sdk.js";
+import type { ServerInfoData } from "../src/server-info.js";
 import type { ConnectionConfig, OperationResult } from "../src/contracts.js";
 import { mcpJson } from "./mcp-json.js";
 

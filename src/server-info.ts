@@ -4,26 +4,39 @@ import { freezeRegistry } from "./immutable.js";
 import { parseXml } from "./protocol/xml.js";
 import { blank, exactKeys, isType, object, strictResponse, typedText } from "./server-value.js";
 
+/** Профиль протокола, которым читаются сведения. */
 export type ServerInfoProfile = "native" | "web";
+/** Аргументы serverInfo. */
 export interface ServerInfoInput {
+  /** native (по умолчанию) или web; папки dataFolders и codeFolders есть только у native. */
   readonly profile?: ServerInfoProfile;
 }
+/** Лицензионный предел числа объектов одного типа. */
 export interface ServerCatalogLimit {
+  /** Тип объекта. */
   readonly objectTypeName: string;
+  /** Предел числа объектов, строкой. */
   readonly maxRecordsNum: string;
 }
 /** База за сервером по флагам, которыми сам сервер определяет тип своей базы. */
 export type ServerDatabase = "mssql" | "postgresql" | "oracle" | "azure" | "xml" | "other";
+/** Ответ serverInfo. */
 export interface ServerInfoData {
+  /** Профиль, которым прочитаны сведения. */
   readonly profile: ServerInfoProfile;
+  /** Версия сервера. */
   readonly versionServer: string;
+  /** Операционная система сервера. */
   readonly osType: "windows" | "linux";
+  /** Маска возможностей базы, целое строкой. Это не права пользователя. */
   readonly capabilityMask: string;
+  /** База за сервером, по маске возможностей. */
   readonly database: ServerDatabase;
   /** Лицензионные пределы числа объектов по типам, объявленные при запуске, не текущие числа. */
   readonly catalogLimits: readonly ServerCatalogLimit[];
-  /** Профиль native: папки, куда файлы идут через LDS, и те, куда пишет только код на сервере. */
+  /** Профиль native: папки данных, куда writeFile пишет без права execute. */
   readonly dataFolders?: readonly string[];
+  /** Профиль native: папки кода, куда writeFile пишет только с правом execute. */
   readonly codeFolders?: readonly string[];
 }
 

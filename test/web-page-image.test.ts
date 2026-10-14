@@ -119,7 +119,7 @@ test("описание SVG доходит до существующего мар
   try {
     const operation = runtime.describe("web.pages.getImage");
     assert.equal(operation.effect, "read");
-    const client = HcmClient.fromRuntime(runtime);
+    const client = new HcmClient(runtime);
     const result = await client.call("web.pages.getImage", { url: imageUrl, state: "disabled" });
     assert.equal(result.ok, true);
     assert.deepEqual(result.data, {

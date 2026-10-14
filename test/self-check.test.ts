@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checkServer } from "../src/self-check.js";
-import { HcmClient, type CheckData } from "../src/sdk.js";
+import { checkServer, type CheckData } from "../src/self-check.js";
+import { HcmClient } from "../src/sdk.js";
 import { HcmRuntime } from "../src/runtime.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
 import { HttpTransport } from "../src/protocol/transport.js";

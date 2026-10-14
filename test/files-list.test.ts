@@ -32,7 +32,7 @@ test("папка перечисляется по имени с размерам�
     { u: "x-local://share/img", f: "1", b: "0" },
     { u: "x-local://share/a.txt", f: "0", b: "3" },
   ]);
-  const data = unwrap(await HcmClient.fromRuntime(runtime).listFiles({ url: "x-local://share/" }));
+  const data = unwrap(await new HcmClient(runtime).listFiles({ url: "x-local://share/" }));
   assert.deepEqual(data, {
     items: [
       { name: "a.txt", bytes: 3 },

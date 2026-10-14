@@ -51,7 +51,7 @@ async function fixture(
     },
   );
   try {
-    await run(HcmClient.fromRuntime(runtime), server.calls);
+    await run(new HcmClient(runtime), server.calls);
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });

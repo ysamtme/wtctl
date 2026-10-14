@@ -7,7 +7,6 @@ import {
   HcmStoredResultError,
   getCleanupError,
   unwrap,
-  withHcm,
   withHcmClient,
   type HcmResult,
   type HcmSdkRuntime,
@@ -48,7 +47,7 @@ function fixture() {
       closes++;
     },
   };
-  return { runtime, client: HcmClient.fromRuntime(runtime), calls, closes: () => closes };
+  return { runtime, client: new HcmClient(runtime), calls, closes: () => closes };
 }
 
 const cases: {
@@ -395,7 +394,7 @@ test("unwrap никогда не выдаёт сохранённый preview з�
 
 function pagedClient(pages: Record<number, OperationResult>) {
   const starts: unknown[] = [];
-  const client = HcmClient.fromRuntime({
+  const client = new HcmClient({
     ...fixture().runtime,
     call: async (_id, args = {}) => {
       starts.push(args.startPosition);
@@ -545,7 +544,7 @@ test("сбой операции и очистки сохраняет исход�
   );
 });
 
-test("типизированный фасад config и сырая функция в области не расширяют права и не пытаются записать запрещённое", async () => {
+test("withHcmClient не расширяет права подключения и не отправляет запрещённую запись", async () => {
   let requests = 0;
   const options = {
     ...config,
@@ -565,12 +564,6 @@ test("типизированный фасад config и сырая функци�
       config.permissions,
     );
   });
-  await assert.rejects(
-    withHcm(options, async (runtime) =>
-      unwrap(await runtime.call("execute.script", { code: "RESULT=[{value:1}];" })),
-    ),
-    (error: unknown) => error instanceof HcmOperationError && error.code === "EXECUTE_DISABLED",
-  );
   assert.equal(requests, 0);
 });
 

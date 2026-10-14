@@ -5,26 +5,31 @@ import type { WriteOutcome } from "./write-outcome.js";
 import { prepareScript, type ScriptData } from "./scripts.js";
 import { exactKeys, isType, rpcArgument, strictResponse } from "./server-value.js";
 
-/** Один абсолютный URL платформы; предикат не читает содержимое. */
+/** Аргументы fileExists. */
 export interface FileExistsInput {
+  /** Адрес на сервере: x-local://…, до 256 знаков. */
   readonly url: string;
 }
+/** Ответ fileExists. */
 export interface FileExistsData {
   /** Существует файл, папка или адрес хранилища из настроек; содержимое и доступ не проверяются. */
   readonly exists: boolean;
 }
 
-/** Один адрес файла на сервере. */
+/** Аргументы readFile. */
 export interface FileReadInput {
+  /** Адрес файла на сервере: x-local://…. */
   readonly url: string;
   /** "base64" отдаёт байты, даже если файл текстовый. */
   readonly encoding?: "base64";
 }
+/** Ответ readFile: ровно одно из text и base64. */
 export interface FileReadData {
   /** Содержимое, если это текст UTF-8; метка порядка байтов в начале убирается. */
   readonly text?: string;
   /** Содержимое, если это не текст или запрошен base64. */
   readonly base64?: string;
+  /** Размер файла в байтах. */
   readonly bytes: number;
 }
 
@@ -92,15 +97,34 @@ export function fileExistsUrl(value: unknown): string {
   return value;
 }
 
-/** Ровно одно из text (запись в UTF-8) и base64. */
+/** Ровно одно из text и base64. */
 export type FileWriteInput = {
+  /** Адрес файла на сервере: x-local://…; файл заменяется целиком. */
   readonly url: string;
+  /** Текст; пишется в UTF-8. */
   readonly text?: string;
+  /** Двоичные данные в base64. */
   readonly base64?: string;
 };
-export type FileWriteData = { readonly bytes: number; readonly mutationOutcome: "confirmed" };
-export type FileDeleteInput = { readonly url: string };
-export type FileDeleteData = { readonly deleted: true; readonly mutationOutcome: "confirmed" };
+/** Ответ writeFile. */
+export type FileWriteData = {
+  /** Сколько байт записано. */
+  readonly bytes: number;
+  /** Исход записи: подтверждена. */
+  readonly mutationOutcome: "confirmed";
+};
+/** Аргументы deleteFile. */
+export type FileDeleteInput = {
+  /** Адрес файла на сервере: x-local://…. */
+  readonly url: string;
+};
+/** Ответ deleteFile. */
+export type FileDeleteData = {
+  /** Файл удалён. */
+  readonly deleted: true;
+  /** Исход записи: подтверждена. */
+  readonly mutationOutcome: "confirmed";
+};
 
 /** Папки сервера: в папки данных файлы идут через LDS, в папки кода — только код на сервере. */
 export type FileFolders = { readonly data: readonly string[]; readonly code: readonly string[] };
@@ -252,9 +276,31 @@ function codeDeleteRefusal(data: ScriptData): HcmError | undefined {
   return undefined;
 }
 
+/** Аргументы listFiles. */
+export interface FileListInput {
+  /** Папка на сервере: x-local://папка или x-local://папка/путь. */
+  readonly url: string;
+  /** Оставить имена с этой частью; регистр не важен. */
+  readonly search?: string;
+}
+/** Ответ listFiles. */
 export interface FileListData {
   /** По имени; у файла указан размер в байтах, у папки folder:true. */
-  readonly items: readonly ({ name: string; bytes: number } | { name: string; folder: true })[];
+  readonly items: readonly (
+    | {
+        /** Имя файла. */
+        name: string;
+        /** Размер файла в байтах. */
+        bytes: number;
+      }
+    | {
+        /** Имя папки. */
+        name: string;
+        /** Это папка. */
+        folder: true;
+      }
+  )[];
+  /** Сколько элементов в списке. */
   readonly total: number;
 }
 /** Один уровень папки: адреса из ReadDirectory, какие из них папки, и размеры файлов. */

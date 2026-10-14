@@ -6,10 +6,13 @@ import { decodeRpcValue } from "./server-value.js";
 const TARGET = "ms_tools.evaluate_remote_collection_obj";
 const FORM = "x-local://wtv/wtv_remote_collection.xmd";
 
+/** Ответ execute. */
 export interface ScriptData<T = unknown> {
+  /** Массив RESULT из кода; числа, даты и логические значения — строками. */
   readonly result: readonly T[];
-  /** Описания столбцов и дополнительные данные коллекции, если сервер их вернул. */
+  /** Описания столбцов, если сервер их вернул. */
   readonly columns?: readonly unknown[];
+  /** Дополнительные данные коллекции, если сервер их вернул. */
   readonly data?: Readonly<Record<string, unknown>>;
   /** Имя несохранённой коллекции, несшей код; оно попадает в строки лога сервера. */
   readonly executionId: string;
@@ -61,12 +64,15 @@ var started = doc.TopElem.run_agent(PARAMS.objectId, PARAMS.objectIds, Date(), t
 if (started) doc.Save();
 RESULT = [{ started: started, from: from, to: StrXmlDate(Date()) }];`;
 
+/** Ответ runAgent. */
 export interface AgentRunData {
   /** false: сервер не запустил агента; причина — в логе `agent`. */
   readonly started: boolean;
-  /** Местное время сервера вокруг запуска: строки агента в логах лежат между ними. */
+  /** Местное время сервера перед запуском: строки агента в логах лежат после него. */
   readonly startedAt: string;
+  /** Местное время сервера после конца кода агента. */
   readonly finishedAt: string;
+  /** В каком логе искать строки и ошибки агента. */
   readonly hint: string;
 }
 

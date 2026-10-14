@@ -4,9 +4,13 @@ import { join, resolve } from "node:path";
 import { HcmError } from "./errors.js";
 import type { ConnectionConfig } from "./contracts.js";
 
+/** Аргументы loadConfig: откуда взять подключение. */
 export interface ConfigOptions {
+  /** Файл подключений; по умолчанию WTCTL_CONFIG, иначе ~/.wtctl/connections.json. */
   readonly configPath?: string;
+  /** Имя подключения в файле; по умолчанию WTCTL_CONNECTION, иначе defaultConnection файла. */
   readonly connection?: string;
+  /** Пароль вместо пароля из файла и переменных. */
   readonly password?: string;
   /** Настройки кодом, сильнее переменных и файла; с baseUrl — подключение без файла и переменных. */
   readonly settings?: ConnectionSettings;
@@ -140,9 +144,18 @@ export const LOCAL_LIMITS = {
   resultsMaxAgeDays: 7,
   journalMaxBytes: 10 * MIB,
 } as const;
+/** Поля подключения, которые одинаково задают поле файла, переменная окружения и settings. */
+type SettingField =
+  | "timeoutMs"
+  | "maxResponseBytes"
+  | "outputLimitBytes"
+  | "runtimeDir"
+  | "resultsMaxBytes"
+  | "resultsMaxAgeDays"
+  | "journalMaxBytes";
 /**
- * Поля подключения, которые одинаково задают поле файла, переменная окружения и settings:
- * имя, переменная, разбор с умолчанием и границами. Переменные действуют и при файле с connections.
+ * Переменная и разбор с умолчанием и границами каждого такого поля. Переменные действуют и при файле
+ * с connections.
  */
 const SETTINGS = {
   timeoutMs: ["WTCTL_TIMEOUT_MS", integer(30000, 1, 600000)],
@@ -161,15 +174,20 @@ const SETTINGS = {
     "WTCTL_JOURNAL_MAX_BYTES",
     integer(LOCAL_LIMITS.journalMaxBytes, KIB, GIB, true),
   ],
-} as const satisfies Partial<Record<keyof ConnectionConfig, readonly [string, Parse<unknown>]>>;
-type SettingField = keyof typeof SETTINGS;
+} as const satisfies Record<SettingField, readonly [string, Parse<unknown>]>;
 /** Адрес, учётные данные и права: в settings они задают отдельное подключение. */
 const OWN_FIELDS = ["baseUrl", "username", "password", "permissions"] as const;
 
-/** Настройки подключения кодом: loadConfig({ settings }). */
+/**
+ * Поля подключения кодом: loadConfig({ settings }). Сильнее переменных и файла; с baseUrl —
+ * отдельное подключение без файла и переменных, права по умолчанию выключены.
+ */
 export type ConnectionSettings = Partial<
   Pick<ConnectionConfig, "baseUrl" | "username" | "password" | SettingField>
-> & { readonly permissions?: Partial<ConnectionConfig["permissions"]> };
+> & {
+  /** Права отдельного подключения (с baseUrl); по умолчанию выключены. */
+  readonly permissions?: Partial<ConnectionConfig["permissions"]>;
+};
 function credential(
   profile: Record<string, unknown>,
   field: "username" | "password",
@@ -186,8 +204,9 @@ function credential(
 }
 
 /**
- * Читает именованные подключения из JSON или переменные WTCTL_*, не раскрывая учётных данных.
- * settings сильнее и того и другого; settings с baseUrl — подключение целиком, без файла.
+ * Подключение из файла подключений или переменных WTCTL_*, как у CLI. settings сильнее и того
+ * и другого; settings с baseUrl — подключение целиком, без файла. Бросает HcmError INVALID_CONFIG
+ * при ошибке в настройках.
  */
 export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
   const settings = object(options.settings ?? {}, "settings");

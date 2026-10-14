@@ -190,7 +190,7 @@ test("RunMethod в web LDS сохраняет точный типизирова�
         const input = { ...args, argData: frontend === "sdk" ? children : { xml: children } };
         const response =
           frontend === "sdk"
-            ? await HcmClient.fromRuntime(runtime).call("web.lds.runMethod", input)
+            ? await new HcmClient(runtime).call("web.lds.runMethod", input)
             : frontend === "cli"
               ? await cli(runtime, f.config, input)
               : mcpJson(

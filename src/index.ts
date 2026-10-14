@@ -1,40 +1,120 @@
-/** SDK WebSoft HCM: операции native и верхнего уровня идут через тот же runtime, что CLI и MCP. */
-export { HcmRuntime } from "./runtime.js";
-export { listHcmOperations, describeHcmOperation } from "./catalog.js";
+/**
+ * SDK wtctl: клиент сервера WebSoft HCM для программ на JavaScript и TypeScript. Те же операции, права
+ * и ответы, что у CLI и MCP-сервера.
+ * @packageDocumentation
+ */
 export {
-  loadConfig,
-  configExample,
-  type ConfigOptions,
-  type ConnectionSettings,
-} from "./config.js";
+  HcmClient,
+  withHcmClient,
+  unwrap,
+  getCleanupError,
+  HcmOperationError,
+  HcmStoredResultError,
+  HcmCleanupError,
+} from "./sdk.js";
 export { HcmError } from "./errors.js";
-export { NativeGateway, getNativeOperations } from "./native/index.js";
+export { loadConfig, type ConfigOptions, type ConnectionSettings } from "./config.js";
+export { listHcmOperations, describeHcmOperation } from "./catalog.js";
 export type {
   ConnectionConfig,
-  NativeConfig,
-  NativeOperation,
+  JsonSchema,
+  MutationOutcome,
+  NativeProfile,
   OperationDefinition,
+  OperationEffect,
+  OperationError,
   OperationFilter,
   OperationPage,
-  OperationEffect,
   OperationResult,
-  OperationError,
-  MutationOutcome,
 } from "./contracts.js";
-export * from "./sdk.js";
+export type {
+  BatchData,
+  BatchInput,
+  BatchStep,
+  ClearedUploadChunksData,
+  ClearUploadChunksInput,
+  CreateInput,
+  DeleteOptions,
+  FilterCondition,
+  FilterValue,
+  GetManyData,
+  GetManyInput,
+  GetOptions,
+  HcmData,
+  HcmResult,
+  ObjectData,
+  ObjectTarget,
+  PatchOperation,
+  PatchOptions,
+  QueryData,
+  QueryInput,
+  QueryOptions,
+  ResultMeta,
+  ResultPage,
+  ResultReadInput,
+  RpcArgument,
+  RpcInput,
+  RpcTypedArgument,
+  RpcXmlArgument,
+  RunAgentInput,
+  StatusData,
+  StoredResultData,
+  UploadChunkInput,
+  UploadedChunkData,
+  UploadedFileData,
+  UploadFileInput,
+} from "./sdk.js";
+export type { CheckData } from "./self-check.js";
+export type {
+  ServerInfoInput,
+  ServerInfoData,
+  ServerCatalogLimit,
+  ServerDatabase,
+  ServerInfoProfile,
+} from "./server-info.js";
+export type {
+  FileDeleteData,
+  FileDeleteInput,
+  FileExistsData,
+  FileExistsInput,
+  FileListData,
+  FileListInput,
+  FileReadData,
+  FileReadInput,
+  FileWriteData,
+  FileWriteInput,
+} from "./files.js";
+export type {
+  SchemaField,
+  SchemaInput,
+  SchemaResult,
+  SchemaTypesInput,
+  SchemaTypesResult,
+} from "./schema.js";
+export type {
+  CreatedObjectData,
+  DeletedObjectData,
+  PatchedObjectData,
+  PatchPreviewData,
+} from "./objects.js";
+export type { PatchChange } from "./documents.js";
 export type { AgentRunData, ScriptData } from "./scripts.js";
-export { parseServerInfo } from "./server-info.js";
-export { parseFileExists } from "./files.js";
-export type { ServerInfoProfile, ServerCatalogLimit, ServerDatabase } from "./server-info.js";
-export { RpcCatalog } from "./rpc-catalog.js";
+export type { ResultExportData, ResultExportInput } from "./results.js";
 export type {
   RpcCatalogFilter,
   RpcCatalogPage,
+  RpcDescribeOptions,
   RpcTargetCard,
   RpcTargetDescription,
-  RpcDescribeOptions,
 } from "./rpc-catalog.js";
-export { LogReader, LogReadUnavailableError } from "./logs.js";
+export type {
+  LogFollowInput,
+  LogLevel,
+  LogListInput,
+  LogReadInput,
+  LogResetReason,
+  LogSearchInput,
+} from "./logs.js";
 export type {
   LogEntry,
   LogFileSummary,
@@ -43,16 +123,4 @@ export type {
   LogNews,
   LogText,
 } from "./log-output.js";
-export type {
-  LogFile,
-  LogListInput,
-  LogListData,
-  LogReadInput,
-  LogReadData,
-  LogSearchInput,
-  LogSearchData,
-  LogFollowInput,
-  LogFollowData,
-  LogEvent,
-  LogLevel,
-} from "./logs.js";
+export type { WebSocketHeartbeatData, WebSocketHeartbeatInput } from "./protocol/index.js";

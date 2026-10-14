@@ -201,7 +201,7 @@ test("SDK true и false используют один точный фиксир�
     const f = await fixture({ lexical });
     try {
       assert.equal(f.runtime.describe("files.exists").effect, "read");
-      const result = await HcmClient.fromRuntime(f.runtime).fileExists({ url: inputUrl });
+      const result = await new HcmClient(f.runtime).fileExists({ url: inputUrl });
       assert.equal(result.ok, true);
       assert.equal(result.meta.truncated, undefined);
       assert.equal(unwrap(result).exists, lexical === "1");
