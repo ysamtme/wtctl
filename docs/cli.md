@@ -99,7 +99,7 @@ wtctl query 'for $e in collaborators order by $e/fullname return $e' --fields id
 Объекты: чтение одного и нескольких, правка без записи, сохранение без правок, удаление.
 
 ```shell
-wtctl object get collaborator 0x5555555555555501 --fields login,lastname
+wtctl object get 0x5555555555555501 --fields login,lastname
 wtctl object get --ids 0x5555555555555501,0x65CCCE16EC975831 --fields login,lastname
 wtctl object patch group 0x65CCCF743BBDFFB7 --input-file patch.json --preview
 wtctl object patch collaborator 0x65CCCE16EC975831 --resave

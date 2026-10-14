@@ -6,6 +6,7 @@ import {
   integerOption,
   jsonObject,
   listOption,
+  orderOption,
   parseJson,
   parseArguments,
   requirePositional,
@@ -20,6 +21,8 @@ import { VERSION } from "../version.js";
 import { guide, type LocalInstall } from "../guide.js";
 import { resolve } from "node:path";
 import { fileExistsUrl } from "../files.js";
+import { ArgumentError } from "../protocol/error.js";
+import { resolvePhysicalDocumentLocation } from "../protocol/physical-documents.js";
 import { describeHcmOperation, listHcmOperations } from "../catalog.js";
 import type { CliDependencies, CliIo, RuntimePort } from "./types.js";
 
@@ -145,25 +148,39 @@ async function putData(
   return { data: { base64: Buffer.from(bytes).toString("base64") } };
 }
 
+/** Объект задают [ТИП] ID или --id/--url; --type добавляет к ID без типа проверку типа. */
 function objectTarget(args: CliArguments): Record<string, unknown> {
   const id = stringOption(args, "id");
   const url = stringOption(args, "url");
   const type = stringOption(args, "type");
-  if (id !== undefined || url !== undefined || type !== undefined) {
-    if (args.positionals.length !== 2)
-      throw new CliInputError("TYPE ID нельзя смешивать с --id, --url или --type.");
-    if ((id === undefined) === (url === undefined))
-      throw new CliInputError("Нужно выбрать один адрес объекта: --id ID или --url URL.");
-    for (const value of [id, url, type])
-      if (value !== undefined && !value.trim())
-        throw new CliInputError("Адрес и тип объекта должны быть непустыми строками.");
-    return { ...optional("id", id), ...optional("url", url), ...optional("type", type) };
+  for (const value of [id, url, type])
+    if (value !== undefined && !value.trim())
+      throw new CliInputError("Адрес и тип объекта должны быть непустыми строками.");
+  if (id === undefined && url === undefined) {
+    exactPositionals(args, 3, 4);
+    const typed = args.positionals.length === 4;
+    if (typed && type !== undefined) throw new CliInputError("Тип задан и аргументом, и в --type.");
+    const given = args.positionals.at(-1)!;
+    // Тип или адрес на месте ID отклоняется до чтения ввода и настроек.
+    try {
+      resolvePhysicalDocumentLocation(given);
+    } catch (error) {
+      if (!(error instanceof ArgumentError)) throw error;
+      throw new CliInputError(
+        error.message,
+        "Объект задают [ТИП] ID, --id ID или --url АДРЕС; справка: wtctl help object.",
+      );
+    }
+    return {
+      id: given,
+      ...optional("type", typed ? requirePositional(args, 2, "тип объекта") : type),
+    };
   }
-  exactPositionals(args, 4);
-  return {
-    type: requirePositional(args, 2, "тип объекта"),
-    id: requirePositional(args, 3, "строковый id объекта"),
-  };
+  if (args.positionals.length !== 2)
+    throw new CliInputError("Объект задан и аргументом, и через --id или --url.");
+  if (id !== undefined && url !== undefined)
+    throw new CliInputError("Нужно выбрать один адрес объекта: --id ID или --url URL.");
+  return { ...optional("id", id), ...optional("url", url), ...optional("type", type) };
 }
 
 /** Команда настройки целиком: у MCP-сервера от хоста агента wtctl может не быть в PATH. */
@@ -362,7 +379,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         throw new CliInputError(
           'С --catalog в источнике пишут сами условия: {"поле": значение}. Набор {catalog, where, fields} передают без --catalog.',
         );
-      const order = listOption(args, "order");
+      const order = orderOption(args);
       if (order && !catalog && whole?.catalog === undefined)
         throw new CliInputError(
           "--order работает с --catalog; в тексте XQuery сортировку пишут сами: order by $e/поле",
@@ -400,7 +417,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         allowOptions(args, [...OBJECT_TARGET, "ids", "fields"]);
         const ids = listOption(args, "ids");
         if (ids !== undefined && (args.positionals.length !== 2 || stringOption(args, "id")))
-          throw new CliInputError("--ids задаётся без ТИП ID и без --id.");
+          throw new CliInputError("--ids задаётся без [ТИП] ID и без --id.");
         const type = stringOption(args, "type");
         const target = ids === undefined ? objectTarget(args) : { ids, ...optional("type", type) };
         return {
@@ -646,9 +663,9 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
                 type: requirePositional(args, 1, "тип объекта"),
                 ...optional("path", stringOption(args, "path")),
                 ...(args.options.deep ? { deep: true } : {}),
-                ...optional("origin", stringOption(args, "origin")?.split(",")),
+                ...optional("origin", listOption(args, "origin")),
                 ...optional("kind", stringOption(args, "kind")),
-                ...optional("include", stringOption(args, "include")?.split(",")),
+                ...optional("include", listOption(args, "include")),
                 ...optional("language", stringOption(args, "language")),
               }
             : {}),

@@ -299,14 +299,19 @@ test("запрошенное поле, которого нет у типа, на
   assert.deepEqual(object.data, { name: "G" });
   assert.deepEqual([object.emptyFields, object.unknownFields], [["code"], ["nope"]]);
   for (const args of [
-    { catalog: "people", fields: ["id", "roles", "lastname", "nope"] },
-    { query: "for $e in people return $e", fields: ["id", "roles", "lastname", "nope"] },
+    { catalog: "people", fields: ["lastname", "id", "roles", "nope"] },
+    { query: "for $e in people return $e", fields: ["lastname", "id", "roles", "nope"] },
   ]) {
     const page = (await f.runtime.call("runtime.query", args)).data as Record<string, any>;
     // Пустое поле, запрошенное по имени, приходит как ""; структура остаётся такой, как её дал сервер.
     assert.deepEqual(page.items, [
       { id: "1", roles: { role: [{ role_id: "admin" }] }, lastname: "" },
       { id: "2", lastname: "" },
+    ]);
+    // Столбцы выгрузки идут в порядке fields.
+    assert.deepEqual(page.items.map(Object.keys), [
+      ["lastname", "id", "roles"],
+      ["lastname", "id"],
     ]);
     assert.deepEqual(page.unknownFields, ["nope"]);
     assert.match(page.hint, /нет в строке каталога.*objects\.get/);

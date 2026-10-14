@@ -210,6 +210,47 @@ const commandCases: {
     id: "runtime.query",
     args: { catalog: "collaborators", order: ["fullname", "hire_date desc"] },
   },
+  // Шим npm в PowerShell получает id,fullname без кавычек как массив и склеивает его через пробел.
+  {
+    argv: ["query", "--catalog", "collaborators", "--fields", "id fullname"],
+    id: "runtime.query",
+    args: { catalog: "collaborators", fields: ["id", "fullname"] },
+  },
+  {
+    argv: ["query", "--catalog", "collaborators", "--order", "hire_date DESC fullname code asc"],
+    id: "runtime.query",
+    args: { catalog: "collaborators", order: ["hire_date DESC", "fullname", "code asc"] },
+  },
+  {
+    argv: ["schema", "collaborator", "--origin", "own custom", "--include", "methods"],
+    id: "schema.get",
+    args: { type: "collaborator", origin: ["own", "custom"], include: ["methods"] },
+  },
+  {
+    argv: ["object", "get", "--ids", "0x8000000000000001 7"],
+    id: "objects.get",
+    args: { ids: ["0x8000000000000001", "7"] },
+  },
+  {
+    argv: ["object", "get", "0x8000000000000001", "--fields", "id,name"],
+    id: "objects.get",
+    args: { id: "0x8000000000000001", fields: ["id", "name"] },
+  },
+  {
+    argv: ["object", "get", "7", "--type", "collaborator"],
+    id: "objects.get",
+    args: { id: "7", type: "collaborator" },
+  },
+  {
+    argv: ["object", "patch", "7", "--args", '{"name":"Changed"}'],
+    id: "objects.patch",
+    args: { id: "7", patch: { name: "Changed" } },
+  },
+  {
+    argv: ["object", "delete", "7", "--permanent"],
+    id: "objects.delete",
+    args: { id: "7", permanent: true },
+  },
   {
     argv: ["object", "get", "collaborator", "9007199254740993", "--fields", "id,name"],
     id: "objects.get",
@@ -715,6 +756,18 @@ test("справка — текст для чтения: команды и па�
   assert.equal(saved.files.get("query.txt"), (await offline(["help", "query"])).stdout);
 });
 
+test("JSON в аргументе справка пишет как '{\\\"…\\\"}': так его передают и Windows PowerShell 5.1, и PowerShell 7, и bash", () => {
+  const usage = Object.keys(cliHelp().commands as object).flatMap(
+    (command) => (cliHelp(command) as { usage: string[] }).usage,
+  );
+  const inline = usage.flatMap((line) => line.match(/'[[{][^']*'/g) ?? []);
+  assert.ok(inline.length >= 5, inline.join(" "));
+  for (const json of inline) {
+    assert.match(json, /\\"/, json);
+    assert.doesNotMatch(json, /(?<!\\)"/, json);
+  }
+});
+
 test("help --json даёт ту же справку, что и обычный ответ", async () => {
   for (const [argv, command] of [
     [["--json"], undefined],
@@ -1041,6 +1094,12 @@ test("неверные команда, ввод и пределы отказыв
     ["object", "patch", "education_mode", "1"],
     ["object", "delete", "education_mode", "1", "--stdin"],
     ["object", "delete", "education_mode", "1"],
+    ["object", "get"],
+    ["object", "get", "a", "b", "c"],
+    ["object", "get", "7", "--id", "7"],
+    ["object", "get", "", "7"],
+    ["object", "get", "collaborator", "0xZZ"],
+    ["object", "delete", "--url", "x-local://wt_data/owned.xml", "--id", "7", "--permanent"],
     ["rpc", "tools"],
     ["exec"],
     ["result", "write", "id"],

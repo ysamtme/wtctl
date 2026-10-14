@@ -42,7 +42,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   query: {
     summary: "Поиск в каталоге; запрос XQuery.",
     usage: [
-      "wtctl query --catalog collaborators --where '{\"is_dismiss\":false}' --fields id,fullname --limit 20",
+      String.raw`wtctl query --catalog collaborators --where '{\"is_dismiss\":false}' --fields id,fullname --limit 20`,
       'wtctl query --catalog collaborators --input-file where.json --fields id,fullname --order "fullname, hire_date desc"',
       "wtctl query 'for $e in collaborators order by $e/fullname return $e' --fields id,fullname --limit 20",
       "wtctl query --input-file query.json",
@@ -62,18 +62,19 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   object: {
     summary: "Объект: get, create, patch, delete.",
     usage: [
-      "wtctl object get ТИП ID [--fields id,name]",
+      "wtctl object get [ТИП] ID [--fields id,name]",
       "wtctl object get (--id ID | --url АДРЕС) [--type ТИП]",
       "wtctl object get --ids ID,ID,… [--type ТИП] [--fields id,name] — несколько объектов, до 100",
-      'wtctl object create ТИП (--input-file object.json | --stdin | --args \'{"name":"…"}\')',
-      "wtctl object patch ТИП ID --input-file patch.json [--preview] [--resave] [--expected-fingerprint ОТПЕЧАТОК]",
-      "wtctl object delete ТИП ID --permanent [--catalog КАТАЛОГ]",
+      String.raw`wtctl object create ТИП (--input-file object.json | --stdin | --args '{\"name\":\"…\"}')`,
+      "wtctl object patch [ТИП] ID --input-file patch.json [--preview] [--resave] [--expected-fingerprint ОТПЕЧАТОК]",
+      "wtctl object delete [ТИП] ID --permanent [--catalog КАТАЛОГ]",
     ],
     notes: [
+      "ТИП перед ID не обязателен: с ним команда проверяет, что объект этого типа.",
       "patch.json — {путь: значение}, [{op:'set'|'remove', path, value}] или {patch:{…}, remove:[пути]}.",
       "Путь: name; a.b; items[0]; custom_elems.custom_elem[name=код].value.",
       "JSON для create и patch принимается тремя способами: --input-file, --stdin, --args.",
-      "patch и delete принимают объект и по адресу: (--id ID | --url АДРЕС) [--type ТИП] вместо ТИП ID.",
+      "patch и delete принимают объект и по адресу: (--id ID | --url АДРЕС) [--type ТИП] вместо [ТИП] ID.",
       "--preview показывает изменения без записи.",
       "Правка, которая ничего не меняет, не записывается (noop:true).",
       "--resave сохраняет документ и без правок — сервер заново заполняет поля, которые берёт из связанных объектов; --resave можно дать без JSON.",
@@ -85,7 +86,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   exec: {
     summary: "Выполнить код на сервере (SP-XML Script).",
     usage: [
-      "wtctl exec --input-file script.js [--params-file params.json | --params '{…}']",
+      String.raw`wtctl exec --input-file script.js [--params-file params.json | --params '{\"name\":\"…\"}']`,
       "wtctl exec --stdin",
     ],
     notes: [
@@ -102,7 +103,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
     usage: [
       "wtctl rpc list [--query ТЕКСТ] [--library БИБЛИОТЕКА] [--method ФУНКЦИЯ] [--all] [--limit N] [--cursor N]",
       "wtctl rpc describe БИБЛИОТЕКА.ФУНКЦИЯ [--source]",
-      "wtctl rpc tools get_version --args '[\"wtv\"]'",
+      String.raw`wtctl rpc tools get_version --args '[\"wtv\"]'`,
       "wtctl rpc БИБЛИОТЕКА ФУНКЦИЯ --input-file args.json [--async]",
     ],
     notes: [
@@ -187,7 +188,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
       "wtctl api list [--offline]",
       "wtctl api list --topic ТЕМА | --query ТЕКСТ [--effect read|write|execute|unknown] [--limit N] [--cursor N] [--offline]",
       "wtctl api describe ОПЕРАЦИЯ [--offline]",
-      "wtctl api call ОПЕРАЦИЯ (--input-file args.json | --stdin | --args '{…}')",
+      String.raw`wtctl api call ОПЕРАЦИЯ (--input-file args.json | --stdin | --args '{\"id\":\"…\"}')`,
     ],
     notes: [
       "list без фильтров показывает темы и ID операций.",

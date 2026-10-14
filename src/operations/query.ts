@@ -7,6 +7,7 @@ import {
   looksLikeDate,
   looksLikeDecimalId,
   orderFields,
+  projectFields,
   queryPage,
   rowTag,
   withoutFalseOffset,
@@ -182,7 +183,8 @@ export const queryOperations = [
           const row = withRepeated(item, shape.repeated) as Record<string, unknown>;
           for (const field of asked)
             if (!Object.hasOwn(row, field)) row[field] = shape.repeated.has(field) ? [] : "";
-          return row;
+          // Дописанное поле встаёт на своё место: столбцы идут в порядке fields.
+          return projectFields(row, args.fields);
         }),
         ...(unknownFields.length
           ? {

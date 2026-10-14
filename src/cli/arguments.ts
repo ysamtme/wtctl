@@ -159,12 +159,21 @@ export function stringOption(args: CliArguments, name: string): string | undefin
   return typeof value === "string" ? value : undefined;
 }
 
-/** Список через запятую: элементы обрезаются по пробелам, пустые отбрасываются. */
+/**
+ * Список через запятую или пробел. PowerShell передаёт шиму npm `id,fullname` без кавычек
+ * массивом, а шим склеивает его через пробел; в именах полей и ID пробелов нет.
+ */
 export function listOption(args: CliArguments, name: string): string[] | undefined {
   return stringOption(args, name)
-    ?.split(",")
-    .map((item) => item.trim())
+    ?.split(/[\s,]+/)
     .filter(Boolean);
+}
+
+/** Поля сортировки делятся так же, но asc и desc остаются при поле перед ними. */
+export function orderOption(args: CliArguments): string[] | undefined {
+  return stringOption(args, "order")
+    ?.split(",")
+    .flatMap((part) => part.match(/\S+(?:\s+(?:asc|desc)(?=\s|$))?/gi) ?? []);
 }
 
 export function integerOption(
