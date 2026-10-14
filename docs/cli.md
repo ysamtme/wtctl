@@ -141,7 +141,8 @@ wtctl files read x-local://wt/web/default.html --output page.json
 | [batch-read.json](../examples/batch-read.json) | несколько операций одним вызовом | `wtctl run --input-file examples/batch-read.json` |
 | [connections.example.json](../examples/connections.example.json) | файл подключений | — |
 | [mcp.example.json](../examples/mcp.example.json) | MCP-сервер в конфиге приложения | — |
-| [sdk.mjs](../examples/sdk.mjs) | скрипт на SDK: список сотрудников постранично | — |
+| [export-csv.ps1](../examples/export-csv.ps1) | скрипт на PowerShell: сотрудники в CSV постранично | `.\examples\export-csv.ps1 -Path collaborators.csv` |
+| [sdk.mjs](../examples/sdk.mjs) | скрипт на SDK: список сотрудников через `queryRows` | `node examples/sdk.mjs` |
 
 ## Ввод
 
@@ -187,6 +188,109 @@ CLI печатает в stdout одну строку JSON:
 - ошибка в аргументах (код 2) и ошибка в настройках подключения (код 1) печатаются в stderr. Файл при этом не создаётся, а файл от прошлого запуска остаётся как был, поэтому сначала нужно проверить код выхода.
 
 Без `--output` ответ больше `outputLimitBytes` сохраняется локально, а CLI печатает `meta.resultId` и завершается с кодом 3. Операция при этом выполнена: запись или код на сервере повторять не нужно. Дочитать его можно через `wtctl result read ID` или `wtctl result export ID --to ФАЙЛ`: [сохранённые результаты](configuration.md#сохранённые-результаты).
+
+## Скрипты
+
+Рецепты записаны для PowerShell. В bash и cmd команды те же, отличаются только кавычки, см. [Ввод](#ввод).
+
+`wtctl` печатает в UTF-8, а PowerShell читает вывод команды в кодировке консоли. В консоли с кодовой страницей 866 кириллица в ответе портится, поэтому скрипт, который разбирает ответ, начинается с этой строки:
+
+```powershell
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+```
+
+### Выгрузка в CSV
+
+```powershell
+$env:WTCTL_OUTPUT_LIMIT_BYTES = 1048576
+$rows = @()
+$start = 0
+while ($null -ne $start) {
+  $out = wtctl query --catalog collaborators --where '{\"is_dismiss\":false}' --fields id,fullname,hire_date --order id --limit 500 --start-position $start
+  if ($LASTEXITCODE -eq 3) { throw 'Страница не поместилась в ответ: уменьшить --limit.' }
+  if ($LASTEXITCODE -ne 0) { throw "wtctl завершился с кодом ${LASTEXITCODE}: $out" }
+  $page = ($out | ConvertFrom-Json).data
+  if ($page.incomplete) { throw "Сервер отверг запрос: $($page.hint)" }
+  $rows += $page.items
+  $start = $page.nextStartPosition
+}
+$rows | Export-Csv collaborators.csv -NoTypeInformation -Encoding UTF8
+```
+
+- `WTCTL_OUTPUT_LIMIT_BYTES` поднимает предел ответа до наибольшего, 1 МБ: 500 строк в 24 КБ по умолчанию не помещаются.
+- Код 3 значит, что страница всё равно не поместилась: в `$out` только её начало, а не все строки.
+- `incomplete` — страница, которую отвергла база данных, а не конец строк.
+- Столбцы идут в порядке `--fields`.
+- `Export-Csv` в Windows PowerShell 5.1 без `-Encoding UTF8` пишет кириллицу знаками `?`. Excel узнаёт UTF-8 по BOM: в PowerShell 7 для него нужно `-Encoding utf8BOM`.
+
+Тот же скрипт с параметрами — [examples/export-csv.ps1](../examples/export-csv.ps1).
+
+### Объект со списком
+
+Группа с одним сотрудником, затем ещё один сотрудник в ней:
+
+```powershell
+$created = wtctl object create group --input-file group.json | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) { throw "wtctl завершился с кодом $LASTEXITCODE" }
+wtctl object patch $created.data.id --input-file add-member.json
+```
+
+`group.json`:
+
+```json
+{ "code": "sales", "name": "Отдел продаж", "collaborators": { "collaborator": [{ "collaborator_id": "0x5555555555555501" }] } }
+```
+
+`add-member.json`:
+
+```json
+{ "collaborators.collaborator[collaborator_id=0x65CCCE16EC975831].collaborator_id": "0x65CCCE16EC975831" }
+```
+
+- Повторяемый элемент — всегда список, даже из одного элемента: `collaborator` — массив.
+- Список целиком записывает структура-родитель `collaborators`. В правке так же, и прежние элементы при этом заменяются.
+- Запись по ключу добавляет элемент, если элемента с этим ключом нет. Когда элементу нужен только ключ, значение повторяет ключ.
+- Убрать один элемент: `{"remove":["collaborators.collaborator[collaborator_id=0x65CCCE16EC975831]"]}`.
+
+### Перевод сотрудника в другое подразделение
+
+Подразделение сотрудника — это подразделение его должности. Сначала меняется должность, затем карточка сотрудника сохраняется заново:
+
+```powershell
+$person = '0x65CCCE16EC975831'
+$subdivision = '0x66A4196000001003'
+$position = (wtctl object get $person --fields position_id | ConvertFrom-Json).data.data.position_id
+@{ parent_object_id = $subdivision } | ConvertTo-Json | Set-Content position.json -Encoding UTF8
+wtctl object patch $position --input-file position.json
+wtctl object patch $person --resave
+```
+
+Без `--resave` карточка сотрудника и каталог `collaborators` показывают прежнее подразделение: название должности и подразделения в них — копии, их сервер заполняет при сохранении сотрудника. Если должности нет, `position_id` придёт в `data.emptyFields`.
+
+### Код с параметрами из файла
+
+```shell
+wtctl exec --input-file examples/script-params.js --params-file params.json
+```
+
+`params.json`:
+
+```json
+{ "name": "Иван", "limit": 5 }
+```
+
+В коде параметры — готовый объект `PARAMS`, в текст кода их подставлять не нужно. ID передаётся строкой, в коде из неё получают число: `Int(PARAMS.id)`.
+
+### Значения в ответе
+
+- Логические значения — строки `"1"` и `"0"`. В PowerShell непустая строка — истина, и `"0"` тоже, поэтому сравнивать нужно со строкой: `$row.is_dismiss -eq '1'`.
+- Числа — тоже строки.
+- ID из кода на сервере приходит в десятичной записи: `7336568271880514489` — тот же объект, что `0x65D0B9F8F3D6EBB9`. Команды принимают его как есть.
+
+### Windows PowerShell 5.1
+
+- Кириллицу через `--stdin` Windows PowerShell 5.1 отправляет знаками `?`: в `$OutputEncoding` там `us-ascii`, и поиск по такому условию молча ничего не находит. Перед такой командой: `$OutputEncoding = [Text.UTF8Encoding]::new()`.
+- JSON из переменной в аргументе теряет кавычки. Такой JSON записывается в файл и передаётся через `--input-file`, как `position.json` выше. Файл пишет `Set-Content -Encoding UTF8`: `>` пишет UTF-16, его команда не прочитает.
 
 ## Несколько операций одним вызовом
 

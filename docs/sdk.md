@@ -69,20 +69,28 @@ const config = loadConfig({
 
 Список операций для `call` возвращает `client.listOperations({query})`, аргументы одной операции — `client.describe(id)`. Без подключения к серверу то же делают `listHcmOperations()` и `describeHcmOperation(id)`.
 
-## Постраничное чтение
+## Все строки запроса
 
 ```javascript
-let startPosition = 0;
-while (startPosition !== undefined) {
-  const page = unwrap(
-    await client.query({ catalog: "collaborators", fields: ["id", "fullname"], order: ["id"], limit: 500, startPosition }),
-  );
-  for (const row of page.items) handle(row);
-  startPosition = page.nextStartPosition;
-}
+const rows = client.queryRows({ catalog: "collaborators", fields: ["id", "fullname"], order: ["id"], limit: 500 });
+for await (const row of rows) handle(row);
 ```
 
-`nextStartPosition` приходит, пока строки не кончились. Пустая страница с `incomplete: true` — это не конец данных, а запрос, который сервер отверг, поэтому `page.incomplete` нужно проверять. Страницы не дают снимка: если данные меняются во время чтения, строка может повториться или потеряться.
+`queryRows` принимает те же аргументы, что `query`, и сам листает страницы: `limit` — размер страницы, а не число строк. Запрос XQuery перебирается так же: `client.queryRows({ query: "for $e in … return $e", fields: ["id"] })`. Все строки массивом — `await Array.fromAsync(client.queryRows(…))`.
+
+- Страница с `incomplete: true` — это не конец данных, а запрос, который сервер отверг. `queryRows` выдаёт её строки, затем бросает `HcmOperationError` с кодом `QUERY_INCOMPLETE` и подсказкой сервера.
+- Страница больше `outputLimitBytes` бросает `HcmStoredResultError`, как `unwrap`: см. [большие ответы](#большие-ответы).
+- Страницы не дают снимка: если данные меняются во время чтения, строка может повториться или потеряться.
+
+Одна страница — `query`: `nextStartPosition` в её ответе приходит, пока строки не кончились, и передаётся в `startPosition` следующего вызова.
+
+## Значения
+
+- Логические значения в строке каталога и в документе — строки `"1"` и `"0"`. Строка `"0"` в JavaScript — истина, поэтому сравнивать нужно со строкой: `row.is_dismiss === "1"`. В условиях `where` и в правке пишут `true` и `false`.
+- Числа — тоже строки: `"5"`.
+- ID — строка. Код на сервере (`execute`) отдаёт ID в десятичной записи: `"7336568271880514489"` — тот же объект, что `"0x65D0B9F8F3D6EBB9"`. Методы принимают его как есть. В `Number` ID превращать нельзя: теряются разряды.
+- Повторяемый элемент — всегда список, даже из одного элемента: `doc.collaborators.collaborator` — массив.
+- Даты — местное время сервера без смещения: `"2026-10-02T16:42:00"`.
 
 ## Большие ответы
 
@@ -94,7 +102,7 @@ while (startPosition !== undefined) {
   - Список (`items`, `types`, `fields`, шаги пакета) читается по элементам: они лежат в `items` страницы, имя списка — в `list`. `cutBySize` значит, что страница вышла короче запрошенной.
   - `exportResult({ resultId, path, format: "jsonl" })` пишет список в файл по строке на элемент.
 
-Большие выборки читаются постранично и с `fields`.
+Большие выборки читаются через `queryRows` и с `fields`.
 
 ## Запись
 
