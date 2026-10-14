@@ -18,7 +18,7 @@ import {
   queryPage,
   withoutFalseOffset,
 } from "./query.js";
-import { withRepeated, type SchemaReader } from "./schema.js";
+import { serverDatabases, withRepeated, type SchemaReader } from "./schema.js";
 import { readServerInfo } from "./server-info.js";
 import { isServerDate, verifyFields, verifyRemovals } from "./verification.js";
 import type { BinaryResult } from "./contracts.js";
@@ -231,24 +231,14 @@ export class ServerObjects {
     // Адрес, который не разбирается как URL, базу не называет.
     const url = documentUrl ? URL.parse(documentUrl) : null;
     if (url?.protocol === "x-local:") dbName = url.hostname;
-    if (dbName === undefined || !Array.isArray(info.databases)) return undefined;
-    const db = info.databases.find(
-      (value) => value && typeof value === "object" && "id" in value && value.id === dbName,
-    );
-    if (!db || typeof db !== "object" || !("catalogs" in db) || !Array.isArray(db.catalogs))
-      return undefined;
-    const named = (value: unknown, objectType: string, id?: string): boolean =>
-      !!value &&
-      typeof value === "object" &&
-      "object_type" in value &&
+    const catalogs = serverDatabases(info).find((db) => db.id === dbName)?.catalogs ?? [];
+    const named = (value: Record<string, unknown>, objectType: string, id?: string): boolean =>
       value.object_type === objectType &&
-      "id" in value &&
       typeof value.id === "string" &&
       (id === undefined || value.id === id);
-    let matches = db.catalogs.filter((value: unknown) => named(value, type));
+    let matches = catalogs.filter((value) => named(value, type));
     // У некоторых типов (event) сервер оставляет каталог без типа объекта.
-    if (!matches.length)
-      matches = db.catalogs.filter((value: unknown) => named(value, "", `${type}s`));
+    if (!matches.length) matches = catalogs.filter((value) => named(value, "", `${type}s`));
     return matches.length === 1 ? identifier(inputObject(matches[0]).id, "catalog") : undefined;
   }
   /**
@@ -382,11 +372,7 @@ export class ServerObjects {
     const dbName = args.dbName === undefined ? "wt_data" : identifier(args.dbName, "dbName");
     // На базу, которой нет, сервер выдаёт ID, а запись отвечает HTTP 500 с неясным исходом.
     const info = await this.server.applicationInfo().catch(() => undefined);
-    const databases = Array.isArray(info?.databases)
-      ? info.databases.flatMap((db: unknown) =>
-          db && typeof db === "object" && "id" in db && typeof db.id === "string" ? [db.id] : [],
-        )
-      : [];
+    const databases = serverDatabases(info ?? {}).map((db) => db.id);
     if (databases.length && !databases.includes(dbName))
       throw new HcmError(
         "INVALID_ARGUMENT",

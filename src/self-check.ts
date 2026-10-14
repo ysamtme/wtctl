@@ -1,7 +1,7 @@
 import type { ConnectionConfig } from "./contracts.js";
 import { HcmError, inputObject, requiredString } from "./errors.js";
 import { WsHcmApiError } from "./protocol/error.js";
-import { languageFileUrl } from "./schema.js";
+import { languageFileUrl, serverDatabases } from "./schema.js";
 import { platformFailure } from "./platform-errors.js";
 
 export interface CheckData {
@@ -90,8 +90,8 @@ export async function checkServer(config: ConnectionConfig, invoke: Invoke): Pro
   await probe("appInfo", "native.spxml2.getAppInfo", { fastStart: true }, (v) => {
     info = inputObject(v);
     if (typeof info.ui_lang_id === "string") report.language = text(info.ui_lang_id, 16);
-    const database = rows(info.databases).find((db) => db.id === text(info.default_db_name));
-    if (!rows(database?.catalogs).length) throw new Error();
+    const database = serverDatabases(info).find((db) => db.id === text(info.default_db_name));
+    if (!database?.catalogs.length) throw new Error();
   });
   await probe("query", "runtime.query", { catalog: "collaborators", limit: 1, fields: ["id"] });
   await probe("document", "objects.get", {

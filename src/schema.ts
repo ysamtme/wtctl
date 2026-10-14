@@ -98,6 +98,12 @@ const parser = createPlatformXmlParser({
 const list = (value: unknown): Data[] =>
   (Array.isArray(value) ? value : [value]).filter((v): v is Data => !!v && typeof v === "object");
 const data = (value: unknown): Data => list(value)[0] ?? {};
+/** Базы сервера из сведений о приложении: имя и каталоги каждой; запись без имени пропускается. */
+export function serverDatabases(info: Data): { id: string; catalogs: Data[] }[] {
+  return list(info.databases).flatMap((db) =>
+    typeof db.id === "string" ? [{ id: db.id, catalogs: list(db.catalogs) }] : [],
+  );
+}
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
 const name = (node: Node): string => Object.keys(node).find((key) => !/^[#?:]/.test(key)) ?? "";
 const children = (node: Node): Node[] =>
@@ -306,9 +312,9 @@ export class SchemaReader {
    * перечисляет общие списки (common.…): это не каталоги, и они пропускаются.
    */
   private catalogs(info: Data): Data[] {
-    const databases = list(info.databases);
-    return list(
-      (databases.find((db) => db.id === info.default_db_name) ?? databases[0])?.catalogs,
+    const databases = serverDatabases(info);
+    return (
+      (databases.find((db) => db.id === info.default_db_name) ?? databases[0])?.catalogs ?? []
     ).filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)));
   }
   /** Тип строк каталога: названный сервером или, если нет, по форме каталога. */
