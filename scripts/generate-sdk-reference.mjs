@@ -161,12 +161,12 @@ function classSection({ name, symbol }) {
       member.declarations?.some((item) => item.parent === symbol.valueDeclaration) &&
       !internal(member)
     )
-      unsupported(`${name}.${member.name}`, "статический член");
+      unsupported(`${name}.${member.name}`, "статическое поле или метод");
   const instance = checker.getDeclaredTypeOfSymbol(symbol);
   const base = instance.getBaseTypes()?.[0];
   if (base && types.has(base.symbol.name))
     lines.push(`Наследует [${base.symbol.name}](${anchor(base.symbol.name)}).`, "");
-  // Свои члены класса, в том числе поля из параметров конструктора (code у HcmError).
+  // Свои поля и методы класса, в том числе поля из параметров конструктора (code у HcmError).
   const own = (member) =>
     member.declarations?.some(
       (item) =>

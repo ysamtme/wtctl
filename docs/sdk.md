@@ -56,7 +56,7 @@ const config = loadConfig({
 | --- | --- |
 | Состояние и проверка | `status()`, `check()`, `serverInfo()`, `heartbeat()` |
 | Типы и поля | `types({search})`, `schema({type, search, path, deep, origin, kind})` |
-| Поиск | `query({catalog, where, fields, order, limit, startPosition})`, `query({query: "текст XQuery", fields})` |
+| Поиск | `query({catalog, where, fields, order, limit, startPosition})`, `query({query: "текст XQuery", fields})`, все строки — `queryRows(…)` |
 | Объект | `get({id, fields})`, `getMany({ids, fields})`, `create({type, data})`, `patch({id, patch, remove, preview, expectedFingerprint})`, `delete({id, permanent: true})` |
 | Код и функции | `execute(code, params)`, `runAgent({id, objectId, objectIds})`, `rpc({library, method, arguments})`, `listRpc({query})`, `describeRpc("библиотека.функция", {source: true})` |
 | Логи | `listLogs()`, `searchLogs({file, text, level})`, `readLog({file})`, `followLog({file, cursor})` |
@@ -78,7 +78,7 @@ for await (const row of rows) handle(row);
 
 `queryRows` принимает те же аргументы, что `query`, и сам листает страницы: `limit` — размер страницы, а не число строк. Запрос XQuery перебирается так же: `client.queryRows({ query: "for $e in … return $e", fields: ["id"] })`. Все строки массивом — `await Array.fromAsync(client.queryRows(…))`.
 
-- Страница с `incomplete: true` — это не конец данных, а запрос, который сервер отверг. `queryRows` выдаёт её строки, затем бросает `HcmOperationError` с кодом `QUERY_INCOMPLETE` и подсказкой сервера.
+- Страница с `incomplete: true` — это не конец данных, а запрос, который отвергла база данных. `queryRows` выдаёт её строки, затем бросает `HcmOperationError` с кодом `QUERY_INCOMPLETE` и подсказкой сервера.
 - Страница больше `outputLimitBytes` бросает `HcmStoredResultError`, как `unwrap`: см. [большие ответы](#большие-ответы).
 - Страницы не дают снимка: если данные меняются во время чтения, строка может повториться или потеряться.
 

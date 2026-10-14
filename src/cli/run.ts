@@ -22,8 +22,6 @@ import { VERSION } from "../version.js";
 import { guide, type LocalInstall } from "../guide.js";
 import { resolve } from "node:path";
 import { fileExistsUrl } from "../files.js";
-import { ArgumentError } from "../protocol/error.js";
-import { resolvePhysicalDocumentLocation } from "../protocol/physical-documents.js";
 import { describeHcmOperation, listHcmOperations } from "../catalog.js";
 import type { CliDependencies, CliIo, RuntimePort } from "./types.js";
 
@@ -164,13 +162,12 @@ function objectTarget(args: CliArguments): Record<string, unknown> {
     const typed = args.positionals.length === 4;
     if (typed && type !== undefined) throw new CliInputError("Тип задан и аргументом, и в --type.");
     const given = args.positionals.at(-1)!;
-    // Тип или адрес на месте ID отклоняется до чтения ввода и настроек.
-    try {
-      resolvePhysicalDocumentLocation(given);
-    } catch (error) {
-      if (!(error instanceof ArgumentError)) throw error;
-      throw new CliInputError(error.message, "Объект задают [ТИП] ID, --id ID или --url АДРЕС.");
-    }
+    // Тип или адрес на месте ID отклоняется до чтения ввода и настроек; точную запись ID проверяет операция.
+    if (!/^(?:\d+|0x[0-9a-f]+)$/i.test(given))
+      throw new CliInputError(
+        "ID объекта записан неверно: нужна строка 0x… или десятичное число без знака.",
+        "Объект задают [ТИП] ID, --id ID или --url АДРЕС.",
+      );
     return {
       id: given,
       ...optional("type", typed ? requirePositional(args, 2, "тип объекта") : type),

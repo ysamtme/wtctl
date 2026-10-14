@@ -210,14 +210,14 @@ while ($null -ne $start) {
   if ($LASTEXITCODE -eq 3) { throw 'Страница не поместилась в ответ: уменьшить --limit.' }
   if ($LASTEXITCODE -ne 0) { throw "wtctl завершился с кодом ${LASTEXITCODE}: $out" }
   $page = ($out | ConvertFrom-Json).data
-  if ($page.incomplete) { throw "Сервер отверг запрос: $($page.hint)" }
+  if ($page.incomplete) { throw "База данных отвергла запрос: $($page.hint)" }
   $rows += $page.items
   $start = $page.nextStartPosition
 }
 $rows | Export-Csv collaborators.csv -NoTypeInformation -Encoding UTF8
 ```
 
-- `WTCTL_OUTPUT_LIMIT_BYTES` поднимает предел ответа до наибольшего, 1 МБ: 500 строк в 24 КБ по умолчанию не помещаются.
+- `WTCTL_OUTPUT_LIMIT_BYTES` поднимает [предел ответа](configuration.md#сохранённые-результаты) до наибольшего: в предел по умолчанию 500 строк не помещаются.
 - Код 3 значит, что страница всё равно не поместилась: в `$out` только её начало, а не все строки.
 - `incomplete` — страница, которую отвергла база данных, а не конец строк.
 - Столбцы идут в порядке `--fields`.

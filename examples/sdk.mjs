@@ -6,7 +6,7 @@ import { loadConfig, withHcmClient } from 'wtctl';
 const config = loadConfig({ settings: { outputLimitBytes: 1024 * 1024 } });
 
 await withHcmClient(config, async (client) => {
-  // queryRows сам листает страницы; отвергнутая сервером страница — ошибка, а не конец строк.
+  // queryRows сам листает страницы; отвергнутая базой данных страница — ошибка, а не конец строк.
   const rows = client.queryRows({
     catalog: 'collaborators',
     where: { is_dismiss: false },

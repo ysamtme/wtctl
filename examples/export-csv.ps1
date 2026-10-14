@@ -25,7 +25,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "wtctl завершился с кодом ${LASTEXITCODE}: $out" }
     $page = ($out | ConvertFrom-Json).data
     # incomplete — страница, которую отвергла база данных, а не конец строк.
-    if ($page.incomplete) { throw "Сервер отверг запрос: $($page.hint)" }
+    if ($page.incomplete) { throw "База данных отвергла запрос: $($page.hint)" }
     $rows += $page.items
     $start = $page.nextStartPosition
   }
