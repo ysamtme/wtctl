@@ -1,4 +1,5 @@
 import { HcmError } from "./errors.js";
+import type { HcmServer } from "./hcm-server.js";
 import { freezeRegistry } from "./immutable.js";
 import { parseXml } from "./protocol/xml.js";
 import { blank, exactKeys, isType, object, strictResponse, typedText } from "./server-value.js";
@@ -119,4 +120,18 @@ export function parseServerInfo(
       "Ожидаются четыре поля функции ms_tools.get_admin_init_server_data: sys_db_capability, catalog_limits, version_server, os_type. Её ответ как есть покажет rpc.call.",
     );
   }
+}
+
+/** Сведения о сервере — тем же вызовом, которым их читает админка при запуске. */
+export async function readServerInfo(
+  server: Pick<HcmServer, "read">,
+  profile: ServerInfoProfile = "native",
+): Promise<ServerInfoData> {
+  return parseServerInfo(
+    await server.read(`${profile}.rpc.call`, {
+      target: "ms_tools.get_admin_init_server_data",
+      args: [],
+    }),
+    profile,
+  );
 }

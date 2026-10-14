@@ -4,7 +4,7 @@ import { findXmlNode } from "../protocol/xml.js";
 import { parsePhysicalDocumentId } from "../protocol/physical-documents.js";
 import { checkServer, type CheckData } from "../self-check.js";
 import { rpcArgument } from "../server-value.js";
-import { parseServerInfo, type ServerInfoData, type ServerInfoProfile } from "../server-info.js";
+import { readServerInfo } from "../server-info.js";
 
 /** Проверка подключения, в которой отказал хотя бы один шаг: ошибка поверх данных. */
 const checkFailed: NonNullable<ReplyRules["failed"]> = (data) => {
@@ -22,19 +22,6 @@ const checkFailed: NonNullable<ReplyRules["failed"]> = (data) => {
   };
 };
 
-async function serverInfo(
-  context: OperationContext,
-  profile: ServerInfoProfile,
-): Promise<ServerInfoData> {
-  return parseServerInfo(
-    await context.server.read(`${profile}.rpc.call`, {
-      target: "ms_tools.get_admin_init_server_data",
-      args: [],
-    }),
-    profile,
-  );
-}
-
 export const connectionOperations = [
   operation({
     id: "server.info",
@@ -44,7 +31,7 @@ export const connectionOperations = [
     inputSchema: schema({ profile: { type: "string", enum: ["native", "web"] } }),
     summary: "Версия, операционная система и ограничения сервера.",
     run: async (context, args) => {
-      const info = await serverInfo(context, args.profile === "web" ? "web" : "native");
+      const info = await readServerInfo(context.server, args.profile === "web" ? "web" : "native");
       const folders = info.profile === "native" ? await context.files.folders() : undefined;
       return folders ? { ...info, dataFolders: folders.data, codeFolders: folders.code } : info;
     },
@@ -65,7 +52,7 @@ export const connectionOperations = [
         typeof info?.auth_object_url === "string"
           ? parsePhysicalDocumentId(info.auth_object_url)
           : undefined;
-      const database = (await serverInfo(context, "native").catch(() => undefined))?.database;
+      const database = (await readServerInfo(context.server).catch(() => undefined))?.database;
       return {
         connection: context.config.name,
         baseUrl: context.config.baseUrl,

@@ -19,6 +19,7 @@ import {
   withoutFalseOffset,
 } from "./query.js";
 import { withRepeated, type SchemaReader } from "./schema.js";
+import { readServerInfo } from "./server-info.js";
 import { isServerDate, verifyFields, verifyRemovals } from "./verification.js";
 import type { BinaryResult } from "./contracts.js";
 
@@ -556,12 +557,17 @@ export class ServerObjects {
     await this.journal({ mutationId, operation: "objects.delete", stage: "prepared", objectId });
     out.note({ mutationId, objectId, url: loaded.url });
     await this.server.call("native.lds.deleteDoc", { url: loaded.url, strictDelete: true }, out);
-    if (catalog !== undefined && (await this.catalogHasId(catalog, objectId)))
+    if (catalog !== undefined && (await this.catalogHasId(catalog, objectId))) {
+      // Замечено на 2025.2.1470 и 2025.2.1535 с MS SQL; на 2025.1 и на PostgreSQL удаление проходит.
+      const info = await readServerInfo(this.server).catch(() => undefined);
       throw new HcmError(
         "READ_BACK_MISMATCH",
         "После удаления объект всё ещё есть в каталоге.",
-        "Перед повтором удаления прочитать объект. Причину сервер пишет в лог spxml_unibridge.",
+        info?.database === "mssql" && info.versionServer.startsWith("2025.2.")
+          ? "Сервер 2025.2 с MS SQL не удаляет документы, пока после запуска или простоя не сохранён ни один документ. Сохранить любой документ (objects.patch с resave) и повторить удаление."
+          : "Перед повтором удаления прочитать объект. Причину сервер пишет в лог spxml_unibridge.",
       );
+    }
     await this.journal({
       mutationId,
       operation: "objects.delete",

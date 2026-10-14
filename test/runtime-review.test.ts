@@ -535,6 +535,38 @@ for (const idElement of ["", "<id/>"])
     );
   });
 
+test("удаление, после которого объект остался в каталоге, на 2025.2 с MS SQL подсказывает сохранить документ", async () => {
+  const serverInfo = (version: string, mask: string) => ({
+    valueType: "Object",
+    xml: parseXml(
+      `<ResultData><Result VALUE-TYPE="Object"><sys_db_capability VALUE-TYPE="integer">${mask}</sys_db_capability><catalog_limits VALUE-TYPE="string">&lt;catalogs/&gt;</catalog_limits><version_server VALUE-TYPE="string">${version}</version_server><os_type VALUE-TYPE="string">windows</os_type></Result></ResultData>`,
+    ),
+  });
+  const cases = [
+    ["2025.2.1535 (2026-06-30)", "65537", /^Сервер 2025\.2 с MS SQL .*objects\.patch с resave/],
+    ["2025.1.1333 (2025-12-26)", "65537", /^Перед повтором удаления прочитать объект\./],
+    ["2025.2.1535 (2026-06-30)", "8589934593", /^Перед повтором удаления прочитать объект\./],
+  ] as const;
+  for (const [version, mask, hint] of cases)
+    await fixture(
+      {
+        "native.lds.loadDoc": doc("<fixture><id>41</id><name>stays</name></fixture>"),
+        "native.lds.xQuery": { Data: { fixture: { id: "41" } } },
+        "native.lds.deleteDoc": { completed: true },
+        "native.rpc.call": serverInfo(version, mask),
+      },
+      async (runtime) => {
+        const result = await runtime.call("objects.delete", {
+          id: "41",
+          catalog: "fixtures",
+          permanent: true,
+        });
+        assert.equal(result.error?.code, "READ_BACK_MISMATCH");
+        assert.match(result.error?.hint ?? "", hint, version);
+      },
+    );
+});
+
 test("создание подтверждается, когда сервер сохраняет документ без его id", async () => {
   const objectId = "0x1000000000000029";
   let source = "";
