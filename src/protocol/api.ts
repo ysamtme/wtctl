@@ -1486,7 +1486,9 @@ export class ResourceApi {
         resource_id: decimal(request.resourceId, "resourceId"),
         image_type: request.imageType,
       }),
-      {},
+      // Сервер закрывает соединение после этой страницы, не сообщая об этом; только что запущенный —
+      // с задержкой, и следующий запрос в том же соединении обрывался.
+      { headers: { connection: "close" } },
       options,
     );
     return binaryResponse(response, "get_resource_image");

@@ -1,4 +1,6 @@
 import test from "node:test";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import assert from "node:assert/strict";
 import { ResourceApi, type CompoundResourceRequest } from "../src/protocol/api.js";
 import { HttpTransport } from "../src/protocol/transport.js";
@@ -166,5 +168,45 @@ test("сбой HTTP составного ресурса и слишком бол
     } finally {
       transport.dispose();
     }
+  }
+});
+
+test("картинка ресурса не оставляет соединение, которое сервер закроет: следующий запрос его не берёт", async () => {
+  // Сервер закрывает соединение после get_resource_image.html, не сообщая об этом; только что
+  // запущенный — с задержкой, когда клиент уже отправил в это соединение следующий запрос.
+  const served = new WeakSet<object>();
+  const server = createServer((request, response) => {
+    if (served.has(request.socket)) return request.socket.destroy();
+    if (request.url!.startsWith("/lds/get_resource_image.html")) {
+      served.add(request.socket);
+      response.end(new Uint8Array([1, 2, 3]));
+    } else {
+      response.statusCode = 500;
+      response.end("fail");
+    }
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const { port } = server.address() as AddressInfo;
+  const transport = new HttpTransport({
+    baseUrl: `http://127.0.0.1:${port}/`,
+    timeoutMs: 5000,
+    fetch: globalThis.fetch,
+  });
+  const api = new ResourceApi(transport);
+  const image = async () =>
+    new Uint8Array(
+      await new Response((await api.getImage({ resourceId: "1" })).body).arrayBuffer(),
+    );
+  try {
+    assert.deepEqual(await image(), new Uint8Array([1, 2, 3]));
+    await assert.rejects(
+      api.getCompoundResource({ url: "x-local://fixture.html", resId: "proof.bin" }),
+      (error: unknown) => error instanceof WsHcmApiError && error.status === 500,
+    );
+    assert.deepEqual(await image(), new Uint8Array([1, 2, 3]));
+  } finally {
+    transport.dispose();
+    server.closeAllConnections();
+    await new Promise((done) => server.close(done));
   }
 });
