@@ -381,12 +381,69 @@ test("unwrap никогда не выдаёт сохранённый preview з�
         assert.equal(error.resultId, "synthetic-id");
         assert.equal(error.result, result);
         assert.equal(error.code, "RESULT_STORED");
+        assert.equal(error.name, "HcmStoredResultError");
+        assert.match(error.hint ?? "", /readResult.*exportResult.*outputLimitBytes/s);
+        assert.doesNotMatch(error.hint ?? "", /results\.|hcm_/);
         return true;
       },
     );
   assert.throws(
     () => unwrap({ ok: true, data: { preview: "partial" }, meta: { ...meta, truncated: true } }),
     (error: unknown) => error instanceof HcmOperationError && error.code === "RESULT_TRUNCATED",
+  );
+});
+
+function pagedClient(pages: Record<number, OperationResult>) {
+  const starts: unknown[] = [];
+  const client = HcmClient.fromRuntime({
+    ...fixture().runtime,
+    call: async (_id, args = {}) => {
+      starts.push(args.startPosition);
+      return pages[Number(args.startPosition ?? 0)]!;
+    },
+  });
+  return { client, starts };
+}
+const page = (data: Record<string, unknown>): OperationResult => ({ ok: true, data, meta });
+
+test("queryRows выдаёт строки всех страниц по порядку и сам передаёт nextStartPosition", async () => {
+  const { client, starts } = pagedClient({
+    0: page({ items: [{ id: "1" }, { id: "2" }], total: 3, nextStartPosition: 2 }),
+    2: page({ items: [{ id: "3" }], total: 3 }),
+  });
+  const rows = [];
+  for await (const row of client.queryRows({ catalog: "collaborators", limit: 2 })) rows.push(row);
+  assert.deepEqual(rows, [{ id: "1" }, { id: "2" }, { id: "3" }]);
+  assert.deepEqual(starts, [undefined, 2]);
+});
+
+test("queryRows бросает ошибку на неполной странице и на сохранённом ответе, как unwrap", async () => {
+  const incomplete = pagedClient({
+    0: page({ items: [{ id: "1" }], nextStartPosition: 1 }),
+    1: page({ items: [], incomplete: true, hint: "Подсказка сервера." }),
+  });
+  const rows: unknown[] = [];
+  await assert.rejects(
+    async () => {
+      for await (const row of incomplete.client.queryRows({ query: "for $e in x return $e" }))
+        rows.push(row);
+    },
+    (error: unknown) =>
+      error instanceof HcmOperationError &&
+      error.code === "QUERY_INCOMPLETE" &&
+      error.hint === "Подсказка сервера.",
+  );
+  assert.deepEqual(rows, [{ id: "1" }]);
+  const stored = pagedClient({
+    0: {
+      ok: true,
+      data: { preview: [], resultId: "synthetic-id" },
+      meta: { ...meta, truncated: true, resultId: "synthetic-id" },
+    },
+  });
+  await assert.rejects(
+    stored.client.queryRows({ catalog: "collaborators" }).next(),
+    HcmStoredResultError,
   );
 });
 

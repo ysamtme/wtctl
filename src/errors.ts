@@ -10,7 +10,7 @@ export class HcmError extends Error {
     readonly mutationOutcome?: MutationOutcome,
   ) {
     super(message);
-    this.name = "HcmError";
+    this.name = new.target.name;
   }
   toJSON(): OperationError {
     return {

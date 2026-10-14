@@ -10,20 +10,20 @@
 
 ## Соответствие инструментам MCP
 
-| Инструмент | Команда |
-| --- | --- |
-| `hcm_status`, `hcm_check` | `wtctl status`, `wtctl check` |
-| `hcm_types`, `hcm_schema` | `wtctl types --search сотрудник`, `wtctl schema collaborator --search логин` |
-| `hcm_query` | `wtctl query --catalog collaborators --input-file where.json --fields id,fullname --order "fullname, hire_date desc"`; в файле условия: `{"is_dismiss":false}` |
-| `hcm_xquery` | `wtctl query 'for $e in collaborators order by $e/fullname return $e' --fields id,fullname` |
-| `hcm_object_get` | `wtctl object get collaborator 0x5555555555555501 --fields login,lastname`; несколько объектов — `wtctl object get --ids 0x…,0x… --fields login` |
-| `hcm_object_create`, `_patch`, `_delete` | `wtctl object create ТИП --input-file object.json`, `object patch ТИП ID --input-file patch.json --preview` (`--resave` — сохранить и без правок), `object delete ТИП ID --permanent`; вместо `ТИП ID` годится `--url АДРЕС` |
-| `hcm_script` | `wtctl exec --input-file script.js`; параметры кода — `--params-file params.json` или `--params '{\"id\":\"0x…\"}'` |
-| `hcm_logs_list`, `hcm_logs_search`, `hcm_log_read`, `hcm_log_follow` | `wtctl logs list`, `logs search ФАЙЛ --level error --newest-first`, `logs read ФАЙЛ`, `logs follow ФАЙЛ` |
-| `hcm_api_list`, `hcm_api_describe` | `wtctl api list`, `wtctl api describe ОПЕРАЦИЯ` |
-| `hcm_api_read`, `_write`, `_execute` | `wtctl api call ОПЕРАЦИЯ --input-file args.json` |
-| `hcm_result_read`, `hcm_result_export` | `wtctl result read ID`, `wtctl result export ID --to ФАЙЛ` |
-| `hcm_guide` | `wtctl guide`, `wtctl guide ТЕМА` |
+| Инструмент                                                           | Команда                                                                                                                                                                                                                      |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hcm_status`, `hcm_check`                                            | `wtctl status`, `wtctl check`                                                                                                                                                                                                |
+| `hcm_types`, `hcm_schema`                                            | `wtctl types --search сотрудник`, `wtctl schema collaborator --search логин`                                                                                                                                                 |
+| `hcm_query`                                                          | `wtctl query --catalog collaborators --input-file where.json --fields id,fullname --order "fullname, hire_date desc"`; в файле условия: `{"is_dismiss":false}`                                                               |
+| `hcm_xquery`                                                         | `wtctl query 'for $e in collaborators order by $e/fullname return $e' --fields id,fullname`                                                                                                                                  |
+| `hcm_object_get`                                                     | `wtctl object get collaborator 0x5555555555555501 --fields login,lastname`; несколько объектов — `wtctl object get --ids 0x…,0x… --fields login`                                                                             |
+| `hcm_object_create`, `_patch`, `_delete`                             | `wtctl object create ТИП --input-file object.json`, `object patch ТИП ID --input-file patch.json --preview` (`--resave` — сохранить и без правок), `object delete ТИП ID --permanent`; вместо `ТИП ID` годится `--url АДРЕС` |
+| `hcm_script`                                                         | `wtctl exec --input-file script.js`; параметры кода — `--params-file params.json` или `--params '{\"id\":\"0x…\"}'`                                                                                                          |
+| `hcm_logs_list`, `hcm_logs_search`, `hcm_log_read`, `hcm_log_follow` | `wtctl logs list`, `logs search ФАЙЛ --level error --newest-first`, `logs read ФАЙЛ`, `logs follow ФАЙЛ`                                                                                                                     |
+| `hcm_api_list`, `hcm_api_describe`                                   | `wtctl api list`, `wtctl api describe ОПЕРАЦИЯ`                                                                                                                                                                              |
+| `hcm_api_read`, `_write`, `_execute`                                 | `wtctl api call ОПЕРАЦИЯ --input-file args.json`                                                                                                                                                                             |
+| `hcm_result_read`, `hcm_result_export`                               | `wtctl result read ID`, `wtctl result export ID --to ФАЙЛ`                                                                                                                                                                   |
+| `hcm_guide`                                                          | `wtctl guide`, `wtctl guide ТЕМА`                                                                                                                                                                                            |
 
 ## Ввод и вывод
 
@@ -41,8 +41,15 @@
 ```json
 {
   "steps": [
-    { "id": "runtime.query", "as": "found", "args": { "catalog": "groups", "fields": ["id", "name"], "limit": 1 } },
-    { "id": "objects.get", "args": { "id": { "$ref": "found.data.items.0.id" }, "fields": ["name"] } }
+    {
+      "id": "runtime.query",
+      "as": "found",
+      "args": { "catalog": "groups", "fields": ["id", "name"], "limit": 1 }
+    },
+    {
+      "id": "objects.get",
+      "args": { "id": { "$ref": "found.data.items.0.id" }, "fields": ["name"] }
+    }
   ]
 }
 ```
@@ -62,13 +69,15 @@ SDK нужен, когда задачу удобнее решить скрипт
 
 ```javascript
 // script.mjs
-import { loadConfig, withHcmClient, unwrap } from "wtctl";
+import { loadConfig, withHcmClient } from "wtctl";
 
 await withHcmClient(loadConfig(), async (client) => {
-  const page = unwrap(
-    await client.query({ catalog: "collaborators", where: { is_dismiss: false }, fields: ["id", "fullname"] }),
-  );
-  for (const row of page.items) console.log(row.id, row.fullname);
+  const rows = client.queryRows({
+    catalog: "collaborators",
+    where: { is_dismiss: false },
+    fields: ["id", "fullname"],
+  });
+  for await (const row of rows) console.log(row.id, row.fullname);
 });
 ```
 
@@ -76,8 +85,8 @@ await withHcmClient(loadConfig(), async (client) => {
 
 - `withHcmClient` открывает подключение и закрывает его после функции.
 - Каждый метод возвращает тот же ответ `{ok, data, meta}` или `{ok:false, error}`. `unwrap` достаёт `data` или бросает ошибку с полями `code`, `hint`, `mutationOutcome`.
-- Методы: `status`, `check`, `types`, `schema`, `query`, `get`, `create`, `patch`, `delete`, `execute` (код), `runAgent`, `rpc`, `listRpc`, `describeRpc`, `batch`, `listLogs`, `searchLogs`, `readLog`, `followLog`, `readFile`, `fileExists`, `listFiles`, `writeFile`, `deleteFile`, `uploadFile`, `readResult`, `exportResult`. Любая операция по ID: `client.call("native.lds.loadDoc", { url })`.
+- Методы: `status`, `check`, `types`, `schema`, `query`, `queryRows`, `get`, `create`, `patch`, `delete`, `execute` (код), `runAgent`, `rpc`, `listRpc`, `describeRpc`, `batch`, `listLogs`, `searchLogs`, `readLog`, `followLog`, `readFile`, `fileExists`, `listFiles`, `writeFile`, `deleteFile`, `uploadFile`, `readResult`, `exportResult`. Любая операция по ID: `client.call("native.lds.loadDoc", { url })`.
 - Аргументы методов те же, что у инструментов MCP: `client.patch({ id, patch: { name: "…" }, preview: true })`; код принимается и строкой, параметры кода — вторым аргументом: `client.execute("RESULT = [PARAMS.n];", { n: 1 })`. Код из файла: `client.execute(await readFile("check.js", "utf8"), params)`. Запустить агента и дождаться конца: `client.runAgent({ id })`. Запрос XQuery — тот же `query`: `client.query({ query: "for $e in … return $e", fields: ["id"] })`.
-- В цикле по страницам проверяй `page.incomplete`: пустая страница с `incomplete:true` — отвергнутый запрос, а не конец данных.
-- Ответ больше 24 КБ сохраняется на диск, и `unwrap` бросает ошибку `RESULT_STORED`. В скрипте подними предел: `withHcmClient({ ...loadConfig(), outputLimitBytes: 1024 * 1024 }, …)`, задавай `fields` и читай страницами: `startPosition: page.nextStartPosition`, пока оно есть.
+- `queryRows` принимает те же аргументы, что `query`, и сам листает страницы. Страница с `incomplete:true` (запрос отвергнут, а не конец данных) — ошибка `QUERY_INCOMPLETE`. Массив строк — `await Array.fromAsync(client.queryRows(…))`.
+- Ответ больше 24 КБ сохраняется на диск, и `unwrap` и `queryRows` бросают `HcmStoredResultError` (`RESULT_STORED`). В скрипте подними предел — `loadConfig({ settings: { outputLimitBytes: 1024 * 1024 } })`, больше 1 МБ нельзя — и задавай `fields`.
 - `loadConfig({ connection: "имя" })` выбирает подключение, `configPath` — другой файл подключений. Права `write` и `execute` заданы в подключении, скрипт их не расширяет.

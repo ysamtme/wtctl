@@ -304,7 +304,10 @@ export class HcmStoredResultError extends HcmOperationError {
     super(result, {
       code: "RESULT_STORED",
       message: "Результат сохранён локально; preview не является полными данными.",
-      hint: "Читать resultId через readResult/results.read, при необходимости format:'json'.",
+      hint:
+        "Ответ больше outputLimitBytes. Прочитать частями — client.readResult({ resultId }), " +
+        "сохранить в файл — client.exportResult({ resultId, path }). " +
+        "Поднять предел — loadConfig({ settings: { outputLimitBytes } }).",
       retryable: false,
       details: { resultId },
     });
@@ -424,6 +427,28 @@ export class HcmClient {
   }
   query<T = HcmData>(input: QueryInput): Promise<HcmResult<QueryData<T>>> {
     return this.call("runtime.query", { ...input });
+  }
+  /**
+   * Строки каталога или запроса XQuery со всех страниц по порядку; страницы листает сам.
+   * Аргументы те же, что у query. Неполная страница (incomplete) — ошибка QUERY_INCOMPLETE
+   * после её строк, большой ответ — HcmStoredResultError, как в unwrap.
+   */
+  async *queryRows<T = HcmData>(input: QueryInput): AsyncGenerator<T, void, undefined> {
+    let args: QueryInput = input;
+    for (;;) {
+      const result = await this.query<T>(args);
+      const page = unwrap(result);
+      yield* page.items;
+      if (page.incomplete)
+        throw new HcmOperationError(result, {
+          code: "QUERY_INCOMPLETE",
+          message: "Страница запроса неполная: строки после неё не прочитаны.",
+          ...(page.hint === undefined ? {} : { hint: page.hint }),
+          retryable: false,
+        });
+      if (page.nextStartPosition === undefined) return;
+      args = { ...input, startPosition: page.nextStartPosition };
+    }
   }
   get<T extends object = HcmData>(
     input: ObjectTarget & GetOptions,
