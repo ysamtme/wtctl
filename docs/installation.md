@@ -75,6 +75,34 @@ codex plugin add wtctl@wtctl
 
 Навык из плагина в обоих приложениях называется `wtctl:wtctl`.
 
+#### Только в нужных проектах
+
+Навык и MCP-сервер плагина занимают часть контекста в каждом чате, даже там, где wtctl не нужен. Если он нужен в нескольких проектах, плагин можно включить только в них.
+
+Claude Code. Команда выполняется в папке проекта:
+
+```shell
+claude plugin install wtctl@wtctl --scope local
+```
+
+Отметка о включении записывается в `.claude/settings.local.json` проекта и в git не попадает. В остальных папках плагин выключен. Если плагин уже стоит для пользователя, он выключается для всех папок, затем включается в папке каждого проекта:
+
+```shell
+claude plugin disable wtctl@wtctl --scope user
+claude plugin enable wtctl@wtctl --scope local
+```
+
+`--scope local` действует только в основной папке проекта, в его worktree плагин выключен. Для worktree и для всех участников проекта подходит `--scope project`: отметка записывается в `.claude/settings.json` и попадает в git вместе с проектом. Каждому участнику после клонирования нужно один раз выполнить `claude plugin marketplace add ysamtme/wtctl` и `claude plugin install wtctl@wtctl --scope project`.
+
+Codex. Плагин ставится как обычно и выключается в `~/.codex/config.toml`:
+
+```toml
+[plugins."wtctl@wtctl"]
+enabled = false
+```
+
+В `.codex/config.toml` проекта пишется та же запись с `enabled = true`. Конфиг проекта Codex читает, только если проект доверенный. Повторный `codex plugin add` (так плагин и обновляется) снова ставит `enabled = true` в `~/.codex/config.toml`, после него запись нужно вернуть.
+
 ### Вариант Б. Плагин в других приложениях
 
 В собранном пакете есть описание плагина по открытому стандарту Agent Plugins 1.0 (`plugin.json`, `mcp.json`, `skills/`) и описание для Gemini CLI (`gemini-extension.json`). Установка в этих приложениях не проверялась, способы взяты из их документации.
@@ -89,9 +117,19 @@ gemini extensions install https://github.com/ysamtme/wtctl --ref plugin
 
 | Приложение | Как указать папку |
 | --- | --- |
-| Cursor | Копия папки или ссылка на неё в `~/.cursor/plugins/local/wtctl`. |
+| Cursor | Копия папки в `~/.cursor/plugins/local/wtctl`. Ссылку на папку в другом месте Cursor пропускает. |
 | VS Code с Copilot | Настройка `chat.pluginLocations`: `{"ПАПКА": true}`. |
 | Copilot CLI | `copilot plugin install ПАПКА` |
+
+<details>
+<summary>Только в нужных проектах (по документации приложений, не проверено)</summary>
+
+- Gemini CLI: `gemini extensions disable wtctl`, затем в папке проекта `gemini extensions enable wtctl --scope workspace`. Правила хранятся в `~/.gemini/extensions/extension-enablement.json`. В Windows отключение для пользователя действует только на папки внутри домашней; для проектов на другом диске расширение отключается командой `gemini extensions disable wtctl --scope workspace` в корне этого диска.
+- VS Code с Copilot: Extensions → Agent Plugins - Installed, в меню плагина Disable, затем в нужном проекте Enable (Workspace). `chat.pluginLocations` действует только в настройках пользователя, в `.vscode/settings.json` проекта — нет.
+- Copilot CLI: `copilot plugin disable wtctl`, затем `enabledPlugins` в настройках репозитория: `.github/copilot/settings.json` (попадает в git) или `.github/copilot/settings.local.json` (личный). На один сеанс плагин подключает `copilot --plugin-dir=ПАПКА`.
+- Cursor: для плагина из `~/.cursor/plugins/local` включения по проектам нет. Плагин можно подключать hook-ом `workspaceOpen`: он получает папки проекта и возвращает пути плагинов ([документация Cursor](https://cursor.com/docs/hooks)).
+
+</details>
 
 ### Вариант В. Только MCP-сервер
 
@@ -242,6 +280,8 @@ claude plugin update wtctl@wtctl
   claude plugin uninstall wtctl@wtctl
   claude plugin marketplace remove wtctl
   ```
+
+  Плагин, установленный с `--scope local` или `--scope project`, удаляется из папки проекта командой `uninstall` с тем же `--scope`.
 
 - Плагин в Codex:
 
