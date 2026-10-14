@@ -502,6 +502,41 @@ test("составные целые и пределы пакета отказы�
   await runtime.close();
 });
 
+test("отказ по аргументу, который шлюз находит до отправки, у записи и выполнения кода — not_sent", async () => {
+  const mock = fixture();
+  const runtime = new HcmRuntime({
+    ...base,
+    fetch: mock.fetch,
+    name: "synthetic-validation",
+    outputLimitBytes: 1024,
+    runtimeDir: ".work/synthetic-validation",
+    permissions: { write: true, execute: true },
+  });
+  // Сессии native и web открываются заранее: дальше ни один запрос не должен уйти.
+  assert.equal((await runtime.call("native.lds.loadDoc", { url: "x-local://a.xml" })).ok, true);
+  assert.equal((await runtime.call("web.pages.getUiText", {})).ok, true);
+  const opened = mock.calls.length;
+  const raw = { unsafe: true, path: "/x", method: "POST" };
+  for (const [id, args] of [
+    ["native.lds.deleteDoc", { url: "x-local://wt_data/a.xml" }],
+    ["web.lds.deleteDoc", { url: "x-local://wt_data/a.xml" }],
+    ["native.lds.xQuery", { query: "for $e in x return $e" }],
+    ["web.lds.xQuery", { query: "for $e in x return $e" }],
+    ["native.experimental.rawRequest", { ...raw, path: "http://[" }],
+    ["web.experimental.rawRequest", { ...raw, headers: { "X-Name": "имя" } }],
+    ["anonymous.experimental.rawRequest", { ...raw, method: "PO ST" }],
+    [
+      "native.physicalDocuments.createFromXml",
+      { documentXmlTemplate: "<x><id>{{objectId}}</id></x>", dbName: "wt data" },
+    ],
+  ] as const) {
+    const { error } = await runtime.call(id, args);
+    assert.deepEqual([error?.code, error?.mutationOutcome], ["INVALID_ARGUMENT", "not_sent"], id);
+  }
+  assert.equal(mock.calls.length, opened);
+  await runtime.close();
+});
+
 test("литералы и ссылки XML отклоняют символы, недопустимые в XML 1.0, до транспорта", async () => {
   for (const source of [
     "<a>\u0000</a>",

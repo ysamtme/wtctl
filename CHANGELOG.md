@@ -14,6 +14,7 @@
 - Отказы по аргументу, у которых был английский текст Node, получили русский: неверные `path` и `headers` у `*.experimental.rawRequest`, значение в `params` у `execute.script`, которое нельзя записать как JSON, нулевой символ в `path` у `results.export`. Неверный `method` у `*.experimental.rawRequest` отклоняется до запроса как `INVALID_ARGUMENT`, а не как `PLATFORM_HTTP`. `objects.get` по адресу файла не в UTF-8 отвечает `INVALID_XML` с подсказкой про `files.read`.
 - Неизвестный ID операции CLI и MCP-сервер называют в ошибке так, как его передали, а похожие на него — ID операций. Раньше в них подставлялись имена команд или инструментов: `wtctl api call api.list` отвечал «Операции wtctl api list нет». Ошибки, которые CLI получает до вызова операции, тоже называют команды CLI.
 - Подсказка `TARGET_MISMATCH` не говорит «Запись не отправлена»: так было и у `objects.get`, где записи нет, и после записи с исходом `indeterminate`. Исход записи сообщает `mutationOutcome`.
+- Отказы по аргументу, которые шлюз находит до отправки, у низкоуровневых операций записи и выполнения кода отвечают `mutationOutcome: not_sent`, а не `indeterminate`: недопустимый в XML символ у `native.lds.*` и `web.lds.*`, `path`, `headers` и `method` у `*.experimental.rawRequest`, `dbName` у `native.physicalDocuments.createFromXml`.
 
 ## 0.4.0 — 2026-10-13
 

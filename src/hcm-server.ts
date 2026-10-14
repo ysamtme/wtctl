@@ -3,7 +3,7 @@ import { HcmError, inputObject } from "./errors.js";
 import type { OperationEffect } from "./contracts.js";
 import { nativeEffect } from "./native/gateway.js";
 import { prepare } from "./native/validation.js";
-import { WsHcmApiError } from "./protocol/error.js";
+import { ArgumentError, WsHcmApiError } from "./protocol/error.js";
 import { scriptResult, type ScriptData } from "./scripts.js";
 import { refusedAtDoor, type WriteOutcome } from "./write-outcome.js";
 
@@ -39,7 +39,12 @@ export class HcmServer implements ServerPort {
     try {
       return await this.port.call(id, args);
     } catch (error) {
-      if ((error instanceof WsHcmApiError && error.requestSent === false) || refusedAtDoor(error))
+      // Отказ по аргументу шлюз находит, пока собирает запрос: такой запрос не уходит.
+      if (
+        (error instanceof WsHcmApiError && error.requestSent === false) ||
+        error instanceof ArgumentError ||
+        refusedAtDoor(error)
+      )
         withdraw();
       throw error;
     }
