@@ -917,7 +917,8 @@ async function emit(
     };
     if (!(await deliverOutput(result, receipt, io, output))) return 1;
   } else if (!(await deliverOutput(result, result, io))) return 1;
-  return result.ok ? 0 : 1;
+  // Код 3: скрипт должен заметить, что в stdout только начало ответа; с --output файл полный.
+  return !result.ok ? 1 : result.meta.truncated && !output ? 3 : 0;
 }
 
 /** Справка и гайд читаются, а не разбираются: текст уходит как есть в stdout или в --output. */

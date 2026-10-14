@@ -1006,7 +1006,7 @@ test(
     const f = await fixture();
     try {
       const large = await f.cli(["--connection", "compact", "rpc", "tools", "synthetic_large"]);
-      assert.equal(large.code, 0, large.stdout + large.stderr);
+      assert.equal(large.code, 3, large.stdout + large.stderr);
       assert.equal(large.result?.meta.truncated, true);
       const resultId = large.result?.meta.resultId;
       assert.equal(typeof resultId, "string");

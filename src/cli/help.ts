@@ -266,10 +266,10 @@ const OPTIONS: Readonly<Record<string, string>> = {
 const NOTES: readonly string[] = [
   "Аргументы и примеры команды: wtctl help КОМАНДА.",
   "Ответ команды — JSON {ok, data, meta} или {ok:false, error:{code, message, hint}}; help и guide печатают текст.",
-  "Код выхода: 0 — успех, 1 — ошибка операции, 2 — ошибка аргументов.",
+  "Код выхода: 0 — успех, 1 — ошибка операции, 2 — ошибка аргументов, 3 — ответ не поместился и сохранён локально: result read, result export или --output.",
   "С --output при ошибке операции в сводке есть error, в файле — полный ответ с ok:false; ошибка аргументов или настроек подключения печатается в stderr, файл не создаётся.",
   "ID передаётся строкой: 0x…",
-  "При meta.truncated результат сохранён локально: result read или result export.",
+  "При коде 3 операция выполнена, в ответе meta.truncated и meta.resultId: запись или код не повторять.",
   "При error.mutationOutcome = indeterminate запись могла пройти: перед повтором проверить объект.",
 ];
 

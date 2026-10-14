@@ -1378,7 +1378,7 @@ test("--output не пишет файл, если команда останов�
   }
 });
 
-test("--output для сохранённого результата пишет полный ответ потоком и при сбое файла сохраняет ссылку без повтора", async () => {
+test("сохранённый результат даёт код 3, а --output пишет полный ответ потоком и при сбое файла сохраняет ссылку без повтора", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-cli-export-"));
   try {
     const f = fixture(),
@@ -1397,6 +1397,10 @@ test("--output для сохранённого результата пишет �
         return result;
       },
     });
+    // Без --output ответ сохранён не целиком: код 3, а stdout прежний, с ok:true.
+    assert.equal(await runCli(["status"], f.io, f.dependencies), 3);
+    assert.deepEqual(JSON.parse(f.state.stdout), result);
+    f.state.stdout = "";
     const path = join(directory, "nested", "out.json");
     assert.equal(await runCli(["status", "--output", path], f.io, f.dependencies), 0);
     const saved = JSON.parse(await readFile(path, "utf8"));
@@ -1416,7 +1420,7 @@ test("--output для сохранённого результата пишет �
     const failed = JSON.parse(f.state.stdout);
     assert.equal(failed.meta.outputFailed, true);
     assert.equal(failed.meta.resultId, stored.resultId);
-    assert.equal(calls, 2);
+    assert.equal(calls, 3);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
