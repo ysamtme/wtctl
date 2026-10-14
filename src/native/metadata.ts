@@ -112,12 +112,11 @@ export function decorateOperation(operation: Omit<NativeOperation, "effect">): N
   if (!right) throw new Error(`Для ${operation.id} не указано право`);
   const description = compatibilityDescriptions[operation.id];
   // Право ставится туда, куда его кладёт порядок полей генерации: потребители видят прежний JSON.
-  const { status, inputSchema, ...head } = operation;
+  const { inputSchema, ...head } = operation;
   return {
     ...head,
     ...(description === undefined ? {} : { description }),
     effect: right.effect,
-    status,
     inputSchema,
   };
 }

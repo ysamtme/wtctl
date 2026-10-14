@@ -49,7 +49,6 @@ const VALUE_OPTIONS = new Set([
   "topic",
   "group",
   "effect",
-  "status",
   "cursor",
   "limit",
   "offset",

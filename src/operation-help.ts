@@ -105,7 +105,7 @@ export function discoverOperations(
   list: (filter: OperationFilter) => OperationPage,
   filter: OperationFilter,
 ): OperationMap | CompactOperationPage {
-  const selective = (["query", "topic", "group", "effect", "status", "cursor"] as const).some(
+  const selective = (["query", "topic", "group", "effect", "cursor"] as const).some(
     (key) => filter[key] !== undefined,
   );
   return selective ? compactOperationPage(list(filter), filter.cursor ?? 0) : operationMap();

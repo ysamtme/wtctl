@@ -17,6 +17,8 @@ test("обзор публичных метаданных работает без
   assert.equal(listHcmOperations({ query: id, limit: 1 }).operations[0]!.id, id);
   assert.equal(descriptor.effect, "write");
   assert.ok(!("packagedVerification" in descriptor));
+  for (const operation of listHcmOperations({ limit: 1000 }).operations)
+    assert.ok(!("status" in operation), operation.id);
   assert.ok(Object.isFrozen(descriptor.inputSchema));
   assert.throws(() => Object.assign(descriptor.inputSchema, { type: "null" }), TypeError);
   assert.deepEqual(describeHcmOperation(id).inputSchema, descriptor.inputSchema);

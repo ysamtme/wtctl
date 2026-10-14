@@ -266,7 +266,6 @@ for (const [profile, group, klass, member] of surfaces)
       method: method.name,
       title: `${profile} ${group} ${method.name}`,
       description: method.docs,
-      status: "implemented",
       inputSchema: input,
     };
     ids.push(op.id);

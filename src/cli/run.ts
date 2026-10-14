@@ -1004,16 +1004,7 @@ export async function runCli(
       allowOptions(parsed, ["offline"]);
       exactPositionals(parsed, 3);
     } else {
-      allowOptions(parsed, [
-        "query",
-        "topic",
-        "group",
-        "effect",
-        "status",
-        "cursor",
-        "limit",
-        "offline",
-      ]);
+      allowOptions(parsed, ["query", "topic", "group", "effect", "cursor", "limit", "offline"]);
       exactPositionals(parsed, 2);
       const effect = stringOption(parsed, "effect");
       if (
@@ -1029,7 +1020,6 @@ export async function runCli(
         ...optional("topic", stringOption(parsed, "topic")),
         ...optional("group", stringOption(parsed, "group")),
         ...optional("effect", effect),
-        ...optional("status", stringOption(parsed, "status")),
         ...optional("cursor", integerOption(parsed, "cursor", 0, Number.MAX_SAFE_INTEGER)),
         ...optional("limit", integerOption(parsed, "limit", 1, 100)),
       };

@@ -12,7 +12,7 @@ const fixtureCode = [
   "import { runMcpStdio } from './src/mcp/stdio.ts';",
   "const runtime = {",
   "listOperations() { return {operations:[],total:0}; },",
-  "describe(id) { return {id,group:'test',title:'Synthetic',description:'Synthetic',effect:'read',status:'implemented',inputSchema:{type:'object'}}; },",
+  "describe(id) { return {id,group:'test',title:'Synthetic',description:'Synthetic',effect:'read',inputSchema:{type:'object'}}; },",
   "getOperationEffect() { return 'read'; },",
   "async call(id,args={}) { return {ok:true,data:{args},meta:{operationId:id,connection:'synthetic',durationMs:0}}; },",
   'async close() { process.stderr.write(\'{"cleanup":"closed"}\\n\'); }',

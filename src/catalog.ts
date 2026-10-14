@@ -17,7 +17,6 @@ export function listHcmOperations(filter: OperationFilter = {}): OperationPage {
       (!topic || operationTopic(operation.id) === topic) &&
       (!filter.group || operation.group === filter.group) &&
       (!effect || operation.effect === effect) &&
-      (!filter.status || operation.status === filter.status) &&
       (!query || operationSearchRank(operation, query) > 0 || overviewMatches(operation.id, query)),
   );
   if (topic && !query)

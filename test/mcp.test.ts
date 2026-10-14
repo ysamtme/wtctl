@@ -22,7 +22,6 @@ function fixture() {
     description: "Synthetic contract",
     group: "test",
     effect,
-    status: "implemented",
     inputSchema: { type: "object", properties: { value: {} } },
   }));
   const calls: { id: string; args: Record<string, unknown> }[] = [];

@@ -25,7 +25,6 @@ managed.push({
     title: "Portal status",
     description: "Прочитать статус стартовой страницы портала без перенаправлений и тела.",
     effect: "read",
-    status: "implemented",
     inputSchema: empty,
   },
   invoke: async (gateway) => gateway.client.diagnostics.portal(),
@@ -40,7 +39,6 @@ managed.push({
     description:
       "Отправить один $hbt на /services/main_ws_service с ограничением по времени и дождаться $ok. Ответ различает закрытие со стороны сервера и отсутствие подтверждения; прикладные сообщения и браузерный /api/spxml2/ws не охвачены.",
     effect: "read",
-    status: "implemented",
     inputSchema: {
       type: "object",
       properties: { timeoutMs: { type: "integer", minimum: 250, maximum: 10000 } },
@@ -69,7 +67,6 @@ for (const profile of ["native", "web"] as const) {
         title: `${profile} session ${method}`,
         description: sessionDescriptions[method],
         effect: "read",
-        status: "implemented",
         inputSchema: empty,
       },
       invoke:
@@ -96,7 +93,6 @@ managed.push({
     description:
       "Выделить ID, подставить его вместо {{objectId}} в documentXmlTemplate, сохранить через PutDoc и сверить ID корня через LoadDoc. Обработка XMD, как в клиенте администратора, не воспроизводится.",
     effect: "write",
-    status: "implemented",
     inputSchema: {
       type: "object",
       properties: {

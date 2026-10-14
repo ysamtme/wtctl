@@ -28,7 +28,6 @@ const operation: OperationDefinition = {
   title: "LoadDoc",
   description: "Synthetic",
   effect: "read",
-  status: "implemented",
   inputSchema: { type: "object" },
 };
 
@@ -779,8 +778,6 @@ test("обзор api сохраняет точные описания опера
         "5",
         "--limit",
         "20",
-        "--status",
-        "implemented",
       ],
       f.io,
       f.dependencies,
@@ -788,7 +785,7 @@ test("обзор api сохраняет точные описания опера
     0,
   );
   assert.deepEqual(f.state.filters, [
-    { effect: "unknown", query: "load", group: "lds", cursor: 5, limit: 20, status: "implemented" },
+    { effect: "unknown", query: "load", group: "lds", cursor: 5, limit: 20 },
   ]);
   assert.equal(f.state.calls.length, 0);
   const g = fixture();

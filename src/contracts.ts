@@ -34,7 +34,6 @@ export interface OperationDefinition {
   readonly title: string;
   readonly description: string;
   readonly effect: OperationEffect;
-  readonly status: string;
   readonly inputSchema: JsonSchema;
   readonly profile?: NativeProfile;
   readonly method?: string;
@@ -75,7 +74,6 @@ export interface OperationFilter {
   readonly topic?: string;
   readonly group?: string;
   readonly effect?: OperationEffect;
-  readonly status?: string;
   readonly cursor?: number;
   readonly limit?: number;
 }

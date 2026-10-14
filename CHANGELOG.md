@@ -7,6 +7,7 @@
 Несовместимые изменения:
 
 - Убраны пять низкоуровневых операций, которые повторяли другие: `native.lds.openSession` и `web.lds.openSession` — вместо них `native.session.open` и `web.session.open`; `native.lds.closeSession` и `web.lds.closeSession` — вместо них `native.session.close` и `web.session.close`; `native.spxml.call` — вместо неё `native.rpc.call`. Вызов убранного ID отвечает `UNKNOWN_OPERATION`. Ответ `*.session.*` содержит ещё поле `profile`. В `wtctl/protocol` у `NativeSession` убрано поле `spxml`: это был тот же объект, что `rpc`.
+- В SDK убрано поле `status` у операций: оно у всех было `implemented` и ничего не значило. Его больше нет в ответе `getNativeOperations()`, `listHcmOperations()` и `describeHcmOperation()` и в типе `OperationDefinition`; убраны фильтр `status` у `listHcmOperations()` и флаг `--status` у `wtctl api list`.
 
 Исправления:
 

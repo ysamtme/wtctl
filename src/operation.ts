@@ -103,7 +103,6 @@ export function definitionOf(spec: Operation): OperationDefinition {
       title: spec.id,
       description: spec.description,
       effect: spec.effect,
-      status: "implemented",
       inputSchema: spec.inputSchema,
     }
   );

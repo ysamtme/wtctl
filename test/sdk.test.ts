@@ -32,7 +32,6 @@ const definition: OperationDefinition = {
   title: "Synthetic",
   description: "Synthetic fixture",
   effect: "read",
-  status: "implemented",
   inputSchema: { type: "object" },
 };
 function fixture() {
