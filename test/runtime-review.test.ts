@@ -590,7 +590,10 @@ test("противоречащие друг другу ID и URL не позво
       assert.equal(result.ok, false);
       assert.equal(result.error?.code, "TARGET_MISMATCH");
       assert.doesNotMatch(result.error?.hint ?? "", /запис/i);
-      assert.equal(result.error?.mutationOutcome, "not_sent");
+      assert.equal(
+        result.error?.mutationOutcome,
+        operation === "objects.get" ? undefined : "not_sent",
+      );
     }
     assert.equal(mutations, 0);
   });
@@ -640,12 +643,15 @@ test("правка, у которой чтение после записи во�
   });
 });
 
-test("запись после закрытия даёт RUNTIME_CLOSED и не несёт исхода записи", async () => {
+test("после закрытия RUNTIME_CLOSED у записи — not_sent, у чтения исхода нет", async () => {
   const { runtime, server } = fakeRuntime();
   await runtime.close();
   const result = await runtime.call("objects.create", { type: "fixture", data: { name: "x" } });
   assert.equal(result.error?.code, "RUNTIME_CLOSED");
-  assert.equal(Object.hasOwn(result.error ?? {}, "mutationOutcome"), false);
+  assert.equal(result.error?.mutationOutcome, "not_sent");
+  const read = await runtime.call("objects.get", { id: "41" });
+  assert.equal(read.error?.code, "RUNTIME_CLOSED");
+  assert.equal(Object.hasOwn(read.error!, "mutationOutcome"), false);
   assert.equal(server.calls.length, 0);
 });
 

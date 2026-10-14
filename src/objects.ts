@@ -205,8 +205,6 @@ export class ServerObjects {
         "TARGET_MISMATCH",
         "ID в прочитанном документе не совпадает с запрошенным.",
         "Нужно передать id и url одного объекта или что-то одно.",
-        undefined,
-        "not_sent",
       );
     if (args.type !== undefined && snapshot.type !== identifier(args.type, "type"))
       throw new HcmError(
@@ -416,7 +414,6 @@ export class ServerObjects {
         "При проверочном чтении ID созданного объекта не совпал с выданным.",
         undefined,
         { mutationId },
-        "indeterminate",
       );
     verifyFields(snapshot.data, result.data, form.fields, Object.keys(data));
     await this.journal({
@@ -450,8 +447,6 @@ export class ServerObjects {
         "CONFLICT",
         "Объект изменился после чтения: его fingerprint не равен expectedFingerprint.",
         "Прочитать объект заново и составить изменение по его текущему состоянию.",
-        undefined,
-        "not_sent",
       );
     // Проверяется и перед предпросмотром: он не должен обещать то, от чего запись откажется.
     await this.requireFields(
@@ -474,13 +469,7 @@ export class ServerObjects {
       };
     const current = await this.load(args);
     if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
-      throw new HcmError(
-        "CONFLICT",
-        "Объект изменился, пока готовилась запись.",
-        undefined,
-        undefined,
-        "not_sent",
-      );
+      throw new HcmError("CONFLICT", "Объект изменился, пока готовилась запись.");
     const form = await this.schema.documentForm(
       changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`,
     );
@@ -536,8 +525,6 @@ export class ServerObjects {
         "DELETE_MODE_REQUIRED",
         "Объект удаляется безвозвратно: для этого нужен permanent:true.",
         "Корзины у этой операции нет.",
-        undefined,
-        "not_sent",
       );
     const loaded = await this.load(args);
     const snapshot = loaded.document.snapshot();
@@ -551,8 +538,6 @@ export class ServerObjects {
         "CATALOG_MISMATCH",
         "Объекта нет в каталоге, по которому проверяется удаление.",
         "Нужно указать каталог, в котором объект есть. Запрос на удаление не отправлен.",
-        undefined,
-        "not_sent",
       );
     const mutationId = randomUUID();
     await this.journal({ mutationId, operation: "objects.delete", stage: "prepared", objectId });
@@ -563,8 +548,6 @@ export class ServerObjects {
         "READ_BACK_MISMATCH",
         "После удаления объект всё ещё есть в каталоге.",
         "Перед повтором удаления прочитать объект. Причину сервер пишет в лог spxml_unibridge.",
-        undefined,
-        "indeterminate",
       );
     await this.journal({
       mutationId,

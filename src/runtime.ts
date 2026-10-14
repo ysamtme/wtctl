@@ -104,9 +104,14 @@ export class HcmRuntime implements RuntimePort {
   }
   call(id: string, args: Record<string, unknown> = {}): Promise<OperationResult> {
     const start = performance.now();
+    // Отказ до очереди: запрос не ушёл, исход несут только запись и выполнение кода.
+    const unsent = {
+      outcome: new WriteOutcome(),
+      effect: operationDefinition(id)?.effect ?? "unknown",
+    };
     if (this.closed)
       return Promise.resolve(
-        this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто.")),
+        this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто."), unsent),
       );
     let snapshot: Record<string, unknown>;
     try {
@@ -121,7 +126,7 @@ export class HcmRuntime implements RuntimePort {
             "Аргументы операции — не объект, или в них есть значение, которое нельзя скопировать.",
             "Нужно передать значения, совместимые с JSON; двоичные данные — как {base64: …}, XML — как {xml: …}.",
           ),
-          { outcome: new WriteOutcome(), effect: operationDefinition(id)?.effect ?? "unknown" },
+          unsent,
         ),
       );
     }
@@ -143,16 +148,12 @@ export class HcmRuntime implements RuntimePort {
         "WRITE_DISABLED",
         "Подключение не разрешает запись.",
         "Нужно право write: его включает владелец подключения в настройках подключения (permissions.write).",
-        undefined,
-        "not_sent",
       );
     if ((effect === "execute" || effect === "unknown") && !this.config.permissions.execute)
       throw new HcmError(
         "EXECUTE_DISABLED",
         "Подключение не разрешает выполнять код, функции и запросы XQuery на сервере.",
         "Нужно право execute: его включает владелец подключения в настройках подключения (permissions.execute).",
-        undefined,
-        "not_sent",
       );
   }
   private async perform(

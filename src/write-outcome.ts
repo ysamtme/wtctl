@@ -49,8 +49,8 @@ export class WriteOutcome {
   }
 
   /**
-   * Первая подходящая строка: нет ошибки, чтение, отказ на входе, неснятая отметка,
-   * иначе not_sent.
+   * Первая подходящая строка: нет ошибки или чтение — исхода нет; отказ на входе, неснятая
+   * отметка; иначе not_sent.
    */
   verdict(effect: OperationEffect, error?: unknown): Verdict {
     const { mutationId, objectId, executionId } = this.ids;
@@ -72,21 +72,13 @@ export class WriteOutcome {
     };
     const sent = effect !== "read" && this.marks > 0;
     const verdict: Verdict = { sent, ids: { ...this.ids }, exactIds };
-    if (error === undefined) return verdict;
+    if (error === undefined || effect === "read") return verdict;
     // Отказ на входе снимается вместе с отметкой своего запроса (HcmServer); оставшаяся отметка —
     // более ранний запрос, который прошёл. У rpc.call один запрос, его обработчик отказывает.
     const turnedAway =
       error instanceof HcmError &&
       (error.code === "RPC_SERVER_ONLY" || error.code === "UNKNOWN_RPC_TARGET");
-    const mutationOutcome =
-      effect === "read"
-        ? error instanceof HcmError
-          ? error.mutationOutcome
-          : undefined
-        : sent && !turnedAway
-          ? "indeterminate"
-          : "not_sent";
-    if (mutationOutcome === undefined) return verdict;
+    const mutationOutcome = sent && !turnedAway ? "indeterminate" : "not_sent";
     const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error);
     return { ...verdict, mutationOutcome, ...(refusedAfterSend && { refusedAfterSend }) };
   }

@@ -28,11 +28,10 @@ test("без ошибки исхода нет, а отметка означае�
   assert.equal(marked().outcome.verdict("read").sent, false);
 });
 
-test("у чтения нет исхода, кроме того, что несёт его собственная ошибка", () => {
+test("у чтения нет исхода, даже если его несёт собственная ошибка", () => {
   const { outcome } = marked();
-  assert.equal(outcome.verdict("read", plain).mutationOutcome, undefined);
-  assert.equal(outcome.verdict("read", new HcmError("X", "x")).mutationOutcome, undefined);
-  assert.equal(outcome.verdict("read", notSent).mutationOutcome, "not_sent");
+  for (const error of [plain, new HcmError("X", "x"), notSent])
+    assert.equal("mutationOutcome" in outcome.verdict("read", error), false);
 });
 
 test("неудавшаяся операция, которая не чтение, — not_sent без отметки, indeterminate с отметкой и снова not_sent, когда отметка снята", () => {

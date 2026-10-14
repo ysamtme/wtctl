@@ -130,7 +130,6 @@ export const batchOperations = [
               `${at}.as: имя ${label} уже дано другому шагу; имена шагов пакета не повторяются.`,
               undefined,
               { path: `${at}.as` },
-              "not_sent",
             );
           labels.add(label);
         }
