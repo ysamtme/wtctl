@@ -589,6 +589,7 @@ test("противоречащие друг другу ID и URL не позво
       });
       assert.equal(result.ok, false);
       assert.equal(result.error?.code, "TARGET_MISMATCH");
+      assert.doesNotMatch(result.error?.hint ?? "", /запис/i);
       assert.equal(result.error?.mutationOutcome, "not_sent");
     }
     assert.equal(mutations, 0);
@@ -634,6 +635,7 @@ test("правка, у которой чтение после записи во�
   await fixture(script, async (runtime) => {
     const result = await runtime.call("objects.patch", { id: "41", patch: { name: "after" } });
     assert.equal(result.error?.code, "TARGET_MISMATCH");
+    assert.doesNotMatch(result.error?.hint ?? "", /запис/i);
     assert.equal(result.error?.mutationOutcome, "indeterminate");
   });
 });

@@ -204,7 +204,7 @@ export class ServerObjects {
       throw new HcmError(
         "TARGET_MISMATCH",
         "ID в прочитанном документе не совпадает с запрошенным.",
-        "Нужно передать id и url одного объекта или что-то одно. Запись не отправлена.",
+        "Нужно передать id и url одного объекта или что-то одно.",
         undefined,
         "not_sent",
       );
