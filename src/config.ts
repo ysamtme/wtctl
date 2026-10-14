@@ -257,17 +257,26 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
     }
     document = parseConfiguration(text, path);
   }
-  const name =
-    options.connection ??
-    (standalone
-      ? undefined
-      : (process.env.WTCTL_CONNECTION ??
-        string(document.defaultConnection, "defaultConnection"))) ??
-    "default";
+  // Отказ выбора называет источник имени: иначе имя из забытой переменной не объяснить.
+  let name = options.connection;
+  let chosen = "Имя задано в --connection или аргументе connection.";
+  if (name === undefined && !standalone) {
+    name = process.env.WTCTL_CONNECTION;
+    chosen = "Имя взято из переменной WTCTL_CONNECTION.";
+    if (name === undefined) {
+      name = string(document.defaultConnection, "defaultConnection");
+      chosen = "Имя взято из defaultConnection файла.";
+    }
+  }
+  if (name === undefined) {
+    name = "default";
+    chosen = "Имя по умолчанию: --connection, WTCTL_CONNECTION и defaultConnection не заданы.";
+  }
   if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name))
     throw new HcmError(
       "INVALID_CONFIG",
       "Имя подключения: до 64 латинских букв, цифр и знаков . _ -",
+      chosen,
     );
   let profile: Record<string, unknown> = standalone ? settings : {};
   const globalOverrides = !standalone && document.connections === undefined;
@@ -276,8 +285,8 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
     if (connections[name] === undefined)
       throw new HcmError(
         "UNKNOWN_CONNECTION",
-        `В файле подключений нет подключения ${name}.`,
-        `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}. Имя задают --connection, WTCTL_CONNECTION или defaultConnection в файле.`,
+        `В файле подключений ${path} нет подключения ${name}. ${chosen}`,
+        `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}. Имя задают --connection, WTCTL_CONNECTION или defaultConnection файла; первое заданное сильнее.`,
         { connection: name },
       );
     profile = object(connections[name], "connection");
@@ -329,7 +338,7 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
       parse(settings[field] ?? process.env[variable] ?? profile[field], `${field} (${variable})`),
     ]),
   ) as { [K in SettingField]: ReturnType<(typeof SETTINGS)[K][1]> };
-  return {
+  const config: ConnectionConfig = {
     name,
     baseUrl: url.href,
     ...(username === undefined ? {} : { username }),
@@ -348,6 +357,51 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
       ),
     },
   };
+  origins.set(
+    config,
+    standalone
+      ? "settings"
+      : path === undefined
+        ? "environment"
+        : { listed: !globalOverrides, named: explicit !== undefined },
+  );
+  return config;
+}
+
+/**
+ * Откуда loadConfig взял подключение: из settings, из переменных или из файла; у файла — есть ли
+ * в нём connections и назван ли он в --config или WTCTL_CONFIG. По нему отказ прав говорит, где
+ * право включается.
+ */
+const origins = new WeakMap<
+  ConnectionConfig,
+  "settings" | "environment" | { readonly listed: boolean; readonly named: boolean }
+>();
+
+/**
+ * Подсказка WRITE_DISABLED и EXECUTE_DISABLED: где подключению включают это право. Путь файла
+ * не называется: ответ прячет локальные пути.
+ */
+export function permissionHint(config: ConnectionConfig, right: "write" | "execute"): string {
+  const origin = origins.get(config);
+  const field = `permissions.${right}: true`;
+  const variable = `WTCTL_ALLOW_${right.toUpperCase()}=true`;
+  // Имя называется только у подключения из loadConfig: там оно проверено и коротко.
+  if (origin === undefined)
+    return `Право ${right} включает владелец подключения в его настройках (permissions.${right}).`;
+  if (origin === "settings")
+    return `Право ${right} подключению из settings даёт settings.${field} в loadConfig.`;
+  let where = `переменная ${variable} рядом с WTCTL_URL (у MCP-сервера — в env его записи)`;
+  if (origin !== "environment") {
+    // У MCP-сервера с --config команда в терминале покажет другой файл.
+    const file = origin.named
+      ? "в файле подключений из --config или WTCTL_CONFIG"
+      : "в файле подключений (путь показывает wtctl config path)";
+    where = origin.listed
+      ? `${field} у подключения ${config.name} ${file}`
+      : `${field} ${file} или переменная ${variable}`;
+  }
+  return `Право ${right} включает владелец подключения: ${where}. MCP-сервер видит правку после перезапуска.`;
 }
 
 /** Образец подключения без учётных данных, который можно коммитить. */

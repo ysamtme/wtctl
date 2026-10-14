@@ -4,7 +4,7 @@ import { listHcmOperations, describeHcmOperation } from "./catalog.js";
 import { NativeGateway, WsHcmApiError } from "./native/index.js";
 import { validate } from "./native/validation.js";
 import { HcmError, inputObject, requiredString } from "./errors.js";
-import { LOCAL_LIMITS } from "./config.js";
+import { LOCAL_LIMITS, permissionHint } from "./config.js";
 import { SchemaReader } from "./schema.js";
 import { ResultStore } from "./results.js";
 import { LogReader } from "./logs.js";
@@ -49,7 +49,7 @@ export class HcmRuntime implements RuntimePort {
     this.gateway = new NativeGateway(config);
     this.server = new HcmServer(port ?? this.gateway);
     this.logs = new LogReader({ call: (id, args) => this.server.read(id, args) }, config);
-    this.files = new ServerFiles(this.server, config.permissions);
+    this.files = new ServerFiles(this.server, config);
     this.rpcCatalog = new RpcCatalog(
       () => this.server.applicationInfo(),
       (url) => this.server.call("native.lds.loadUrl", { url }),
@@ -151,13 +151,13 @@ export class HcmRuntime implements RuntimePort {
       throw new HcmError(
         "WRITE_DISABLED",
         "Подключение не разрешает запись.",
-        "Нужно право write: его включает владелец подключения в настройках подключения (permissions.write).",
+        permissionHint(this.config, "write"),
       );
     if ((effect === "execute" || effect === "unknown") && !this.config.permissions.execute)
       throw new HcmError(
         "EXECUTE_DISABLED",
         "Подключение не разрешает выполнять код, функции и запросы XQuery на сервере.",
-        "Нужно право execute: его включает владелец подключения в настройках подключения (permissions.execute).",
+        permissionHint(this.config, "execute"),
       );
   }
   private async perform(

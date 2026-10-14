@@ -1,4 +1,6 @@
 import { HcmError, requiredString } from "./errors.js";
+import { permissionHint } from "./config.js";
+import type { ConnectionConfig } from "./contracts.js";
 import { freezeRegistry } from "./immutable.js";
 import type { HcmServer } from "./hcm-server.js";
 import type { WriteOutcome } from "./write-outcome.js";
@@ -186,7 +188,7 @@ function fileRoute(
   operation: "write" | "delete",
   folders: FileFolders | undefined,
   folder: string,
-  canExecute: boolean,
+  config: ConnectionConfig,
 ): "data" | "code" | "unlisted" {
   if (!folders) return "unlisted";
   // Сервер сравнивает имя папки точно: SHARE — не share.
@@ -197,11 +199,11 @@ function fileRoute(
       `Папка ${folder} не принимает файлы.`,
       `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`,
     );
-  if (!canExecute)
+  if (!config.permissions.execute)
     throw new HcmError(
       "EXECUTE_DISABLED",
       `Папка ${folder} на этом сервере принимает ${operation === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
-      "Право execute включает владелец подключения в настройках подключения (permissions.execute).",
+      permissionHint(config, "execute"),
     );
   return "code";
 }
@@ -374,7 +376,7 @@ export interface FileCall {
 export class ServerFiles {
   constructor(
     private readonly server: Pick<HcmServer, "call" | "read" | "runCode" | "applicationInfo">,
-    private readonly permissions: { readonly execute: boolean },
+    private readonly config: ConnectionConfig,
   ) {}
 
   async exists(args: Record<string, unknown>): Promise<FileExistsData> {
@@ -446,7 +448,7 @@ export class ServerFiles {
   }
 
   private async route(operation: "write" | "delete", folder: string, call: FileCall) {
-    const route = fileRoute(operation, await this.folders(), folder, this.permissions.execute);
+    const route = fileRoute(operation, await this.folders(), folder, this.config);
     // Обычная причина отказа записи (папка кода не в списке) называется, только если списков нет.
     if (operation === "write" && route !== "unlisted") call.causeRuledOut = true;
     return route;

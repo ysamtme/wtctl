@@ -122,6 +122,76 @@ test("ошибки настройки называют файл, строку и
   });
 });
 
+test("отказ выбора подключения называет, откуда взято имя", async () => {
+  await cleanSettings(async (home) => {
+    const file = join(home, "connections.json");
+    const write = (document: object) => writeFile(file, JSON.stringify(document));
+    const refusal = (options = {}) => {
+      try {
+        loadConfig({ configPath: file, ...options });
+      } catch (error) {
+        return error as HcmError;
+      }
+      assert.fail("подключение выбрано");
+    };
+    await write({ defaultConnection: "gone", connections: { bad: {} } });
+    assert.match(
+      refusal({ connection: "three" }).message,
+      /нет подключения three\. .*--connection/,
+    );
+    assert.match(refusal().message, /нет подключения gone\. .*из defaultConnection/);
+    process.env.WTCTL_CONNECTION = "stage";
+    const env = refusal();
+    assert.equal(env.code, "UNKNOWN_CONNECTION");
+    assert.match(env.message, /нет подключения stage\. .*из переменной WTCTL_CONNECTION/);
+    assert.match(env.hint!, /^Есть: bad\./);
+    process.env.WTCTL_CONNECTION = "a b";
+    assert.match(refusal().hint!, /WTCTL_CONNECTION/);
+    delete process.env.WTCTL_CONNECTION;
+    await write({ connections: { bad: {} } });
+    assert.match(refusal().message, /нет подключения default\. Имя по умолчанию/);
+  });
+});
+
+test("отказ прав называет подключение и где ему включить право", async () => {
+  await cleanSettings(async (home) => {
+    const file = join(home, "connections.json");
+    await writeFile(
+      file,
+      JSON.stringify({ connections: { prod: { baseUrl: "http://hcm.example.org/" } } }),
+    );
+    const refusal = async (config: ConnectionConfig, id: string, args: Record<string, unknown>) => {
+      const runtime = new HcmRuntime(config);
+      try {
+        return (await runtime.call(id, args)).error!;
+      } finally {
+        await runtime.close();
+      }
+    };
+    const execute = await refusal(
+      loadConfig({ configPath: file, connection: "prod" }),
+      "execute.script",
+      { code: "RESULT = 1;" },
+    );
+    assert.equal(execute.code, "EXECUTE_DISABLED");
+    assert.match(execute.hint!, /permissions\.execute: true у подключения prod .*--config/);
+    const found = await refusal(loadConfig({ connection: "prod" }), "execute.script", {
+      code: "RESULT = 1;",
+    });
+    assert.match(found.hint!, /у подключения prod .*wtctl config path/);
+    process.env.WTCTL_URL = "http://hcm.example.org/";
+    const write = await refusal(loadConfig(), "objects.delete", { id: "0x1" });
+    assert.equal(write.code, "WRITE_DISABLED");
+    assert.match(write.hint!, /WTCTL_ALLOW_WRITE=true/);
+    const settings = await refusal(
+      loadConfig({ settings: { baseUrl: "http://hcm.example.org/" } }),
+      "execute.script",
+      { code: "RESULT = 1;" },
+    );
+    assert.match(settings.hint!, /settings\.permissions\.execute: true/);
+  });
+});
+
 test("сервер, до которого не достучаться, назван с причиной", async () => {
   const cases: [code: string, message: RegExp, hint: RegExp][] = [
     [
