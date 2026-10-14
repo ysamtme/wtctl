@@ -379,6 +379,19 @@ export class ServerObjects {
       throw new HcmError("FORM_TYPE_MISMATCH", "В форме нет запрошенного типа объекта.");
     await this.requireFields(type, formUrl, data, Object.keys(data));
     const dbName = args.dbName === undefined ? "wt_data" : identifier(args.dbName, "dbName");
+    // На базу, которой нет, сервер выдаёт ID, а запись отвечает HTTP 500 с неясным исходом.
+    const info = await this.server.applicationInfo().catch(() => undefined);
+    const databases = Array.isArray(info?.databases)
+      ? info.databases.flatMap((db: unknown) =>
+          db && typeof db === "object" && "id" in db && typeof db.id === "string" ? [db.id] : [],
+        )
+      : [];
+    if (databases.length && !databases.includes(dbName))
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        `dbName: базы ${dbName} на сервере нет.`,
+        `Базы сервера: ${databases.join(", ")}.`,
+      );
     const mutationId = randomUUID();
     out.note({ mutationId });
     await this.journal({ mutationId, operation: "objects.create", stage: "allocating", type });

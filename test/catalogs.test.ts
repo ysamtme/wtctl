@@ -211,12 +211,33 @@ test("дата подтверждается временем суток и от�
     const text = await runtime.call("objects.create", {
       type: "event",
       data: { note: "05.12.2026", start_date: "2026-12-05" },
+      dbName: "sample",
     });
     assert.equal(text.error?.code, "INTERNAL_ERROR");
     assert.equal(server.calls.at(-1)?.id, "native.lds.getNewObjectId");
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("база, которой нет на сервере, отклоняется до выдачи ID", async () => {
+  const { runtime, server } = fakeRuntime(schemaAnswers);
+  try {
+    for (const dbName of ["wt_dta", undefined]) {
+      const created = await runtime.call("objects.create", {
+        type: "event",
+        data: { name: "x" },
+        ...(dbName ? { dbName } : {}),
+      });
+      assert.equal(created.error?.code, "INVALID_ARGUMENT");
+      assert.equal(created.error?.message, `dbName: базы ${dbName ?? "wt_data"} на сервере нет.`);
+      assert.equal(created.error?.hint, "Базы сервера: sample.");
+      assert.equal(created.error?.mutationOutcome, "not_sent");
+    }
+    assert.equal(server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length, 0);
+  } finally {
+    await runtime.close();
   }
 });
 

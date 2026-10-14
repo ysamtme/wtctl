@@ -19,6 +19,7 @@
 - Подсказка `TARGET_MISMATCH` не говорит «Запись не отправлена»: так было и у `objects.get`, где записи нет, и после записи с исходом `indeterminate`. Подсказка `CATALOG_MISMATCH` у `objects.delete` тоже больше не говорит об исходе. Его сообщает `mutationOutcome`.
 - Отказы по аргументу, которые шлюз находит до отправки, у низкоуровневых операций записи и выполнения кода отвечают `mutationOutcome: not_sent`, а не `indeterminate`: недопустимый в XML символ у `native.lds.*` и `web.lds.*`, `path`, `headers` и `method` у `*.experimental.rawRequest`, `dbName` у `native.physicalDocuments.createFromXml`.
 - `native.resources.getImage` и `web.resources.getImage` не оставляют соединение, которое сервер закрывает после картинки. Раньше на только что запущенном сервере следующий запрос в это соединение обрывался: `PLATFORM_HTTP` «Соединение оборвалось». Так бывало на серверах 2025.1.1171 и 2025.1.1333.
+- `objects.create` с `dbName`, которого нет на сервере, отвечает `INVALID_ARGUMENT` до выдачи ID, исход — `not_sent`; подсказка называет базы сервера. Раньше сервер выдавал ID, запись отвечала HTTP 500 с исходом `indeterminate`, а подсказка говорила о значении поля.
 - У операций чтения в ошибке нет поля `mutationOutcome`: раньше часть отказов приходила с `not_sent`, хотя записи не было. `RUNTIME_CLOSED` у записи и выполнения кода отвечает `not_sent`; раньше исхода в нём не было.
 
 ## 0.4.0 — 2026-10-13
