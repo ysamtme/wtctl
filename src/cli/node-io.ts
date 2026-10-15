@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { dirname, resolve } from "node:path";
-import { writeResultFile } from "../results.js";
+import { saveLocalFile } from "../results.js";
 import type { Readable } from "node:stream";
 import { CliInputError } from "./arguments.js";
 import type { CliIo } from "./types.js";
@@ -41,7 +41,7 @@ function writeStream(stream: NodeJS.WritableStream, text: string): Promise<void>
 
 export async function writeAtomicOutput(path: string, text: string): Promise<void> {
   await mkdir(dirname(resolve(path)), { recursive: true });
-  await writeResultFile(path, [text], true);
+  await saveLocalFile(path, true, (file) => file.writeFile(text, "utf8"));
 }
 
 /** Вопросы идут в stderr: в stdout — JSON команды. */

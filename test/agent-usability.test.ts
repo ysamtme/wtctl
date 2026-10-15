@@ -413,32 +413,16 @@ test("сырой запрос, который ничего не нашёл, — 
 });
 
 test("файл сервера возвращается текстом, если это UTF-8, и как base64 в остальных случаях", () => {
-  const lines = (bytes: Buffer) =>
-    `\n${bytes.toString("base64").replace(/(.{20})/g, "$1\n")}\n\t\t`;
   const text = Buffer.from("﻿<a>Привет</a>", "utf8");
-  assert.deepEqual(fileContent({ Data: lines(text), "#text": "\n" }), {
-    text: "<a>Привет</a>",
-    bytes: text.length,
-  });
-  assert.deepEqual(fileContent({ Data: "" }), { text: "", bytes: 0 });
+  assert.deepEqual(fileContent(text), { text: "<a>Привет</a>", bytes: text.length });
+  assert.deepEqual(fileContent(Buffer.alloc(0)), { text: "", bytes: 0 });
   const binary = Buffer.from([0xff, 0xfe, 0x00, 0x80]);
-  assert.deepEqual(fileContent({ Data: lines(binary) }), {
-    base64: binary.toString("base64"),
-    bytes: 4,
-  });
+  assert.deepEqual(fileContent(binary), { base64: binary.toString("base64"), bytes: 4 });
   // Десять байтов 00…09 — корректный UTF-8, но не текст; текст выдаётся байтами по запросу.
   const low = Buffer.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-  assert.deepEqual(fileContent({ Data: lines(low) }), { base64: "AAECAwQFBgcICQ==", bytes: 10 });
-  assert.deepEqual(fileContent({ Data: lines(Buffer.from("a\tb\r\nc")) }), {
-    text: "a\tb\r\nc",
-    bytes: 6,
-  });
-  assert.deepEqual(fileContent({ Data: lines(Buffer.from("ab")) }, "base64"), {
-    base64: "YWI=",
-    bytes: 2,
-  });
-  assert.throws(() => fileContent({ Data: "" }, "hex"), { code: "INVALID_ARGUMENT" });
-  assert.throws(() => fileContent({ Data: { nested: "x" } }), { code: "FILE_READ_RESPONSE" });
+  assert.deepEqual(fileContent(low), { base64: "AAECAwQFBgcICQ==", bytes: 10 });
+  assert.deepEqual(fileContent(Buffer.from("a\tb\r\nc")), { text: "a\tb\r\nc", bytes: 6 });
+  assert.deepEqual(fileContent(Buffer.from("ab"), "base64"), { base64: "YWI=", bytes: 2 });
 });
 
 test("ответы лога умещаются в одну страницу, поэтому курсор и следующее смещение никогда не скрываются", () => {
@@ -566,7 +550,10 @@ test("сырой ответ сервера приходит без отступ�
 
 test("загрузка отвечает адресом файла; файл, прочитанный как base64, приходит целиком", async () => {
   const { runtime } = fakeRuntime(
-    { "web.pages.uploadFile": { Url: "123/report.txt" }, "*": { Data: "\nAAEC\nAwQF\n\t\t\t" } },
+    {
+      "web.pages.uploadFile": { Url: "123/report.txt" },
+      "native.lds.loadUrl": Buffer.from([0, 1, 2, 3, 4, 5]),
+    },
     {
       outputLimitBytes: 4096,
       runtimeDir: await mkdtemp(join(tmpdir(), "wtctl-upload-")),

@@ -29,17 +29,20 @@ export interface OperationCall {
   readonly outcome: WriteOutcome;
   effect: OperationEffect;
   /**
-   * Сообщение отказа с исходом indeterminate: что могло остаться на сервере. Сообщение самой
-   * ошибки уходит в подсказку.
+   * Отказ с исходом indeterminate: message — что могло остаться на сервере, hint — что делать.
+   * Сообщение и подсказка самой ошибки идут в подсказке следом.
    */
-  afterSend?: string;
+  afterSend?: { message: string; hint?: string };
   batchRecovery?: BatchRecovery;
 }
 
 /** Правила упаковки ответа операции. */
 export interface ReplyRules {
-  /** "never" — ответ отдаётся целиком при любом размере; "always" — сохраняется, даже когда помещается. */
-  readonly store?: "never" | "always";
+  /**
+   * "never" — ответ отдаётся целиком при любом размере; "always" — сохраняется, даже когда
+   * помещается; функция выбирает "always" по ответу.
+   */
+  readonly store?: "never" | "always" | ((data: unknown) => boolean);
   /** Ответ, который сам отказ: ошибка поверх данных. stored — данные не поместились и сохранены. */
   readonly failed?: (data: unknown, stored: boolean) => OperationError | undefined;
   /** Список сохранённого ответа, который превью показывает поэлементно: ключ ответа → строка об элементе. */

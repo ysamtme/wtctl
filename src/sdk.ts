@@ -14,7 +14,7 @@ import type {
 import type { ServerInfoInput, ServerInfoData, ServerDatabase } from "./server-info.js";
 import type { FileExistsInput, FileExistsData, FileReadInput, FileReadData } from "./files.js";
 import type { FileWriteInput, FileWriteData, FileDeleteInput, FileDeleteData } from "./files.js";
-import type { FileListInput, FileListData } from "./files.js";
+import type { FileListInput, FileListData, FileSaveInput, FileSaveData } from "./files.js";
 import type { SchemaInput, SchemaResult, SchemaTypesInput, SchemaTypesResult } from "./schema.js";
 import type {
   ConnectionConfig,
@@ -659,8 +659,11 @@ export class HcmClient {
   fileExists(input: FileExistsInput): Promise<HcmResult<FileExistsData>> {
     return callOperation(this, "files.exists", { ...input });
   }
+  /** Сохраняет файл сервера на этот компьютер байт в байт, любого размера. */
+  readFile(input: FileSaveInput): Promise<HcmResult<FileSaveData>>;
   /** Файл по адресу сервера: text, если это текст в UTF-8, иначе base64. */
-  readFile(input: FileReadInput): Promise<HcmResult<FileReadData>> {
+  readFile(input: FileReadInput): Promise<HcmResult<FileReadData>>;
+  readFile(input: FileReadInput | FileSaveInput): Promise<HcmResult<FileReadData | FileSaveData>> {
     return callOperation(this, "files.read", { ...input });
   }
   /** Один уровень папки сервера: файлы с размером и вложенные папки. Нужно право execute. */

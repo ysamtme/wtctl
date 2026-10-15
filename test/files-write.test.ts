@@ -184,19 +184,14 @@ test("отказ или обрыв на любом шаге после нача�
   const refuseAt = (step: string) => ({
     fail: (target: string) => (target === step ? refusal("CallMethod") : undefined),
   });
-  const broken = async function* () {
-    yield Buffer.from("a");
-    throw new WsHcmApiError("http", "reset", { details: { network: "reset" } });
-  };
   const cases = [
     ["tools.upload_begin", fixture(refuseAt("tools.upload_begin"))],
     ["tools.upload_range", fixture(refuseAt("tools.upload_range"))],
     ["tools.upload_end", fixture(refuseAt("tools.upload_end"))],
-    ["native.lds.loadUrl", fixture({ readBack: () => broken() })],
     ["tools.upload_range", fixture()],
   ] as const;
   // Неожиданный ответ функции записи — тоже обрыв.
-  cases[4][1].server.on("native.rpc.call", (args) =>
+  cases[3][1].server.on("native.rpc.call", (args) =>
     args.target === "tools.upload_begin" ? value("string", "upload_file_test") : value("bool", "0"),
   );
   for (const [step, { runtime, state }] of cases) {
@@ -218,6 +213,31 @@ test("отказ или обрыв на любом шаге после нача�
   assert.equal(refused.error?.mutationOutcome, "not_sent");
   assert.notEqual(refused.error?.message, INTERRUPTED);
   await door.runtime.close();
+});
+
+test("сбой чтения назад после подтверждённой записи — indeterminate: файл записан, но не сверен", async () => {
+  const timeout = async function* () {
+    yield Buffer.from("a");
+    throw new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", {
+      details: { network: "timeout" },
+    });
+  };
+  const { runtime, state } = fixture({ readBack: () => timeout() });
+  const result = await runtime.call("files.write", { url: "x-local://share/a.txt", text: "abc" });
+  assert.equal(result.error?.mutationOutcome, "indeterminate");
+  assert.equal(result.error?.message, "Файл записан, но прочитать его для сверки не удалось.");
+  // Сначала что делать, затем причина сбоя: здесь — время запроса.
+  assert.match(
+    result.error!.hint!,
+    /^Содержимое на сервере не проверено: сравнить через files\.read; запись можно повторить целиком\. .*timeoutMs/,
+  );
+  assert.deepEqual(ids(state), [
+    "tools.upload_begin",
+    "tools.upload_range",
+    "tools.upload_end",
+    "native.lds.loadUrl",
+  ]);
+  await runtime.close();
 });
 
 test("файл на диске, изменившийся во время записи: уходит названный в начале размер, укороченный — обрыв", async () => {

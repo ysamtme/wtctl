@@ -159,17 +159,18 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
     notes: ["В ответе url — адрес файла, folderUrl — папка, созданная для него."],
   },
   files: {
-    summary: "Файл сервера: read (текстом), exists, list, write, delete.",
+    summary: "Файл сервера: read (текстом или на диск), exists, list, write, delete.",
     usage: [
       "wtctl files read АДРЕС",
       "wtctl files read АДРЕС --base64",
+      "wtctl files read АДРЕС --to ФАЙЛ [--overwrite]",
       "wtctl files exists АДРЕС",
       "wtctl files list АДРЕС [--search ЧАСТЬ_ИМЕНИ]",
       "wtctl files write АДРЕС --input-file ФАЙЛ",
       "wtctl files delete АДРЕС",
     ],
     notes: [
-      "read отдаёт text, если файл — текст в UTF-8, иначе base64; --base64 отдаёт base64 и для текста.",
+      "read отдаёт text, если файл — текст в UTF-8, иначе base64; --base64 отдаёт base64 и для текста. --to сохраняет файл на диск байт в байт, любого размера; --overwrite заменяет существующий.",
       "list показывает один уровень папки и требует права execute.",
       "write читает ФАЙЛ с диска частями и сверяет записанное; --stdin держит весь ввод в памяти. В папку кода (wt, wtv, custom…) нужно ещё право execute: файл в ней — код сервера.",
     ],

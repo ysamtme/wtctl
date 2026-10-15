@@ -81,6 +81,8 @@ export type {
   FileListInput,
   FileReadData,
   FileReadInput,
+  FileSaveData,
+  FileSaveInput,
   FileWriteData,
   FileWriteInput,
 } from "./files.js";

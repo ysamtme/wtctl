@@ -6,6 +6,7 @@ import { operationSpec } from "./operations.js";
 import { platformFailure } from "./platform-errors.js";
 import type { ResultStore } from "./results.js";
 import type { Verdict } from "./write-outcome.js";
+import type { OperationCall } from "./operation.js";
 import type { ConnectionConfig, OperationError, OperationResult } from "./contracts.js";
 
 /** Что пакет успел сделать к моменту сбоя. */
@@ -141,7 +142,7 @@ export class ReplyPacker {
     }
     // Текст лога или файла сохраняется, даже если помещается: results.export пишет его в файл.
     const kept =
-      bound && rules?.store === "always"
+      bound && (typeof rules?.store === "function" ? rules.store(data) : rules?.store === "always")
         ? await this.results.put(data).catch(() => undefined)
         : undefined;
     return {
@@ -161,7 +162,7 @@ export class ReplyPacker {
     start: number,
     error: unknown,
     verdict: Verdict,
-    extra: { afterSend?: string; batchRecovery?: BatchRecovery } = {},
+    extra: { afterSend?: OperationCall["afterSend"]; batchRecovery?: BatchRecovery } = {},
   ): OperationResult {
     const failure = this.pack(id, start, error, verdict, extra.afterSend);
     if (!extra.batchRecovery) return failure;
@@ -199,7 +200,7 @@ export class ReplyPacker {
     start: number,
     error: unknown,
     verdict: Verdict,
-    afterSend: string | undefined,
+    afterSend: OperationCall["afterSend"],
   ): OperationResult {
     const redact = (message: string, limit = 500): string => {
       let safe = message;
@@ -250,8 +251,8 @@ export class ReplyPacker {
       normal.hint =
         `${normal.hint ?? ""} До этого отказа запрос на запись уже ушёл: после восстановления входа проверить, прошла ли запись, прежде чем повторять.`.trim();
     if (afterSend && mutationOutcome === "indeterminate") {
-      normal.hint = `${normal.message} ${normal.hint ?? ""}`.trim();
-      normal.message = afterSend;
+      normal.hint = [afterSend.hint, normal.message, normal.hint].filter(Boolean).join(" ");
+      normal.message = afterSend.message;
     }
     const trim = (value: unknown, depth = 0, limit = 256): unknown => {
       if (typeof value === "string") return redact(value, limit);

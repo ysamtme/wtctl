@@ -264,9 +264,12 @@ function networkFailure(error: unknown): NetworkFailure {
   return "failed";
 }
 
-/** Ограничивает число байтов до того, как потребитель сможет буферизовать недоверенный ответ. */
+/**
+ * Ограничивает число байтов до того, как потребитель сможет буферизовать недоверенный ответ.
+ * Сбой чтения тела — WsHcmApiError с причиной, и при пределе Infinity тоже.
+ */
 export function limitResponse(response: Response, maxBytes: number): Response {
-  if (response.body === null || maxBytes === Infinity) return response;
+  if (response.body === null) return response;
   const reader = response.body.getReader();
   let read = 0;
   const body = new ReadableStream<Uint8Array>({
@@ -307,7 +310,13 @@ export function limitResponse(response: Response, maxBytes: number): Response {
         controller.error(
           error instanceof WsHcmApiError
             ? error
-            : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", { cause: error }),
+            : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", {
+                cause: error,
+                // Время запроса истекает и посреди тела: большой файл читается дольше timeoutMs.
+                ...(error instanceof DOMException && error.name === "TimeoutError"
+                  ? { details: { network: "timeout" } }
+                  : {}),
+              }),
         );
       }
     },

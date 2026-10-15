@@ -281,16 +281,20 @@ test("сбой посреди записи экспорта не оставля�
     const path = join(store.config.runtimeDir, "failed-export");
     const original = fs.promises.writeFile;
     fs.promises.writeFile = async (target, data, options) => {
-      if (String(target).startsWith(path + ".")) {
+      // Экспорт пишет в открытый временный файл рядом с целевым.
+      if (typeof target === "object" && "fd" in target) {
         await original(target, "partial", options);
-        throw Object.assign(new Error("Synthetic disk full"), { code: "ENOSPC" });
+        throw Object.assign(new Error("Synthetic disk full"), { code: "ENOSPC", syscall: "write" });
       }
       return original(target, data, options);
     };
     syncBuiltinESMExports();
     try {
       const before = (await readdir(store.config.runtimeDir)).sort();
-      await assert.rejects(store.export({ resultId, path, overwrite: true }));
+      // Отказ диска называет себя, а не дефект клиента.
+      await assert.rejects(store.export({ resultId, path, overwrite: true }), {
+        code: "FILE_SAVE_FAILED",
+      });
       assert.deepEqual((await readdir(store.config.runtimeDir)).sort(), before);
     } finally {
       fs.promises.writeFile = original;

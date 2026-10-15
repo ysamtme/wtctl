@@ -835,7 +835,7 @@ test("файл, прочитанный как объект по адресу, г
 test("текст файла, который помещается в ответ, всё равно сохраняется и экспортируется в файл", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const { runtime } = fakeRuntime(
-    { "*": { Data: Buffer.from("строка 1\nстрока 2\n").toString("base64") } },
+    { "*": Buffer.from("строка 1\nстрока 2\n") },
     { runtimeDir: directory },
   );
   try {

@@ -275,7 +275,7 @@ test("ссылки в пакете указывают на полные преж
     "native.spxml2.getAppInfo": { url: "x-local://fixture.txt", metadata: "x".repeat(5000) },
     "native.lds.loadUrl": (args) => {
       loadedUrl = args.url;
-      return { Data: "Zml4dHVyZQ==" };
+      return Buffer.from("fixture");
     },
   };
   await fixture(script, async (runtime) => {

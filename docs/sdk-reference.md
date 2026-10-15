@@ -179,6 +179,14 @@ client.fileExists(input: FileExistsInput): Promise<HcmResult<FileExistsData>>
 #### client.readFile
 
 ```ts
+client.readFile(input: FileSaveInput): Promise<HcmResult<FileSaveData>>
+```
+
+Сохраняет файл сервера на этот компьютер байт в байт, любого размера.
+
+Типы: [FileSaveInput](#filesaveinput), [FileSaveData](#filesavedata).
+
+```ts
 client.readFile(input: FileReadInput): Promise<HcmResult<FileReadData>>
 ```
 
@@ -815,12 +823,31 @@ CreateInput<T extends object = HcmData>
 
 ### FileReadInput
 
-Аргументы readFile.
+Аргументы readFile без file: файл приходит в ответе.
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `url` | `string` | Адрес файла на сервере: x-local://…. |
 | `encoding?` | `"base64"` | "base64" отдаёт байты, даже если файл текстовый. |
+
+### FileSaveData
+
+Ответ readFile с file.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `bytes` | `number` | Размер файла в байтах. |
+| `file` | `string` | Полный путь к сохранённому файлу. |
+
+### FileSaveInput
+
+Аргументы readFile с file: файл сохраняется на этот компьютер.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `url` | `string` | Адрес файла на сервере: x-local://…. |
+| `file` | `string` | Полный путь, куда сохранить файл байт в байт; размер не ограничен. Папка должна быть. |
+| `overwrite?` | `boolean` | Заменить файл, если он уже есть; иначе FILE_EXISTS. |
 
 ### FileWriteData
 

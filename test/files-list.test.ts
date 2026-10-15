@@ -21,7 +21,7 @@ const scriptAnswer = (rows: (string | Record<string, string>)[]) =>
 
 function fixture(rows: (string | Record<string, string>)[], execute = true) {
   return fakeRuntime(
-    { "*": (_args, id) => (id === "web.rpc.call" ? scriptAnswer(rows) : { Data: "QUJD" }) },
+    { "*": (_args, id) => (id === "web.rpc.call" ? scriptAnswer(rows) : Buffer.from("ABC")) },
     { runtimeDir: join(tmpdir(), "wtctl-files-list"), permissions: { write: true, execute } },
   );
 }

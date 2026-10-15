@@ -494,7 +494,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       allowOptions(
         args,
         action === "read"
-          ? ["base64"]
+          ? ["base64", "to", "overwrite"]
           : action === "write"
             ? ["input-file", "stdin"]
             : action === "list"
@@ -511,14 +511,22 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
             ...optional("search", stringOption(args, "search")),
           },
         };
-      if (action === "read")
+      if (action === "read") {
+        const to = stringOption(args, "to");
+        if (to === undefined && args.options.overwrite)
+          throw new CliInputError("--overwrite действует только вместе с --to.");
+        if (to !== undefined && args.options.base64)
+          throw new CliInputError("--base64 не нужен вместе с --to: файл сохраняется байт в байт.");
         return {
           operationId: "files.read",
           args: {
             url: requirePositional(args, 2, "серверный URL"),
             ...(args.options.base64 ? { encoding: "base64" } : {}),
+            ...(to === undefined ? {} : { file: resolve(to) }),
+            ...(args.options.overwrite ? { overwrite: true } : {}),
           },
         };
+      }
       let url: string;
       try {
         url = fileExistsUrl(requirePositional(args, 2, "серверный URL"));

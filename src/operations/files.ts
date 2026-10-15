@@ -1,5 +1,5 @@
 import { FILE_EXISTS_URL_MAX_LENGTH } from "../files.js";
-import { operation, schema, string } from "../operation.js";
+import { boolean, operation, schema, string } from "../operation.js";
 
 export const fileOperations = [
   operation({
@@ -25,12 +25,20 @@ export const fileOperations = [
     id: "files.read",
     effect: "read",
     description:
-      'Прочитать файл по адресу сервера: text, если содержимое — текст в UTF-8, иначе base64. encoding:"base64" отдаёт base64 и для текста. Документы объектов читает objects.get.',
-    inputSchema: schema({ url: string, encoding: { type: "string", enum: ["base64"] } }, ["url"]),
-    summary:
-      'Прочитать файл: текст, если это текст в UTF-8, иначе base64; encoding:"base64" — всегда base64.',
+      'Прочитать файл по адресу сервера: text, если содержимое — текст в UTF-8, иначе base64. encoding:"base64" отдаёт base64 и для текста. file — полный путь на этом компьютере: файл любого размера сохраняется туда байт в байт, overwrite заменяет существующий. Документы объектов читает objects.get.',
+    inputSchema: schema(
+      {
+        url: string,
+        encoding: { type: "string", enum: ["base64"] },
+        file: string,
+        overwrite: boolean,
+      },
+      ["url"],
+    ),
+    summary: "Прочитать файл: текст в UTF-8 или base64; с file — сохранить на этот компьютер.",
     usualCause: "по этому адресу ничего нет",
-    reply: { store: "always" },
+    // Содержимое сохраняется всегда: results.export пишет его в файл. Ответ о файле на диске — нет.
+    reply: { store: (data) => (data as { file?: unknown }).file === undefined },
     run: (context, args) => context.files.read(args),
   }),
   operation({

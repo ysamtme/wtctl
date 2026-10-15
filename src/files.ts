@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { open, type FileHandle } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { open, writeFile, type FileHandle } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import { HcmError, requiredString } from "./errors.js";
 import { permissionHint } from "./config.js";
 import type { ConnectionConfig } from "./contracts.js";
 import { freezeRegistry } from "./immutable.js";
 import type { HcmServer } from "./hcm-server.js";
+import { saveLocalFile } from "./results.js";
 import type { WriteOutcome } from "./write-outcome.js";
 import { prepareScript, type ScriptData } from "./scripts.js";
 import { exactKeys, isType, rpcArgument, strictResponse } from "./server-value.js";
@@ -21,7 +22,7 @@ export interface FileExistsData {
   readonly exists: boolean;
 }
 
-/** Аргументы readFile. */
+/** Аргументы readFile без file: файл приходит в ответе. */
 export interface FileReadInput {
   /** Адрес файла на сервере: x-local://…. */
   readonly url: string;
@@ -37,22 +38,25 @@ export interface FileReadData {
   /** Размер файла в байтах. */
   readonly bytes: number;
 }
+/** Аргументы readFile с file: файл сохраняется на этот компьютер. */
+export interface FileSaveInput {
+  /** Адрес файла на сервере: x-local://…. */
+  readonly url: string;
+  /** Полный путь, куда сохранить файл байт в байт; размер не ограничен. Папка должна быть. */
+  readonly file: string;
+  /** Заменить файл, если он уже есть; иначе FILE_EXISTS. */
+  readonly overwrite?: boolean;
+}
+/** Ответ readFile с file. */
+export interface FileSaveData {
+  /** Размер файла в байтах. */
+  readonly bytes: number;
+  /** Полный путь к сохранённому файлу. */
+  readonly file: string;
+}
 
-/** Загрузчик отвечает base64, разбитым на строки; вызывающему нужен сам файл. */
-export function fileContent(response: unknown, encoding?: unknown): FileReadData {
-  if (encoding !== undefined && encoding !== "base64")
-    throw new HcmError(
-      "INVALID_ARGUMENT",
-      'encoding: допустимо только "base64".',
-      "Без encoding текст в UTF-8 приходит в text, остальное — в base64.",
-    );
-  const data =
-    response !== null && typeof response === "object"
-      ? (response as Record<string, unknown>).Data
-      : undefined;
-  if (typeof data !== "string" || /[^A-Za-z0-9+/=\s]/.test(data))
-    throw new HcmError("FILE_READ_RESPONSE", "Сервер вернул файл в неожиданном виде.");
-  const content = Buffer.from(data.replace(/\s+/g, ""), "base64");
+/** Файл целиком: текст, если это текст в UTF-8, иначе base64. */
+export function fileContent(content: Buffer, encoding?: "base64"): FileReadData {
   const binary = { base64: content.toString("base64"), bytes: content.length };
   if (encoding === "base64") return binary;
   try {
@@ -203,8 +207,14 @@ function folderKind(folders: FileFolders | undefined, folder: string): "data" | 
 
 /** Столько байт за раз шлёт штатная настольная админка. */
 export const UPLOAD_BLOCK_BYTES = 10_000_000;
-const WRITE_INTERRUPTED =
-  "Запись прервалась: файл на сервере может быть пустым или недописанным. Запись можно повторить целиком.";
+const WRITE_INTERRUPTED = {
+  message:
+    "Запись прервалась: файл на сервере может быть пустым или недописанным. Запись можно повторить целиком.",
+};
+const READ_BACK_FAILED = {
+  message: "Файл записан, но прочитать его для сверки не удалось.",
+  hint: "Содержимое на сервере не проверено: сравнить через files.read; запись можно повторить целиком.",
+};
 const WRITE_MISMATCH_HINT =
   "Файл записывается целиком: запись можно повторить; если расхождение повторяется — сервер портит файл при записи, проверить через files.read.";
 
@@ -240,24 +250,26 @@ async function writeSource(args: Record<string, unknown>): Promise<WriteSource> 
     close: async () => undefined,
   };
 }
+/** file — путь на компьютере вызывающего. */
+function localPathError(message: string): HcmError {
+  return new HcmError(
+    "INVALID_ARGUMENT",
+    `file: ${message}`,
+    "Путь — на компьютере, где работает клиент; у MCP-сервера — там, где он запущен.",
+  );
+}
 async function diskSource(path: string): Promise<WriteSource> {
-  const refused = (message: string) =>
-    new HcmError(
-      "INVALID_ARGUMENT",
-      `file: ${message}`,
-      "Файл читается на компьютере, где работает клиент; у MCP-сервера — там, где он запущен.",
-    );
-  if (!isAbsolute(path) || path.includes("\0")) throw refused("нужен полный путь к файлу.");
+  if (!isAbsolute(path) || path.includes("\0")) throw localPathError("нужен полный путь к файлу.");
   let handle: FileHandle;
   try {
     handle = await open(path, "r");
   } catch {
-    throw refused("файл не открывается для чтения.");
+    throw localPathError("файл не открывается для чтения.");
   }
   const info = await handle.stat().catch(() => undefined);
   if (!info?.isFile()) {
     await handle.close();
-    throw refused("по этому пути не файл.");
+    throw localPathError("по этому пути не файл.");
   }
   const size = info.size;
   return {
@@ -286,6 +298,23 @@ async function diskSource(path: string): Promise<WriteSource> {
     close: () => handle.close(),
   };
 }
+/** Тело ответа в памяти, не больше limit байт. */
+async function collect(body: AsyncIterable<Uint8Array>, limit: number): Promise<Buffer> {
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  for await (const chunk of body) {
+    bytes += chunk.length;
+    if (bytes > limit)
+      throw new HcmError(
+        "FILE_TOO_LARGE",
+        `Файл больше предела ответа подключения maxResponseBytes (${limit} байт).`,
+        "Файл любого размера сохраняет на диск files.read с file.",
+      );
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, bytes);
+}
+
 /** Ответ функции записи: строка с ID записи или true. */
 function uploadAnswer(response: unknown, type: "string" | "bool"): string {
   try {
@@ -421,7 +450,7 @@ export function parseFileExists(response: unknown): FileExistsData {
  */
 export interface FileCall {
   outcome: WriteOutcome;
-  afterSend?: string;
+  afterSend?: { message: string; hint?: string };
 }
 
 /** Файловые операции: метод — вся цепочка одной, от проверки адреса до проверки после ответа. */
@@ -443,11 +472,38 @@ export class ServerFiles {
     );
   }
 
-  async read(args: Record<string, unknown>): Promise<FileReadData> {
-    return fileContent(
-      await this.server.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
-      args.encoding,
+  /** Без file файл собирается в память в пределах maxResponseBytes; с file идёт на диск без предела. */
+  async read(args: Record<string, unknown>): Promise<FileReadData | FileSaveData> {
+    const url = requiredString(args.url, "url");
+    const { encoding, file, overwrite } = args;
+    if (file === undefined) {
+      if (overwrite === true)
+        throw new HcmError("INVALID_ARGUMENT", "overwrite действует только вместе с file.");
+      const limit = this.config.maxResponseBytes;
+      return fileContent(
+        await this.load(url, (body) => collect(body, limit)),
+        encoding as "base64" | undefined,
+      );
+    }
+    if (encoding !== undefined)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        "encoding не нужен вместе с file: файл сохраняется байт в байт.",
+      );
+    const path = requiredString(file, "file");
+    if (!isAbsolute(path)) throw localPathError("нужен полный путь к файлу.");
+    const bytes = await saveLocalFile(
+      path,
+      overwrite === true,
+      (handle) => this.load(url, (body) => writeFile(handle, body)),
+      "file",
     );
+    return { bytes, file: resolve(path) };
+  }
+
+  /** Файл сервера потоком байт: read читает тело ответа, пока запрос занимает подключение. */
+  private load<T>(url: string, read: (body: AsyncIterable<Uint8Array>) => Promise<T>): Promise<T> {
+    return this.server.stream("native.lds.loadUrl", { url, useBinaryResponse: true }, read);
   }
 
   async list(args: Record<string, unknown>, call: FileCall): Promise<FileListData> {
@@ -495,6 +551,7 @@ export class ServerFiles {
         bytes = end;
       }
       uploadAnswer(await upload("end", id), "bool");
+      call.afterSend = READ_BACK_FAILED;
       const read = await this.readBack(target.url);
       // Расхождение — не обрыв: у него своё сообщение.
       delete call.afterSend;
@@ -514,19 +571,15 @@ export class ServerFiles {
 
   /** Размер и SHA256 файла на сервере: файл читается потоком и в памяти не собирается. */
   private readBack(url: string): Promise<{ bytes: number; digest: Buffer }> {
-    return this.server.stream(
-      "native.lds.loadUrl",
-      { url, useBinaryResponse: true },
-      async (body) => {
-        const hash = createHash("sha256");
-        let bytes = 0;
-        for await (const chunk of body) {
-          hash.update(chunk);
-          bytes += chunk.length;
-        }
-        return { bytes, digest: hash.digest() };
-      },
-    );
+    return this.load(url, async (body) => {
+      const hash = createHash("sha256");
+      let bytes = 0;
+      for await (const chunk of body) {
+        hash.update(chunk);
+        bytes += chunk.length;
+      }
+      return { bytes, digest: hash.digest() };
+    });
   }
 
   async delete(args: Record<string, unknown>, call: FileCall): Promise<FileDeleteData> {
