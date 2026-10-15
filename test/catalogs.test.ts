@@ -124,7 +124,7 @@ test("каталог без типа объекта даёт поля своей
   assert.match(field!.hint!, /по имени каталога event_members/);
   assert.match(
     (await reader().explainQuery("events", ["note"]))!.hint!,
-    /Поля каталога: id, name, start_date, place_id, days; в schema.get для типа event /,
+    /в schema.get для типа event .* Поля каталога: id, name, start_date, place_id, days\.$/,
   );
 });
 

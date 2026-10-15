@@ -630,7 +630,7 @@ export class SchemaReader {
       "UNKNOWN_CATALOG_FIELD",
       `В каталоге ${catalogId} нет поля: ${unknown.join(", ")}.`,
       (await this.hasDocuments(info, type))
-        ? `Поиск идёт по строкам каталога, не по документам. Поля каталога: ${listed}; в schema.get для типа ${type} они отмечены query:true. Остальные поля документа читает objects.get.`
+        ? `Поиск идёт по строкам каталога, не по документам: в schema.get для типа ${type} поля каталога отмечены query:true, остальные поля документа читает objects.get. Поля каталога: ${listed}.`
         : `Поля каталога: ${listed}; подробнее — schema.get по имени каталога ${catalogId}.`,
       { fields: unknown },
     );

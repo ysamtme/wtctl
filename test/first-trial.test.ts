@@ -181,7 +181,11 @@ test("сохранённый лог читается и экспортирует
     const stored = await runtime.call("native.lds.loadDoc", { url: "x-local://a.xml" });
     assert.equal(stored.meta.truncated, true);
     const data = stored.data as { preview: Record<string, unknown>; resultId: string };
-    assert.deepEqual(data.preview, { file: "a.log", text: text.slice(0, 1000), rows: [1, 2, 3] });
+    assert.deepEqual(data.preview, {
+      file: "a.log",
+      text: text.slice(0, 1000),
+      rows: [1, 2, 3, 4, 5],
+    });
     const page = (await runtime.call("results.read", { resultId: data.resultId, limit: 50 }))
       .data as Record<string, unknown>;
     assert.equal(page.format, "text");

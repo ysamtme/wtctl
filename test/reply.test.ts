@@ -6,7 +6,7 @@ import { WebSocketHeartbeatError } from "../src/protocol/websocket.js";
 import { ReplyPacker, type BatchRecovery } from "../src/reply.js";
 import { WriteOutcome } from "../src/write-outcome.js";
 
-function setup(outputLimitBytes: number, name = "t") {
+function setup(outputLimitBytes: number, name = "t", list?: string) {
   const stored = { calls: 0 };
   const config: ConnectionConfig = {
     name,
@@ -18,7 +18,10 @@ function setup(outputLimitBytes: number, name = "t") {
     permissions: { write: true, execute: true },
   };
   const packer = new ReplyPacker(config, {
-    put: async () => (stored.calls++, { resultId: "stored-id", bytes: 1 }),
+    put: async () => (
+      stored.calls++,
+      { resultId: "stored-id", bytes: 1, ...(list ? { list } : {}) }
+    ),
   });
   return { packer, stored };
 }
@@ -100,11 +103,37 @@ test("значения сессии и авторизации вычищаютс
   for (const secret of ["abc123", "tok456", "sid789"]) assert.ok(!text.includes(secret));
 });
 
-test("message и hint обрезаются до 500 символов", () => {
+test("message обрезается на 500 символах, hint — на 1000, и обрезка видна по многоточию", () => {
   const { packer } = setup(65536);
   const reply = fail(packer, new HcmError("X", "m".repeat(2000), "h".repeat(2000)));
-  assert.ok(failed(reply).message.length <= 500);
-  assert.ok(failed(reply).hint!.length <= 500);
+  assert.equal(failed(reply).message, `${"m".repeat(499)}…`);
+  assert.equal(failed(reply).hint, `${"h".repeat(999)}…`);
+  const fits = fail(packer, new HcmError("X", "m", "h".repeat(1000)));
+  assert.equal(failed(fits).hint, "h".repeat(1000));
+});
+
+test("превью сохранённого ответа показывает столько элементов списка, сколько помещается", async () => {
+  const { packer } = setup(4096, "t", "types");
+  const types = Array.from({ length: 300 }, (_, index) => ({ type: `type_${index}` }));
+  const reply = await packer.success("schema.types", 0, { types, total: 300, catalogs: 400 }, true);
+  const { preview, hint } = reply.data as {
+    preview: { types: unknown[]; total: number; catalogs: number };
+    hint: string;
+  };
+  assert.deepEqual(preview.types, types.slice(0, preview.types.length));
+  assert.ok(preview.types.length > 50, String(preview.types.length));
+  assert.deepEqual([preview.total, preview.catalogs], [300, 400]);
+  assert.ok(hint.includes(`(в preview первые ${preview.types.length} из 300)`), hint);
+  assert.ok(Buffer.byteLength(JSON.stringify(reply)) <= 4096);
+});
+
+test("превью пакета, шаги которого поместились не все, — строка о каждом шаге", async () => {
+  const { packer } = setup(4096, "t", "results");
+  const results = Array.from({ length: 40 }, () => ({ ok: true, data: { text: "x".repeat(200) } }));
+  const reply = await packer.success("runtime.batch", 0, { results }, true);
+  const { preview, hint } = reply.data as { preview: { results: unknown[] }; hint: string };
+  assert.deepEqual(preview.results, Array(40).fill({ ok: true }));
+  assert.doesNotMatch(hint, /первые/);
 });
 
 test("details больше четверти предела сжимаются до omitted с точными ID", () => {

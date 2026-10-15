@@ -24,16 +24,36 @@ function jsonSafe(value: unknown): unknown {
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
   return value;
 }
-/** С чего начинается сохранённый ответ: первые строки списка, первые символы длинного текста. */
-function beginning(data: unknown): unknown {
-  const cut = (value: unknown): unknown =>
-    Array.isArray(value)
-      ? value.slice(0, 3)
-      : typeof value === "string"
-        ? value.slice(0, 1000)
-        : value;
-  if (data === null || typeof data !== "object" || Array.isArray(data)) return cut(data);
-  return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, cut(value)]));
+/**
+ * С чего начинается сохранённый ответ: первые символы длинного текста и столько первых элементов
+ * списков, сколько помещается в budget байт. undefined — от непустого списка не поместилось ничего
+ * или неполным вышел список, у которого есть строка об элементе.
+ */
+function beginning(data: unknown, budget: number, summarised: object = {}): unknown {
+  const whole = data === null || typeof data !== "object" || Array.isArray(data);
+  const entries = whole ? [["", data] as const] : Object.entries(data);
+  const shown = entries.map(([, value]) =>
+    Array.isArray(value) ? [] : typeof value === "string" ? value.slice(0, 1000) : value,
+  );
+  const preview = () =>
+    whole ? shown[0] : Object.fromEntries(entries.map(([key], index) => [key, shown[index]]));
+  let used = Buffer.byteLength(JSON.stringify(preview()) ?? "null");
+  for (const [index, [key, value]] of entries.entries()) {
+    if (!Array.isArray(value)) continue;
+    const items = shown[index] as unknown[];
+    for (const item of value) {
+      const bytes = Buffer.byteLength(JSON.stringify(item) ?? "null") + (items.length ? 1 : 0);
+      if (used + bytes > budget) break;
+      used += bytes;
+      items.push(item);
+    }
+    if (
+      value.length &&
+      (!items.length || (Object.hasOwn(summarised, key) && items.length < value.length))
+    )
+      return undefined;
+  }
+  return preview();
 }
 
 /** Собирает ответ операции из того, что она вернула или выбросила, в лимитах подключения. */
@@ -66,36 +86,48 @@ export class ReplyPacker {
       rules?.store !== "never"
     ) {
       const stored = await this.results.put(data);
-      let preview = beginning(data);
-      // Слишком длинные для предпросмотра строки отбрасываются; счётчики и позиции рядом остаются.
-      if (Buffer.byteLength(JSON.stringify(preview)) > this.config.outputLimitBytes / 2)
-        preview = {
-          kind: "stored-result",
-          ...(data !== null && typeof data === "object" && !Array.isArray(data)
-            ? Object.fromEntries(
-                Object.entries(data)
-                  .slice(0, 40)
-                  .map(([key, value]) => [
-                    key,
-                    Array.isArray(value)
-                      ? rules?.preview && Object.hasOwn(rules.preview, key)
-                        ? value.map(rules.preview[key]!)
-                        : `[список: ${value.length}]`
-                      : value !== null && typeof value === "object"
-                        ? "{структура}"
-                        : typeof value === "string" && value.length > 120
-                          ? `${value.slice(0, 120)}…`
-                          : value,
-                  ]),
-              )
-            : {}),
-        };
+      const budget = this.config.outputLimitBytes / 2;
+      const fitted = beginning(data, budget, rules?.preview);
+      // Не поместились ни элементы списка, ни строки: остаются счётчики, позиции и размеры списков.
+      const preview =
+        fitted !== undefined && Buffer.byteLength(JSON.stringify(fitted)) <= budget
+          ? fitted
+          : {
+              kind: "stored-result",
+              ...(data !== null && typeof data === "object" && !Array.isArray(data)
+                ? Object.fromEntries(
+                    Object.entries(data)
+                      .slice(0, 40)
+                      .map(([key, value]) => [
+                        key,
+                        Array.isArray(value)
+                          ? rules?.preview && Object.hasOwn(rules.preview, key)
+                            ? value.map(rules.preview[key]!)
+                            : `[список: ${value.length}]`
+                          : value !== null && typeof value === "object"
+                            ? "{структура}"
+                            : typeof value === "string" && value.length > 120
+                              ? `${value.slice(0, 120)}…`
+                              : value,
+                      ]),
+                  )
+                : {}),
+            };
+      const { list } = stored;
+      const shown =
+        list === undefined || preview !== fitted
+          ? undefined
+          : (fitted as Record<string, unknown>)[list];
+      const reads =
+        list === undefined
+          ? "его частями"
+          : `список ${list} по элементам${Array.isArray(shown) ? ` (в preview первые ${shown.length} из ${(data as Record<string, unknown[]>)[list]!.length})` : ""}`;
       return {
         ...outcome(true),
         data: {
           preview,
           resultId: stored.resultId,
-          hint: `Ответ не поместился и сохранён целиком: results.read читает ${stored.list === undefined ? "его частями" : `список ${stored.list} по элементам`}, results.export сохраняет в файл.`,
+          hint: `Ответ не поместился и сохранён целиком: results.read читает ${reads}, results.export сохраняет в файл.`,
         },
         meta: {
           operationId: id,
@@ -178,10 +210,10 @@ export class ReplyPacker {
           : undefined,
       ])
         if (secret) safe = safe.replaceAll(secret, "[redacted]");
-      return safe
+      safe = safe
         .replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]")
-        .replace(/(?:SessionID|Authorization|Cookie)\s*[:=]\s*[^\s,;]+/gi, "[redacted]")
-        .slice(0, limit);
+        .replace(/(?:SessionID|Authorization|Cookie)\s*[:=]\s*[^\s,;]+/gi, "[redacted]");
+      return safe.length > limit ? `${safe.slice(0, limit - 1)}…` : safe;
     };
     const { mutationOutcome, refusedAfterSend, ids, exactIds } = verdict;
     const { mutationOutcome: _own, ...normal }: OperationError =
@@ -222,10 +254,7 @@ export class ReplyPacker {
       normal.hint =
         `${normal.hint ?? ""} До этого отказа запрос на запись уже ушёл: после восстановления входа проверить, прошла ли запись, прежде чем повторять.`.trim();
     const trim = (value: unknown, depth = 0, limit = 256): unknown => {
-      if (typeof value === "string") {
-        const text = redact(value, limit + 1);
-        return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
-      }
+      if (typeof value === "string") return redact(value, limit);
       if (depth > 3) return "[details omitted]";
       if (Array.isArray(value)) return value.slice(0, 12).map((item) => trim(item, depth + 1));
       if (value !== null && typeof value === "object")
@@ -279,7 +308,8 @@ export class ReplyPacker {
           ? {}
           : {
               message: redact(normal.message),
-              ...(normal.hint === undefined ? {} : { hint: redact(normal.hint) }),
+              // Подсказка бывает длиннее сообщения: она называет имена, из которых выбирать.
+              ...(normal.hint === undefined ? {} : { hint: redact(normal.hint, 1000) }),
             }),
         ...(mutationOutcome === undefined ? {} : { mutationOutcome }),
         ...(Object.keys(details).length ? { details } : {}),
