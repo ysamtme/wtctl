@@ -12,6 +12,7 @@ import { runCli } from "../src/cli/run.js";
 import { createHcmMcpServer } from "../src/mcp/server.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
 import type { CliIo } from "../src/cli/types.js";
+import type { FileReadInput, FileSaveData, FileSaveInput } from "../src/files.js";
 import { fakeRuntime, type Answer } from "./fake-server.js";
 import { mcpJson } from "./mcp-json.js";
 
@@ -202,8 +203,19 @@ test("файл сохраняется из CLI (--to, --overwrite), SDK и hcm_a
 
     const { runtime } = fixture(binary, directory);
     const sdk = join(directory, "sdk.bin");
-    const data = unwrap(await new HcmClient(runtime).readFile({ url, file: sdk }));
-    assert.deepEqual(data, { bytes: binary.length, file: sdk });
+    const sdkClient = new HcmClient(runtime);
+    // Путь в самом вызове: ответ — FileSaveData. Аргумент, собранный заранее как любой из двух видов
+    // (и с необязательным file), даёт ответ любого из двух видов, а не ответ чтения.
+    const saved: FileSaveData = unwrap(await sdkClient.readFile({ url, file: sdk }));
+    const input = { url, file: sdk, overwrite: true } as FileReadInput | FileSaveInput;
+    const data = unwrap(await sdkClient.readFile(input));
+    const optional: { url: string; file?: string } = { url };
+    const read = unwrap(await sdkClient.readFile(optional));
+    type WithFile<T> = [Extract<T, FileSaveData>] extends [never] ? false : true;
+    const both: [WithFile<typeof data>, WithFile<typeof read>] = [true, true];
+    assert.deepEqual(saved, { bytes: binary.length, file: sdk });
+    assert.deepEqual(data, saved);
+    assert.deepEqual(read, { base64: binary.toString("base64"), bytes: binary.length });
     const server = createHcmMcpServer(runtime);
     const client = new Client({ name: "files-read", version: "0.0.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

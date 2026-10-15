@@ -194,6 +194,14 @@ client.readFile(input: FileReadInput): Promise<HcmResult<FileReadData>>
 
 Типы: [FileReadInput](#filereadinput), [FileReadData](#filereaddata).
 
+```ts
+client.readFile(input: FileSaveInput | FileReadInput): Promise<HcmResult<FileSaveData | FileReadData>>
+```
+
+Аргумент, собранный заранее как FileReadInput или FileSaveInput: ответ — FileReadData или FileSaveData.
+
+Типы: [FileSaveInput](#filesaveinput), [FileReadInput](#filereadinput), [FileSaveData](#filesavedata), [FileReadData](#filereaddata).
+
 #### client.listFiles
 
 ```ts
@@ -829,6 +837,7 @@ CreateInput<T extends object = HcmData>
 | --- | --- | --- |
 | `url` | `string` | Адрес файла на сервере: x-local://…. |
 | `encoding?` | `"base64"` | "base64" отдаёт байты, даже если файл текстовый. |
+| `file?` | `undefined` | Не задаётся: файл на диск сохраняет вызов с FileSaveInput. |
 
 ### FileSaveData
 

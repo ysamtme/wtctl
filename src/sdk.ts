@@ -663,6 +663,8 @@ export class HcmClient {
   readFile(input: FileSaveInput): Promise<HcmResult<FileSaveData>>;
   /** Файл по адресу сервера: text, если это текст в UTF-8, иначе base64. */
   readFile(input: FileReadInput): Promise<HcmResult<FileReadData>>;
+  /** Аргумент, собранный заранее как FileReadInput или FileSaveInput: ответ — FileReadData или FileSaveData. */
+  readFile(input: FileReadInput | FileSaveInput): Promise<HcmResult<FileReadData | FileSaveData>>;
   readFile(input: FileReadInput | FileSaveInput): Promise<HcmResult<FileReadData | FileSaveData>> {
     return callOperation(this, "files.read", { ...input });
   }

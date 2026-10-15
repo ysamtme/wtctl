@@ -28,6 +28,8 @@ export interface FileReadInput {
   readonly url: string;
   /** "base64" отдаёт байты, даже если файл текстовый. */
   readonly encoding?: "base64";
+  /** Не задаётся: файл на диск сохраняет вызов с FileSaveInput. */
+  readonly file?: undefined;
 }
 /** Ответ readFile: ровно одно из text и base64. */
 export interface FileReadData {
