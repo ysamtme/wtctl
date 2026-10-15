@@ -24,8 +24,9 @@ const SETTINGS = [
   "WTCTL_RUNTIME_DIR",
   "WTCTL_ALLOW_WRITE",
   "WTCTL_ALLOW_EXECUTE",
+  "PROD_PASSWORD",
 ];
-/** Запуск с чистым набором переменных WTCTL_* и пустой папкой клиента; после — вернуть оба. */
+/** Запуск с чистым набором переменных подключения и пустой папкой клиента; после — вернуть оба. */
 async function cleanSettings<T>(
   run: (home: string) => Promise<T>,
   variables: Record<string, string> = {},
@@ -344,7 +345,17 @@ test("config init пишет подключение только для чтен
       "--allow-write",
     ];
     assert.equal(await runCli(argv, second.io, second.dependencies), 0);
-    assert.match((second.json().data as { next: string }).next, /--connection prod check/);
+    assert.match(
+      (second.json().data as { next: string }).next,
+      /^Переменная PROD_PASSWORD сейчас не задана.*--connection prod check$/,
+    );
+    assert.throws(
+      () => loadConfig({ connection: "prod" }),
+      (error: HcmError) =>
+        error.code === "INVALID_CONFIG" && /PROD_PASSWORD из passwordEnv/.test(error.message),
+    );
+    process.env.PROD_PASSWORD = "s3cret";
+    assert.equal(loadConfig({ connection: "prod" }).password, "s3cret");
     const document = JSON.parse(await readFile(defaultConfigPath(), "utf8")) as {
       defaultConnection: string;
       connections: Record<string, Record<string, unknown>>;

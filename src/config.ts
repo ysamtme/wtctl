@@ -196,11 +196,16 @@ function credential(
   const envName = string(profile[`${field}Env`], `${field}Env`);
   if (envName !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName))
     throw new HcmError("INVALID_CONFIG", `${field}Env: это не имя переменной окружения.`);
-  return string(
-    (globalOverrides ? process.env[`WTCTL_${field.toUpperCase()}`] : undefined) ??
-      (envName === undefined ? profile[field] : process.env[envName]),
-    field,
-  );
+  const global = globalOverrides ? process.env[`WTCTL_${field.toUpperCase()}`] : undefined;
+  if (global !== undefined || envName === undefined) return string(global ?? profile[field], field);
+  const value = process.env[envName];
+  if (!value)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Переменная ${envName} из ${field}Env не задана или пуста.`,
+      "Нужно задать её в окружении процесса; у MCP-сервера — в env его записи.",
+    );
+  return value;
 }
 
 /**

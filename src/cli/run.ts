@@ -277,12 +277,17 @@ async function initConnection(args: CliArguments, io: CliIo): Promise<OperationR
   );
   await io.writeFile(path, `${JSON.stringify(next, null, 2)}\n`);
   const selected = next.defaultConnection === name;
+  // Переменная может появиться позже, например в env записи MCP-сервера: подключение записывается.
+  const check =
+    passwordEnv !== undefined && !process.env[passwordEnv]
+      ? `Переменная ${passwordEnv} сейчас не задана, без неё подключение не откроется. Задать её и проверить подключение`
+      : "Проверить подключение";
   return frontendResult("cli.config.init", name, {
     path,
     connection: name,
     defaultConnection: next.defaultConnection,
     permissions: { write, execute },
-    next: `Проверить подключение: wtctl ${selected ? "" : `--connection ${name} `}check`,
+    next: `${check}: wtctl ${selected ? "" : `--connection ${name} `}check`,
   });
 }
 

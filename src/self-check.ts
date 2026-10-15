@@ -1,3 +1,4 @@
+import { permissionHint } from "./config.js";
 import type { ConnectionConfig } from "./contracts.js";
 import { HcmError, inputObject, requiredString } from "./errors.js";
 import { WsHcmApiError } from "./protocol/error.js";
@@ -58,7 +59,7 @@ export async function checkServer(config: ConnectionConfig, invoke: Invoke): Pro
       name !== "login" && report.checks[0]?.result === "failed"
         ? "сессия не открыта"
         : name === "execute" && !config.permissions.execute
-          ? "выполнение кода не разрешено подключением"
+          ? `выполнение кода не разрешено подключением. ${permissionHint(config, "execute")}`
           : undefined;
     if (skipped) {
       report.checks.push({ name, result: "skipped", reason: skipped });

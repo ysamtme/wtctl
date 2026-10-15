@@ -106,6 +106,10 @@ test("отключённый execute пропускается, а неудачн
     f.invoke,
   );
   assert.deepEqual(readOnly.summary, { ok: 10, failed: 0, skipped: 1 });
+  assert.match(
+    readOnly.checks.at(-1)!.reason!,
+    /не разрешено подключением\. Право execute включает/,
+  );
   assert.ok(!f.calls.some((c) => c.id === "execute.script"));
   const denied = fixture({ "native.session.open": new WsHcmApiError("auth", "secret") });
   const data = await checkServer(config, denied.invoke);

@@ -4,7 +4,7 @@
 
 Если `wtctl` есть в `PATH`, вызывай `wtctl`. Если нет, команду для этого компьютера называет раздел «На этом компьютере» в конце этой темы. В тексте навыка этого раздела нет: там прочитай тему через `hcm_guide {topic:"cli-sdk"}`.
 
-Подключение команда и SDK берут из файла подключений (какой файл — показывает `wtctl config path`) или из переменных `WTCTL_URL`, `WTCTL_USERNAME`, `WTCTL_PASSWORD` своей оболочки. Переменные, заданные в записи MCP-сервера, им не видны. `--connection ИМЯ` выбирает подключение из файла; без него берётся подключение по умолчанию.
+Подключение команда и SDK берут из файла подключений и переменных своей оболочки; переменные из записи MCP-сервера им не видны. Файл называют `--config` или `WTCTL_CONFIG` (в SDK — `loadConfig({ configPath })`), иначе — файл по умолчанию; путь файла показывает `wtctl config path`. Подключение в файле выбирает первое заданное из `--connection ИМЯ` (в SDK — `loadConfig({ connection })`), `WTCTL_CONNECTION`, `defaultConnection` файла. `WTCTL_URL`, `WTCTL_USERNAME`, `WTCTL_PASSWORD` задают подключение без файла: при файле из `--config` или `WTCTL_CONFIG` они не действуют, а заданная `WTCTL_URL` отключает файл по умолчанию.
 
 `wtctl help` показывает команды, `wtctl help КОМАНДА` — аргументы и примеры одной команды. Сначала читай справку нужной команды, флаги не угадывай.
 
@@ -83,4 +83,4 @@ await withHcmClient(loadConfig(), async (client) => {
 - Аргументы методов те же, что у инструментов MCP: `client.patch({ id, patch: { name: "…" }, preview: true })`; код принимается и строкой, параметры кода — вторым аргументом: `client.execute("RESULT = [PARAMS.n];", { n: 1 })`. Код из файла: `client.execute(await readFile("check.js", "utf8"), params)`. Запустить агента и дождаться конца: `client.runAgent({ id })`. Запрос XQuery — тот же `query`: `client.query({ query: "for $e in … return $e", fields: ["id"] })`.
 - `queryRows` принимает те же аргументы, что `query`, и сам листает страницы. Страница с `incomplete:true` (запрос отвергнут, а не конец данных) — ошибка `QUERY_INCOMPLETE`. Массив строк — `await Array.fromAsync(client.queryRows(…))`.
 - Ответ больше 24 КБ сохраняется на диск, и `unwrap` и `queryRows` бросают `HcmStoredResultError` (`RESULT_STORED`). В скрипте подними предел — `loadConfig({ settings: { outputLimitBytes: 1024 * 1024 } })`, больше 1 МБ нельзя — и задавай `fields`.
-- `loadConfig({ connection: "имя" })` выбирает подключение, `configPath` — другой файл подключений. Права `write` и `execute` заданы в подключении, скрипт их не расширяет.
+- Права `write` и `execute` заданы в подключении, скрипт их не расширяет.
