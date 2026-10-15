@@ -188,7 +188,8 @@ export class HcmRuntime implements RuntimePort {
     // Сервер пишет отклонённый запрос или упавший скрипт в свой лог.
     if (
       (error instanceof WsHcmApiError && error.status === 500) ||
-      (error instanceof HcmError && error.code === "SCRIPT_FAILED")
+      (error instanceof HcmError &&
+        (error.code === "SCRIPT_FAILED" || error.code === "UPLOAD_REFUSED"))
     )
       this.logs.serverWroteLog();
     return this.replies.failure(

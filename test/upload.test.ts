@@ -124,6 +124,20 @@ function fixture(mainHtml = html(tokenOne), maximumBytes = 4096) {
   };
 }
 
+const runtimeOver = (f: ReturnType<typeof fixture>): HcmRuntime =>
+  new HcmRuntime({
+    name: "synthetic-upload",
+    baseUrl: "http://synthetic.invalid/",
+    username: "synthetic-account",
+    password: "synthetic-only",
+    timeoutMs: 1000,
+    maxResponseBytes: 1024,
+    outputLimitBytes: 4096,
+    runtimeDir: ".unused",
+    permissions: { write: true, execute: false },
+    fetch: f.fetch,
+  });
+
 test("загрузка одного файла сохраняет точные байты, использует текущий закрытый токен и исходный контракт multipart", async () => {
   const f = fixture(html(tokenOne).replace("synthetic", "\\u0073ynthetic"));
   try {
@@ -400,18 +414,7 @@ test("runtime сохраняет доказанный not_sent при прове
     const f = fixture(mode === "token" ? "<html>No current token</html>" : html(tokenOne), 1024);
     if (mode === "response") f.setUpload({ Url: "../synthetic.txt", error_text: tokenOne });
     if (mode === "network") f.failUploadNetwork();
-    const runtime = new HcmRuntime({
-      name: "synthetic-upload",
-      baseUrl: "http://synthetic.invalid/",
-      username: "synthetic-account",
-      password: "synthetic-only",
-      timeoutMs: 1000,
-      maxResponseBytes: 1024,
-      outputLimitBytes: 4096,
-      runtimeDir: ".unused",
-      permissions: { write: true, execute: false },
-      fetch: f.fetch,
-    });
+    const runtime = runtimeOver(f);
     try {
       const result = await runtime.call("web.pages.uploadFile", {
         filename: mode === "filename" ? "../bad.txt" : "synthetic.txt",
@@ -434,6 +437,27 @@ test("runtime сохраняет доказанный not_sent при прове
       await runtime.close();
       f.client.close();
     }
+  }
+});
+
+test("отказ политики загрузки — UPLOAD_REFUSED: текста сервер не присылает, файл по своему адресу пишет files.write", async () => {
+  const f = fixture(html(tokenOne), 1024);
+  f.setUpload("", 415);
+  const runtime = runtimeOver(f);
+  let logged = 0;
+  (runtime as any).logs.serverWroteLog = () => logged++;
+  try {
+    const result = await runtime.call("web.pages.uploadFile", { filename: "app.js", data: "x" });
+    assert.equal(result.error?.code, "UPLOAD_REFUSED");
+    assert.match(result.error?.message ?? "", /HTTP 415.*лог xhttp/);
+    assert.match(result.error?.hint ?? "", /политики загрузки.*files\.write/);
+    assert.equal(result.error?.mutationOutcome, "indeterminate");
+    assert.equal(f.uploads.length, 1);
+    // Причину сервер записал в свой лог: следующее чтение лога дождётся файла.
+    assert.equal(logged, 1);
+  } finally {
+    await runtime.close();
+    f.client.close();
   }
 });
 

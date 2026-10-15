@@ -1244,13 +1244,22 @@ export class WebPageApi {
       filename,
     );
     form.append("session_token", token);
-    const result = await jsonResponse(
-      await this.transport.send(
-        "/spxml_web/service/upload_file.htm?json_response=1",
-        { method: "POST", body: form },
-        options,
-      ),
+    const response = await this.transport.send(
+      "/spxml_web/service/upload_file.htm?json_response=1",
+      { method: "POST", body: form },
+      options,
     );
+    // HTTP 415 сервер ставит только отказу своей политики загрузки и имени вне своей таблицы
+    // типов. Текст отказа он пишет лишь в свой лог: в строке статуса стандартная фраза, тела нет.
+    if (response.status === 415) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new WsHcmApiError("http", "HTTP 415", {
+        operation: "uploadFile",
+        status: 415,
+        details: { uploadRefused: true },
+      });
+    }
+    const result = await jsonResponse(response);
     const body = result.data;
     const uploadedPath =
       body && typeof body === "object" && "Url" in body && typeof body.Url === "string"
@@ -1369,24 +1378,43 @@ export class WebPageApi {
       "file_data",
       `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}`,
     );
-    const result = await jsonResponse(
-      await this.transport.send(
-        query("/spxml_web/service/upload_file.htm", {
-          json_response: 1,
-          action: "upload_chunk",
-          file_id: request.fileId,
-          file_name: filename,
-        }),
-        {
-          method: "POST",
-          headers: {
-            "Content-Range": `bytes ${request.offset}-${endExclusive - 1}/${request.totalBytes}`,
-          },
-          body: form,
+    const response = await this.transport.send(
+      query("/spxml_web/service/upload_file.htm", {
+        json_response: 1,
+        action: "upload_chunk",
+        file_id: request.fileId,
+        file_name: filename,
+      }),
+      {
+        method: "POST",
+        headers: {
+          "Content-Range": `bytes ${request.offset}-${endExclusive - 1}/${request.totalBytes}`,
         },
-        options,
-      ),
+        body: form,
+      },
+      options,
     );
+    // Отказ политики загрузки и имя вне таблицы типов сервер отдаёт HTTP 500 с текстом
+    // в error_text; остальные сбои части — другим статусом или без этого текста.
+    if (response.status === 500) {
+      let reason: unknown;
+      try {
+        const source = new TextDecoder(responseCharset(response, "utf-8")).decode(
+          await response.arrayBuffer(),
+        );
+        reason = (JSON.parse(source) as { error_text?: unknown } | null)?.error_text;
+      } catch {
+        // Тело не JSON, не дочитано или в неизвестной кодировке: остаётся отказ HTTP 500 без текста.
+      }
+      throw new WsHcmApiError("http", "HTTP 500", {
+        operation: "uploadChunk",
+        status: 500,
+        ...(typeof reason === "string" && reason.trim()
+          ? { details: { uploadRefused: true, reason: reason.trim().slice(0, 500) } }
+          : {}),
+      });
+    }
+    const result = await jsonResponse(response);
     const body = result.data;
     const parts =
       body && typeof body === "object" && "Url" in body && typeof body.Url === "string"

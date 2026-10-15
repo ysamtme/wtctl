@@ -403,10 +403,7 @@ test("проверки связей между полями дают not_sent, �
 
 test("ошибка после отправки, неверное подтверждение приёма, потерянное тело и сбои HTTP остаются indeterminate без повтора", async () => {
   const failures: [string, () => Response | Promise<Response>][] = [
-    [
-      "server error",
-      () => Response.json({ error: 1, error_text: "synthetic-private-detail" }, { status: 500 }),
-    ],
+    ["server error", () => Response.json({ error: 1 }, { status: 500 })],
     ["business error", () => Response.json({ error: 1, Url: "receipt/chunk.bin" })],
     ["missing error", () => Response.json({ Url: "receipt/chunk.bin" })],
     ["false error", () => Response.json({ error: false, Url: "receipt/chunk.bin" })],
@@ -454,6 +451,35 @@ test("ошибка после отправки, неверное подтвер�
       f.client.close();
     }
     assert.equal(f.parts.length, 1, `${label}: cleanup cannot repeat an upload`);
+  }
+});
+
+test("отказ политики загрузки на часть — UPLOAD_REFUSED с текстом сервера; HTTP 500 без текста отказа — прежняя ошибка", async () => {
+  for (const [status, body, code] of [
+    [500, { error: 1, error_text: "Загрузка данного файла запрещена" }, "UPLOAD_REFUSED"],
+    [500, { error: 1 }, "PLATFORM_HTTP"],
+    [500, { error: 1, error_text: " " }, "PLATFORM_HTTP"],
+    [500, "<html>error</html>", "PLATFORM_HTTP"],
+    [502, { error: 1, error_text: "Ошибка записи части" }, "PLATFORM_HTTP"],
+  ] as const) {
+    const f = fixture();
+    f.setResponse(() =>
+      typeof body === "string" ? new Response(body, { status }) : Response.json(body, { status }),
+    );
+    const client = new HcmClient(f.runtime());
+    try {
+      const result = await client.uploadChunk({ ...onePart(), filename: "app.js", data: "x" });
+      assert.equal(result.error?.code, code, JSON.stringify(body));
+      assert.equal(result.error?.mutationOutcome, "indeterminate");
+      assert.equal(f.parts.length, 1);
+      if (code === "UPLOAD_REFUSED") {
+        assert.equal(result.error?.message, "Загрузка данного файла запрещена");
+        assert.match(result.error?.hint ?? "", /политики загрузки.*files\.write/);
+      } else assert.equal(result.error?.details?.status, status);
+    } finally {
+      await client.close();
+      f.client.close();
+    }
   }
 });
 

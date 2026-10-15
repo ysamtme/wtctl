@@ -1,4 +1,6 @@
+import { HcmError } from "../errors.js";
 import { getNativeOperations, getEffectiveNativeEffect } from "../native/index.js";
+import { WsHcmApiError } from "../protocol/error.js";
 import { prepare } from "../native/validation.js";
 import { operation, type Operation } from "../operation.js";
 import { rpcValue } from "../server-value.js";
@@ -37,6 +39,18 @@ function uploadedFile(answer: unknown): unknown {
   }
   return answer;
 }
+/** Отказ политики загрузки сервера — UPLOAD_REFUSED с текстом сервера, если он его прислал. */
+function uploadRefused(error: unknown): unknown {
+  if (!(error instanceof WsHcmApiError) || error.details?.uploadRefused !== true) return error;
+  const reason = error.details.reason;
+  return new HcmError(
+    "UPLOAD_REFUSED",
+    typeof reason === "string"
+      ? reason
+      : `Сервер не принял файл в загрузку (HTTP ${error.status}). Причину он пишет только в свой лог xhttp за сегодня: последние строки показывает logs.follow.`,
+    "Сервер принимает в загрузку только имена из своей политики загрузки (resource_sec.json): обычно .txt, .xml, .zip, документы и картинки; .js, .json, .css, .html, .svg, .bin и имена без расширения — нет. Файл по своему адресу записывает files.write.",
+  );
+}
 function asyncStatus(answer: unknown): unknown {
   if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return answer;
   const data = answer as Record<string, unknown>;
@@ -62,6 +76,8 @@ interface Face {
   usualCause?: string;
   /** Сырой ответ в виде, которым вызывающий может пользоваться. */
   answer?: (raw: unknown) => unknown;
+  /** Отказ сервера в виде, который называет причину; другая ошибка возвращается как есть. */
+  failure?: (error: unknown) => unknown;
 }
 /** Строка на операцию; строки идут по темам обзора. */
 const FACES: Readonly<Record<string, Face>> = {
@@ -94,11 +110,13 @@ const FACES: Readonly<Record<string, Face>> = {
     details:
       'filename — имя без пути; data — текст или {base64:"…"}. Ответ: url — адрес файла, folderUrl — папка, которую сервер создал для него.',
     answer: uploadedFile,
+    failure: uploadRefused,
   },
   "web.pages.uploadChunk": {
     summary: "Загрузить одну часть большого файла.",
     details:
       "fileId — 32 шестнадцатеричных знака, его выбирает вызывающий. Части идут по порядку, последняя собирает файл. Ответ сервера не доказывает, что часть сохранена. При ошибке на последней части вслепую повторять нельзя: адрес итогового файла может остаться неизвестным.",
+    failure: uploadRefused,
   },
   "web.pages.clearUploadChunks": {
     summary: "Удалить загруженные части файла.",
@@ -182,7 +200,7 @@ const FACES: Readonly<Record<string, Face>> = {
 };
 
 export const nativeOperations: readonly Operation[] = getNativeOperations().map((native) => {
-  const { answer, ...texts } = FACES[native.id] ?? {};
+  const { answer, failure, ...texts } = FACES[native.id] ?? {};
   return operation({
     id: native.id,
     effect: native.effect,
@@ -194,11 +212,11 @@ export const nativeOperations: readonly Operation[] = getNativeOperations().map(
     run: async (context, args, call) => {
       prepare(args, native.inputSchema);
       const raw = withoutXmlFormatting(
-        await context.server.call(
-          native.id,
-          args,
-          call.effect === "read" ? undefined : call.outcome,
-        ),
+        await context.server
+          .call(native.id, args, call.effect === "read" ? undefined : call.outcome)
+          .catch((error: unknown) => {
+            throw failure ? failure(error) : error;
+          }),
       );
       return answer ? answer(raw) : raw;
     },
