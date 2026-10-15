@@ -406,7 +406,7 @@ client.exportResult(input: ResultExportInput): Promise<HcmResult<ResultExportDat
 client.uploadFile(input: UploadFileInput): Promise<HcmResult<UploadedFileData>>
 ```
 
-Загружает файл до 8 МБ так же, как админка; нужно право write.
+Загружает файл в папку загрузок сервера так же, как админка; нужно право write.
 
 Типы: [UploadFileInput](#uploadfileinput), [UploadedFileData](#uploadedfiledata).
 

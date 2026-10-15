@@ -240,17 +240,23 @@ test("синтаксическая ошибка всего кода — not_sent
   }
 });
 
-test("права на скрипты и лимиты XML и байтов отклоняют запрос локально, а проверка типизированного результата находит смысловые сбои", async () => {
-  for (const code of ["\0", "😀".repeat(300000)]) {
-    const fixtureValue = fixture();
-    try {
-      const result = await fixtureValue.runtime.call("execute.script", { code });
-      assert.equal(result.ok, false);
-      assert.equal(result.error?.mutationOutcome, "not_sent");
-      assert.equal(fixtureValue.calls.length, 0);
-    } finally {
-      await fixtureValue.runtime.close();
-    }
+test("право execute и знаки XML отклоняют запрос локально, код больше 1 МиБ уходит целиком, а проверка типизированного результата находит смысловые сбои", async () => {
+  const invalid = fixture();
+  try {
+    const result = await invalid.runtime.call("execute.script", { code: "\0" });
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.mutationOutcome, "not_sent");
+    assert.equal(invalid.calls.length, 0);
+  } finally {
+    await invalid.runtime.close();
+  }
+  const large = fixture();
+  try {
+    const code = "я".repeat(1_100_000);
+    assert.equal((await large.runtime.call("execute.script", { code })).ok, true);
+    assert.ok(large.calls.some((item) => item.body.includes(code)));
+  } finally {
+    await large.runtime.close();
   }
   const runtime = new HcmRuntime({
     name: "readonly",

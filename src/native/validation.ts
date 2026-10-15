@@ -21,6 +21,13 @@ function sameJson(left: unknown, right: unknown): boolean {
   );
 }
 
+/** Длина строки в знаках, как её считает JSON Schema. */
+function codePointLength(value: string): number {
+  let count = 0;
+  for (const _ of value) count++;
+  return count;
+}
+
 /** Небольшой детерминированный валидатор подмножества схем, которое выдаёт генератор объявлений. */
 export function validate(value: unknown, schema: Schema, path = "args"): void {
   if ("const" in schema && !sameJson(value, schema.const))
@@ -40,10 +47,19 @@ export function validate(value: unknown, schema: Schema, path = "args"): void {
   }
   if (schema.type === "string") {
     if (typeof value !== "string") throw new ArgumentError(`${path}: нужна строка.`);
-    const length = Array.from(value).length;
-    if (typeof schema.minLength === "number" && length < schema.minLength)
+    // Знаков не больше, чем единиц UTF-16, и не меньше половины: считать их приходится редко.
+    const { minLength, maxLength } = schema;
+    if (
+      typeof minLength === "number" &&
+      value.length / 2 < minLength &&
+      codePointLength(value) < minLength
+    )
       throw new ArgumentError(`${path}: строка короче допустимого.`);
-    if (typeof schema.maxLength === "number" && length > schema.maxLength)
+    if (
+      typeof maxLength === "number" &&
+      value.length > maxLength &&
+      codePointLength(value) > maxLength
+    )
       throw new ArgumentError(`${path}: строка длиннее допустимого.`);
     if (typeof schema.pattern === "string" && !new RegExp(schema.pattern).test(value))
       throw new ArgumentError(`${path}: значение записано неверно.`);
@@ -119,10 +135,12 @@ function normalized(value: unknown, schema: Schema): unknown {
   if (schema["x-normalization"] === "xml-element-box")
     return rawXmlElement((value as { xml: string }).xml);
   if (schema["x-normalization"] === "binary") {
+    // Buffer пропускает неверные знаки молча: верно записанный base64 совпадает с обратной записью.
     const encoded = (value as { base64: string }).base64;
-    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))
+    const bytes = Buffer.from(encoded, "base64");
+    if (bytes.toString("base64") !== encoded)
       throw new ArgumentError("Значение base64 записано неверно.");
-    return new Uint8Array(Buffer.from(encoded, "base64"));
+    return new Uint8Array(bytes);
   }
   if (schema.type === "array")
     return (value as unknown[]).map((item) => normalized(item, (schema.items ?? {}) as Schema));

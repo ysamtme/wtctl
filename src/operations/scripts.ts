@@ -9,7 +9,7 @@ export const scriptOperations = [
       "Выполнить код SP-XML Script на сервере. Код присваивает массив переменной RESULT; числа, даты и логические значения приходят строками. params — объект JSON, в коде это готовая переменная PARAMS. На сервер ничего не устанавливается. Код может менять данные, отката нет.",
     inputSchema: schema(
       {
-        code: { type: "string", minLength: 1, maxLength: 1048576 },
+        code: { type: "string", minLength: 1 },
         params: { type: "object" },
       },
       ["code"],

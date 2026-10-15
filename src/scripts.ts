@@ -47,8 +47,6 @@ export function prepareScript(
       ? ""
       : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(paramsJson(params)).toString("base64")}"), "utf-8")); `) +
     requiredString(value, "code");
-  if (Buffer.byteLength(code) > 1024 * 1024)
-    throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");
   const marker = `hcm_inline_${randomUUID().replaceAll("-", "")}`;
   const xml = `<remote_collection SPXML-FORM="${FORM}" SPXML-FORM-ELEM="remote_collection"><code>${marker}</code><name>${marker}</name><use_cache>0</use_cache><script>${escapeXml(code)}</script></remote_collection>`;
   return { request: { target: TARGET, args: [{ lexicalValue: { xml } }] }, executionId: marker };

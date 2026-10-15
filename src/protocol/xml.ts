@@ -63,7 +63,7 @@ export interface RawXml {
   readonly xml: string;
 }
 
-const parser = createPlatformXmlParser({
+const parserOptions: X2jOptions = {
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   textNodeName: "#text",
@@ -71,7 +71,10 @@ const parser = createPlatformXmlParser({
   parseAttributeValue: false,
   trimValues: false,
   removeNSPrefix: false,
-});
+};
+const parser = createPlatformXmlParser(parserOptions);
+// Корень не разбирается: верхнего уровня хватает, чтобы найти единственный элемент.
+const topLevelParser = createPlatformXmlParser({ ...parserOptions, stopNodes: ["*"] });
 
 const builder = createPlatformXmlBuilder({
   ignoreAttributes: false,
@@ -91,12 +94,12 @@ function validXmlCodePoint(code: number): boolean {
     (code >= 0x10000 && code <= 0x10ffff)
   );
 }
+// С флагом u непарный суррогат — отдельный знак вне этих диапазонов.
+const invalidXmlCharacter = /[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]/u;
 
 /** Отклоняет литеральные символы, запрещённые XML 1.0, включая непарные суррогаты UTF-16. */
 export function assertXmlCharacters(source: string): void {
-  for (const character of source)
-    if (!validXmlCodePoint(character.codePointAt(0)!))
-      throw new ArgumentError("В XML есть недопустимый символ.");
+  if (invalidXmlCharacter.test(source)) throw new ArgumentError("В XML есть недопустимый символ.");
 }
 
 function assertSafe(source: string): void {
@@ -224,12 +227,23 @@ export function buildXml(value: XmlObject): string {
 export function rawXml(source: string): RawXml {
   assertSafe(source);
   assertWellFormed(`<ws-hcm-fragment>${source}</ws-hcm-fragment>`);
+  return assembledXml(source);
+}
+
+/**
+ * Помечает без проверки XML, который клиент собрал сам из экранированных значений и проверенных
+ * фрагментов: проверка такой строки ничего не находит, а на десятках мегабайт занимает секунды.
+ * @internal
+ */
+export function assembledXml(source: string): RawXml {
   return Object.freeze({ [RAW_XML]: true as const, xml: source });
 }
 
 /** Ровно один дочерний элемент, как требует нетипизированный структурный аргумент XmElem RPC. */
 export function rawXmlElement(source: string): RawXml {
-  const value = parseXml(source);
+  assertSafe(source);
+  assertWellFormed(source);
+  const value = topLevelParser.parse(source) as XmlObject;
   const elements = Object.keys(value).filter(
     (key) => !key.startsWith("?") && !key.startsWith("@_") && key !== "#text",
   );
@@ -239,7 +253,8 @@ export function rawXmlElement(source: string): RawXml {
     (typeof value["#text"] === "string" && value["#text"].trim() !== "")
   )
     throw new ArgumentError("Аргумент XML должен быть ровно одним элементом.");
-  return rawXml(source);
+  // Текст уже проверен как документ, а это строже проверки фрагмента.
+  return assembledXml(source);
 }
 
 /** Показывает, создано ли значение через `rawXml()`. */

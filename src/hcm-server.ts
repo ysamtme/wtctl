@@ -1,8 +1,6 @@
-import { describeHcmOperation } from "./catalog.js";
 import { HcmError, inputObject } from "./errors.js";
 import type { OperationEffect } from "./contracts.js";
 import { nativeEffect } from "./native/gateway.js";
-import { prepare } from "./native/validation.js";
 import { ArgumentError, WsHcmApiError } from "./protocol/error.js";
 import { scriptResult, type ScriptData } from "./scripts.js";
 import { refusedAtDoor, type WriteOutcome } from "./write-outcome.js";
@@ -93,7 +91,6 @@ export class HcmServer implements ServerPort {
     outcome: WriteOutcome,
     idle?: (data: ScriptData) => boolean,
   ): Promise<ScriptData> {
-    prepare(script.request, describeHcmOperation("web.rpc.call").inputSchema);
     outcome.note({ executionId: script.executionId });
     const withdraw = outcome.sending();
     try {
@@ -104,8 +101,10 @@ export class HcmServer implements ServerPort {
       if (idle?.(data)) withdraw();
       return data;
     } catch (error) {
-      // Сервер отказался читать код или отклонил запрос на входе: ничего не выполнилось.
+      // Шлюз отклонил запрос по аргументу, сервер отказался читать код или отклонил запрос
+      // на входе: ничего не выполнилось.
       if (
+        error instanceof ArgumentError ||
         (error instanceof HcmError && error.mutationOutcome === "not_sent") ||
         refusedAtDoor(error)
       )

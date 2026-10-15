@@ -343,7 +343,8 @@ test("сбой хранилища пакета сохраняет not_sent, ес
           { id: "native.spxml2.getAppInfo" },
         ],
       });
-      assert.equal(server.calls.length, 1);
+      // Подставной сервер, как и шлюз, отклоняет запись по аргументам, не отправляя её.
+      assert.equal(server.calls.length, 2);
       assert.equal(result.error?.code, "RESULT_WRITE_FAILED");
       assert.equal(result.error?.mutationOutcome, "not_sent");
       const data = result.data as {

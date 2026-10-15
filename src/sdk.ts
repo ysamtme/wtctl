@@ -803,7 +803,7 @@ export class HcmClient {
   exportResult(input: ResultExportInput): Promise<HcmResult<ResultExportData>> {
     return callOperation(this, "results.export", { ...input });
   }
-  /** Загружает файл до 8 МБ так же, как админка; нужно право write. */
+  /** Загружает файл в папку загрузок сервера так же, как админка; нужно право write. */
   uploadFile(input: UploadFileInput): Promise<HcmResult<UploadedFileData>> {
     return this.call("web.pages.uploadFile", { ...input });
   }

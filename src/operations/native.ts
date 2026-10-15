@@ -1,7 +1,6 @@
 import { HcmError } from "../errors.js";
 import { getNativeOperations, getEffectiveNativeEffect } from "../native/index.js";
 import { WsHcmApiError } from "../protocol/error.js";
-import { prepare } from "../native/validation.js";
 import { operation, type Operation } from "../operation.js";
 import { rpcValue } from "../server-value.js";
 
@@ -106,7 +105,7 @@ const FACES: Readonly<Record<string, Face>> = {
   },
   // Тема files.
   "web.pages.uploadFile": {
-    summary: "Загрузить файл до 8 МБ в папку загрузок сервера; ответ содержит его адрес.",
+    summary: "Загрузить файл в папку загрузок сервера; ответ содержит его адрес.",
     details:
       'filename — имя без пути; data — текст или {base64:"…"}. Ответ: url — адрес файла, folderUrl — папка, которую сервер создал для него.',
     answer: uploadedFile,
@@ -210,7 +209,6 @@ export const nativeOperations: readonly Operation[] = getNativeOperations().map(
     inputSchema: native.inputSchema,
     native,
     run: async (context, args, call) => {
-      prepare(args, native.inputSchema);
       const raw = withoutXmlFormatting(
         await context.server
           .call(native.id, args, call.effect === "read" ? undefined : call.outcome)

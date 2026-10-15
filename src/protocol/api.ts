@@ -23,6 +23,7 @@ import {
   parseXml,
   rawXml,
   rawXmlElement,
+  assembledXml,
   type RawXml,
   type XmlObject,
 } from "./xml.js";
@@ -762,8 +763,9 @@ export const rpc = Object.freeze({
   },
 });
 
+/** Значения экранированы, а фрагменты проверены: собранный текст проверять не нужно. */
 function rpcArgs(args: readonly RpcArgument[]): RawXml {
-  return rawXml(
+  return assembledXml(
     args
       .map((arg, index) => {
         if (arg.valueType === undefined && !isRawXml(arg.lexicalValue))
@@ -1113,11 +1115,7 @@ export class WebPageApi {
   constructor(
     private readonly transport: HttpTransport,
     private readonly uploadToken?: () => string | undefined,
-    private readonly maximumUploadBytes = 8 * 1024 * 1024,
-  ) {
-    if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
-      throw new ArgumentError("maximumUploadBytes: нужно целое число больше нуля.");
-  }
+  ) {}
   /** Прочитать штатную страницу предпросмотра PDF как текст. */
   async filePreviewPdf(options?: RequestOptions): Promise<WsHcmResponse<string>> {
     return textResponse(
@@ -1196,9 +1194,9 @@ export class WebPageApi {
 
   /**
    * Загрузить один файл штатным способом: multipart с полями f и session_token.
-   * Текущий токен страницы подставляет веб-сессия, которой принадлежит вызов. Размер
-   * ограничен maxResponseBytes и пределом клиента 8 МиБ; части и старый вариант
-   * с base64 не используются. Успешный ответ содержит Url.
+   * Текущий токен страницы подставляет сессия web, которой принадлежит вызов. Размер ограничивает
+   * политика загрузки сервера; части и старый вариант с base64 не используются. Успешный ответ
+   * содержит Url.
    * @mutating Сохраняет файл на сервере; срабатывают правила загрузки платформы.
    */
   async uploadFile(
@@ -1228,15 +1226,10 @@ export class WebPageApi {
       throw invalidInput("В веб-сессии нет действующего токена страницы для загрузки файла.");
     const value = isRawXml(request.data) ? request.data.xml : request.data;
     let bytes: Uint8Array;
-    if (typeof value === "string") {
-      if (Buffer.byteLength(value, "utf8") > this.maximumUploadBytes)
-        throw invalidInput("Файл больше допустимого размера загрузки.");
-      bytes = new TextEncoder().encode(value);
-    } else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+    if (typeof value === "string") bytes = new TextEncoder().encode(value);
+    else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
     else if (value instanceof Uint8Array) bytes = value;
     else throw invalidInput("data: нужен текст или двоичные данные.");
-    if (bytes.byteLength > this.maximumUploadBytes)
-      throw invalidInput("Файл больше допустимого размера загрузки.");
     const form = new FormData();
     form.append(
       "f",
@@ -1341,17 +1334,11 @@ export class WebPageApi {
       );
     const value = isRawXml(request.data) ? request.data.xml : request.data;
     let bytes: Uint8Array;
-    if (typeof value === "string") {
-      if (Buffer.byteLength(value, "utf8") > this.maximumUploadBytes)
-        throw invalidInput("Часть больше допустимого размера загрузки.");
-      bytes = new TextEncoder().encode(value);
-    } else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+    if (typeof value === "string") bytes = new TextEncoder().encode(value);
+    else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
     else if (value instanceof Uint8Array) bytes = value;
     else throw invalidInput("data: нужен текст или двоичные данные.");
-    if (bytes.byteLength < 1 || bytes.byteLength > this.maximumUploadBytes)
-      throw invalidInput(
-        "data: часть должна быть непустой и не больше допустимого размера загрузки.",
-      );
+    if (bytes.byteLength < 1) throw invalidInput("data: часть должна быть непустой.");
     if (
       request.offset > request.totalBytes ||
       bytes.byteLength > request.totalBytes - request.offset

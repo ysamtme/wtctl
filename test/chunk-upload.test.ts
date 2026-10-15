@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { HcmRuntime } from "../src/runtime.js";
 import { HcmClient, unwrap } from "../src/sdk.js";
 import { WsHcmClient } from "../src/protocol/client.js";
@@ -210,7 +211,7 @@ test("проверка загрузки до отправки отклоняет
       return Response.json({ error: 0, Url: "receipt/chunk.bin" });
     },
   });
-  const pages = new WebPageApi(transport, undefined, 8);
+  const pages = new WebPageApi(transport);
   const invalid: Partial<UploadChunkRequest>[] = [
     { fileId: "../" + fileId },
     { fileId: "g".repeat(32) },
@@ -238,8 +239,6 @@ test("проверка загрузки до отправки отклоняет
     { index: 1, chunksTotal: 2, totalBytes: 2, offset: 0 },
     { data: "xx" },
     { data: "", totalBytes: 1 },
-    { data: new Uint8Array(9), totalBytes: 9 },
-    { data: "я".repeat(5), totalBytes: 10 },
     { index: 1, chunksTotal: 2, offset: 1, totalBytes: 3 },
     { index: 0, chunksTotal: 2, totalBytes: 2, data: "xx" },
     {
@@ -257,7 +256,7 @@ test("проверка загрузки до отправки отклоняет
         JSON.stringify(update),
       );
     assert.equal(posts, 0);
-    // Предел относится к декодированным байтам, включая UTF-8, до раздувания base64.
+    // Части считаются в байтах: текст — в UTF-8, RawXml — своим текстом.
     await pages.uploadChunk({ ...onePart(), totalBytes: 8, data: "я".repeat(4) });
     await pages.uploadChunk({ ...onePart(), totalBytes: 4, data: rawXml("<x/>") });
     assert.equal(posts, 2);
@@ -378,6 +377,24 @@ test("SDK в профиле native отклоняет каждый неверн�
   ]);
 });
 
+test("часть со строкой base64 больше 10 МБ проходит проверку аргументов и уходит как есть", async () => {
+  const f = fixture(1024);
+  const runtime = f.runtime();
+  try {
+    const base64 = randomBytes(11_000_000).toString("base64");
+    const result = await runtime.call("web.pages.uploadChunk", {
+      ...onePart(),
+      totalBytes: 11_000_000,
+      data: { base64 },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result.error));
+    assert.ok(f.parts[0]?.fields.file_data === `data:application/octet-stream;base64,${base64}`);
+  } finally {
+    await runtime.close();
+    f.client.close();
+  }
+});
+
 test("проверки связей между полями дают not_sent, даже когда runtime уже создал веб-контекст", async () => {
   const f = fixture(1024);
   const runtime = f.runtime();
@@ -386,7 +403,6 @@ test("проверки связей между полями дают not_sent, �
       { index: 1 },
       { offset: 1 },
       { totalBytes: 2 },
-      { totalBytes: 1025, data: "x".repeat(1025) },
       { data: { base64: "" } },
     ]) {
       const result = await runtime.call("web.pages.uploadChunk", { ...onePart(), ...update });

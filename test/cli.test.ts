@@ -1666,9 +1666,12 @@ test("жизненный цикл MCP ждёт транспорта перед �
   assert.equal(f.state.stdout, "");
 });
 
-test("ограниченный ввод отклоняет слишком большие переданные данные до runtime", async () => {
-  const f = fixture("x".repeat(8 * 1024 * 1024 + 1));
-  await assert.rejects(commandInvocation(parseArguments(["exec", "--stdin"]), f.io), CliInputError);
+test("ввод CLI не ограничен размером: код больше 8 МиБ доходит до операции целиком", async () => {
+  const code = "x".repeat(8 * 1024 * 1024 + 1);
+  assert.deepEqual(await commandInvocation(parseArguments(["exec", "--stdin"]), fixture(code).io), {
+    operationId: "execute.script",
+    args: { code },
+  });
 });
 
 test("пароль через stdin — отдельный ввод учётных данных, сохраняет пробелы и никогда не становится данными результата", async () => {
@@ -1690,7 +1693,7 @@ test("пароль через stdin — отдельный ввод учётны
   }
 });
 
-test("загрузка файла использует точный ограниченный двоичный ввод без преобразования из UTF-8", async () => {
+test("загрузка файла передаёт двоичный ввод любого размера точно, без преобразования из UTF-8", async () => {
   const bytes = Buffer.from([0, 255, 254, 65]);
   for (const [action, target] of [["upload", "synthetic.bin"]]) {
     const f = fixture();
@@ -1715,16 +1718,17 @@ test("загрузка файла использует точный ограни
     );
     assert.deepEqual(stdin.state.calls, f.state.calls);
     const large = fixture();
-    large.io.readBinaryFile = async () => Buffer.alloc(8 * 1024 * 1024 + 1);
+    large.io.readBinaryFile = async () => Buffer.alloc(8 * 1024 * 1024 + 1, 7);
     assert.equal(
       await runCli(
         ["file", action!, target!, "--input-file", "synthetic.bin"],
         large.io,
         large.dependencies,
       ),
-      2,
+      0,
     );
-    assert.equal(large.state.loads, 0);
+    const sent = large.state.calls[0]?.args.data as { base64: string };
+    assert.deepEqual(Buffer.from(sent.base64, "base64"), Buffer.alloc(8 * 1024 * 1024 + 1, 7));
     const unsupported = fixture("Synthetic");
     delete unsupported.io.readBinaryFile;
     assert.equal(

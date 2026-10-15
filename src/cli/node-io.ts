@@ -8,7 +8,7 @@ import type { Readable } from "node:stream";
 import { CliInputError } from "./arguments.js";
 import type { CliIo } from "./types.js";
 
-export async function readBoundedBytes(stream: Readable, maximumBytes: number): Promise<Buffer> {
+export async function readBoundedBytes(stream: Readable, maximumBytes = Infinity): Promise<Buffer> {
   const parts: Buffer[] = [];
   let bytes = 0;
   try {
@@ -24,11 +24,16 @@ export async function readBoundedBytes(stream: Readable, maximumBytes: number): 
   }
 }
 
-export async function readBounded(stream: Readable, maximumBytes: number): Promise<string> {
+export async function readBounded(stream: Readable, maximumBytes?: number): Promise<string> {
   const bytes = await readBoundedBytes(stream, maximumBytes);
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
+  } catch (error) {
+    // Строку длиннее 2^29 − 24 знаков Node.js не создаёт.
+    if ((error as { code?: unknown }).code === "ERR_STRING_TOO_LONG")
+      throw new CliInputError(
+        "Текст ввода длиннее строки, которую держит Node.js: около 512 млн знаков.",
+      );
     throw new CliInputError("Ввод должен быть текстом UTF-8.");
   }
 }
@@ -69,10 +74,10 @@ export function nodeIo(): CliIo {
     writeOut: (text) => writeStream(process.stdout, text),
     writeError: (text) => writeStream(process.stderr, text),
     readFile: (path, maximumBytes) => readBounded(createReadStream(path), maximumBytes),
-    readBinaryFile: (path, maximumBytes) => readBoundedBytes(createReadStream(path), maximumBytes),
-    readBinaryStdin: (maximumBytes) => {
+    readBinaryFile: (path) => readBoundedBytes(createReadStream(path)),
+    readBinaryStdin: () => {
       if (process.stdin.isTTY) throw new CliInputError("--stdin ожидает перенаправленный ввод.");
-      return readBoundedBytes(process.stdin, maximumBytes);
+      return readBoundedBytes(process.stdin);
     },
     readStdin: (maximumBytes) => {
       if (process.stdin.isTTY)

@@ -393,7 +393,6 @@ export class WebSession {
     private readonly transport: HttpTransport,
     sessionId: DecimalId,
     uploadToken: string | undefined,
-    maximumUploadBytes: number,
     private readonly webSocketFactory: WebSocketFactory | undefined,
   ) {
     this.#uploadToken = uploadToken;
@@ -402,7 +401,7 @@ export class WebSession {
     this.rpc = new RpcApi(transport, "web");
     this.spxml = new WebSpXmlApi(transport);
     this.spxml2 = new WebSpXml2Api(transport);
-    this.pages = new WebPageApi(transport, () => this.#uploadToken, maximumUploadBytes);
+    this.pages = new WebPageApi(transport, () => this.#uploadToken);
     this.resources = new ResourceApi(transport);
     this.lifecycle = new WebLifecycleApi(transport, (html) => {
       this.#uploadToken = html === undefined ? undefined : extractWebUploadToken(html);
@@ -429,7 +428,6 @@ export class WebSession {
         http,
         opened.sessionId,
         extractWebUploadToken(html),
-        Math.min(defaults.maxResponseBytes, 8 * 1024 * 1024),
         defaults.webSocketFactory,
       );
     } catch (error) {

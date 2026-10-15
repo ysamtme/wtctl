@@ -433,6 +433,13 @@ for (const entry of toolCases)
     assert.deepEqual(f.calls, [{ id: entry.id, args: entry.args }]);
   });
 
+test("hcm_script передаёт код больше 1 МиБ целиком", async () => {
+  const f = fixture();
+  const code = `RESULT = ["${"x".repeat(1024 * 1024)}"];`;
+  assert.equal(structured(await f.tools.invoke("hcm_script", { code })).ok, true);
+  assert.deepEqual(f.calls, [{ id: "execute.script", args: { code } }]);
+});
+
 test("hcm_script читает код из локального файла и передаёт params дальше", async () => {
   const f = fixture();
   const params = { ids: ["0x1"] };

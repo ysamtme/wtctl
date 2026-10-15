@@ -9,7 +9,7 @@ import {
 } from "../protocol/error.js";
 import { rawXml } from "../protocol/xml.js";
 import { NATIVE_ENTRIES, type NativeEntry } from "./generated.js";
-import { validate, prepare } from "./validation.js";
+import { prepare } from "./validation.js";
 import { freezeRegistry } from "../immutable.js";
 import { getEffectiveNativeEffect, isInternalNative } from "./metadata.js";
 
@@ -274,10 +274,9 @@ export class NativeGateway {
       return Promise.reject(new WsHcmApiError("protocol", "Неизвестная низкоуровневая операция"));
     let snapshot: Record<string, unknown>;
     // Свой снимок: вызывающий не может подменить URL или вложенные обёртки XML и двоичных данных,
-    // пока предыдущий принятый вызов занимает очередь.
+    // пока предыдущий принятый вызов занимает очередь. Подготовленным снимком вызов и идёт.
     try {
-      snapshot = structuredClone(args);
-      prepare(snapshot, entry.operation.inputSchema);
+      snapshot = prepare(structuredClone(args), entry.operation.inputSchema);
     } catch (error) {
       return Promise.reject(error);
     }

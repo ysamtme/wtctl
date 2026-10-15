@@ -7,10 +7,11 @@ export interface CliIo {
   readonly pretty?: boolean;
   writeOut(text: string): void | Promise<void>;
   writeError(text: string): void | Promise<void>;
-  readFile(path: string, maximumBytes: number): Promise<string>;
-  readStdin(maximumBytes: number): Promise<string>;
-  readBinaryFile?(path: string, maximumBytes: number): Promise<Uint8Array>;
-  readBinaryStdin?(maximumBytes: number): Promise<Uint8Array>;
+  /** Без maximumBytes размер не ограничен. */
+  readFile(path: string, maximumBytes?: number): Promise<string>;
+  readStdin(maximumBytes?: number): Promise<string>;
+  readBinaryFile?(path: string): Promise<Uint8Array>;
+  readBinaryStdin?(): Promise<Uint8Array>;
   writeFile(path: string, text: string): Promise<void>;
   /** Спрашивает человека в терминале; без него отсутствует. Секреты при вводе не показываются. */
   prompt?(question: string, secret?: boolean): Promise<string>;

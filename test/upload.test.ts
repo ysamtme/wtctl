@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
@@ -287,7 +288,7 @@ test("прямой завершающий выход делает токен з�
     }
 });
 
-test("лимиты имени файла, MIME и байтов отклоняют запрос до записи; лимиты UTF-8 считаются в байтах", async () => {
+test("лимиты имени файла и MIME отклоняют запрос до записи; размер файла клиент не ограничивает", async () => {
   const f = fixture(html(tokenOne), 256);
   try {
     const session = await f.client.openWebSession();
@@ -310,14 +311,6 @@ test("лимиты имени файла, MIME и байтов отклоняю�
       ])
         await assert.rejects(session.pages.uploadFile({ filename, data: "x" }), notSent);
       await assert.rejects(
-        session.pages.uploadFile({ filename: "synthetic.txt", data: "я".repeat(129) }),
-        notSent,
-      );
-      await assert.rejects(
-        session.pages.uploadFile({ filename: "synthetic.bin", data: new Uint8Array(257) }),
-        notSent,
-      );
-      await assert.rejects(
         session.pages.uploadFile({
           filename: "synthetic.txt",
           data: "x",
@@ -327,8 +320,9 @@ test("лимиты имени файла, MIME и байтов отклоняю�
       );
       assert.equal(f.requests.length, before);
       assert.equal(f.uploads.length, 0);
-      await session.pages.uploadFile({ filename: "synthetic.txt", data: "я".repeat(128) });
-      assert.equal(f.uploads[0]?.bytes.byteLength, 256);
+      // Файл больше maxResponseBytes подключения (256 байт).
+      await session.pages.uploadFile({ filename: "synthetic.txt", data: "я".repeat(129) });
+      assert.equal(f.uploads[0]?.bytes.byteLength, 258);
     } finally {
       await session.close();
     }
@@ -410,7 +404,7 @@ test("у закрытых сессий и автономных адаптеро�
 });
 
 test("runtime сохраняет доказанный not_sent при проверке до отправки и неопределённые исходы после отправки без повтора", async () => {
-  for (const mode of ["token", "filename", "bytes", "response", "network"] as const) {
+  for (const mode of ["token", "filename", "response", "network"] as const) {
     const f = fixture(mode === "token" ? "<html>No current token</html>" : html(tokenOne), 1024);
     if (mode === "response") f.setUpload({ Url: "../synthetic.txt", error_text: tokenOne });
     if (mode === "network") f.failUploadNetwork();
@@ -418,7 +412,7 @@ test("runtime сохраняет доказанный not_sent при прове
     try {
       const result = await runtime.call("web.pages.uploadFile", {
         filename: mode === "filename" ? "../bad.txt" : "synthetic.txt",
-        data: mode === "bytes" ? "я".repeat(513) : "x",
+        data: "x",
       });
       assert.equal(result.ok, false, mode);
       assert.equal(result.error?.retryable, false, mode);
@@ -437,6 +431,23 @@ test("runtime сохраняет доказанный not_sent при прове
       await runtime.close();
       f.client.close();
     }
+  }
+});
+
+test("строка base64 больше 10 МБ проходит проверку аргументов и загружается байт в байт", async () => {
+  const f = fixture(html(tokenOne), 1024);
+  const runtime = runtimeOver(f);
+  try {
+    const bytes = randomBytes(11_000_000);
+    const result = await runtime.call("web.pages.uploadFile", {
+      filename: "synthetic.bin",
+      data: { base64: bytes.toString("base64") },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result.error));
+    assert.ok(bytes.equals(f.uploads[0]!.bytes));
+  } finally {
+    await runtime.close();
+    f.client.close();
   }
 });
 

@@ -25,7 +25,6 @@ import { fileExistsUrl } from "../files.js";
 import { describeHcmOperation, listHcmOperations } from "../catalog.js";
 import type { CliDependencies, CliIo, RuntimePort } from "./types.js";
 
-const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 const COMMON = ["config", "connection", "json", "output", "help", "password-stdin"];
 const INPUT = ["input-file", "stdin", "args"];
 const OBJECT_TARGET = ["id", "url", "type"];
@@ -90,14 +89,11 @@ function exactPositionals(args: CliArguments, minimum: number, maximum = minimum
 
 async function inputText(args: CliArguments, io: CliIo): Promise<string | undefined> {
   const file = stringOption(args, "input-file");
-  const text = file
-    ? await io.readFile(file, MAX_INPUT_BYTES)
+  return file
+    ? await io.readFile(file)
     : args.options.stdin
-      ? await io.readStdin(MAX_INPUT_BYTES)
+      ? await io.readStdin()
       : stringOption(args, "args");
-  if (text !== undefined && Buffer.byteLength(text, "utf8") > MAX_INPUT_BYTES)
-    throw new CliInputError("Ввод превышает 8 МиБ.");
-  return text;
 }
 
 async function inputObject(
@@ -139,12 +135,19 @@ async function putData(
   }
   const file = stringOption(args, "input-file");
   let bytes: Uint8Array;
-  if (file && io.readBinaryFile) bytes = await io.readBinaryFile(file, MAX_INPUT_BYTES);
-  else if (args.options.stdin && io.readBinaryStdin)
-    bytes = await io.readBinaryStdin(MAX_INPUT_BYTES);
+  if (file && io.readBinaryFile) bytes = await io.readBinaryFile(file);
+  else if (args.options.stdin && io.readBinaryStdin) bytes = await io.readBinaryStdin();
   else throw new CliInputError("Нужен файл через --input-file или двоичный ввод через --stdin.");
-  if (bytes.byteLength > MAX_INPUT_BYTES) throw new CliInputError("Ввод превышает 8 МиБ.");
-  return { data: { base64: Buffer.from(bytes).toString("base64") } };
+  try {
+    return { data: { base64: Buffer.from(bytes).toString("base64") } };
+  } catch (error) {
+    // Данные идут в вызове строкой base64, а строку длиннее 2^29 − 24 знаков Node.js не создаёт.
+    if ((error as { code?: unknown }).code === "ERR_STRING_TOO_LONG")
+      throw new CliInputError(
+        "Ввод больше 384 МиБ в вызов не помещается. Файл с диска записывает wtctl files write --input-file.",
+      );
+    throw error;
+  }
 }
 
 /** files write: файл с диска операция читает сама частями, stdin приходит в память целиком. */
@@ -628,7 +631,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       const file = stringOption(args, "params-file");
       if (inline !== undefined && file !== undefined)
         throw new CliInputError("Параметры кода заданы и в --params, и в --params-file.");
-      const params = file ? await io.readFile(file, MAX_INPUT_BYTES) : inline;
+      const params = file ? await io.readFile(file) : inline;
       return {
         operationId: "execute.script",
         args: { code, ...(params === undefined ? {} : { params: jsonObject(params) }) },

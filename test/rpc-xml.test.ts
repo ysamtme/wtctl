@@ -49,7 +49,11 @@ test("структурные аргументы RPC типа XmElem сохран
     assert.ok(fixture.bodies[0]!.includes(`<arg-0>${element}</arg-0>`));
     assert.ok(fixture.bodies[0]!.includes('<arg-1 VALUE-TYPE="string">&lt;&amp;</arg-1>'));
     assert.doesNotMatch(fixture.bodies[0]!, /VALUE-TYPE="XmElem"/);
-    assert.throws(() => rpc.xml(rawXml("<a/><b/>")), /ровно одним элементом/);
+    for (const source of ["<a/><b/>", "<a></a> <b/>", "<a><a/></a><b/>", "<![CDATA[x]]><a/>"])
+      assert.throws(() => rpc.xml(rawXml(source)), /ровно одним элементом/, source);
+    // Закрывающий тег внутри CDATA, комментария или вложенного элемента с тем же именем не конец корня.
+    for (const source of ["<a><a>x</a></a>", "<a><![CDATA[</a>]]></a>", "<a><!-- </a> --></a>"])
+      assert.doesNotThrow(() => rpc.xml(rawXml(source)), source);
   } finally {
     transport.dispose();
   }
