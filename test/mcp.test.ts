@@ -406,7 +406,7 @@ const toolCases: { name: string; args: Record<string, unknown>; id: string }[] =
     },
     id: "logs.list",
   },
-  { name: "hcm_log_read", args: { file: "xhttp_2026-09-30.log", full: true }, id: "logs.read" },
+  { name: "hcm_logs_read", args: { file: "xhttp_2026-09-30.log", full: true }, id: "logs.read" },
   {
     name: "hcm_logs_search",
     args: {
@@ -421,7 +421,7 @@ const toolCases: { name: string; args: Record<string, unknown>; id: string }[] =
     id: "logs.search",
   },
   {
-    name: "hcm_log_follow",
+    name: "hcm_logs_follow",
     args: { file: "xhttp_2026-09-30.log", cursor: "opaque" },
     id: "logs.follow",
   },
@@ -482,12 +482,12 @@ test("все неверные вводы отклоняются до runtime, с
     ["hcm_schema", { type: "collaborator", include: ["fields"] }],
     ["hcm_types", { limit: 0 }],
     ["hcm_logs_list", { limit: 1001 }],
-    ["hcm_log_read", {}],
-    ["hcm_log_read", { file: "x.log", full: true, tailBytes: 10 }],
+    ["hcm_logs_read", {}],
+    ["hcm_logs_read", { file: "x.log", full: true, tailBytes: 10 }],
     ["hcm_logs_search", { file: "x.log", level: "fatal" }],
     ["hcm_logs_search", { file: "x.log", full: true, tailBytes: 10 }],
-    ["hcm_log_follow", { file: "x.log", cursor: "x".repeat(8193) }],
-    ["hcm_log_follow", { file: "x.log", full: true, tailBytes: 10 }],
+    ["hcm_logs_follow", { file: "x.log", cursor: "x".repeat(8193) }],
+    ["hcm_logs_follow", { file: "x.log", full: true, tailBytes: 10 }],
   ];
   for (const [name, args] of cases) {
     const f = fixture();
@@ -523,6 +523,10 @@ test("все неверные вводы отклоняются до runtime, с
 test("неизвестные инструменты и операции и неожиданные исключения остаются структурированными и безопасными", async () => {
   const f = fixture();
   assert.equal(structured(await f.tools.invoke("missing", {})).error?.code, "mcp.unknown_tool");
+  assert.equal(
+    structured(await f.tools.invoke("hcm_logs_raed", {})).error?.hint,
+    "Похожие: hcm_logs_read. Получи список tools/list.",
+  );
   assert.equal(
     structured(await f.tools.invoke("hcm_api_read", { operationId: "missing" })).error?.code,
     "UNKNOWN_OPERATION",

@@ -19,7 +19,7 @@
 | `hcm_object_get` | `wtctl object get collaborator 0x5555555555555501 --fields login,lastname`; несколько объектов — `wtctl object get --ids 0x…,0x… --fields login` |
 | `hcm_object_create`, `_patch`, `_delete` | `wtctl object create ТИП --input-file object.json`, `object patch ТИП ID --input-file patch.json --preview` (`--resave` — сохранить и без правок), `object delete ТИП ID --permanent`; вместо `ТИП ID` годится `--url АДРЕС` |
 | `hcm_script` | `wtctl exec --input-file script.js`; параметры кода — `--params-file params.json` или `--params '{\"id\":\"0x…\"}'` |
-| `hcm_logs_list`, `hcm_logs_search`, `hcm_log_read`, `hcm_log_follow` | `wtctl logs list`, `logs search ФАЙЛ --level error --newest-first`, `logs read ФАЙЛ`, `logs follow ФАЙЛ` |
+| `hcm_logs_list`, `hcm_logs_search`, `hcm_logs_read`, `hcm_logs_follow` | `wtctl logs list`, `logs search ФАЙЛ --level error --newest-first`, `logs read ФАЙЛ`, `logs follow ФАЙЛ` |
 | `hcm_api_list`, `hcm_api_describe` | `wtctl api list`, `wtctl api describe ОПЕРАЦИЯ` |
 | `hcm_api_read`, `_write`, `_execute` | `wtctl api call ОПЕРАЦИЯ --input-file args.json` |
 | `hcm_result_read`, `hcm_result_export` | `wtctl result read ID`, `wtctl result export ID --to ФАЙЛ` |

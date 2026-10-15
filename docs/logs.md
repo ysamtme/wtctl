@@ -20,8 +20,8 @@ wtctl logs follow xhttp_2026-10-01.log
 | --- | --- | --- | --- |
 | `logs list` | `hcm_logs_list` | `listLogs` | файлы: имя, тип, дата, размер в байтах; сначала новые, 30 на странице |
 | `logs search` | `hcm_logs_search` | `searchLogs` | события по тексту, уровню, метке потока |
-| `logs read`, `logs tail` | `hcm_log_read` | `readLog` | текст файла |
-| `logs follow` | `hcm_log_follow` | `followLog` | события, появившиеся с прошлого вызова |
+| `logs read`, `logs tail` | `hcm_logs_read` | `readLog` | текст файла |
+| `logs follow` | `hcm_logs_follow` | `followLog` | события, появившиеся с прошлого вызова |
 
 ## Как это работает
 

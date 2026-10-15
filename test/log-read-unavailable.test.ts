@@ -238,7 +238,7 @@ async function frontend(
 ): Promise<OperationResult> {
   if (name === "sdk") return new HcmClient(runtime).readLog({ file, tailBytes: 512 });
   if (name === "mcp") {
-    const response = await new HcmMcpTools(runtime).invoke("hcm_log_read", {
+    const response = await new HcmMcpTools(runtime).invoke("hcm_logs_read", {
       file,
       tailBytes: 512,
     });

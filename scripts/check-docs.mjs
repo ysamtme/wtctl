@@ -40,8 +40,10 @@ try {
 for (const name of markdown) {
   const file = resolve(root, name);
   const source = readFileSync(file, "utf8");
-  for (const tool of unknownDocumentedMcpTools(source, toolNames))
-    fail(`Неизвестный инструмент MCP в ${name}: ${tool}`);
+  // История изменений называет и прежние имена инструментов.
+  if (name !== "CHANGELOG.md")
+    for (const tool of unknownDocumentedMcpTools(source, toolNames))
+      fail(`Неизвестный инструмент MCP в ${name}: ${tool}`);
   for (const match of source.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
     let target = match[1].replace(/^<|>$/g, "").split("#")[0];
     if (!target || /^[a-z]+:/i.test(target)) continue;

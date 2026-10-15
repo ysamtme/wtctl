@@ -181,7 +181,7 @@ test("отклонённый вызов инструмента говорит, �
         "Укажи type или url: search ищет поля внутри типа, сам тип по словам ищет hcm_types.",
     },
   ]);
-  assert.deepEqual(await validation("hcm_log_read", { file: "a.log", full: true, tailBytes: 1 }), [
+  assert.deepEqual(await validation("hcm_logs_read", { file: "a.log", full: true, tailBytes: 1 }), [
     { path: "", code: "custom", message: "Укажи full или tailBytes, но не оба." },
   ]);
   assert.deepEqual(await validation("hcm_query", { catalog: "c", limit: 5000 }), [

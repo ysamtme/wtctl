@@ -8,7 +8,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import type { OperationFilter, OperationResult } from "../contracts.js";
-import { HcmError } from "../errors.js";
+import { HcmError, isSimilarName, similarHint } from "../errors.js";
 import type { RuntimePort } from "../runtime-port.js";
 import { discoverOperations, operationHelp } from "../operation-help.js";
 import { errorInFrontendTerms } from "../frontend-names.js";
@@ -399,7 +399,7 @@ export class HcmMcpTools {
     register(
       "hcm_logs_list",
       "Логи сервера",
-      "Логи сервера, сначала свежие: имя файла, тип (имя без даты), дата, размер. Главный лог сервера — xhttp_<дата>.log: в нём ошибки кода и часть причин отказов.",
+      "Логи сервера, сначала свежие: имя файла, тип (имя без даты), дата, размер. Главный лог — xhttp_<дата>.log: в нём ошибки кода и часть причин отказов.",
       {
         type: text("Имя лога без даты, например xhttp."),
         nameContains: text("Часть имени файла."),
@@ -412,7 +412,7 @@ export class HcmMcpTools {
       call("logs.list"),
     );
     register(
-      "hcm_log_read",
+      "hcm_logs_read",
       "Текст лога",
       "Текст лога: по умолчанию конец файла, сколько помещается в ответ; целиком — full:true. В файл его сохраняет hcm_result_export (meta.resultId, format:'text'), большой дочитывает hcm_result_read.",
       logWindow,
@@ -442,7 +442,7 @@ export class HcmMcpTools {
       { rule: windowRule },
     );
     register(
-      "hcm_log_follow",
+      "hcm_logs_follow",
       "Новое в логе",
       "Новые события лога с прошлого вызова. Первый вызов без cursor отдаёт последние 10 событий и cursor, дальше — с cursor из ответа. Последнее событие может повториться; omitted — сколько новых событий не поместилось; gapPossible:true — часть событий могла быть пропущена.",
       { ...logWindow, cursor: text("cursor из прошлого ответа, целиком.", false, 8192) },
@@ -569,7 +569,7 @@ export class HcmMcpTools {
           "mcp",
           "mcp.unknown_tool",
           "Неизвестный инструмент.",
-          "Получи список tools/list.",
+          `${similarHint([...this.#tools.keys()].filter((known) => isSimilarName(known, name)))}Получи список tools/list.`,
         ),
       );
     const parsed = tool.validator.safeParse(args);

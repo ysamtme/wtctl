@@ -20,7 +20,7 @@ MCP-сервер `wtctl` запускается командой `wtctl mcp`. К
 | `hcm_object_delete` | удаление объекта | `write` |
 | `hcm_script` | код на сервере (SP-XML Script) | `execute` |
 | `hcm_xquery` | запрос XQuery целиком | `execute` |
-| `hcm_logs_list`, `hcm_logs_search`, `hcm_log_read`, `hcm_log_follow` | логи сервера | — |
+| `hcm_logs_list`, `hcm_logs_search`, `hcm_logs_read`, `hcm_logs_follow` | логи сервера | — |
 | `hcm_result_read`, `hcm_result_export` | большой сохранённый результат | — |
 | `hcm_api_list`, `hcm_api_describe` | карта остальных операций и аргументы одной операции | — |
 | `hcm_api_read`, `hcm_api_write`, `hcm_api_execute` | вызов операции по ID | по операции |

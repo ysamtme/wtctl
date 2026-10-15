@@ -167,7 +167,7 @@ test("упавший шаг пакета и списки операций наз
     results: (typeof step)[];
     completed: number;
   };
-  assert.equal(mcp.results[1]!.error.hint, "Строки показывает hcm_log_follow.");
+  assert.equal(mcp.results[1]!.error.hint, "Строки показывает hcm_logs_follow.");
   assert.equal(mcp.completed, 2);
   const cli = errorInFrontendTerms(batch, "cli").data as { results: (typeof step)[] };
   assert.equal(cli.results[1]!.error.hint, "Строки показывает wtctl logs follow.");

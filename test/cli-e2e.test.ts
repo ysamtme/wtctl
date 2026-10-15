@@ -599,7 +599,7 @@ test(
       });
       assert.equal(mcpJson(logs).ok, true);
       const logRead = await client.callTool({
-        name: "hcm_log_read",
+        name: "hcm_logs_read",
         arguments: { file: f.logName, tailBytes: 128 },
       });
       assert.equal((mcpJson(logRead).data as LogText).file, f.logName);
@@ -609,13 +609,13 @@ test(
       });
       assert.equal((mcpJson(logSearch).data as LogMatches).events.length, 1);
       const logFollow = await client.callTool({
-        name: "hcm_log_follow",
+        name: "hcm_logs_follow",
         arguments: { file: f.logName },
       });
       assert.equal(typeof (mcpJson(logFollow).data as LogNews).cursor, "string");
       const before = f.methods.length;
       const invalidFile = await client.callTool({
-        name: "hcm_log_read",
+        name: "hcm_logs_read",
         arguments: { file: "../private.log" },
       });
       assert.equal(mcpJson(invalidFile).error?.code, "INVALID_LOG_FILE");

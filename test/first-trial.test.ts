@@ -518,7 +518,7 @@ test("ошибка называет инструмент MCP или команд
   const answer = mcpJson(await new HcmMcpTools(runtime).invoke("hcm_query", { catalog: "people" }));
   assert.equal(
     answer.error?.hint,
-    "hcm_types lists the types; hcm_log_follow shows the log; native.lds.xQuery stays.",
+    "hcm_types lists the types; hcm_logs_follow shows the log; native.lds.xQuery stays.",
   );
   assert.equal(answer.meta.operationId, "runtime.query");
   const closing = (hint: string, frontend: "mcp" | "cli") =>
