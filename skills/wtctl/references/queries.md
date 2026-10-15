@@ -63,6 +63,8 @@
 
 `hcm_xquery` нужен, когда `hcm_query` мало: «или», связи каталогов, функции. Требует права `execute`. Запрос должен возвращать строки каталога целиком (`return $e`), поля выбирает аргумент `fields`.
 
+Ищет он тоже по строкам каталога: в тексте запроса — только поля с `query:true`. Поле документа (`$e/comment` у сотрудника) даёт `UNKNOWN_CATALOG_FIELD`. Чтобы найти объекты по такому полю, сузь выборку по полям каталога, прочитай документы через `hcm_object_get {ids}` и отбери у себя или ищи кодом на сервере, см. тему `scripts`.
+
 ```json
 { "query": "for $e in collaborators where $e/is_dismiss = false() order by $e/fullname descending return $e", "fields": ["id", "fullname"], "limit": 20 }
 ```

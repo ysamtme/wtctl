@@ -25,7 +25,11 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   types: {
     summary: "Типы объектов сервера и их каталоги.",
     usage: ["wtctl types [--search ТЕКСТ] [--limit N] [--cursor N]"],
-    notes: ["search ищет по имени типа, каталогу и заголовку.", "По умолчанию 50 типов."],
+    notes: [
+      "search ищет по имени типа, каталогу и заголовку.",
+      "По умолчанию 50 типов, не больше 1000.",
+      'customFields "by kind" — настраиваемые поля у каждого вида объекта свои: schema ТИП --kind ID.',
+    ],
   },
   schema: {
     summary: "Поля типа объекта.",
@@ -36,7 +40,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
       "Без --search показывает верхний уровень, с ним ищет на любой глубине.",
       "--deep — вложенные поля всех уровней одним списком; страницы те же (--limit, --cursor), cutBySize — страница короче запрошенной.",
       "query:true — поле есть в каталоге и годится для query; computed:true — вычисляемое.",
-      "По умолчанию 80 полей.",
+      "По умолчанию 80 полей, не больше 1000.",
     ],
   },
   query: {

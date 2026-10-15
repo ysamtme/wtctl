@@ -293,6 +293,16 @@ claude plugin update wtctl@wtctl
 - Глобальный пакет, если он ставился: `npm uninstall -g wtctl`.
 - Папка `~/.wtctl`: в ней лежат файл подключений и сохранённые большие ответы.
 
+## Установка из архива пакета
+
+Архив `wtctl-X.Y.Z.tgz` (его собирает `npm pack`) ставится как пакет из npm, только вместо имени — путь к архиву:
+
+```shell
+npm install -g ./wtctl-X.Y.Z.tgz
+```
+
+Дальше всё как после `npm install -g wtctl`: команда `wtctl`, MCP-сервер `"command": "wtctl", "args": ["mcp"]`. Без установки архив распаковывается (`tar -xzf wtctl-X.Y.Z.tgz`) в папку `package`: CLI запускается как `node package/dist/cli/bin.js`, MCP-сервер — `"command": "node", "args": ["ПОЛНЫЙ_ПУТЬ/package/dist/cli/bin.js", "mcp"]`.
+
 ## Установка из папки
 
 Запасной способ: без npm и для приложений, которым плагин указывают папкой. Собранный пакет лежит в ветке `plugin` репозитория:

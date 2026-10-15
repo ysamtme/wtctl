@@ -197,10 +197,10 @@ export class HcmMcpTools {
     register(
       "hcm_types",
       "Типы объектов",
-      "Типы объектов сервера: тип, каталог (если есть), заголовок, число настраиваемых полей.",
+      "Типы объектов сервера: тип, каталог (если есть), заголовок, число настраиваемых полей; by kind — они по видам, передай kind в hcm_schema.",
       {
         search: text("Часть имени типа, каталога или заголовка, например «сотрудник»."),
-        limit: page.limit("Типов на странице; по умолчанию 50.", Number.MAX_SAFE_INTEGER),
+        limit: page.limit("Типов на странице: по умолчанию 50, до 1000.", 1000),
         cursor: page.cursor,
       },
       "read",
@@ -224,7 +224,7 @@ export class HcmMcpTools {
         kind: text("ID вида объекта, если настраиваемые поля заданы по видам."),
         include: enumeration(["methods"], "Добавить методы формы.", true),
         language: text("Язык заголовков (en, ru…); иначе язык сервера."),
-        limit: page.limit("Полей на странице; по умолчанию 80.", Number.MAX_SAFE_INTEGER),
+        limit: page.limit("Полей на странице: по умолчанию 80, до 1000.", 1000),
         cursor: page.cursor,
       },
       "read",
@@ -301,7 +301,7 @@ export class HcmMcpTools {
     register(
       "hcm_object_patch",
       "Изменить объект",
-      "Изменить поля объекта; остальное в документе сохраняется. Укажи id или url. Путь к полю: name; doc_info.creation.user_login; элемент списка по номеру items[0] или по ключу custom_elems.custom_elem[name=tub_num].value. preview:true показывает изменения и ничего не записывает.",
+      "Изменить поля объекта; остальное в документе сохраняется. Укажи id или url. Путь к полю: name; access.access_level; элемент списка по номеру items[0] или по ключу custom_elems.custom_elem[name=tub_num].value. preview:true показывает изменения и ничего не записывает.",
       {
         ...target,
         patch: {
@@ -414,7 +414,7 @@ export class HcmMcpTools {
     register(
       "hcm_log_read",
       "Текст лога",
-      "Текст лога: по умолчанию конец файла, сколько помещается в ответ; целиком — full:true. В файл его сохраняет hcm_result_export (meta.resultId, format:'text'), большой дочитывает hcm_result_read. LOG_READ_UNAVAILABLE — сервер сейчас пишет в этот файл: повтори чуть позже.",
+      "Текст лога: по умолчанию конец файла, сколько помещается в ответ; целиком — full:true. В файл его сохраняет hcm_result_export (meta.resultId, format:'text'), большой дочитывает hcm_result_read.",
       logWindow,
       "read",
       call("logs.read"),
