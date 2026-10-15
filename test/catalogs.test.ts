@@ -17,6 +17,9 @@ const forms: Record<string, string> = {
   </exchange_object_types></common>`,
   "x-local://wtv/wtv_event.xmd":
     '<SPXML-FORM><event><id TYPE="integer"/><name TYPE="string"/><start_date TYPE="date"/><note TYPE="string"/><label TYPE="string" PROPERTY="1" EXPR="name"/></event></SPXML-FORM>',
+  // Код перед сохранением заполняет из сотрудника person_name, unit_id и unit_name; note только присваивает.
+  "x-local://wtv/wtv_member.xmd":
+    '<SPXML-FORM><member><id TYPE="integer"/><person_id TYPE="integer"/><person_name TYPE="string"/><unit_id TYPE="integer"/><unit_name TYPE="string"/><note TYPE="string"/></member><OnBeforeSave PROPERTY="1" EXPR="if ( TopElem.person_id.HasValue ) { TopElem.person_name = \'Иванов\'; TopElem.unit_id = 3; TopElem.unit_name = \'Отдел\'; } else { TopElem.person_name.Clear(); TopElem.unit_id.Clear(); TopElem.unit_name.Clear(); } TopElem.note = \'n\';"/></SPXML-FORM>',
   "x-local://wtv/wtv_events.xmd":
     '<SPXML-FORM CATALOG="1"><events><event MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><name TYPE="string"/><start_date TYPE="date"/><place_id TYPE="integer" FOREIGN-ARRAY="places"/><days TYPE="integer" PROPERTY="1" EXPR="1"/></event></events></SPXML-FORM>',
   // Строка этого каталога названа не по его типу объекта.
@@ -311,11 +314,52 @@ test("поле, которого нет у типа, отклоняется до
         "label: значение вычисляет сервер, записать его нельзя.",
       );
     }
-    // Удаление того, чего нет, ничего не меняет и не считается ошибкой.
-    const removed = await runtime.call("objects.patch", { id: "1", remove: ["no_such"] });
-    assert.equal((removed.data as { noop: boolean }).noop, true);
+    // Удаление того, чего нет в документе, — отказ и в предпросмотре: опечатка не выглядит успехом.
+    for (const preview of [true, false]) {
+      const removed = await runtime.call("objects.patch", {
+        id: "1",
+        remove: ["name", "no_such"],
+        preview,
+      });
+      assert.equal(removed.error?.code, "PATCH_PATH_MISSING");
+      assert.equal(removed.error?.message, "remove: в документе нет no_such.");
+      // Предпросмотр — чтение: исхода записи у него нет.
+      assert.equal(removed.error?.mutationOutcome, preview ? undefined : "not_sent");
+    }
     assert.equal(server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length, 0);
   } finally {
     await runtime.close();
+  }
+});
+
+test("поле, которое сервер заполняет при сохранении, помечено в предпросмотре и названо в READ_BACK_MISMATCH", async () => {
+  const stored =
+    "<member><id>1</id><person_id>2</person_id><person_name>Иванов</person_name></member>";
+  const directory = await mkdtemp(join(tmpdir(), "hcm-catalogs-"));
+  const { runtime } = fakeRuntime(
+    {
+      ...schemaAnswers,
+      "native.lds.loadDoc": { kind: "binary", bytes: new TextEncoder().encode(stored) },
+      "native.lds.putDoc": {},
+    },
+    { permissions: { write: true, execute: false }, runtimeDir: directory },
+  );
+  try {
+    // unit_id сервер тоже заполняет сам: менять его подсказка не советует.
+    const patch = { person_name: "Петров", unit_name: "Склад", note: "x" };
+    const preview = await runtime.call("objects.patch", { id: "1", patch, preview: true });
+    assert.deepEqual((preview.data as { serverFilled?: string[] }).serverFilled, [
+      "person_name",
+      "unit_name",
+    ]);
+    const written = await runtime.call("objects.patch", { id: "1", patch });
+    assert.equal(written.error?.code, "READ_BACK_MISMATCH");
+    assert.match(
+      written.error!.hint!,
+      /^person_name, unit_name: сервер заполняет при сохранении документа из связанного объекта\. Менять нужно связанное поле: person_id вместо person_name\. /,
+    );
+  } finally {
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

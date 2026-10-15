@@ -161,31 +161,67 @@ test("set по ключу добавляет недостающий элемен
   }
 });
 
-test("remove по ключу пропускает отсутствующие ключи, не меняя fingerprint", () => {
-  for (const source of [
-    "<sample><custom_elems><custom_elem><name>tub_num</name><value>1</value></custom_elem><custom_elem><name>other</name></custom_elem></custom_elems></sample>",
-    "<sample><title>A</title></sample>",
+test("remove по пути, которому ничего не соответствует, отклоняет всю правку", () => {
+  const source =
+    "<sample><title>A</title><custom_elems><custom_elem><name>tub_num</name><value>1</value></custom_elem><custom_elem><name>other</name></custom_elem></custom_elems></sample>";
+  const document = XmlDocument.parse(source);
+  const original = document.snapshot();
+  for (const path of [
+    "custom_elems.custom_elem[name=missing]",
+    "custom_elems.custom_elem[name=missing].value",
+    "custom_elems.custom_elem[5]",
+    "absent.child",
+    "absent",
   ]) {
-    const document = XmlDocument.parse(source);
-    const missing = document.patch([
-      { op: "remove", path: "custom_elems.custom_elem[name=missing]" },
-    ]);
-    assert.deepEqual(missing.changes, []);
-    assert.equal(missing.after.fingerprint, missing.before.fingerprint);
-    if (source.includes("tub_num")) {
-      const removed = document.patch([
-        { op: "remove", path: "custom_elems.custom_elem[name=tub_num]" },
-      ]);
-      assert.equal(removed.changes.length, 1);
-      assert.throws(
-        () => verifyRemovals(removed.after.data, removed.before.data, removed.changes),
-        { code: "READ_BACK_MISMATCH" },
-      );
-      assert.deepEqual(JSON.parse(JSON.stringify(removed.after.data.custom_elems)), {
-        custom_elem: { name: "other" },
-      });
-    }
+    assert.throws(
+      () =>
+        document.patch([
+          { op: "remove", path: "custom_elems.custom_elem[name=tub_num]" },
+          { op: "remove", path },
+        ]),
+      (error: any) =>
+        error.code === "PATCH_PATH_MISSING" &&
+        error.message === `remove: в документе нет ${path}.` &&
+        error.details.path === path,
+    );
+    assert.deepEqual(document.snapshot(), original);
   }
+  // Удалённый элемент списка показан ключом и полями, а не одними именами полей.
+  const removed = document.patch([
+    { op: "remove", path: "custom_elems.custom_elem[name=tub_num]" },
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(removed.changes)), [
+    {
+      op: "remove",
+      path: "custom_elems.custom_elem[name=tub_num]",
+      before: { name: "tub_num", value: "1" },
+    },
+  ]);
+  assert.throws(() => verifyRemovals(removed.after.data, removed.before.data, removed.changes), {
+    code: "READ_BACK_MISMATCH",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(removed.after.data.custom_elems)), {
+    custom_elem: { name: "other" },
+  });
+});
+
+test("значение, равное записанному, в changes не попадает", () => {
+  const document = XmlDocument.parse(
+    "<sample><title>A</title><when>2026-01-02T09:30:00+00:00</when><flag>true</flag><off>0</off><ref>0x1F</ref><items><item><name>x</name></item></items></sample>",
+  );
+  const same = document.patch({
+    title: "A",
+    when: "2026-01-02T09:30:00",
+    flag: true,
+    off: false,
+    ref: "31",
+    "items.item[name=x]": { name: "x" },
+  });
+  assert.deepEqual(same.changes, []);
+  assert.equal(same.after.fingerprint, same.before.fingerprint);
+  assert.deepEqual(document.patch({ title: "A", flag: false }).changes, [
+    { op: "set", path: "flag", before: "true", after: false },
+  ]);
 });
 
 test("повторяющиеся ключи и несовпадающие ключи замены отклоняют всю правку", () => {
@@ -227,7 +263,7 @@ test("повторяющиеся ключи и несовпадающие клю
     XmlDocument.parse("<sample><title>A</title></sample>").patch({
       items: { item: [{ name: "a" }, { name: "b" }], note: "n" },
     }).changes,
-    [{ op: "set", path: "items", after: "{item: 2 items, note}" }],
+    [{ op: "set", path: "items", after: { item: "[2 items]", note: "n" } }],
   );
   const document = XmlDocument.parse("<sample><items><item><name>x</name></item></items></sample>");
   const original = document.snapshot();

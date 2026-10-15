@@ -94,6 +94,8 @@ export interface PatchPreviewData {
   readonly changes: PatchChange[];
   /** Отпечаток документа сейчас: expectedFingerprint для записи. */
   readonly fingerprint: string;
+  /** Поля правки, которые сервер заполняет сам при сохранении: записанное значение он, скорее всего, заменит. */
+  readonly serverFilled?: string[];
 }
 /** Ответ patch, когда правка записана. */
 export interface PatchedObjectData {
@@ -316,16 +318,18 @@ export class ServerObjects {
   /**
    * Чего сервер не сохранит, отклоняется до записи: поле, которого нет у типа, выпадает из
    * сохранённого документа, как и значение поля, которое сервер вычисляет сам, а дата, которую
-   * сервер не может прочитать, сохраняется другим значением.
+   * сервер не может прочитать, сохраняется другим значением. Ответ — поля, которые сервер
+   * заполняет при сохранении сам, с полем, из которого их стоит менять, если оно угадывается.
    */
   private async requireFields(
     type: string,
     formUrl: string | undefined,
     data: Record<string, unknown>,
     names: readonly string[],
-  ): Promise<void> {
+  ): Promise<Map<string, string | undefined>> {
+    const filled = new Map<string, string | undefined>();
     const shape = await this.schema.documentShape(type, formUrl).catch(() => undefined);
-    if (!shape) return;
+    if (!shape) return filled;
     const written = [...new Set(names)];
     const unknown =
       shape.fields.size && !shape.partial ? written.filter((name) => !shape.fields.has(name)) : [];
@@ -362,6 +366,15 @@ export class ServerObjects {
         'Писать нужно "2026-12-05" или "2026-12-05T09:30:00". Время — местное время сервера: смещение в значении сервер не учитывает.',
         { fields: wrong },
       );
+    // Копия названия хранится рядом со ссылкой: position_name — у position_id. Ссылка, которую
+    // сервер тоже заполняет сам (position_parent_id), не советуется.
+    for (const name of written.filter((name) => shape.serverFilled?.has(name))) {
+      const source = name.replace(/_name$/, "_id");
+      const usable =
+        source !== name && shape.fields.has(source) && !shape.serverFilled?.has(source);
+      filled.set(name, usable ? source : undefined);
+    }
+    return filled;
   }
   async create(args: Record<string, unknown>, out: WriteOutcome): Promise<CreatedObjectData> {
     const type = identifier(args.type, "type");
@@ -467,7 +480,7 @@ export class ServerObjects {
         "Прочитать объект заново и составить изменение по его текущему состоянию.",
       );
     // Проверяется и перед предпросмотром: он не должен обещать то, от чего запись откажется.
-    await this.requireFields(
+    const filled = await this.requireFields(
       changes.before.type,
       changes.before.formUrl,
       changes.after.data,
@@ -484,6 +497,7 @@ export class ServerObjects {
         noop: noop && args.resave !== true,
         changes: changes.changes,
         fingerprint: changes.before.fingerprint,
+        ...(filled.size ? { serverFilled: [...filled.keys()] } : {}),
       };
     const current = await this.load(args);
     if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
@@ -511,7 +525,25 @@ export class ServerObjects {
     );
     const verified = await this.load(args);
     const snapshot = verified.document.snapshot();
-    verifyFields(changes.after.data, snapshot.data, form.fields, branches, changes.before.xml);
+    try {
+      verifyFields(changes.after.data, snapshot.data, form.fields, branches, changes.before.xml);
+    } catch (error) {
+      const fields = error instanceof HcmError ? error.details?.fields : undefined;
+      const copies = Array.isArray(fields)
+        ? [...filled.keys()].filter((name) => fields.includes(name))
+        : [];
+      if (!(error instanceof HcmError) || !copies.length) throw error;
+      const sources = copies.flatMap((name) => {
+        const source = filled.get(name);
+        return source ? [`${source} вместо ${name}`] : [];
+      });
+      throw new HcmError(
+        error.code,
+        error.message,
+        `${copies.join(", ")}: сервер заполняет при сохранении документа из связанного объекта. Менять нужно связанное поле${sources.length ? `: ${sources.join(", ")}` : ""}. Остальные поля запроса сохранены: заново объект не создавать.`,
+        error.details,
+      );
+    }
     verifyRemovals(changes.after.data, snapshot.data, changes.changes, form.fields);
     await this.journal({
       mutationId,

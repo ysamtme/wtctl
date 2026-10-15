@@ -130,6 +130,11 @@ export interface DataShape {
   readonly integers?: Set<string>;
   /** Поля верхнего уровня, которые вычисляет сервер: записанное в них значение не сохраняется. */
   readonly computed?: Set<string>;
+  /**
+   * Поля верхнего уровня, которые код формы перед сохранением и заполняет, и очищает сам: копии
+   * полей связанных объектов. Узнаются по тексту кода, бывают и лишние — годятся только для пометки.
+   */
+  readonly serverFilled?: Set<string>;
   /** Базовый тип формы не найден, поэтому имена полей — не все. */
   partial?: boolean;
 }
@@ -529,11 +534,13 @@ export class SchemaReader {
       const root = roots.find((node) => name(node) === type && attr(node, "SAMPLE") !== "1");
       const computed = new Set<string>();
       const stored = new Set<string>();
+      const serverFilled = new Set<string>();
       const shape: DataShape = {
         fields: new Set(),
         repeated: new Set(),
         dates: new Set(),
         computed,
+        serverFilled,
       };
       const collect = (nodes: Node[], prefix = "", stack: string[] = []): void => {
         if (stack.length > 64) return;
@@ -559,6 +566,14 @@ export class SchemaReader {
       if (root) collect(children(root));
       // Имя, которое вычисляет базовый тип, а сам тип хранит, — хранимое поле.
       for (const key of stored) computed.delete(key);
+      const onSave = roots.find((node) => name(node) === "OnBeforeSave");
+      const code = onSave ? attr(onSave, "EXPR") : "";
+      for (const key of stored)
+        if (
+          code.includes(`TopElem.${key}.Clear()`) &&
+          new RegExp(String.raw`TopElem\.${key}\s*=(?!=)`).test(code)
+        )
+          serverFilled.add(key);
       return shape;
     });
   }

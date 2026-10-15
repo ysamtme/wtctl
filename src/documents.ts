@@ -186,11 +186,27 @@ function sameKey(stored: unknown, key: string): boolean {
   const text = String(stored);
   return text === key || (ID_TEXT.test(text) && ID_TEXT.test(key) && BigInt(text) === BigInt(key));
 }
-/** Запись изменения показывает скалярные значения; у структуры называет поля и считает списки. */
-function brief(value: unknown): unknown {
+/**
+ * Записываемое значение совпадает с хранимым: ID в другой записи, логическое значение,
+ * которое сервер хранит как 0 или 1, дата без смещения.
+ */
+function sameValue(stored: unknown, value: unknown, replacement: Node[]): boolean {
+  if (typeof value === "boolean") return stored === String(value) || stored === (value ? "1" : "0");
+  if (typeof value === "string" || typeof value === "number")
+    return typeof stored === "string" && sameKey(stored, String(withoutFalseOffset(String(value))));
+  return (
+    replacement.length === 1 &&
+    JSON.stringify(withoutFalseOffset(compact(children(replacement[0]!)))) ===
+      JSON.stringify(stored)
+  );
+}
+/** Запись изменения показывает скалярные значения и поля структуры; глубже — называет поля и считает списки. */
+function brief(value: unknown, nested = false): unknown {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return `[${value.length} items]`;
-  const keys = Object.entries(value).map(([key, item]) =>
+  const entries = Object.entries(value);
+  if (!nested) return Object.fromEntries(entries.map(([key, item]) => [key, brief(item, true)]));
+  const keys = entries.map(([key, item]) =>
     Array.isArray(item) ? `${key}: ${item.length} items` : key,
   );
   return `{${keys.slice(0, 4).join(", ")}${keys.length > 4 ? ", …" : ""}}`;
@@ -212,7 +228,7 @@ export interface DocumentSnapshot {
   readonly data: Record<string, unknown>;
   readonly formUrl?: string;
 }
-/** Одно изменение документа. Значения показаны как были и как записаны; структура названа, а не скопирована. */
+/** Одно изменение документа. Значения показаны как были и как записаны; у структуры — поля первого уровня, вложенное названо, а не скопировано. */
 export interface PatchChange {
   /** set — значение записано, remove — путь удалён. */
   readonly op: "set" | "remove";
@@ -311,6 +327,14 @@ export class XmlDocument {
       let created = false;
       if (operation.op !== "set" && operation.op !== "remove")
         throw new HcmError("INVALID_PATCH", "op: поддерживаются set и remove.");
+      // Удалять нечего — значит, путь не тот: молча пропущенная опечатка выглядела бы как успех.
+      const absent = (): HcmError =>
+        new HcmError(
+          "PATCH_PATH_MISSING",
+          `remove: в документе нет ${path}.`,
+          "Ничего не записано. Что есть в документе, показывает objects.get.",
+          { path },
+        );
       let parent = children(workingRoot);
       for (let index = 0; index < segments.length; index++) {
         const match = segments[index]!;
@@ -351,12 +375,12 @@ export class XmlDocument {
             { path },
           );
         if (index < segments.length - 1) {
+          if (!chosen && operation.op === "remove") throw absent();
           if (
             !chosen &&
             position === undefined &&
             (createdKeyedElement || segments.slice(index).some((part) => part[3] !== undefined))
           ) {
-            if (operation.op === "remove") break;
             const node = encodeValue(field, key === undefined ? {} : { [key]: keyValue });
             chosen = { node, i: parent.length };
             parent.push(node);
@@ -375,9 +399,12 @@ export class XmlDocument {
           parent = children(chosen.node);
           continue;
         }
+        // Хранимое значение без смещения даты, которое пишет сервер, — так оно и показано в before.
+        const stored =
+          chosen && !created ? withoutFalseOffset(compact(children(chosen.node))) : undefined;
         if (operation.op === "remove") {
-          if (chosen) parent.splice(chosen.i, 1);
-          else if (key !== undefined) break;
+          if (!chosen) throw absent();
+          parent.splice(chosen.i, 1);
         } else {
           if (!Object.hasOwn(operation, "value"))
             throw new HcmError("INVALID_PATCH", "Для set нужно value.", undefined, { path });
@@ -409,11 +436,9 @@ export class XmlDocument {
                 path,
               },
             );
-          // Дата, возвращённая как прочитана, без смещения, что пишет сервер, — хранимое значение.
-          const stored = chosen ? compact(children(chosen.node)) : undefined;
-          if (stored !== operation.value && withoutFalseOffset(stored) === operation.value) {
-            /* Хранимый текст остаётся. */
-          } else if (chosen) {
+          // То же значение — не изменение: хранимый текст остаётся, в changes строки нет.
+          if (stored !== undefined && sameValue(stored, operation.value, replacement)) continue;
+          if (chosen) {
             if (chosen.node[":@"] !== undefined && replacement.length === 1)
               replacement[0]![":@"] = chosen.node[":@"];
             parent.splice(chosen.i, 1, ...replacement);
@@ -433,9 +458,7 @@ export class XmlDocument {
         changes.push({
           op: operation.op,
           path,
-          ...(chosen && !created
-            ? { before: brief(withoutFalseOffset(compact(children(chosen.node)))) }
-            : {}),
+          ...(stored === undefined ? {} : { before: brief(stored) }),
           ...(operation.op === "set" ? { after: brief(operation.value) } : {}),
         });
       }
