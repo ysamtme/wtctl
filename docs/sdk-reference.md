@@ -1464,6 +1464,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `targets` | `readonly RpcTargetCard[]` | Функции страницы. |
 | `total` | `number` | Сколько функций подходит всего. |
 | `serverOnlyHidden?` | `number` | Подходящие функции, пропущенные из-за того, что клиент их не вызовет; all:true выводит их. |
+| `hint?` | `string` | Есть при serverOnlyHidden: как их показать. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
 | `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
 | `skipped?` | `readonly string[]` | Библиотеки, список функций которых сервер не отдал. |

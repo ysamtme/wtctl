@@ -174,6 +174,7 @@ test("runtime читает отфильтрованные файлы библи�
       total: 4,
       // tools.server_side тоже подходит, но клиент не может его вызвать.
       serverOnlyHidden: 1,
+      hint: "serverOnlyHidden — сколько подходящих функций не показано: они вызываются только из кода на сервере. all:true (в CLI --all) добавит их в список.",
     });
     const before = calls().length;
     assert.deepEqual((await runtime.call("rpc.list", { library: "tools" })).data, first.data);

@@ -64,6 +64,8 @@ function decimalLiteral(value: number): string {
   if (point >= digits.length) return `${sign}${digits}${"0".repeat(point - digits.length)}`;
   return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
 }
+const OPERATOR_HINT =
+  'Условие пишется как {поле: {оператор: значение}}, например {fullname: {contains: "Иван"}}; равенство — {поле: значение}.';
 /** Закрытый DSL запросов: идентификаторы и значения не могут внедрить сырое выражение сервера. */
 export function catalogQuery(
   catalog: unknown,
@@ -92,7 +94,7 @@ export function catalogQuery(
         throw new HcmError(
           "INVALID_FILTER_OPERATOR",
           "В условии по полю нет оператора.",
-          undefined,
+          OPERATOR_HINT,
           { field },
         );
       for (const [operation, value] of operators) {
@@ -122,7 +124,13 @@ export function catalogQuery(
           throw new HcmError(
             "INVALID_FILTER_OPERATOR",
             "Операторы условия: eq, ne, gt, gte, lt, lte, contains, in. Для in нужен массив от 1 до 100 значений.",
-            undefined,
+            operation === "in"
+              ? 'Пример: {role_id: {in: ["admin", "user"]}}.'
+              : /^\$?(starts?_?with|begins?_?with|prefix|ends?_?with|suffix|i?like|regexp?|match(es)?)$/i.test(
+                    operation,
+                  )
+                ? "Условий «начинается с» и шаблонов нет: формы, которая работает на обеих базах данных, сервер не даёт. Подходит contains, а строки по началу значения отбираются после ответа."
+                : OPERATOR_HINT,
             { field, operation },
           );
       }

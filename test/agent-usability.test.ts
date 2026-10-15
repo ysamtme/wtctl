@@ -333,6 +333,22 @@ test("ID, переданный строкой 0x, сравнивается ка�
   );
 });
 
+test("неверный оператор условия получает подсказку, а «начинается с» — что его нет и чем обойтись", () => {
+  for (const operator of ["startsWith", "$regex"])
+    assert.throws(() => catalogQuery("collaborators", { fullname: { [operator]: "И" } }), {
+      code: "INVALID_FILTER_OPERATOR",
+      hint: /^Условий «начинается с» и шаблонов нет: .* Подходит contains/,
+    });
+  assert.throws(() => catalogQuery("collaborators", { role_id: { in: [] } }), {
+    hint: /^Пример: \{role_id: \{in: /,
+  });
+  for (const condition of [{ nin: ["И"] }, {}])
+    assert.throws(() => catalogQuery("collaborators", { fullname: condition }), {
+      code: "INVALID_FILTER_OPERATOR",
+      hint: /^Условие пишется как \{поле: \{оператор: значение\}\}/,
+    });
+});
+
 test("пустое поле запрашивается в виде, на который все базы данных отвечают одинаково", () => {
   assert.equal(
     catalogQuery("resources", {

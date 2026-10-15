@@ -1,4 +1,4 @@
-import { HcmError, boundedInteger, requiredString } from "./errors.js";
+import { HcmError, boundedInteger, isSimilarName, requiredString, similarHint } from "./errors.js";
 import { identifier } from "./query.js";
 import { XmlDocument } from "./documents.js";
 import { createPlatformXmlParser, validatePlatformXmlSource } from "./protocol/xml.js";
@@ -320,18 +320,18 @@ export class SchemaReader {
   }
   private unknownType(info: Data, type: string, declared: Data[] = []): HcmError | undefined {
     const catalogs = this.catalogs(info);
-    const own = catalogs.filter((item) => item.id === type).map((item) => text(item.object_type));
     const types = [
       ...catalogs.map((item) => text(item.object_type)),
       ...declared.map((item) => text(item.name)),
     ].filter(Boolean);
     if (types.includes(type)) return undefined;
+    // Тип каталога с этим именем — первым: похожих каталогов на сервере бывает больше пяти.
     const near = [
-      ...new Set([
-        ...own.filter(Boolean),
-        ...types.filter((item) => item.includes(type) || type.includes(item)),
-      ]),
-    ].slice(0, 5);
+      ...catalogs.filter((item) => item.id === type),
+      ...catalogs.filter((item) => isSimilarName(text(item.id), type)),
+    ]
+      .map((item) => text(item.object_type))
+      .concat(types.filter((item) => isSimilarName(item, type)));
     const rows = catalogs
       .filter((item) => !text(item.object_type) && text(item.id).startsWith(type))
       .map((item) => text(item.id))
@@ -339,7 +339,7 @@ export class SchemaReader {
     return new HcmError(
       "UNKNOWN_TYPE",
       `На сервере нет типа объекта ${type}.`,
-      `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}${rows.length ? `Каталог без своего типа объекта: ${rows.join(", ")} — его поля показывает схема по имени каталога. ` : ""}Типы объектов показывает schema.types.`,
+      `${similarHint(near)}${rows.length ? `Каталог без своего типа объекта: ${rows.join(", ")} — его поля показывает схема по имени каталога. ` : ""}Типы объектов показывает schema.types.`,
     );
   }
   /**
@@ -366,14 +366,23 @@ export class SchemaReader {
     return !declared.length || declared.some((item) => item.name === type);
   }
   /**
-   * Каталоги основной базы. Тип объекта сервер называет только у части из них. Рядом он
-   * перечисляет общие списки (common.…): это не каталоги, и они пропускаются.
+   * Каталоги основной базы, с everywhere — за ними каталоги остальных баз. Тип объекта сервер
+   * называет только у части из них. Рядом он перечисляет общие списки (common.…): это
+   * не каталоги, и они пропускаются.
    */
-  private catalogs(info: Data): Data[] {
+  private catalogs(info: Data, everywhere = false): Data[] {
     const databases = serverDatabases(info);
-    return (
-      (databases.find((db) => db.id === info.default_db_name) ?? databases[0])?.catalogs ?? []
-    ).filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)));
+    const main = databases.find((db) => db.id === info.default_db_name) ?? databases[0];
+    return (everywhere ? [main, ...databases.filter((db) => db !== main)] : [main])
+      .flatMap((db) => db?.catalogs ?? [])
+      .filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)));
+  }
+  /**
+   * Каталог по имени в любой базе. Каталоги других баз (trash_docs в базе trash) сервер ищет
+   * так же, но в списки типов они не входят.
+   */
+  private catalog(info: Data, id: string): Data | undefined {
+    return this.catalogs(info, true).find((item) => item.id === id);
   }
   /** Тип строк каталога: названный сервером или, если нет, по форме каталога. */
   private async rowType(catalog: Data): Promise<string> {
@@ -562,7 +571,7 @@ export class SchemaReader {
     const catalogs =
       selector.catalog === undefined
         ? await this.catalogsOf(info, selector.type ?? "")
-        : this.catalogs(info).filter((item) => item.id === selector.catalog);
+        : [this.catalog(info, selector.catalog)].filter((item) => item !== undefined);
     if (catalogs.length !== 1) return undefined;
     const catalog = catalogs[0]!;
     return this.shape(`catalog#${text(catalog.id)}`, async () => {
@@ -598,24 +607,20 @@ export class SchemaReader {
    */
   async explainQuery(catalogId: string, fields: readonly string[]): Promise<HcmError | undefined> {
     const info = await this.applicationInfo();
-    const catalogs = this.catalogs(info);
-    const catalog = catalogs.find((item) => item.id === catalogId);
+    const catalog = this.catalog(info, catalogId);
     if (!catalog) {
       const near = [
         ...(await this.catalogsOf(info, catalogId)),
-        ...catalogs.filter(
+        ...this.catalogs(info).filter(
           (item) =>
-            text(item.id).includes(catalogId) ||
-            (text(item.object_type) && catalogId.includes(text(item.object_type))),
+            isSimilarName(text(item.id), catalogId) ||
+            isSimilarName(text(item.object_type), catalogId),
         ),
-      ]
-        .map((item) => text(item.id))
-        .filter((item, index, all) => all.indexOf(item) === index)
-        .slice(0, 5);
+      ].map((item) => text(item.id));
       return new HcmError(
         "UNKNOWN_CATALOG",
         `На сервере нет каталога ${catalogId}.`,
-        `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Каталоги и их типы объектов показывает schema.types.`,
+        `${similarHint(near)}Каталоги и их типы объектов показывает schema.types.`,
       );
     }
     if (!fields.length) return undefined;
@@ -651,7 +656,7 @@ export class SchemaReader {
       const declared = await this.declaredTypes(info);
       const alternative =
         text(declared.find((item) => item.name === requestedType)?.form_url) ||
-        text(this.catalogs(info).find((item) => item.id === requestedType)?.form_url);
+        text(this.catalog(info, requestedType)?.form_url);
       if (!alternative || alternative === formUrl) {
         throw this.unknownType(info, requestedType, declared) ?? error;
       }
@@ -676,7 +681,7 @@ export class SchemaReader {
       );
     const type = name(root);
     const catalog = (await this.catalogsOf(info, type))[0];
-    const mistaken = this.catalogs(info).find((item) => item.id === requestedType);
+    const mistaken = requestedType === undefined ? undefined : this.catalog(info, requestedType);
     const rows = mistaken ? await this.rowType(mistaken).catch(() => "") : "";
     const byCatalog = !!rows && rows !== requestedType;
     // У строк, которые не документы, нет типа, чтобы спросить о нём взамен: показываются их поля.

@@ -128,6 +128,32 @@ test("каталог без типа объекта даёт поля своей
   );
 });
 
+test("каталог другой базы находится по имени, а опечатка в одну букву в каталоге или типе даёт похожие", async () => {
+  const trash = {
+    id: "trash",
+    catalogs: [{ id: "trash_docs", object_type: "", form_url: "x-local://app/trash_docs.xmd" }],
+  };
+  const withTrash = new SchemaReader(
+    async () => ({ ...info, databases: [...info.databases, trash] }),
+    async (url) =>
+      url === trash.catalogs[0]!.form_url
+        ? '<SPXML-FORM CATALOG="1"><trash_docs><trash_doc MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><del_date TYPE="date"/></trash_doc></trash_docs></SPXML-FORM>'
+        : form(url),
+    async () => ({}),
+  );
+  assert.equal(await withTrash.explainQuery("trash_docs", ["del_date"]), undefined);
+  assert.equal(
+    (await withTrash.explainQuery("trash_docs", ["modification_date"]))?.code,
+    "UNKNOWN_CATALOG_FIELD",
+  );
+  assert.deepEqual(
+    [...(await withTrash.catalogShape({ catalog: "trash_docs" }))!.dates],
+    ["del_date"],
+  );
+  assert.match((await reader().explainQuery("evnts", []))!.hint!, /^Похожие: events\. /);
+  await assert.rejects(reader().requireType("evnt"), { hint: /^Похожие: event\. / });
+});
+
 const schemaAnswers: Script = {
   "native.spxml2.getAppInfo": info,
   "native.spxml2.getForm": (args) => form(String(args.url)),
@@ -258,6 +284,12 @@ test("поле, которого нет у типа, отклоняется до
     assert.equal(created.error?.message, "У типа event нет поля: nmae, no_such.");
     assert.match(created.error!.hint!, /^Похожие: name\. /);
     assert.equal(created.error?.mutationOutcome, "not_sent");
+    // place_id есть только в строке каталога events: schema.get показывает его, документ — нет.
+    const row = await runtime.call("objects.create", { type: "event", data: { place_id: 1 } });
+    assert.match(
+      row.error!.hint!,
+      /^place_id: есть только в строке каталога, в документ не пишется\. /,
+    );
     for (const preview of [true, false]) {
       const patched = await runtime.call("objects.patch", {
         id: "1",

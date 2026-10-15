@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { patchSegments, XmlDocument, type PatchChange } from "./documents.js";
-import { HcmError, inputObject, requiredString, scalar } from "./errors.js";
+import {
+  HcmError,
+  inputObject,
+  isSimilarName,
+  requiredString,
+  scalar,
+  similarHint,
+} from "./errors.js";
 import type { HcmServer } from "./hcm-server.js";
 import type { WriteOutcome } from "./write-outcome.js";
 import { findXmlNode, buildXml, type XmlObject } from "./protocol/xml.js";
@@ -40,21 +47,6 @@ function documentText(bytes: Uint8Array): string {
   } catch {
     throw new HcmError("INVALID_XML", "XML документа — не текст UTF-8.");
   }
-}
-/** Опечатка: одна буква заменена, добавлена, пропущена или переставлена с соседней. */
-function oneEditApart(a: string, b: string): boolean {
-  if (Math.abs(a.length - b.length) > 1) return false;
-  let start = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) start++;
-  let endA = a.length;
-  let endB = b.length;
-  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) (endA--, endB--);
-  const restA = a.slice(start, endA);
-  const restB = b.slice(start, endB);
-  return (
-    Math.max(restA.length, restB.length) <= 1 ||
-    (restA.length === 2 && restB.length === 2 && restA === restB[1]! + restB[0]!)
-  );
 }
 /** Что записать и какие пути удалить — одним списком операций, который принимает документ. */
 function patchInput(patch: unknown, remove: unknown, resave = false): unknown {
@@ -338,20 +330,16 @@ export class ServerObjects {
     const unknown =
       shape.fields.size && !shape.partial ? written.filter((name) => !shape.fields.has(name)) : [];
     if (unknown.length) {
-      const near = [...shape.fields]
-        .filter((field) =>
-          unknown.some(
-            (name) =>
-              (name.length > 3 && field.includes(name)) ||
-              (field.length > 3 && name.includes(field)) ||
-              oneEditApart(field, name),
-          ),
-        )
-        .slice(0, 5);
+      // schema.get показывает и поля строки каталога (origin:"catalog"): в документе их нет.
+      const rows = await this.schema.catalogShape({ type }).catch(() => undefined);
+      const rowOnly = unknown.filter((name) => rows?.fields.has(name));
+      const near = [...shape.fields].filter((field) =>
+        unknown.some((name) => isSimilarName(field, name)),
+      );
       throw new HcmError(
         "UNKNOWN_FIELD",
         `У типа ${type} нет поля: ${unknown.join(", ")}.`,
-        `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Поля типа показывает schema.get.`,
+        `${rowOnly.length ? `${rowOnly.join(", ")}: есть только в строке каталога, в документ не пишется. ` : ""}${similarHint(near)}Поля типа показывает schema.get.`,
         { fields: unknown },
       );
     }

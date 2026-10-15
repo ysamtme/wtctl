@@ -533,12 +533,13 @@ test("ошибка называет инструмент MCP или команд
   );
 });
 
-test("неизвестный ID и похожие на него показываются как ID операций", async () => {
+test("неизвестный ID и похожие на него показываются как ID операций, а api.list — как вход вызывающего", async () => {
   const { runtime } = fakeRuntime();
-  const unknown = await runtime.call("api.list");
+  const unknown = await runtime.call("logs.lst");
+  const own = await runtime.call("api.list");
   await runtime.close();
   const error = errorInFrontendTerms(unknown, "cli").error!;
-  assert.equal(error.message, "Операции api.list нет.");
+  assert.equal(error.message, "Операции logs.lst нет.");
   assert.match(error.hint!, /^Похожие: (?:[a-z]+\.list, )*[a-z]+\.list\. /);
   assert.match(error.hint!, /Список операций показывает wtctl api list\.$/);
   // Подсказка строится по ID из details, а не разбором текста: другая формулировка ничего не меняет.
@@ -548,6 +549,10 @@ test("неизвестный ID и похожие на него показыва
   };
   assert.equal(errorInFrontendTerms(reworded, "cli").error?.hint, error.hint);
   assert.match(errorInFrontendTerms(unknown, "mcp").error!.hint!, /\.list\. .*hcm_api_list\.$/);
+  assert.equal(
+    errorInFrontendTerms(own, "mcp").error?.hint,
+    "api.list вызывается как hcm_api_list, а не по ID операции.",
+  );
 });
 
 test("каждая строка словаря имён входов называет операцию реестра, инструмент MCP-сервера и команду CLI", async () => {

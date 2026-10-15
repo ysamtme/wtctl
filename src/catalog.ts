@@ -1,5 +1,5 @@
 import { operations, operationDefinition, operationSearchRank } from "./operations.js";
-import { HcmError, boundedInteger } from "./errors.js";
+import { HcmError, boundedInteger, isSimilarName, similarHint } from "./errors.js";
 import { operationOrder, operationTopic, requireTopic, overviewMatches } from "./operation-map.js";
 import type { OperationDefinition, OperationFilter, OperationPage } from "./contracts.js";
 
@@ -61,14 +61,12 @@ export function describeHcmOperation(id: string): OperationDefinition {
  * называет вызывающий (`name`). CLI и MCP-сервер строят её заново, а не разбирают текст.
  */
 export function unknownOperationHint(id: string, name = (known: string) => known): string {
+  // api.list и api.describe — не операции: ими вызывающий называет свои инструменты и команды.
+  if (name(id) !== id) return `${id} вызывается как ${name(id)}, а не по ID операции.`;
   // Имя сравнивается по последней части: loadDocs рядом с loadDoc, query — с xQuery.
   const asked = id.split(".").at(-1)!.toLowerCase();
   const near = operations
     .map((item) => item.id)
-    .filter((known) => {
-      const last = known.split(".").at(-1)!.toLowerCase();
-      return last.includes(asked) || asked.includes(last);
-    })
-    .slice(0, 5);
-  return `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Список операций показывает ${name("api.list")}.`;
+    .filter((known) => isSimilarName(known.split(".").at(-1)!.toLowerCase(), asked));
+  return `${similarHint(near)}Список операций показывает ${name("api.list")}.`;
 }

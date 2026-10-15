@@ -55,6 +55,8 @@ export interface RpcCatalogPage extends RpcCatalogSource {
   readonly total: number;
   /** Подходящие функции, пропущенные из-за того, что клиент их не вызовет; all:true выводит их. */
   readonly serverOnlyHidden?: number;
+  /** Есть при serverOnlyHidden: как их показать. */
+  readonly hint?: string;
   /** cursor следующей страницы; нет — страница последняя. */
   readonly nextCursor?: number;
 }
@@ -162,7 +164,12 @@ export class RpcCatalog {
       filter.all === true ? matching : matching.filter((target) => target.serverOnly !== true);
     const total = filtered.length;
     const hidden = matching.length - filtered.length;
-    const serverOnlyHidden = hidden ? { serverOnlyHidden: hidden } : {};
+    const serverOnlyHidden = hidden
+      ? {
+          serverOnlyHidden: hidden,
+          hint: "serverOnlyHidden — сколько подходящих функций не показано: они вызываются только из кода на сервере. all:true (в CLI --all) добавит их в список.",
+        }
+      : {};
     const selected: RpcTargetCard[] = [];
     for (const { id, parameters, allowed, serverOnly } of filtered.slice(cursor, cursor + limit)) {
       const target = { id, parameters, allowed, ...(serverOnly ? { serverOnly } : {}) };

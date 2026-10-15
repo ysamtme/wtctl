@@ -74,3 +74,32 @@ export function scalar(value: unknown, label: string): string {
     return String((value as Record<string, unknown>)["#text"]);
   throw new HcmError("PLATFORM_RESPONSE", `В ответе сервера нет ${label}.`);
 }
+/** Опечатка: одна буква заменена, добавлена, пропущена или переставлена с соседней. */
+function oneEditApart(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) (endA--, endB--);
+  const restA = a.slice(start, endA);
+  const restB = b.slice(start, endB);
+  return (
+    Math.max(restA.length, restB.length) <= 1 ||
+    (restA.length === 2 && restB.length === 2 && restA === restB[1]! + restB[0]!)
+  );
+}
+/** Известное имя похоже на названное: одно содержит другое или отличается опечаткой в одну букву. */
+export function isSimilarName(known: string, asked: string): boolean {
+  return (
+    !!known &&
+    ((asked.length >= 3 && known.includes(asked)) ||
+      (known.length >= 3 && asked.includes(known)) ||
+      oneEditApart(known, asked))
+  );
+}
+/** Начало подсказки к неизвестному имени: до пяти похожих, первыми — названные раньше. */
+export function similarHint(names: Iterable<string>): string {
+  const near = [...new Set(names)].filter(Boolean).slice(0, 5);
+  return near.length ? `Похожие: ${near.join(", ")}. ` : "";
+}
