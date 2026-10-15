@@ -66,6 +66,7 @@ test("тип, который сервер объявляет без назван
       ["plan", "plans", undefined],
       ["event", "events", "Мероприятие"],
       ["user_data", undefined, "Данные"],
+      [undefined, "event_members", undefined],
     ],
   );
   const schema = await reader().get({ type: "event" });
@@ -89,7 +90,6 @@ test("тип, который сервер объявляет без назван
       ["catalog", undefined, true],
     ],
   );
-  assert.equal((await reader().types()).catalogs, 4);
   // Имя строки ведёт к её каталогу.
   await assert.rejects(reader().get({ type: "event_member" }), (error: any) =>
     error.hint.includes("Каталог без своего типа объекта: event_members"),

@@ -50,14 +50,14 @@
 
 ## Каталоги без своего типа объекта
 
-`hcm_types` показывает каталоги, строки которых — объекты: у строки есть документ, его читает `hcm_object_get`. На сервере есть и другие каталоги, например `group_collaborators`, `event_collaborators`, `person_hierarchys`. Их строки сервер строит сам по документам другого типа: строка `group_collaborators` появляется, когда в документ группы добавлен участник.
+У большинства каталогов строки — объекты: у строки есть документ, его читает `hcm_object_get`. На сервере есть и другие каталоги, например `group_collaborators`, `event_collaborators`, `person_hierarchys`, `trash_docs`. Их строки сервер строит сам по документам другого типа: строка `group_collaborators` появляется, когда в документ группы добавлен участник. `hcm_types` показывает их после типов строкой без `type`: `{catalog:"group_collaborators"}`, поиск `{search:"group_coll"}` их находит.
 
 - Искать в таком каталоге можно как в любом: `hcm_query {catalog:"group_collaborators", where:{group_id:"0x…"}, fields:["collaborator_id"]}`.
 - Поля строки показывает `hcm_schema` по имени каталога: `{type:"group_collaborators"}`. В ответе они идут с приставкой (`group_collaborator.collaborator_id`), в условиях и в `fields` их пишут без неё: `collaborator_id`.
 - Документа у строки нет: `id` строки не читается через `hcm_object_get`. Чтобы строка изменилась, правят документ, из которого она построена.
 - После удаления документа сервер 2025.2 на PostgreSQL такие строки не убирает: строки удалённой группы остаются в `group_collaborators`, строки удалённых сотрудника и должности — в `person_hierarchys`. На MS SQL и на 2025.1 они исчезают. Объект, на который ссылается строка, проверяй по его собственному каталогу.
 
-У нескольких типов каталога нет вовсе (`user_data`): в ответе `hcm_types` у них нет поля `catalog`. Сколько каталогов на сервере всего, вместе с каталогами без своего типа, говорит `catalogs` в том же ответе. Общие списки сервера (`common.event_types`) — не каталоги: `hcm_query` по ним не ищет, их элементы читает `hcm_xquery {query:"for $e in common.event_types return $e"}`.
+У нескольких типов каталога нет вовсе (`user_data`): в ответе `hcm_types` у них нет поля `catalog`. Общие списки сервера (`common.event_types`) — не каталоги: `hcm_query` по ним не ищет, их элементы читает `hcm_xquery {query:"for $e in common.event_types return $e"}`.
 
 ## Запрос XQuery
 

@@ -1611,8 +1611,8 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `search?` | `string` | Слова в типе, каталоге или заголовке. |
-| `limit?` | `number` | Типов на странице, 1–1000; по умолчанию 50. |
-| `cursor?` | `number` | Сколько типов пропустить: nextCursor прошлой страницы. |
+| `limit?` | `number` | Строк на странице, 1–1000; по умолчанию 50. |
+| `cursor?` | `number` | Сколько строк пропустить: nextCursor прошлой страницы. |
 
 ### SchemaTypesResult
 
@@ -1620,13 +1620,12 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `types` | `{…}[]` | Типы страницы. |
-| `types[].type` | `string` | Тип объекта. |
-| `types[].catalog?` | `string` | Каталог типа; у части типов каталога нет. |
+| `types` | `{…}[]` | Типы страницы, за ними — каталоги без своего типа объекта. |
+| `types[].type?` | `string` | Тип объекта; нет — строка каталога без своего типа объекта: документов у его строк нет. |
+| `types[].catalog?` | `string` | Каталог; у части типов каталога нет. |
 | `types[].title?` | `string` | Заголовок на языке сервера. |
-| `types[].customFields` | `number \| "by kind"` | Сколько настраиваемых полей; "by kind" — они зависят от вида объекта (kind у schema). |
-| `total` | `number` | Сколько типов подходит всего. |
-| `catalogs` | `number` | Всего каталогов на сервере, включая те, у которых нет своего типа объекта. |
+| `types[].customFields?` | `number \| "by kind"` | Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). |
+| `total` | `number` | Сколько строк подходит всего. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
 | `notes?` | `string[]` | Пояснения к списку. |
 

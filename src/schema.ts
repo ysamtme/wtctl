@@ -92,28 +92,26 @@ export interface SchemaResult {
 export interface SchemaTypesInput {
   /** Слова в типе, каталоге или заголовке. */
   search?: string;
-  /** Типов на странице, 1–1000; по умолчанию 50. */
+  /** Строк на странице, 1–1000; по умолчанию 50. */
   limit?: number;
-  /** Сколько типов пропустить: nextCursor прошлой страницы. */
+  /** Сколько строк пропустить: nextCursor прошлой страницы. */
   cursor?: number;
 }
 /** Страница типов объектов: ответ types. */
 export interface SchemaTypesResult {
-  /** Типы страницы. */
+  /** Типы страницы, за ними — каталоги без своего типа объекта. */
   types: {
-    /** Тип объекта. */
-    type: string;
-    /** Каталог типа; у части типов каталога нет. */
+    /** Тип объекта; нет — строка каталога без своего типа объекта: документов у его строк нет. */
+    type?: string;
+    /** Каталог; у части типов каталога нет. */
     catalog?: string;
     /** Заголовок на языке сервера. */
     title?: string;
-    /** Сколько настраиваемых полей; "by kind" — они зависят от вида объекта (kind у schema). */
-    customFields: number | "by kind";
+    /** Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). */
+    customFields?: number | "by kind";
   }[];
-  /** Сколько типов подходит всего. */
+  /** Сколько строк подходит всего. */
   total: number;
-  /** Всего каталогов на сервере, включая те, у которых нет своего типа объекта. */
-  catalogs: number;
   /** cursor следующей страницы; нет — страница последняя. */
   nextCursor?: number;
   /** Пояснения к списку. */
@@ -941,56 +939,59 @@ export class SchemaReader {
       if (!type || named.some((item) => item.object_type === type)) continue;
       unnamed.push((await this.catalogsOf(info, type))[0] ?? { object_type: type });
     }
-    const types = [...named, ...unnamed]
-      .map((catalog) => {
-        const type = text(catalog.object_type);
-        const definition = definitions.find((item) => item.name === type);
-        const title = this.typeTitle(definition ?? {}, dictionary, translations);
-        const template = data(custom[type]);
-        return {
-          type,
-          ...(text(catalog.id) ? { catalog: text(catalog.id) } : {}),
-          ...(title ? { title } : {}),
-          customFields: text(template.template_field)
-            ? ("by kind" as const)
-            : list(data(template.fields).field).length,
-        };
-      })
-      .filter((item) => matches(input.search, [item.type, item.catalog, item.title]));
-    // Имя может принадлежать каталогу, строки которого не объекты: типа для списка у него нет.
-    const listed = new Set(types.map((item) => item.catalog));
-    const untyped =
-      input.search === undefined
-        ? []
-        : this.catalogs(info)
-            .filter((item) => !text(item.object_type))
-            .map((item) => text(item.id))
-            .filter(
-              (id) =>
-                !listed.has(id) &&
-                (matches(input.search, [id]) ||
-                  (types.length <= 20 && types.some((item) => id.startsWith(`${item.type}_`)))),
-            )
-            .slice(0, 5);
+    const all = [...named, ...unnamed].map((catalog) => {
+      const type = text(catalog.object_type);
+      const definition = definitions.find((item) => item.name === type);
+      const title = this.typeTitle(definition ?? {}, dictionary, translations);
+      const template = data(custom[type]);
+      return {
+        type,
+        ...(text(catalog.id) ? { catalog: text(catalog.id) } : {}),
+        ...(title ? { title } : {}),
+        customFields: text(template.template_field)
+          ? ("by kind" as const)
+          : list(data(template.fields).field).length,
+      };
+    });
+    const types = all.filter((item) =>
+      matches(input.search, [item.type, item.catalog, item.title]),
+    );
+    // Каталоги, строки которых не объекты, идут за типами. Заголовка у них сервер не даёт; найденный
+    // по заголовку тип приводит и каталоги, названные по нему (group → group_collaborators).
+    const listed = new Set(all.map((item) => item.catalog));
+    const untyped = this.catalogs(info, true)
+      .filter((item) => !text(item.object_type))
+      .map((item) => text(item.id))
+      .filter(
+        (id) =>
+          !listed.has(id) &&
+          (matches(input.search, [id]) ||
+            (types.length <= 20 && types.some((item) => id.startsWith(`${item.type}_`)))),
+      );
+    const rows = [...types, ...untyped.map((catalog) => ({ catalog }))];
+    const page = rows.slice(cursor, cursor + limit);
+    const notes = [
+      ...(page.some((item) => !("type" in item))
+        ? [
+            "Строка без type — каталог без своего типа объекта: документов у его строк нет, искать в нём можно, поля строки показывает схема по имени каталога.",
+          ]
+        : []),
+      ...(input.search !== undefined && !rows.length
+        ? [
+            nothingFound(
+              "в имени типа, имени каталога и заголовке",
+              "collab, group",
+              input.search,
+              "типе",
+            ),
+          ]
+        : []),
+    ];
     return {
-      types: types.slice(cursor, cursor + limit),
-      total: types.length,
-      catalogs: this.catalogs(info).length,
-      ...(cursor + limit < types.length ? { nextCursor: cursor + limit } : {}),
-      ...(input.search !== undefined && (!types.length || untyped.length)
-        ? {
-            notes: [
-              untyped.length
-                ? `${types.length ? "Каталоги" : "Типа с таким именем нет; есть каталоги"} без своего типа объекта: ${untyped.join(", ")}. Поля строки показывает схема по имени каталога.`
-                : nothingFound(
-                    "в имени типа, имени каталога и заголовке",
-                    "collab, group",
-                    input.search,
-                    "типе",
-                  ),
-            ],
-          }
-        : {}),
+      types: page,
+      total: rows.length,
+      ...(cursor + limit < rows.length ? { nextCursor: cursor + limit } : {}),
+      ...(notes.length ? { notes } : {}),
     };
   }
 }

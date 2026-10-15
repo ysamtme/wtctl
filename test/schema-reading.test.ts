@@ -47,6 +47,7 @@ const info = {
         { id: "group_members", object_type: "", form_url: "x-local://wtv/wtv_group_members.xmd" },
       ],
     },
+    { id: "trash", catalogs: [{ id: "trash_docs", object_type: "" }] },
   ],
 };
 const form = async (url: string) => {
@@ -75,10 +76,11 @@ test("search finds a title by its words: in another case form, with е for ё, i
   assert.deepEqual(await paths({ search: "дата" }), ["hire_date"]);
   assert.deepEqual(await paths({ search: "даты" }), []);
   const types = async (search: string) =>
-    (await reader.types({ search })).types.map((item) => item.type);
+    (await reader.types({ search })).types.map((item) => item.type ?? item.catalog);
   for (const search of ["сотрудники", "сотрудника", "сотрудников", "сотрудникам"])
     assert.deepEqual(await types(search), ["person"], search);
-  assert.deepEqual(await types("группы"), ["group"]);
+  // Каталог, названный по найденному типу, идёт за ним.
+  assert.deepEqual(await types("группы"), ["group", "group_members"]);
 });
 
 test("поиск, ничего не нашедший, говорит, где он искал и что попробовать", async () => {
@@ -97,16 +99,6 @@ test("поиск, ничего не нашедший, говорит, где о�
   const types = await reader.types({ search: "почта" });
   assert.match(types.notes![0]!, /search ищет слова в имени типа, имени каталога и заголовке/);
   assert.equal((await reader.types({ search: "person" })).notes, undefined);
-  // Каталоги, строки которых не объекты, названы рядом с найденными типами.
-  assert.deepEqual((await reader.types({ search: "group" })).notes, [
-    "Каталоги без своего типа объекта: group_members. Поля строки показывает схема по имени каталога.",
-  ]);
-  // Слово из названия находит тип; каталог с именем этого типа приходит вместе с ним.
-  assert.match((await reader.types({ search: "группа" })).notes?.[0] ?? "", /: group_members\./);
-  // У каталога, строки которого не объекты, нет типа для списка: примечание называет его.
-  assert.deepEqual((await reader.types({ search: "group_members" })).notes, [
-    "Типа с таким именем нет; есть каталоги без своего типа объекта: group_members. Поля строки показывает схема по имени каталога.",
-  ]);
 });
 
 test("каталог без собственного типа объектов сразу показывает поля своей строки", async () => {
@@ -170,10 +162,21 @@ test("hcm_schema и стоящая за ним операция принимаю
   }
 });
 
-test("список типов учитывает все каталоги сервера, в том числе без типа объектов", async () => {
-  const listed = await reader.types({ search: "group" });
-  assert.deepEqual(listed.types, [
-    { type: "group", catalog: "groups", title: "Группа", customFields: 0 },
-  ]);
-  assert.deepEqual([listed.total, listed.catalogs], [1, 4]);
+test("каталог без своего типа объекта стоит в списке типов строкой без type", async () => {
+  const unnamed =
+    "Строка без type — каталог без своего типа объекта: документов у его строк нет, искать в нём можно, поля строки показывает схема по имени каталога.";
+  const byName = await reader.types({ search: "group_mem" });
+  assert.deepEqual(
+    [byName.types, byName.total, byName.notes],
+    [[{ catalog: "group_members" }], 1, [unnamed]],
+  );
+  // Без поиска такие каталоги, в том числе из других баз, — в конце списка; примечание — только
+  // на странице, где они есть.
+  const first = await reader.types({ limit: 4 });
+  assert.deepEqual([first.total, first.notes], [6, undefined]);
+  const last = await reader.types({ limit: 4, cursor: 4 });
+  assert.deepEqual(
+    [last.types, last.notes],
+    [[{ catalog: "group_members" }, { catalog: "trash_docs" }], [unnamed]],
+  );
 });

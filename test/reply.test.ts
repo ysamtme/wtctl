@@ -115,14 +115,14 @@ test("message обрезается на 500 символах, hint — на 1000
 test("превью сохранённого ответа показывает столько элементов списка, сколько помещается", async () => {
   const { packer } = setup(4096, "t", "types");
   const types = Array.from({ length: 300 }, (_, index) => ({ type: `type_${index}` }));
-  const reply = await packer.success("schema.types", 0, { types, total: 300, catalogs: 400 }, true);
+  const reply = await packer.success("schema.types", 0, { types, total: 300 }, true);
   const { preview, hint } = reply.data as {
-    preview: { types: unknown[]; total: number; catalogs: number };
+    preview: { types: unknown[]; total: number };
     hint: string;
   };
   assert.deepEqual(preview.types, types.slice(0, preview.types.length));
   assert.ok(preview.types.length > 50, String(preview.types.length));
-  assert.deepEqual([preview.total, preview.catalogs], [300, 400]);
+  assert.equal(preview.total, 300);
   assert.ok(hint.includes(`(в preview первые ${preview.types.length} из 300)`), hint);
   assert.ok(Buffer.byteLength(JSON.stringify(reply)) <= 4096);
 });

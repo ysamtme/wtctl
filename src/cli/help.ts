@@ -27,7 +27,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
     usage: ["wtctl types [--search ТЕКСТ] [--limit N] [--cursor N]"],
     notes: [
       "search ищет по имени типа, каталогу и заголовку.",
-      "По умолчанию 50 типов, не больше 1000.",
+      "По умолчанию 50 строк, не больше 1000.",
       'customFields "by kind" — настраиваемые поля у каждого вида объекта свои: schema ТИП --kind ID.',
     ],
   },
