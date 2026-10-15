@@ -211,11 +211,13 @@ no_such_var not defined
   }
 });
 
-test("синтаксическая ошибка всего кода — not_sent, а вызванная eval() в работающем коде — нет", async () => {
+test("синтаксическая ошибка всего кода — not_sent, а вызванная eval() или throw в работающем коде — нет", async () => {
   const syntax = "JavaScript syntax error.\nUnknown source,   line 1";
   for (const [text, expected] of [
     [syntax, "not_sent"],
     [`${syntax}\n(eval(),  Unknown source,   line 1)`, "indeterminate"],
+    ["JavaScript syntax error.\n(Unknown source,   line 1)", "indeterminate"],
+    ["JavaScript syntax error.\n(eval,  Unknown source,   line 1)", "indeterminate"],
   ] as const) {
     const fixtureValue = fixture(
       fields
@@ -228,6 +230,10 @@ test("синтаксическая ошибка всего кода — not_sent
     try {
       const result = await fixtureValue.runtime.call("execute.script", { code: "x = ;" });
       assert.equal(result.error?.mutationOutcome, expected);
+      assert.match(
+        result.error?.hint ?? "",
+        expected === "not_sent" ? /не выполнялся/ : /только читал, его можно повторить/,
+      );
     } finally {
       await fixtureValue.runtime.close();
     }

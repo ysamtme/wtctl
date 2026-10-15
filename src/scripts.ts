@@ -142,15 +142,18 @@ export function scriptResult(response: unknown, executionId: string): ScriptData
           !line.includes("wtv_remote_collection.xmd"),
       )
       .join("\n");
-    // Сервер читает весь код до запуска: при синтаксической ошибке ничего не выполнилось.
-    // Синтаксическая ошибка с кадрами вызовов под ней приходит из eval() в выполняющемся коде.
-    const unread = /syntax error/i.test(reason) && !/^\(/m.test(reason);
+    // Сервер разбирает весь код до запуска, и отказ разбора на 1171–1535 — ровно эти две строки.
+    // Ошибка выполнения, в том числе синтаксическая из eval() или throw с тем же текстом, несёт
+    // кадры вызовов в скобках.
+    const unread = /^JavaScript syntax error\.\nUnknown source,\s+line \d+$/.test(reason);
+    const where = reason === "" ? "" : "Сообщение сервера — в details.scriptError. ";
     throw new HcmError(
       "SCRIPT_FAILED",
       "Сервер сообщил об ошибке в коде SP-XML Script.",
       unread
-        ? "Сообщение сервера — в details.scriptError. Код не разобран и не выполнялся: данные не менялись."
-        : "Сообщение сервера — в details.scriptError. До ошибки код мог изменить данные: их нужно проверить перед повтором.",
+        ? where + "Код не разобран и не выполнялся: данные не менялись."
+        : where +
+            "Код выполнялся до ошибки. Если он только читал, его можно повторить; если менял данные — сначала проверить их.",
       reason === "" ? undefined : { scriptError: reason },
       unread ? "not_sent" : "indeterminate",
     );
