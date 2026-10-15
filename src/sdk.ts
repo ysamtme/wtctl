@@ -668,8 +668,9 @@ export class HcmClient {
     return callOperation(this, "files.list", { ...input });
   }
   /**
-   * Записывает файл по адресу x-local://… целиком; папки сервер создаёт сам. Нужно право write,
-   * в папку кода (wt, wtv, custom…) — ещё execute.
+   * Записывает файл по адресу x-local://… целиком из text, base64 или файла на диске (file) и сверяет
+   * записанное; папки сервер создаёт сам. Нужно право write, в папку кода (wt, wtv, custom…) — ещё
+   * execute.
    */
   writeFile(input: FileWriteInput): Promise<HcmResult<FileWriteData>> {
     return callOperation(this, "files.write", { ...input });

@@ -46,11 +46,10 @@ export const fileOperations = [
     id: "files.write",
     effect: "write",
     description:
-      "Записать файл по адресу x-local://…: text — текст (пишется в UTF-8), base64 — двоичные данные. Файл заменяется целиком, вложенные папки сервер создаёт сам. В папку кода (wt, wtv, custom…) файл записывает код на сервере: нужно ещё право execute. Какие папки принимают запись, показывает server.info.",
-    inputSchema: schema({ url: string, text: string, base64: string }, ["url"]),
-    summary: "Записать файл: text или base64; способ записи операция выбирает по папке.",
-    usualCause:
-      "сервер не сообщил, какие папки принимают запись; в папку кода файл записывает код на сервере",
+      "Записать файл любого размера по адресу x-local://…: text — текст (пишется в UTF-8), base64 — двоичные данные, file — полный путь к файлу на этом компьютере, без передачи данных в вызове. Файл заменяется целиком, вложенные папки сервер создаёт сам. confirmed — файл прочитан назад и совпал с отправленным. Папке кода (wt, wtv, custom…) нужно ещё право execute: файл в ней — код сервера. Какие папки принимают запись, показывает server.info.",
+    inputSchema: schema({ url: string, text: string, base64: string, file: string }, ["url"]),
+    summary:
+      "Записать файл: text, base64 или file с этого компьютера; после записи файл сверяется.",
     run: (context, args, call) => context.files.write(args, call),
   }),
   operation({

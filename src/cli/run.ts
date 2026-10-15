@@ -147,6 +147,13 @@ async function putData(
   return { data: { base64: Buffer.from(bytes).toString("base64") } };
 }
 
+/** files write: файл с диска операция читает сама частями, stdin приходит в память целиком. */
+async function fileWriteData(args: CliArguments, io: CliIo): Promise<Record<string, unknown>> {
+  const file = stringOption(args, "input-file");
+  if (file !== undefined) return { file: resolve(file) };
+  return { base64: ((await putData("file", args, io)).data as { base64: string }).base64 };
+}
+
 /** Объект задают [ТИП] ID или --id/--url; --type добавляет к ID без типа проверку типа. */
 function objectTarget(args: CliArguments): Record<string, unknown> {
   const id = stringOption(args, "id");
@@ -500,9 +507,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
           operationId: `files.${action}`,
           args: {
             url: requirePositional(args, 2, "серверный URL"),
-            ...(action === "write"
-              ? { base64: ((await putData("file", args, io)).data as { base64: string }).base64 }
-              : {}),
+            ...(action === "write" ? await fileWriteData(args, io) : {}),
             ...optional("search", stringOption(args, "search")),
           },
         };

@@ -119,6 +119,15 @@ managed.push({
   },
 });
 
+/** Чтение, чей двоичный ответ шлюз отдаёт потоком без предела maxResponseBytes: тело читает вызывающий. */
+const streams: Readonly<Record<string, NativeEntry["invoke"]>> = {
+  "native.lds.loadUrl": async (gateway, args) =>
+    (await gateway.native()).lds.loadUrl(
+      { url: args.url as string, useBinaryResponse: true },
+      { maxResponseBytes: Infinity },
+    ),
+};
+
 const entries = freezeRegistry([...NATIVE_ENTRIES, ...managed]);
 const byId = new Map(entries.map((entry) => [entry.operation.id, entry]));
 if (byId.size !== entries.length) throw new Error("ID низкоуровневой операции повторяется");
@@ -204,20 +213,7 @@ export class NativeGateway {
     if (session) await (await session).close();
   }
   call(id: string, args: Record<string, unknown>): Promise<unknown> {
-    if (!this.accepting) return Promise.reject(new WsHcmApiError("protocol", "Шлюз закрыт"));
-    const entry = byId.get(id);
-    if (!entry)
-      return Promise.reject(new WsHcmApiError("protocol", "Неизвестная низкоуровневая операция"));
-    let snapshot: Record<string, unknown>;
-    // Проверяется собственный снимок, чтобы вызывающий не мог подменить URL или вложенные обёртки
-    // XML и двоичных данных, пока предыдущий принятый вызов занимает очередь.
-    try {
-      snapshot = structuredClone(args);
-      prepare(snapshot, entry.operation.inputSchema);
-    } catch (error) {
-      return Promise.reject(error);
-    }
-    const run = this.queue.then(async () => {
+    return this.enqueue(id, args, async (entry, snapshot) => {
       let failed = false;
       let operationError: unknown;
       try {
@@ -241,8 +237,53 @@ export class NativeGateway {
         }
       }
     });
-    this.queue = run.catch(() => undefined);
-    return run;
+  }
+  /**
+   * Двоичный ответ операции потоком, без предела maxResponseBytes: read читает тело, и очередь
+   * ждёт, пока он не закончит. Недочитанное тело отменяется.
+   */
+  stream<T>(
+    id: string,
+    args: Record<string, unknown>,
+    read: (body: AsyncIterable<Uint8Array>) => Promise<T>,
+  ): Promise<T> {
+    if (!Object.hasOwn(streams, id))
+      return Promise.reject(new WsHcmApiError("protocol", "Операция не отдаёт ответ потоком"));
+    return this.enqueue(id, args, async (entry, snapshot) => {
+      const response = await this.invoke({ ...entry, invoke: streams[id]! }, snapshot);
+      if (!(response instanceof WsHcmBinaryResponse))
+        throw new WsHcmApiError("protocol", "Ответ сервера — не поток байт");
+      const body = response.body ?? new ReadableStream({ start: (stream) => stream.close() });
+      try {
+        // В Node поток ответа перебирается for await, хотя типы DOM этого не знают.
+        return await read(body as unknown as AsyncIterable<Uint8Array>);
+      } finally {
+        await body.cancel().catch(() => undefined);
+      }
+    });
+  }
+  /** Вызовы идут по очереди; проверяется собственный снимок аргументов. */
+  private enqueue<T>(
+    id: string,
+    args: Record<string, unknown>,
+    run: (entry: NativeEntry, snapshot: Record<string, unknown>) => Promise<T>,
+  ): Promise<T> {
+    if (!this.accepting) return Promise.reject(new WsHcmApiError("protocol", "Шлюз закрыт"));
+    const entry = byId.get(id);
+    if (!entry)
+      return Promise.reject(new WsHcmApiError("protocol", "Неизвестная низкоуровневая операция"));
+    let snapshot: Record<string, unknown>;
+    // Свой снимок: вызывающий не может подменить URL или вложенные обёртки XML и двоичных данных,
+    // пока предыдущий принятый вызов занимает очередь.
+    try {
+      snapshot = structuredClone(args);
+      prepare(snapshot, entry.operation.inputSchema);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const result = this.queue.then(() => run(entry, snapshot));
+    this.queue = result.catch(() => undefined);
+    return result;
   }
   /**
    * Сервер сбрасывает сессию, простоявшую без дела (на стендах — в пределах двадцати минут),

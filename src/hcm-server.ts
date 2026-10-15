@@ -10,6 +10,12 @@ import { refusedAtDoor, type WriteOutcome } from "./write-outcome.js";
 /** Шов к серверу HCM: низкоуровневая операция явного реестра. Рабочий адаптер — NativeGateway. */
 export interface ServerPort {
   call(id: string, args: Record<string, unknown>): Promise<unknown>;
+  /** Двоичный ответ потоком, без предела ответа: read читает тело, пока порт занят запросом. */
+  stream<T>(
+    id: string,
+    args: Record<string, unknown>,
+    read: (body: AsyncIterable<Uint8Array>) => Promise<T>,
+  ): Promise<T>;
 }
 
 /** Запрос, способный изменить сервер, называет владельца своего исхода либо идёт через read. */
@@ -54,6 +60,16 @@ export class HcmServer implements ServerPort {
   async read(id: string, args: Record<string, unknown>): Promise<unknown> {
     refuseUnowned(id, args, (effect) => effect === "write");
     return this.port.call(id, args);
+  }
+
+  /** Чтение реестра с двоичным ответом потоком: read получает тело. */
+  async stream<T>(
+    id: string,
+    args: Record<string, unknown>,
+    read: (body: AsyncIterable<Uint8Array>) => Promise<T>,
+  ): Promise<T> {
+    refuseUnowned(id, args, (effect) => effect !== "read");
+    return this.port.stream(id, args, read);
   }
 
   /** Сведения о приложении, хранятся 30 секунд; отклонённый запрос не хранится. */

@@ -28,8 +28,11 @@ export type EffectFor = (
 export interface OperationCall {
   readonly outcome: WriteOutcome;
   effect: OperationEffect;
-  /** Обычная причина отказа к этому вызову не относится: подсказка отказа её не называет. */
-  causeRuledOut?: true;
+  /**
+   * Сообщение отказа с исходом indeterminate: что могло остаться на сервере. Сообщение самой
+   * ошибки уходит в подсказку.
+   */
+  afterSend?: string;
   batchRecovery?: BatchRecovery;
 }
 

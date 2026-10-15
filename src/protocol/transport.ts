@@ -130,6 +130,12 @@ export class HttpTransport {
     if (ownsCookieHeader) headers.set("Cookie", `SessionID=${this.cookie.value}`);
     if (this.#webHeaders) headers.set("X-SpXml-Client", "SP-XML Web client 1.0");
 
+    const maxResponseBytes = options.maxResponseBytes ?? this.#maxResponseBytes;
+    if (
+      !(maxResponseBytes === Infinity || Number.isSafeInteger(maxResponseBytes)) ||
+      maxResponseBytes < 1
+    )
+      throw new ArgumentError("maxResponseBytes: нужно положительное целое число или Infinity");
     const timeoutMs = options.timeoutMs ?? this.#timeoutMs;
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const signal =
@@ -201,7 +207,7 @@ export class HttpTransport {
 
     if (options.allowStatuses !== undefined) {
       if (options.allowStatuses === "any" || options.allowStatuses.includes(response.status))
-        return limitResponse(response, this.#maxResponseBytes);
+        return limitResponse(response, maxResponseBytes);
       await response.body?.cancel();
       if (response.status === 401)
         throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", {
@@ -219,7 +225,7 @@ export class HttpTransport {
       await response.body?.cancel();
       throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
     }
-    return limitResponse(response, this.#maxResponseBytes);
+    return limitResponse(response, maxResponseBytes);
   }
 }
 
@@ -260,7 +266,7 @@ function networkFailure(error: unknown): NetworkFailure {
 
 /** Ограничивает число байтов до того, как потребитель сможет буферизовать недоверенный ответ. */
 export function limitResponse(response: Response, maxBytes: number): Response {
-  if (response.body === null) return response;
+  if (response.body === null || maxBytes === Infinity) return response;
   const reader = response.body.getReader();
   let read = 0;
   const body = new ReadableStream<Uint8Array>({

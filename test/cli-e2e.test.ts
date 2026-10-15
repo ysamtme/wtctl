@@ -43,7 +43,7 @@ async function fixture() {
     "<education_mode><id>" +
     objectId +
     '</id><name>Initial</name><future vendor="fixture">preserve</future></education_mode>';
-  let binaryPut: Buffer | undefined;
+  let uploaded: Buffer | undefined;
   const logName = "xhttp_2026-09-30.log";
   let logText = "12:00:00 [r1] INFO started\n12:00:01 [r2] ERROR failed\n    at frame\n";
   const soap = (method: string, inner = "") =>
@@ -184,6 +184,22 @@ async function fixture() {
           );
           break;
         }
+        const upload = /<LibName>tools<\/LibName><MethodName>upload_(begin|range|end)</.exec(
+          body,
+        )?.[1];
+        if (upload) {
+          if (upload === "begin") uploaded = Buffer.alloc(0);
+          const data = /<arg-3 VALUE-TYPE="string">([^<]*)</.exec(body)?.[1];
+          if (data) uploaded = Buffer.concat([uploaded!, Buffer.from(data, "base64")]);
+          const [type, text] = upload === "begin" ? ["string", "upload_file_e2e"] : ["bool", "1"];
+          response.end(
+            soap(
+              method,
+              '<ResultData><Result VALUE-TYPE="' + type + '">' + text + "</Result></ResultData>",
+            ),
+          );
+          break;
+        }
         let value = "2025.1.1171.synthetic";
         if (body.includes("<MethodName>synthetic_large</MethodName>"))
           value = "fixture-".repeat(250);
@@ -246,11 +262,12 @@ async function fixture() {
         response.writeHead(500);
         response.end("Unknown method");
         break;
-      case "PutUrl":
-        binaryPut = raw;
-        response.end(soap(method));
-        break;
       case "LoadUrl":
+        if (body.includes("<UseBinaryResponse>true</UseBinaryResponse>")) {
+          response.setHeader("content-type", "application/binary");
+          response.end(uploaded);
+          break;
+        }
         response.end(soap(method, "<Data>QQ==</Data>"));
         break;
       case "DeleteUrl":
@@ -344,7 +361,7 @@ async function fixture() {
       logText += text;
     },
     source: () => source,
-    binaryPut: () => binaryPut,
+    uploaded: () => uploaded,
     close,
   };
 }
@@ -521,7 +538,7 @@ test(
         path,
       ]);
       assert.equal(binary.code, 0, binary.stdout + binary.stderr);
-      assert.ok(f.binaryPut()?.includes(bytes));
+      assert.deepEqual(f.uploaded(), bytes);
       const before = f.methods.length;
       const invalid = await f.cli(["--password=synthetic-private-argv"]);
       assert.equal(invalid.code, 2);

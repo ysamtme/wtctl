@@ -29,21 +29,33 @@ const schemas = new Map(
 export function fakeServer(script: Script = {}): FakeServer {
   const answers: Script = { ...script };
   const calls: FakeServer["calls"] = [];
+  async function call(id: string, args: Args = {}) {
+    calls.push({ id, args });
+    const schema = schemas.get(id);
+    if (!schema) throw new WsHcmApiError("protocol", "Unknown native operation");
+    prepare(structuredClone(args), schema);
+    const key = Object.hasOwn(answers, id) ? id : "*";
+    if (!Object.hasOwn(answers, key)) throw new Error(`Unexpected server call: ${id}`);
+    const answer = answers[key];
+    return typeof answer === "function" ? answer(args, id) : answer;
+  }
   return {
     calls,
     on(id, answer) {
       answers[id] = answer;
       return this;
     },
-    async call(id, args = {}) {
-      calls.push({ id, args });
-      const schema = schemas.get(id);
-      if (!schema) throw new WsHcmApiError("protocol", "Unknown native operation");
-      prepare(structuredClone(args), schema);
-      const key = Object.hasOwn(answers, id) ? id : "*";
-      if (!Object.hasOwn(answers, key)) throw new Error(`Unexpected server call: ${id}`);
-      const answer = answers[key];
-      return typeof answer === "function" ? answer(args, id) : answer;
+    call,
+    // Ответ потоком: байты одним куском или перебираемые части; генератор может оборваться ошибкой.
+    async stream(id, args, read) {
+      const answer = await call(id, args);
+      const parts = (answer instanceof Uint8Array ? [answer] : answer) as
+        Iterable<Uint8Array> | AsyncIterable<Uint8Array>;
+      return read(
+        (async function* () {
+          yield* parts;
+        })(),
+      );
     },
   };
 }

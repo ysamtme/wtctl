@@ -202,8 +202,9 @@ client.listFiles(input: FileListInput): Promise<HcmResult<FileListData>>
 client.writeFile(input: FileWriteInput): Promise<HcmResult<FileWriteData>>
 ```
 
-Записывает файл по адресу x-local://… целиком; папки сервер создаёт сам. Нужно право write,
-в папку кода (wt, wtv, custom…) — ещё execute.
+Записывает файл по адресу x-local://… целиком из text, base64 или файла на диске (file) и сверяет
+записанное; папки сервер создаёт сам. Нужно право write, в папку кода (wt, wtv, custom…) — ещё
+execute.
 
 Типы: [FileWriteInput](#filewriteinput), [FileWriteData](#filewritedata).
 
@@ -828,17 +829,18 @@ CreateInput<T extends object = HcmData>
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `bytes` | `number` | Сколько байт записано. |
-| `mutationOutcome` | `"confirmed"` | Исход записи: подтверждена. |
+| `mutationOutcome` | `"confirmed"` | Исход записи: файл на сервере прочитан назад и совпал с отправленным. |
 
 ### FileWriteInput
 
-Ровно одно из text и base64.
+Ровно одно из text, base64 и file.
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `url` | `string` | Адрес файла на сервере: x-local://…; файл заменяется целиком. |
 | `text?` | `string` | Текст; пишется в UTF-8. |
 | `base64?` | `string` | Двоичные данные в base64. |
+| `file?` | `string` | Полный путь к файлу на этом компьютере: он читается частями, память не растёт с размером. |
 
 ### FilterCondition
 

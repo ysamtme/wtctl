@@ -161,9 +161,9 @@ export class ReplyPacker {
     start: number,
     error: unknown,
     verdict: Verdict,
-    extra: { causeRuledOut?: true; batchRecovery?: BatchRecovery } = {},
+    extra: { afterSend?: string; batchRecovery?: BatchRecovery } = {},
   ): OperationResult {
-    const failure = this.pack(id, start, error, verdict, extra.causeRuledOut);
+    const failure = this.pack(id, start, error, verdict, extra.afterSend);
     if (!extra.batchRecovery) return failure;
     return { ...failure, data: this.batchRecoveryData(extra.batchRecovery) };
   }
@@ -199,7 +199,7 @@ export class ReplyPacker {
     start: number,
     error: unknown,
     verdict: Verdict,
-    causeRuledOut: true | undefined,
+    afterSend: string | undefined,
   ): OperationResult {
     const redact = (message: string, limit = 500): string => {
       let safe = message;
@@ -229,11 +229,7 @@ export class ReplyPacker {
           : error instanceof WsHcmApiError
             ? {
                 code: `PLATFORM_${error.kind.toUpperCase()}`,
-                ...platformFailure(
-                  error,
-                  this.config.baseUrl,
-                  causeRuledOut ? undefined : operationSpec(id)?.usualCause,
-                ),
+                ...platformFailure(error, this.config.baseUrl, operationSpec(id)?.usualCause),
                 retryable: false,
                 ...(error.status === undefined ? {} : { details: { status: error.status } }),
               }
@@ -253,6 +249,10 @@ export class ReplyPacker {
     if (refusedAfterSend)
       normal.hint =
         `${normal.hint ?? ""} До этого отказа запрос на запись уже ушёл: после восстановления входа проверить, прошла ли запись, прежде чем повторять.`.trim();
+    if (afterSend && mutationOutcome === "indeterminate") {
+      normal.hint = `${normal.message} ${normal.hint ?? ""}`.trim();
+      normal.message = afterSend;
+    }
     const trim = (value: unknown, depth = 0, limit = 256): unknown => {
       if (typeof value === "string") return redact(value, limit);
       if (depth > 3) return "[details omitted]";

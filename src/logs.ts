@@ -5,7 +5,7 @@ import { parseXml } from "./protocol/xml.js";
 import { rpcArgument } from "./server-value.js";
 import { WsHcmApiError, attachCleanupError, isTransportFailure } from "./protocol/error.js";
 
-export type LogGateway = ServerPort;
+export type LogGateway = Pick<ServerPort, "call">;
 export interface LogFile {
   readonly name: string;
   readonly url: string;

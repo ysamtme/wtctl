@@ -120,6 +120,7 @@ wtctl api call agents.run --args '{\"id\":\"0x65D6BB73BFE67019\"}'
 ```shell
 wtctl logs search xhttp_2026-10-01.log --level error --limit 5
 wtctl files read x-local://wt/web/default.html --output page.json
+wtctl files write x-local://share/reports/2026.zip --input-file ./2026.zip
 ```
 
 Файл правки бывает и длиннее одной пары:
@@ -161,6 +162,8 @@ PowerShell, cmd и bash по-разному обрабатывают кавыч�
 - любой другой текст — запрос XQuery.
 
 `--limit`, `--start-position`, `--fields` и `--order` в командной строке важнее значений из файла.
+
+`files write` с `--input-file` передаёт операции путь, и файл читается с диска частями: память не растёт с размером файла. `--stdin` держит весь ввод в памяти, потому что длину файла сервер получает до начала записи. Большой файл передаётся через `--input-file`.
 
 ID объекта пишется как есть: `0x5555555555555501`.
 

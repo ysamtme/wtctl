@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { open, type FileHandle } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import { HcmError, requiredString } from "./errors.js";
 import { permissionHint } from "./config.js";
 import type { ConnectionConfig } from "./contracts.js";
@@ -99,7 +102,7 @@ export function fileExistsUrl(value: unknown): string {
   return value;
 }
 
-/** Ровно одно из text и base64. */
+/** Ровно одно из text, base64 и file. */
 export type FileWriteInput = {
   /** Адрес файла на сервере: x-local://…; файл заменяется целиком. */
   readonly url: string;
@@ -107,12 +110,14 @@ export type FileWriteInput = {
   readonly text?: string;
   /** Двоичные данные в base64. */
   readonly base64?: string;
+  /** Полный путь к файлу на этом компьютере: он читается частями, память не растёт с размером. */
+  readonly file?: string;
 };
 /** Ответ writeFile. */
 export type FileWriteData = {
   /** Сколько байт записано. */
   readonly bytes: number;
-  /** Исход записи: подтверждена. */
+  /** Исход записи: файл на сервере прочитан назад и совпал с отправленным. */
   readonly mutationOutcome: "confirmed";
 };
 /** Аргументы deleteFile. */
@@ -128,7 +133,7 @@ export type FileDeleteData = {
   readonly mutationOutcome: "confirmed";
 };
 
-/** Папки сервера: в папки данных файлы идут через LDS, в папки кода — только код на сервере. */
+/** Папки сервера: папка кода хранит код сервера, поэтому запись в неё требует ещё права execute. */
 export type FileFolders = { readonly data: readonly string[]; readonly code: readonly string[] };
 /** Читаются только два списка папок из сведений о приложении; undefined, если сервер их не дал. */
 function fileFolders(info: Record<string, unknown> | undefined): FileFolders | undefined {
@@ -183,79 +188,123 @@ function assertFileDeletable(folder: string): void {
     );
 }
 
-/** Маршрут выбирается до отправки; "unlisted" — сервер не сообщил, какие папки принимают файлы. */
-function fileRoute(
-  operation: "write" | "delete",
-  folders: FileFolders | undefined,
-  folder: string,
-  config: ConnectionConfig,
-): "data" | "code" | "unlisted" {
-  if (!folders) return "unlisted";
+/** Вид папки по спискам сервера, до отправки; undefined — сервер не сообщил списков. */
+function folderKind(folders: FileFolders | undefined, folder: string): "data" | "code" | undefined {
+  if (!folders) return undefined;
   // Сервер сравнивает имя папки точно: SHARE — не share.
   if (folders.data.includes(folder)) return "data";
-  if (!folders.code.includes(folder))
-    throw new HcmError(
-      "FOLDER_NOT_WRITABLE",
-      `Папка ${folder} не принимает файлы.`,
-      `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`,
-    );
-  if (!config.permissions.execute)
-    throw new HcmError(
-      "EXECUTE_DISABLED",
-      `Папка ${folder} на этом сервере принимает ${operation === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
-      permissionHint(config, "execute"),
-    );
-  return "code";
+  if (folders.code.includes(folder)) return "code";
+  throw new HcmError(
+    "FOLDER_NOT_WRITABLE",
+    `Папка ${folder} не принимает файлы.`,
+    `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`,
+  );
 }
 
-/** Байты для записи: текст в UTF-8 или base64 без переносов строк. */
-function fileWriteContent(args: Record<string, unknown>) {
-  const { text, base64 } = args;
+/** Столько байт за раз шлёт штатная настольная админка. */
+export const UPLOAD_BLOCK_BYTES = 10_000_000;
+const WRITE_INTERRUPTED =
+  "Запись прервалась: файл на сервере может быть пустым или недописанным. Запись можно повторить целиком.";
+const WRITE_MISMATCH_HINT =
+  "Файл записывается целиком: запись можно повторить; если расхождение повторяется — сервер портит файл при записи, проверить через files.read.";
+
+/** Что записать: размер известен до начала записи, байты идут блоками. */
+interface WriteSource {
+  readonly bytes: number;
+  blocks(): AsyncGenerator<Buffer>;
+  close(): Promise<void>;
+}
+/** Ровно одно из text, base64 и file; файл открыт и проверен до отправки. */
+async function writeSource(args: Record<string, unknown>): Promise<WriteSource> {
+  const { text, base64, file } = args;
+  if ([text, base64, file].filter((value) => value !== undefined).length !== 1)
+    throw new HcmError("INVALID_ARGUMENT", "Нужно ровно одно из text, base64 и file.");
+  if (typeof file === "string") return diskSource(file);
   const bytes =
     typeof text === "string" && !/\p{Cs}/u.test(text)
       ? Buffer.from(text)
       : typeof base64 === "string"
         ? Buffer.from(base64, "base64")
         : undefined;
-  if (
-    (text === undefined) === (base64 === undefined) ||
-    !bytes ||
-    (text === undefined && bytes.toString("base64") !== base64)
-  )
+  if (!bytes || (base64 !== undefined && bytes.toString("base64") !== base64))
     throw new HcmError(
       "INVALID_ARGUMENT",
-      "Нужно ровно одно из text (без непарных суррогатов) и base64 (без переводов строк).",
+      "text — без непарных суррогатов, base64 — без переводов строк.",
     );
   return {
-    ...(typeof text === "string" ? { text } : {}),
-    base64: bytes.toString("base64"),
     bytes: bytes.length,
+    async *blocks() {
+      for (let start = 0; start < bytes.length; start += UPLOAD_BLOCK_BYTES)
+        yield bytes.subarray(start, start + UPLOAD_BLOCK_BYTES);
+    },
+    close: async () => undefined,
   };
 }
-
-/** Код для сервера; файл, не умещающийся в лимит скрипта, отклоняется с указанием размеров. */
-function fileScript(code: string, params: Record<string, string>) {
-  try {
-    return prepareScript(code, params);
-  } catch (error) {
-    if (!(error instanceof HcmError) || error.code !== "SCRIPT_TOO_LARGE") throw error;
-    throw new HcmError(
-      "FILE_TOO_LARGE",
-      "Файл не помещается в код для сервера.",
-      "В папку кода файл записывает код на сервере: текст — до 750 КБ (меньше, если в нём много переводов строк), двоичные данные — до 580 КБ.",
+async function diskSource(path: string): Promise<WriteSource> {
+  const refused = (message: string) =>
+    new HcmError(
+      "INVALID_ARGUMENT",
+      `file: ${message}`,
+      "Файл читается на компьютере, где работает клиент; у MCP-сервера — там, где он запущен.",
     );
+  if (!isAbsolute(path) || path.includes("\0")) throw refused("нужен полный путь к файлу.");
+  let handle: FileHandle;
+  try {
+    handle = await open(path, "r");
+  } catch {
+    throw refused("файл не открывается для чтения.");
+  }
+  const info = await handle.stat().catch(() => undefined);
+  if (!info?.isFile()) {
+    await handle.close();
+    throw refused("по этому пути не файл.");
+  }
+  const size = info.size;
+  return {
+    bytes: size,
+    // Ровно столько байт, сколько названо в начале записи. Один буфер на все блоки: прошлый блок
+    // к этому времени уже отправлен.
+    async *blocks() {
+      const block = Buffer.allocUnsafe(Math.min(UPLOAD_BLOCK_BYTES, size));
+      for (let position = 0; position < size;) {
+        const length = Math.min(block.length, size - position);
+        for (let filled = 0; filled < length;) {
+          const { bytesRead } = await handle.read(
+            block,
+            filled,
+            length - filled,
+            position + filled,
+          );
+          if (!bytesRead)
+            throw new HcmError("INVALID_ARGUMENT", "file: файл стал короче, пока шла запись.");
+          filled += bytesRead;
+        }
+        yield block.subarray(0, length);
+        position += length;
+      }
+    },
+    close: () => handle.close(),
+  };
+}
+/** Ответ функции записи: строка с ID записи или true. */
+function uploadAnswer(response: unknown, type: "string" | "bool"): string {
+  try {
+    const { rpc } = strictResponse(response);
+    const value = rpc.lexicalValue;
+    if (
+      !isType(rpc.valueType, type) ||
+      typeof value !== "string" ||
+      !(type === "string" ? value : value === "1")
+    )
+      throw new Error();
+    return value;
+  } catch {
+    throw new HcmError("FILE_WRITE_RESPONSE", "Сервер ответил на запись файла в неожиданном виде.");
   }
 }
-function codeWrite(url: string, content: { base64: string; text?: string }) {
-  const text = content.text !== undefined;
-  return fileScript(
-    `PutUrlData(PARAMS.url, ${text ? "PARAMS.text" : "Base64Decode(PARAMS.base64)"});
-RESULT = [UrlFileSize(PARAMS.url)];`,
-    text ? { url, text: content.text! } : { url, base64: content.base64 },
-  );
-}
+
 function codeDelete(url: string) {
-  return fileScript(
+  return prepareScript(
     `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
 else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
 else { DeleteUrl(PARAMS.url); if (UrlExists(PARAMS.url)) RESULT = ['remains']; else RESULT = ['deleted']; }`,
@@ -307,7 +356,7 @@ export interface FileListData {
 }
 /** Один уровень папки: адреса из ReadDirectory, какие из них папки, и размеры файлов. */
 function codeList(url: string) {
-  return fileScript(
+  return prepareScript(
     `var rows = [];
 var item = '';
 var folder = false;
@@ -366,16 +415,22 @@ export function parseFileExists(response: unknown): FileExistsData {
   }
 }
 
-/** Что операция сообщает runtime об одном вызове: из этого строятся исход и подсказка при сбое. */
+/**
+ * Что операция сообщает runtime об одном вызове: из этого строятся исход и сообщение при сбое.
+ * Часть OperationCall, своим типом: объявления пакета не тянут за собой устройство runtime.
+ */
 export interface FileCall {
   outcome: WriteOutcome;
-  causeRuledOut?: true;
+  afterSend?: string;
 }
 
 /** Файловые операции: метод — вся цепочка одной, от проверки адреса до проверки после ответа. */
 export class ServerFiles {
   constructor(
-    private readonly server: Pick<HcmServer, "call" | "read" | "runCode" | "applicationInfo">,
+    private readonly server: Pick<
+      HcmServer,
+      "call" | "read" | "stream" | "runCode" | "applicationInfo"
+    >,
     private readonly config: ConnectionConfig,
   ) {}
 
@@ -406,25 +461,84 @@ export class ServerFiles {
     return fileList(data, folder, search);
   }
 
+  /**
+   * Путь настольной админки, одинаковый для всех папок: начало записи делает файл пустым, блоки
+   * ложатся по месту, затем файл читается назад и сверяется по размеру и SHA256.
+   */
   async write(args: Record<string, unknown>, call: FileCall): Promise<FileWriteData> {
     const target = fileTarget(args.url);
-    const content = fileWriteContent(args);
-    if ((await this.route("write", target.folder, call)) === "code") {
-      const data = await this.server.runCode(codeWrite(target.url, content), call.outcome);
-      return { bytes: Number(data.result[0]), mutationOutcome: "confirmed" };
+    const source = await writeSource(args);
+    try {
+      const kind = folderKind(await this.folders(), target.folder);
+      if (kind !== "data" && !this.config.permissions.execute)
+        throw new HcmError(
+          "EXECUTE_DISABLED",
+          kind === "code"
+            ? `Папка ${target.folder} — папка кода: файл в ней — код сервера, поэтому запись требует ещё права execute.`
+            : "Сервер не сообщил, какие папки — папки кода, поэтому запись требует ещё права execute.",
+          permissionHint(this.config, "execute"),
+        );
+      const upload = (method: string, ...values: unknown[]) =>
+        this.server.call(
+          "native.rpc.call",
+          { target: `tools.upload_${method}`, args: values.map(rpcArgument) },
+          call.outcome,
+        );
+      call.afterSend = WRITE_INTERRUPTED;
+      const id = uploadAnswer(await upload("begin", target.url, source.bytes), "string");
+      const sent = createHash("sha256");
+      let bytes = 0;
+      for await (const block of source.blocks()) {
+        sent.update(block);
+        const end = bytes + block.length;
+        uploadAnswer(await upload("range", id, bytes, end, block.toString("base64")), "bool");
+        bytes = end;
+      }
+      uploadAnswer(await upload("end", id), "bool");
+      const read = await this.readBack(target.url);
+      // Расхождение — не обрыв: у него своё сообщение.
+      delete call.afterSend;
+      if (read.bytes !== bytes || !read.digest.equals(sent.digest()))
+        throw new HcmError(
+          "READ_BACK_MISMATCH",
+          read.bytes !== bytes
+            ? `Файл на сервере после записи отличается от отправленного: ${read.bytes} байт вместо ${bytes}.`
+            : "Файл на сервере после записи того же размера, что отправленный, но с другим содержимым.",
+          WRITE_MISMATCH_HINT,
+        );
+      return { bytes, mutationOutcome: "confirmed" };
+    } finally {
+      await source.close();
     }
-    await this.server.call(
-      "native.lds.putUrl",
-      { url: target.url, data: { base64: content.base64 } },
-      call.outcome,
+  }
+
+  /** Размер и SHA256 файла на сервере: файл читается потоком и в памяти не собирается. */
+  private readBack(url: string): Promise<{ bytes: number; digest: Buffer }> {
+    return this.server.stream(
+      "native.lds.loadUrl",
+      { url, useBinaryResponse: true },
+      async (body) => {
+        const hash = createHash("sha256");
+        let bytes = 0;
+        for await (const chunk of body) {
+          hash.update(chunk);
+          bytes += chunk.length;
+        }
+        return { bytes, digest: hash.digest() };
+      },
     );
-    return { bytes: content.bytes, mutationOutcome: "confirmed" };
   }
 
   async delete(args: Record<string, unknown>, call: FileCall): Promise<FileDeleteData> {
     const target = fileTarget(args.url);
     assertFileDeletable(target.folder);
-    if ((await this.route("delete", target.folder, call)) === "code") {
+    if (folderKind(await this.folders(), target.folder) === "code") {
+      if (!this.config.permissions.execute)
+        throw new HcmError(
+          "EXECUTE_DISABLED",
+          `Папка ${target.folder} на этом сервере принимает удаление только кодом на сервере: нужно ещё право execute.`,
+          permissionHint(this.config, "execute"),
+        );
       const data = await this.server.runCode(
         codeDelete(target.url),
         call.outcome,
@@ -445,12 +559,5 @@ export class ServerFiles {
   /** Сбой чтения сведений о приложении означает, что сервер не дал списков папок. */
   async folders(): Promise<FileFolders | undefined> {
     return fileFolders(await this.server.applicationInfo().catch(() => undefined));
-  }
-
-  private async route(operation: "write" | "delete", folder: string, call: FileCall) {
-    const route = fileRoute(operation, await this.folders(), folder, this.config);
-    // Обычная причина отказа записи (папка кода не в списке) называется, только если списков нет.
-    if (operation === "write" && route !== "unlisted") call.causeRuledOut = true;
-    return route;
   }
 }
