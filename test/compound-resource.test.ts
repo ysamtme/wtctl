@@ -210,3 +210,43 @@ test("картинка ресурса не оставляет соединени
     await new Promise((done) => server.close(done));
   }
 });
+
+test("картинка ресурса принимает ID в записи 0x… и передаёт серверу десятичную", async () => {
+  const sent: (string | null)[] = [];
+  const transport = new HttpTransport({
+    baseUrl: "http://synthetic.invalid/",
+    timeoutMs: 1000,
+    fetch: async (input) => {
+      sent.push(new URL(String(input)).searchParams.get("resource_id"));
+      return new Response(new Uint8Array([1]));
+    },
+  });
+  const api = new ResourceApi(transport);
+  for (const resourceId of ["0x5BC59D3B73C372B0", "6612864506534261424"])
+    await new Response((await api.getImage({ resourceId })).body).arrayBuffer();
+  for (const resourceId of ["0x", "-1", "1e5", "0X5BC59D3B73C372B0", "0x10000000000000000"])
+    await assert.rejects(api.getImage({ resourceId }), TypeError);
+  assert.deepEqual(sent, ["6612864506534261424", "6612864506534261424"]);
+
+  // Схема операции пропускает запись 0x… к серверу, а лишнюю цифру отклоняет до него.
+  let requests = 0;
+  const gateway = new NativeGateway({
+    baseUrl: "http://synthetic.invalid/",
+    timeoutMs: 1000,
+    maxResponseBytes: 4096,
+    fetch: async () => {
+      requests++;
+      return new Response("", { status: 500 });
+    },
+  });
+  try {
+    for (const id of ["native.resources.getImage", "web.resources.getImage"]) {
+      await assert.rejects(gateway.call(id, { resourceId: "0x5BC59D3B73C372B00" }), TypeError);
+      const before = requests;
+      await gateway.call(id, { resourceId: "0x5BC59D3B73C372B0" }).catch(() => undefined);
+      assert.ok(requests > before, id);
+    }
+  } finally {
+    await gateway.close();
+  }
+});

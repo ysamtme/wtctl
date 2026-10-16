@@ -12,6 +12,7 @@ import { HttpTransport, query } from "./transport.js";
 import {
   WsHcmBinaryResponse,
   type DecimalId,
+  type ObjectId,
   type RequestOptions,
   type TrackingId,
   type WsHcmResponse,
@@ -51,6 +52,13 @@ function decimal(value: DecimalId | undefined, name: string): DecimalId | undefi
   if (value !== undefined && !/^\d+$/.test(value))
     throw new ArgumentError(`${name}: нужна строка из десятичных цифр.`);
   return value;
+}
+
+/** ID объекта в десятичной записи: так его ждут страницы сервера, а каталоги отдают `0x…`. */
+function decimalObjectId(value: ObjectId, name: string): DecimalId {
+  if (!/^(?:\d{1,20}|0x[0-9a-fA-F]{1,16})$/.test(value) || BigInt(value) > 0xffffffffffffffffn)
+    throw new ArgumentError(`${name}: нужен ID строкой, 0x… или десятичный.`);
+  return BigInt(value).toString(10);
 }
 
 function tracking(value: TrackingId, name: string): TrackingId {
@@ -1498,14 +1506,14 @@ export type CompoundResourceRequest =
 /** API потокового чтения ресурсов, общий для сессий native и web. */
 export class ResourceApi {
   constructor(private readonly transport: HttpTransport) {}
-  /** Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен. */
+  /** Прочитать потоком картинку ресурса по ID (0x… или десятичный); тип картинки необязателен. */
   async getImage(
-    request: { resourceId: DecimalId; imageType?: string },
+    request: { resourceId: ObjectId; imageType?: string },
     options?: RequestOptions,
   ): Promise<WsHcmBinaryResponse> {
     const response = await this.transport.send(
       query("/lds/get_resource_image.html", {
-        resource_id: decimal(request.resourceId, "resourceId"),
+        resource_id: decimalObjectId(request.resourceId, "resourceId"),
         image_type: request.imageType,
       }),
       // Сервер закрывает соединение после этой страницы, не сообщая об этом; только что запущенный —

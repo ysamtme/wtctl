@@ -91,10 +91,15 @@ function schema(node, seen = new Set()) {
           },
         ],
       };
-    if (["DecimalId", "TrackingId"].includes(name))
+    if (["DecimalId", "TrackingId", "ObjectId"].includes(name))
       return {
         type: "string",
-        pattern: name === "DecimalId" ? "^\\d+$" : "^(?:\\d+|0x[0-9a-fA-F]+)$",
+        pattern:
+          name === "DecimalId"
+            ? "^\\d+$"
+            : name === "ObjectId"
+              ? "^(?:\\d{1,20}|0x[0-9a-fA-F]{1,16})$"
+              : "^(?:\\d+|0x[0-9a-fA-F]+)$",
       };
     if (name === "Uint8Array" || name === "ArrayBuffer" || name === "BodyInit")
       return { anyOf: [string, binary] };
