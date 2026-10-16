@@ -362,38 +362,44 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
       ),
     },
   };
-  origins.set(
-    config,
-    standalone
-      ? "settings"
-      : path === undefined
-        ? "environment"
-        : { listed: !globalOverrides, named: explicit !== undefined },
-  );
+  const origin: Origin = standalone
+    ? "settings"
+    : path === undefined
+      ? "environment"
+      : { listed: !globalOverrides, named: explicit !== undefined };
+  origins.set(config, origin);
+  copies.set(copyKey(config), origin);
   return config;
 }
 
 /**
  * Откуда loadConfig взял подключение: из settings, из переменных или из файла; у файла — есть ли
  * в нём connections и назван ли он в --config или WTCTL_CONFIG. По нему отказ прав говорит, где
- * право включается.
+ * право включается. Копию подключения в SDK ({...loadConfig()}) узнают по имени и адресу.
  */
-const origins = new WeakMap<
-  ConnectionConfig,
-  "settings" | "environment" | { readonly listed: boolean; readonly named: boolean }
->();
+type Origin = "settings" | "environment" | { readonly listed: boolean; readonly named: boolean };
+const origins = new WeakMap<ConnectionConfig, Origin>();
+const copies = new Map<string, Origin>();
+const copyKey = (config: ConnectionConfig): string => `${config.name}\n${config.baseUrl}`;
+/** Подключения, которыми работает MCP-сервер: правку настроек он видит только после перезапуска. */
+const servedByMcp = new WeakSet<ConnectionConfig>();
+export function markServedByMcp(config: ConnectionConfig): ConnectionConfig {
+  servedByMcp.add(config);
+  return config;
+}
 
 /**
  * Подсказка WRITE_DISABLED и EXECUTE_DISABLED: где подключению включают это право. Путь файла
  * не называется: ответ прячет локальные пути.
  */
 export function permissionHint(config: ConnectionConfig, right: "write" | "execute"): string {
-  const origin = origins.get(config);
+  const origin = origins.get(config) ?? copies.get(copyKey(config));
   const field = `permissions.${right}: true`;
   const variable = `WTCTL_ALLOW_${right.toUpperCase()}=true`;
+  const restart = servedByMcp.has(config) ? " MCP-сервер видит правку после перезапуска." : "";
   // Имя называется только у подключения из loadConfig: там оно проверено и коротко.
   if (origin === undefined)
-    return `Право ${right} включает владелец подключения в его настройках (permissions.${right}).`;
+    return `Право ${right} включает владелец подключения в его настройках (permissions.${right}).${restart}`;
   if (origin === "settings")
     return `Право ${right} подключению из settings даёт settings.${field} в loadConfig.`;
   let where = `переменная ${variable} рядом с WTCTL_URL (у MCP-сервера — в env его записи)`;
@@ -406,7 +412,7 @@ export function permissionHint(config: ConnectionConfig, right: "write" | "execu
       ? `${field} у подключения ${config.name} ${file}`
       : `${field} ${file} или переменная ${variable}`;
   }
-  return `Право ${right} включает владелец подключения: ${where}. MCP-сервер видит правку после перезапуска.`;
+  return `Право ${right} включает владелец подключения: ${where}.${restart}`;
 }
 
 /** Образец подключения без учётных данных, который можно коммитить. */

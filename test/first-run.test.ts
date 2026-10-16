@@ -176,6 +176,15 @@ test("отказ прав называет подключение и где ем
     );
     assert.equal(execute.code, "EXECUTE_DISABLED");
     assert.match(execute.hint!, /permissions\.execute: true у подключения prod .*--config/);
+    // Перезапуск касается только MCP-сервера.
+    assert.doesNotMatch(execute.hint!, /MCP-сервер/);
+    // Копия подключения в SDK получает ту же подсказку, что и само подключение.
+    const copy = await refusal(
+      { ...loadConfig({ configPath: file, connection: "prod" }), timeoutMs: 5000 },
+      "execute.script",
+      { code: "RESULT = 1;" },
+    );
+    assert.equal(copy.hint, execute.hint);
     const found = await refusal(loadConfig({ connection: "prod" }), "execute.script", {
       code: "RESULT = 1;",
     });

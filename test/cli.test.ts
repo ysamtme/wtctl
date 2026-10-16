@@ -5,6 +5,7 @@ import { commandInvocation, runCli } from "../src/cli/run.js";
 import type { CliDependencies, CliIo, RuntimePort } from "../src/cli/types.js";
 import type { ConnectionConfig, OperationDefinition, OperationResult } from "../src/contracts.js";
 import { HcmError } from "../src/errors.js";
+import { permissionHint } from "../src/config.js";
 import { describeHcmOperation, listHcmOperations } from "../src/catalog.js";
 import { operationHelp } from "../src/operation-help.js";
 import { cliHelp } from "../src/cli/help.js";
@@ -1664,6 +1665,20 @@ test("жизненный цикл MCP ждёт транспорта перед �
   assert.equal(await running, 0);
   assert.equal(f.state.closes, 1);
   assert.equal(f.state.stdout, "");
+});
+
+test("подсказка прав у MCP-сервера говорит, что правку он видит после перезапуска, у команды — нет", async () => {
+  const f = fixture();
+  const served: ConnectionConfig[] = [];
+  f.dependencies.loadConfiguration = () => ({ ...config });
+  f.dependencies.createRuntime = (loaded) => {
+    served.push(loaded);
+    return f.runtime;
+  };
+  assert.equal(await runCli(["mcp"], f.io, f.dependencies), 0);
+  assert.equal(await runCli(["status"], f.io, f.dependencies), 0);
+  assert.match(permissionHint(served[0]!, "write"), /MCP-сервер видит правку после перезапуска\.$/);
+  assert.doesNotMatch(permissionHint(served[1]!, "write"), /MCP-сервер/);
 });
 
 test("ввод CLI не ограничен размером: код больше 8 МиБ доходит до операции целиком", async () => {

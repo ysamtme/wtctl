@@ -16,7 +16,13 @@ import {
 } from "./arguments.js";
 import { cliHelp, cliHelpText, helpCommand } from "./help.js";
 import { discoverOperations, operationHelp } from "../operation-help.js";
-import { configExample, defaultConfigPath, parseConfiguration, withConnection } from "../config.js";
+import {
+  configExample,
+  defaultConfigPath,
+  markServedByMcp,
+  parseConfiguration,
+  withConnection,
+} from "../config.js";
 import { DeferredRuntime } from "./deferred-runtime.js";
 import { VERSION } from "../version.js";
 import { guide, type LocalInstall } from "../guide.js";
@@ -1082,17 +1088,18 @@ export async function runCli(
         ...optional("password", password),
       });
     if (command === "mcp") {
+      const served = async () => markServedByMcp(await load());
       // MCP-сервер без настроек всё равно стартует: его инструменты отвечают, что настроить.
       let name = "unconfigured";
       let serving: RuntimePort;
       try {
-        const config = await load();
+        const config = await served();
         name = config.name;
         serving = dependencies.createRuntime(config);
       } catch (error) {
         if (!(error instanceof HcmError)) throw error;
         serving = new DeferredRuntime(
-          load,
+          served,
           dependencies.createRuntime,
           error,
           setupCommand(dependencies.local),
