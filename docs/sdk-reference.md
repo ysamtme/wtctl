@@ -1138,7 +1138,9 @@ type LogResetReason = "overlap-not-found" | "file-size-decreased" | "ambiguous-o
 ### MutationOutcome
 
 Исход записи: not_sent — запрос не ушёл на сервер, confirmed — запись подтверждена,
-indeterminate — запрос мог дойти: прочитать объект, прежде чем повторять.
+indeterminate — подтверждения нет: ответа не было, перечитанный объект не совпал с запросом
+или перечитать его не удалось; прочитать объект, прежде чем повторять. При READ_BACK_MISMATCH
+запись дошла, что не совпало — в details.
 
 ```ts
 type MutationOutcome = "not_sent" | "confirmed" | "indeterminate"
