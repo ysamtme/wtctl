@@ -522,7 +522,8 @@ test("удаление: папка кода без execute, wt_data и trash о�
       const gone = await f.runtime.call("files.delete", { url: `x-local://${folder}/a/b.txt` });
       assert.equal(gone.error?.code, "FILE_NOT_DELETABLE");
       assert.equal(gone.error?.mutationOutcome, "not_sent");
-      assert.match(gone.error!.message, new RegExp(`^В папке ${folder} сервер не удаляет`));
+      assert.equal(gone.error?.message, `В папке ${folder} файлы и папки не удаляются.`);
+      assert.match(gone.error!.hint!, /Временные файлы писать в share/);
       assert.equal(f.server.calls.length, 0);
       await f.runtime.close();
     }
