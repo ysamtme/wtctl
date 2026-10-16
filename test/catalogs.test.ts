@@ -131,18 +131,53 @@ test("каталог без типа объекта даёт поля своей
   );
 });
 
-test("каталог другой базы находится по имени, а опечатка в одну букву в каталоге или типе даёт похожие", async () => {
+test("каталог другой базы находится по имени и у своего типа, а опечатка в одну букву в каталоге или типе даёт похожие", async () => {
   const trash = {
     id: "trash",
-    catalogs: [{ id: "trash_docs", object_type: "", form_url: "x-local://app/trash_docs.xmd" }],
+    catalogs: [
+      { id: "trash_docs", object_type: "", form_url: "x-local://app/trash_docs.xmd" },
+      { id: "user_datas", object_type: "user_data", form_url: "x-local://wtv/wtv_user_datas.xmd" },
+      // Тип, которого сервер не объявляет: его знает только каталог.
+      { id: "profiling_records", object_type: "profiling_record" },
+      // Каталог типа из основной базы не встаёт вторым каталогом этого типа.
+      { id: "people_copy", object_type: "person" },
+    ],
+  };
+  const trashForms: Record<string, string> = {
+    "x-local://app/trash_docs.xmd":
+      '<SPXML-FORM CATALOG="1"><trash_docs><trash_doc MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><del_date TYPE="date"/></trash_doc></trash_docs></SPXML-FORM>',
+    "x-local://wtv/wtv_user_datas.xmd":
+      '<SPXML-FORM CATALOG="1"><user_datas><user_data MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><key TYPE="string"/></user_data></user_datas></SPXML-FORM>',
+    "x-local://wtv/wtv_user_data.xmd":
+      '<SPXML-FORM><user_data><id TYPE="integer"/><key TYPE="string"/><value TYPE="string"/></user_data></SPXML-FORM>',
   };
   const withTrash = new SchemaReader(
     async () => ({ ...info, databases: [...info.databases, trash] }),
-    async (url) =>
-      url === trash.catalogs[0]!.form_url
-        ? '<SPXML-FORM CATALOG="1"><trash_docs><trash_doc MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><del_date TYPE="date"/></trash_doc></trash_docs></SPXML-FORM>'
-        : form(url),
+    async (url) => trashForms[url] ?? form(url),
     async () => ({}),
+  );
+  assert.deepEqual(
+    (await withTrash.types()).types.map((item) => [item.type, item.catalog]),
+    [
+      ["person", "people"],
+      ["plan", "plans"],
+      ["user_data", "user_datas"],
+      ["profiling_record", "profiling_records"],
+      ["event", "events"],
+      [undefined, "event_members"],
+      [undefined, "trash_docs"],
+    ],
+  );
+  await withTrash.requireType("profiling_record");
+  const userData = await withTrash.get({ type: "user_data" });
+  assert.equal(userData.catalog, "user_datas");
+  assert.deepEqual(
+    userData.fields.map((field) => [field.path, field.query ?? false]),
+    [
+      ["id", true],
+      ["key", true],
+      ["value", false],
+    ],
   );
   assert.equal(await withTrash.explainQuery("trash_docs", ["del_date"]), undefined);
   assert.equal(

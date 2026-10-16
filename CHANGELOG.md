@@ -31,6 +31,7 @@
 
 Исправления:
 
+- `schema.types` (`hcm_types`) называет каталог и у типов, каталог которых лежит в базе `trash`: `user_data` — `user_datas`, `active_web_template`, `profiling_record`. `schema.get` по такому типу отмечает поля каталога `query:true`. Раньше у них не было поля `catalog`, а гайд говорил, что каталога нет вовсе.
 - `files.write` больше 2 МБ в папку данных записывал обрезанный файл и отвечал `confirmed`.
 - Запись `files.write` в `wt_data` не доходила до сервера: ответ был `confirmed`, а `files.read` отдавал прежнее содержимое.
 - Файл в сотни мегабайт `files.read` не читал и с большим `maxResponseBytes`: клиенту не хватало памяти.

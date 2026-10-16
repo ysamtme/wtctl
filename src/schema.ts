@@ -369,23 +369,31 @@ export class SchemaReader {
     return !declared.length || declared.some((item) => item.name === type);
   }
   /**
-   * Каталоги основной базы, с everywhere — за ними каталоги остальных баз. Тип объекта сервер
-   * называет только у части из них. Рядом он перечисляет общие списки (common.…): это
-   * не каталоги, и они пропускаются.
+   * Каталоги по базам, основная — первой: каталоги user_data и ещё нескольких типов лежат в базе
+   * trash. Тип объекта сервер называет только у части каталогов. Рядом он перечисляет общие
+   * списки (common.…): это не каталоги, и они пропускаются.
    */
-  private catalogs(info: Data, everywhere = false): Data[] {
+  private databases(info: Data): Data[][] {
     const databases = serverDatabases(info);
     const main = databases.find((db) => db.id === info.default_db_name) ?? databases[0];
-    return (everywhere ? [main, ...databases.filter((db) => db !== main)] : [main])
-      .flatMap((db) => db?.catalogs ?? [])
-      .filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)));
+    return (main ? [main, ...databases.filter((db) => db !== main)] : []).map((db) =>
+      db.catalogs.filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id))),
+    );
   }
-  /**
-   * Каталог по имени в любой базе. Каталоги других баз (trash_docs в базе trash) сервер ищет
-   * так же, но в списки типов они не входят.
-   */
+  private catalogs(info: Data): Data[] {
+    return this.databases(info).flat();
+  }
+  /** Каталоги с типом объекта; каталоги типа берутся из первой базы, где они есть. */
+  private typedCatalogs(info: Data): Data[] {
+    const seen = new Set<unknown>();
+    return this.databases(info).flatMap((catalogs) => {
+      const own = catalogs.filter((item) => text(item.object_type) && !seen.has(item.object_type));
+      for (const item of own) seen.add(item.object_type);
+      return own;
+    });
+  }
   private catalog(info: Data, id: string): Data | undefined {
-    return this.catalogs(info, true).find((item) => item.id === id);
+    return this.catalogs(info).find((item) => item.id === id);
   }
   /** Тип строк каталога: названный сервером или, если нет, по форме каталога. */
   private async rowType(catalog: Data): Promise<string> {
@@ -402,10 +410,11 @@ export class SchemaReader {
    * каталог без имени: тогда засчитывается каталог, названный по типу, если форма согласна.
    */
   private async catalogsOf(info: Data, type: string): Promise<Data[]> {
-    const catalogs = this.catalogs(info);
-    const named = catalogs.filter((item) => item.object_type === type);
+    const named = this.typedCatalogs(info).filter((item) => item.object_type === type);
     if (named.length || !type) return named;
-    const plural = catalogs.find((item) => item.id === `${type}s` && !text(item.object_type));
+    const plural = this.catalogs(info).find(
+      (item) => item.id === `${type}s` && !text(item.object_type),
+    );
     return plural && (await this.rowType(plural).catch(() => "")) === type
       ? [{ ...plural, object_type: type }]
       : [];
@@ -931,7 +940,7 @@ export class SchemaReader {
     const translations = await this.typeTranslations(info);
     const common = await this.commonData(info);
     const definitions = list(data(common.exchange_object_types).exchange_object_type);
-    const named = this.catalogs(info).filter((item) => text(item.object_type));
+    const named = this.typedCatalogs(info);
     // Типы, которые сервер объявляет без названия их каталога (event), идут после остальных.
     const unnamed: Data[] = [];
     for (const definition of definitions) {
@@ -959,7 +968,7 @@ export class SchemaReader {
     // Каталоги, строки которых не объекты, идут за типами. Заголовка у них сервер не даёт; найденный
     // по заголовку тип приводит и каталоги, названные по нему (group → group_collaborators).
     const listed = new Set(all.map((item) => item.catalog));
-    const untyped = this.catalogs(info, true)
+    const untyped = this.catalogs(info)
       .filter((item) => !text(item.object_type))
       .map((item) => text(item.id))
       .filter(
