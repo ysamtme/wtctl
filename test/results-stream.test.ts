@@ -67,6 +67,9 @@ test("страницы простой строки сохраняют управ
     const stored = await store.put(source);
     assert.equal(await entire(store, stored.resultId), source);
     assert.equal(await entire(store, stored.resultId, "json"), JSON.stringify(source));
+    const file = { text: source, skipped: undefined, bytes: 7 };
+    const field = await store.put(file);
+    assert.equal(await entire(store, field.resultId, "json"), JSON.stringify(file));
     await assert.rejects(store.read(stored.resultId, 65536, 1), /в середину символа Unicode/);
     const pair = await store.read(stored.resultId, 65535, 1);
     assert.equal(pair.text, "😀");
@@ -110,6 +113,7 @@ test("сбой сериализации удаляет только свои н�
     const circular: { self?: unknown } = {};
     circular.self = circular;
     await assert.rejects(store.put([{ valid: true }, circular]), /нельзя записать как JSON/);
+    await assert.rejects(store.put(circular), /нельзя записать как JSON/);
     assert.deepEqual((await readdir(store.directory)).sort(), before);
     assert.equal((await store.read(valid.resultId, 0, 100, "json")).text, '{"valid":true}');
   });

@@ -59,17 +59,19 @@ export interface FileSaveData {
 
 /** Файл целиком: текст, если это текст в UTF-8, иначе base64. */
 export function fileContent(content: Buffer, encoding?: "base64"): FileReadData {
-  const binary = { base64: content.toString("base64"), bytes: content.length };
-  if (encoding === "base64") return binary;
+  // base64 строится, только когда он и есть ответ: у большого текста это лишняя копия файла.
+  const binary = () => ({ base64: content.toString("base64"), bytes: content.length });
+  if (encoding === "base64") return binary();
+  let text: string;
   try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(content);
-    // Байты ниже 0x20 — допустимый UTF-8, но файл из них не текст.
-    return /[\u0000-\u0008\u000b\u000e-\u001f]/.test(text)
-      ? binary
-      : { text, bytes: content.length };
+    text = new TextDecoder("utf-8", { fatal: true }).decode(content);
   } catch {
-    return binary;
+    return binary();
   }
+  // Байты ниже 0x20 — допустимый UTF-8, но файл из них не текст.
+  return /[\u0000-\u0008\u000b\u000e-\u001f]/.test(text)
+    ? binary()
+    : { text, bytes: content.length };
 }
 
 const FILE_EXISTS_TARGET = "tools.file_url_exists_server";

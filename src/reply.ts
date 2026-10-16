@@ -26,6 +26,20 @@ function jsonSafe(value: unknown): unknown {
   return value;
 }
 /**
+ * Длиннее ли JSON значения limit байт. Байтов в JSON не меньше, чем знаков в его строках: большой
+ * ответ (текст файла) узнаётся без копии в JSON размером с сам файл.
+ */
+function longerThan(data: unknown, limit: number): boolean {
+  let chars = 0;
+  const count = (value: unknown): void => {
+    if (typeof value === "string") chars += value.length;
+    else if (value !== null && typeof value === "object")
+      for (const item of Object.values(value)) if (chars <= limit) count(item);
+  };
+  count(data);
+  return chars > limit || Buffer.byteLength(JSON.stringify(data) ?? "null") > limit;
+}
+/**
  * С чего начинается сохранённый ответ: первые символы длинного текста и столько первых элементов
  * списков, сколько помещается в budget байт. undefined — от непустого списка не поместилось ничего
  * или неполным вышел список, у которого есть строка об элементе.
@@ -76,16 +90,11 @@ export class ReplyPacker {
   ): Promise<OperationResult> {
     const rules = operationSpec(id)?.reply;
     const data = jsonSafe(value);
-    const serialised = JSON.stringify(data);
     const outcome = (stored: boolean) => {
       const error = rules?.failed?.(data, stored);
       return error ? { ok: false, error } : { ok: true };
     };
-    if (
-      bound &&
-      Buffer.byteLength(serialised ?? "null") > this.config.outputLimitBytes &&
-      rules?.store !== "never"
-    ) {
+    if (bound && longerThan(data, this.config.outputLimitBytes) && rules?.store !== "never") {
       const stored = await this.results.put(data);
       const budget = this.config.outputLimitBytes / 2;
       const fitted = beginning(data, budget, rules?.preview);

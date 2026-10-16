@@ -251,11 +251,11 @@ async function reading<T>(
     await Promise.all(files.map((file) => file.close()));
   }
 }
-function high(value: string): boolean {
-  return /[\uD800-\uDBFF]/.test(value);
-}
-function low(value: string): boolean {
-  return /[\uDC00-\uDFFF]/.test(value);
+/** Делит ли index пару суррогатов: перед ним старшая половина пары, на нём младшая. */
+function splitsPair(text: string, index: number): boolean {
+  return (
+    /[\uD800-\uDBFF]/.test(text.charAt(index - 1)) && /[\uDC00-\uDFFF]/.test(text.charAt(index))
+  );
 }
 
 /** Пишет ограниченные куски UTF-8 и разреженный индекс перехода от символа UTF-16 к байту. */
@@ -275,7 +275,7 @@ class JsonWriter {
         this.checkpoints++;
       }
       let length = Math.min(CHUNK_CHARS - this.pending.length, text.length - offset);
-      if (high(text.charAt(offset + length - 1)) && low(text.charAt(offset + length))) length--;
+      if (splitsPair(text, offset + length)) length--;
       if (!length) {
         await this.flush();
         continue;
@@ -293,6 +293,35 @@ class JsonWriter {
       await writeAll(this.body, Buffer.from(this.pending));
       this.pending = "";
     }
+  }
+}
+
+/**
+ * Пишет то же, что JSON.stringify, но строку — сам результат или поле объекта — частями: текст
+ * прочитанного файла не копируется в JSON целиком. Глубже полей не идёт: цикл в данных ловит
+ * JSON.stringify.
+ */
+async function appendJson(writer: JsonWriter, value: unknown, nested = false): Promise<void> {
+  if (typeof value === "string") {
+    await writer.append('"');
+    for (let offset = 0, end = 0; offset < value.length; offset = end) {
+      end = Math.min(offset + CHUNK_CHARS, value.length);
+      // Половину пары суррогатов JSON.stringify записал бы как \uXXXX.
+      if (splitsPair(value, end)) end--;
+      await writer.append(JSON.stringify(value.slice(offset, end)).slice(1, -1));
+    }
+    await writer.append('"');
+  } else if (nested || value === null || typeof value !== "object" || Array.isArray(value)) {
+    await writer.append(JSON.stringify(value) ?? "null");
+  } else {
+    let separator = "{";
+    for (const [key, child] of Object.entries(value)) {
+      if (child === undefined || typeof child === "function" || typeof child === "symbol") continue;
+      await writer.append(`${separator}${JSON.stringify(key)}:`);
+      await appendJson(writer, child, true);
+      separator = ",";
+    }
+    await writer.append(separator === "{" ? "{}" : "}");
   }
 }
 
@@ -463,10 +492,9 @@ export class ResultStore {
           await writer.append(rest === "{}" ? "}" : `,${rest.slice(1)}`);
         }
       } else {
-        const serialised = JSON.stringify(data);
-        if (serialised === undefined)
+        if (data === undefined || typeof data === "function" || typeof data === "symbol")
           throw new HcmError("RESULT_SERIALIZATION", "Результат — не значение JSON.");
-        await writer.append(serialised);
+        await appendJson(writer, data);
       }
       await writer.flush();
       Object.assign(metadata, {
@@ -674,7 +702,7 @@ export class ResultStore {
       const text = (
         await readExactly(file, start * 2, Math.min(limit + 3, metadata.textChars! - start) * 2)
       ).toString("utf16le");
-      if (offset && high(text.charAt(0)) && low(text.charAt(1)))
+      if (offset && splitsPair(text, 1))
         throw new HcmError(
           "INVALID_OFFSET",
           "offset попадает в середину символа Unicode: нужно брать nextOffset из прошлого ответа.",
@@ -727,7 +755,7 @@ export class ResultStore {
           decoded.length !== metadata.jsonChars - start
         )
           throw invalid();
-        if (relative && high(decoded.charAt(relative - 1)) && low(decoded.charAt(relative)))
+        if (splitsPair(decoded, relative))
           throw new HcmError(
             "INVALID_OFFSET",
             "offset попадает в середину символа Unicode: нужно брать nextOffset из прошлого ответа.",
@@ -756,7 +784,7 @@ export class ResultStore {
       else upper = middle - 1;
     }
     let end = lower;
-    if (end && high(source.charAt(end - 1)) && low(source.charAt(end))) {
+    if (splitsPair(source, end)) {
       if (end === 1) end++;
       else end--;
     }
@@ -832,7 +860,7 @@ export class ResultStore {
       };
     }
     const text = typeof data === "string" && format !== "json" ? data : JSON.stringify(data);
-    if (offset && high(text.charAt(offset - 1)) && low(text.charAt(offset)))
+    if (splitsPair(text, offset))
       throw new HcmError(
         "INVALID_OFFSET",
         "offset попадает в середину символа Unicode: нужно брать nextOffset из прошлого ответа.",
