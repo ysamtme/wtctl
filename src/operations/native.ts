@@ -38,9 +38,25 @@ function uploadedFile(answer: unknown): unknown {
   }
   return answer;
 }
-/** Отказ политики загрузки сервера — UPLOAD_REFUSED с текстом сервера, если он его прислал. */
-function uploadRefused(error: unknown): unknown {
-  if (!(error instanceof WsHcmApiError) || error.details?.uploadRefused !== true) return error;
+/**
+ * Отказ политики загрузки сервера — UPLOAD_REFUSED с текстом сервера, если он его прислал. Сбой
+ * части на сервере — PLATFORM_HTTP без текста сервера: в тексте исключения бывают пути сервера.
+ * В лог xhttp сервер пишет только исключение при сборке файла (HTTP 503).
+ */
+function uploadFailure(error: unknown): unknown {
+  if (!(error instanceof WsHcmApiError)) return error;
+  if (error.details?.chunkFailed === true) {
+    const joining = error.status === 503;
+    return new HcmError(
+      "PLATFORM_HTTP",
+      joining
+        ? "Сервер не собрал файл из частей (HTTP 503)."
+        : `Сервер не записал часть файла (HTTP ${error.status}).`,
+      `Загрузку повторить целиком.${joining ? " Если сборка упала, причина — в строке ERROR[upload_big_file] лога xhttp: последние строки показывает logs.follow." : ""}`,
+      { status: error.status },
+    );
+  }
+  if (error.details?.uploadRefused !== true) return error;
   const reason = error.details.reason;
   return new HcmError(
     "UPLOAD_REFUSED",
@@ -109,13 +125,13 @@ const FACES: Readonly<Record<string, Face>> = {
     details:
       'filename — имя без пути; data — текст или {base64:"…"}. Ответ: url — адрес файла, folderUrl — папка, которую сервер создал для него.',
     answer: uploadedFile,
-    failure: uploadRefused,
+    failure: uploadFailure,
   },
   "web.pages.uploadChunk": {
     summary: "Загрузить одну часть большого файла.",
     details:
       "fileId — 32 шестнадцатеричных знака, его выбирает вызывающий. Части идут по порядку, последняя собирает файл. Ответ сервера не доказывает, что часть сохранена. При ошибке на последней части вслепую повторять нельзя: адрес итогового файла может остаться неизвестным.",
-    failure: uploadRefused,
+    failure: uploadFailure,
   },
   "web.pages.clearUploadChunks": {
     summary: "Удалить загруженные части файла.",

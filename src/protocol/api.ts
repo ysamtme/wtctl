@@ -1382,8 +1382,10 @@ export class WebPageApi {
       options,
     );
     // Отказ политики загрузки и имя вне таблицы типов сервер отдаёт HTTP 500 с текстом
-    // в error_text; остальные сбои части — другим статусом или без этого текста.
-    if (response.status === 500) {
+    // в error_text. Сбой самого сервера — 500 + код: 501 нет имени, 502 часть не записана,
+    // 503 файл не собран из частей; error_text у них есть всегда, хотя бы пустой.
+    const status = response.status;
+    if (status >= 500 && status <= 503) {
       let reason: unknown;
       try {
         const source = new TextDecoder(responseCharset(response, "utf-8")).decode(
@@ -1391,14 +1393,19 @@ export class WebPageApi {
         );
         reason = (JSON.parse(source) as { error_text?: unknown } | null)?.error_text;
       } catch {
-        // Тело не JSON, не дочитано или в неизвестной кодировке: остаётся отказ HTTP 500 без текста.
+        // Тело не JSON, не дочитано или в неизвестной кодировке: остаётся отказ HTTP без текста.
       }
-      throw new WsHcmApiError("http", "HTTP 500", {
+      const text = typeof reason === "string" ? reason.trim() : undefined;
+      const details =
+        text === undefined
+          ? undefined
+          : status > 500
+            ? { chunkFailed: true }
+            : text && { uploadRefused: true, reason: text.slice(0, 500) };
+      throw new WsHcmApiError("http", `HTTP ${status}`, {
         operation: "uploadChunk",
-        status: 500,
-        ...(typeof reason === "string" && reason.trim()
-          ? { details: { uploadRefused: true, reason: reason.trim().slice(0, 500) } }
-          : {}),
+        status,
+        ...(details ? { details } : {}),
       });
     }
     const result = await jsonResponse(response);

@@ -499,6 +499,40 @@ test("отказ политики загрузки на часть — UPLOAD_RE
   }
 });
 
+test("сбой части на сервере (HTTP 501–503 с error_text) не выдаётся за недоступный сервер, а текст сервера не показывается", async () => {
+  const written = "Сервер не записал часть файла";
+  for (const [status, body, message] of [
+    [
+      502,
+      { error: 1, error_text: "Ошибка записи C:\\WebSoft\\wt_data\\x" },
+      `${written} (HTTP 502).`,
+    ],
+    [501, { error: 1, error_text: "File name not specified" }, `${written} (HTTP 501).`],
+    [503, { error: 1, error_text: "" }, "Сервер не собрал файл из частей (HTTP 503)."],
+    // Промежуточный сервер отвечает 502 без ответа сервера загрузки.
+    [502, "<html>Bad Gateway</html>", "Сервер недоступен (HTTP 502)."],
+  ] as const) {
+    const f = fixture();
+    f.setResponse(() =>
+      typeof body === "string" ? new Response(body, { status }) : Response.json(body, { status }),
+    );
+    const client = new HcmClient(f.runtime());
+    try {
+      const result = await client.uploadChunk({ ...onePart(), data: "x" });
+      assert.equal(result.error?.code, "PLATFORM_HTTP");
+      assert.equal(result.error?.message, message);
+      assert.equal(result.error?.details?.status, status);
+      assert.equal(result.error?.mutationOutcome, "indeterminate");
+      if (typeof body !== "string")
+        assert.match(result.error?.hint ?? "", /^Загрузку повторить целиком/);
+      assert.doesNotMatch(JSON.stringify(result), /wt_data|not specified/);
+    } finally {
+      await client.close();
+      f.client.close();
+    }
+  }
+});
+
 test("clear отклоняет сбои по содержимому, HTTP и потерянному ответу, а не выдумывает отсутствие", async () => {
   for (const response of [
     () => new Response("{}"),
