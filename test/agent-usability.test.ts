@@ -200,6 +200,15 @@ test("отклонённый вызов инструмента говорит, �
     mcpJson(await f.tools.invoke("hcm_types", { query: "x", foo: 1 })).error?.message,
     "Аргументы не подходят инструменту: лишние аргументы query, foo.",
   );
+  assert.equal(
+    mcpJson(
+      await f.tools.invoke("hcm_object_patch", {
+        id: "1",
+        patch: [{ op: "set", path: "name", valeu: "x" }],
+      }),
+    ).error?.message,
+    "Аргументы не подходят инструменту: лишний аргумент patch.0.valeu.",
+  );
   // Имя не из латиницы может быть значением: оно не выводится, но о лишнем аргументе сказано.
   assert.equal(
     mcpJson(await f.tools.invoke("hcm_types", { тип: "x" })).error?.message,

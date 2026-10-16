@@ -591,9 +591,13 @@ export class HcmMcpTools {
       // Лишний аргумент и граница названы в самом сообщении: агент с несколькими вызовами сразу
       // читает его первым. Лишний аргумент — обычно перепутанное имя, поэтому он раньше правила.
       const extra = parsed.error.issues.flatMap((issue) =>
-        issue.code === "unrecognized_keys" ? issue.keys : [],
+        issue.code === "unrecognized_keys" ? issue.keys.map((key) => [...issue.path, key]) : [],
       );
-      const extraNames = extra.filter(named).join(", ");
+      // Лишний ключ внутри аргумента назван с путём: patch.0.valeu.
+      const extraNames = extra
+        .filter((path) => named(path.at(-1)!))
+        .map((path) => path.filter(named).join("."))
+        .join(", ");
       const bound = validation.find((issue) => issue.maximum !== undefined);
       // То же с правилом самого инструмента: какие его аргументы обязательны.
       const rule = validation.find((issue) => issue.code === "custom" && issue.message);
