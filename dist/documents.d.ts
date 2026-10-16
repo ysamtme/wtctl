@@ -6,7 +6,7 @@ export interface DocumentSnapshot {
     readonly data: Record<string, unknown>;
     readonly formUrl?: string;
 }
-/** Одно изменение документа. Значения показаны как были и как записаны; структура названа, а не скопирована. */
+/** Одно изменение документа. Значения показаны как были и как записаны; у структуры — поля первого уровня, вложенное названо, а не скопировано. */
 export interface PatchChange {
     /** set — значение записано, remove — путь удалён. */
     readonly op: "set" | "remove";

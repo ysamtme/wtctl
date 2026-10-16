@@ -73,7 +73,9 @@ export interface NativeOperation extends OperationDefinition {
 }
 /**
  * Исход записи: not_sent — запрос не ушёл на сервер, confirmed — запись подтверждена,
- * indeterminate — запрос мог дойти: прочитать объект, прежде чем повторять.
+ * indeterminate — подтверждения нет: ответа не было, перечитанный объект не совпал с запросом
+ * или перечитать его не удалось; прочитать объект, прежде чем повторять. При READ_BACK_MISMATCH
+ * запись дошла, что не совпало — в details.
  */
 export type MutationOutcome = "not_sent" | "confirmed" | "indeterminate";
 /** Ошибка операции в ответе с ok:false. */

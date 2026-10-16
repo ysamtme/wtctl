@@ -121,6 +121,8 @@ export interface RequestOptions {
     signal?: AbortSignal;
     /** Предел времени вызова в миллисекундах. */
     timeoutMs?: number;
+    /** Предел тела ответа этого вызова в байтах вместо предела клиента; Infinity — без предела. */
+    maxResponseBytes?: number;
 }
 /** Буферизованный успешный ответ: разобранные данные и точные байты тела. */
 export interface WsHcmResponse<T> {

@@ -11,7 +11,7 @@ export type { ConnectionConfig, JsonSchema, MutationOutcome, NativeProfile, Oper
 export type { BatchData, BatchInput, BatchStep, ClearedUploadChunksData, ClearUploadChunksInput, CreateInput, DeleteOptions, FilterCondition, FilterValue, GetManyData, GetManyInput, GetOptions, HcmData, HcmResult, ObjectData, ObjectTarget, PatchOperation, PatchOptions, QueryData, QueryInput, QueryOptions, ResultMeta, ResultPage, ResultReadInput, RpcArgument, RpcInput, RpcTypedArgument, RpcXmlArgument, RunAgentInput, StatusData, StoredResultData, UploadChunkInput, UploadedChunkData, UploadedFileData, UploadFileInput, } from "./sdk.js";
 export type { CheckData } from "./self-check.js";
 export type { ServerInfoInput, ServerInfoData, ServerCatalogLimit, ServerDatabase, ServerInfoProfile, } from "./server-info.js";
-export type { FileDeleteData, FileDeleteInput, FileExistsData, FileExistsInput, FileListData, FileListInput, FileReadData, FileReadInput, FileWriteData, FileWriteInput, } from "./files.js";
+export type { FileDeleteData, FileDeleteInput, FileExistsData, FileExistsInput, FileListData, FileListInput, FileReadData, FileReadInput, FileSaveData, FileSaveInput, FileWriteData, FileWriteInput, } from "./files.js";
 export type { SchemaField, SchemaInput, SchemaResult, SchemaTypesInput, SchemaTypesResult, } from "./schema.js";
 export type { CreatedObjectData, DeletedObjectData, PatchedObjectData, PatchPreviewData, } from "./objects.js";
 export type { PatchChange } from "./documents.js";

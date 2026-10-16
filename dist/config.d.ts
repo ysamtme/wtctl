@@ -38,6 +38,7 @@ export type ConnectionSettings = Partial<Pick<ConnectionConfig, "baseUrl" | "use
  * при ошибке в настройках.
  */
 export declare function loadConfig(options?: ConfigOptions): ConnectionConfig;
+export declare function markServedByMcp(config: ConnectionConfig): ConnectionConfig;
 /**
  * Подсказка WRITE_DISABLED и EXECUTE_DISABLED: где подключению включают это право. Путь файла
  * не называется: ответ прячет локальные пути.

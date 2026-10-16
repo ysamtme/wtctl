@@ -74,7 +74,7 @@ RESULT = [{ id: doc.DocID + '', lastname: doc.TopElem.lastname + '' }];
 | `exec` | код на сервере |
 | `rpc list`, `rpc describe`, `rpc БИБЛИОТЕКА ФУНКЦИЯ` | функции библиотек сервера |
 | `logs list`, `read`, `tail`, `search`, `follow` | логи сервера |
-| `files read`, `exists`, `list`, `write`, `delete` | файлы сервера: прочитать (текст приходит текстом, остальное — в base64), проверить адрес, показать папку, записать, удалить |
+| `files read`, `exists`, `list`, `write`, `delete` | файлы сервера: прочитать (текст приходит текстом, остальное — в base64) или сохранить на диск, проверить адрес, показать папку, записать, удалить |
 | `file upload` | загрузить файл в папку загрузок сервера |
 | `doc get`, `put`, `delete` | документ как XML по адресу |
 | `api list`, `api describe`, `api call` | остальные операции по ID |
@@ -119,7 +119,8 @@ wtctl api call agents.run --args '{\"id\":\"0x65D6BB73BFE67019\"}'
 
 ```shell
 wtctl logs search xhttp_2026-10-01.log --level error --limit 5
-wtctl files read x-local://wt/web/default.html --output page.json
+wtctl files read x-local://wt/web/default.html --to ./default.html
+wtctl files write x-local://share/reports/2026.zip --input-file ./2026.zip
 ```
 
 Файл правки бывает и длиннее одной пары:
@@ -161,6 +162,10 @@ PowerShell, cmd и bash по-разному обрабатывают кавыч�
 - любой другой текст — запрос XQuery.
 
 `--limit`, `--start-position`, `--fields` и `--order` в командной строке важнее значений из файла.
+
+`files write` с `--input-file` передаёт операции путь, и файл читается с диска частями: память не растёт с размером файла. `--stdin` держит весь ввод в памяти, потому что длину файла сервер получает до начала записи. Большой файл передаётся через `--input-file`.
+
+`files read` с `--to ФАЙЛ` сохраняет файл сервера на диск байт в байт, текст или двоичный, любого размера: предел `maxResponseBytes` на него не действует, и память не растёт с размером файла. Файл появляется под своим именем, только когда прочитан целиком. Существующий файл заменяется только с `--overwrite`, без него — `FILE_EXISTS`. `--output` для файла не подходит: он сохраняет ответ JSON, где двоичный файл записан в base64.
 
 ID объекта пишется как есть: `0x5555555555555501`.
 

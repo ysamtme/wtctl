@@ -22,6 +22,13 @@ export declare class NativeGateway {
     closeProfile(profile: "native" | "web"): Promise<void>;
     call(id: string, args: Record<string, unknown>): Promise<unknown>;
     /**
+     * Двоичный ответ операции потоком, без предела maxResponseBytes: read читает тело, и очередь
+     * ждёт, пока он не закончит. Недочитанное тело отменяется.
+     */
+    stream<T>(id: string, args: Record<string, unknown>, read: (body: AsyncIterable<Uint8Array>) => Promise<T>): Promise<T>;
+    /** Вызовы идут по очереди; проверяется собственный снимок аргументов. */
+    private enqueue;
+    /**
      * Сервер сбрасывает сессию, простоявшую без дела (на стендах — в пределах двадцати минут),
      * или закрытую с его стороны; каждый следующий запрос получает HTTP 401. Долгоживущий владелец
      * остался бы без доступа, поэтому сброшенная сессия заменяется новым входом, и запрос

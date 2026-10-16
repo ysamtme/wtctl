@@ -179,12 +179,28 @@ client.fileExists(input: FileExistsInput): Promise<HcmResult<FileExistsData>>
 #### client.readFile
 
 ```ts
+client.readFile(input: FileSaveInput): Promise<HcmResult<FileSaveData>>
+```
+
+Сохраняет файл сервера на этот компьютер байт в байт, любого размера.
+
+Типы: [FileSaveInput](#filesaveinput), [FileSaveData](#filesavedata).
+
+```ts
 client.readFile(input: FileReadInput): Promise<HcmResult<FileReadData>>
 ```
 
 Файл по адресу сервера: text, если это текст в UTF-8, иначе base64.
 
 Типы: [FileReadInput](#filereadinput), [FileReadData](#filereaddata).
+
+```ts
+client.readFile(input: FileSaveInput | FileReadInput): Promise<HcmResult<FileSaveData | FileReadData>>
+```
+
+Аргумент, собранный заранее как FileReadInput или FileSaveInput: ответ — FileReadData или FileSaveData.
+
+Типы: [FileSaveInput](#filesaveinput), [FileReadInput](#filereadinput), [FileSaveData](#filesavedata), [FileReadData](#filereaddata).
 
 #### client.listFiles
 
@@ -202,8 +218,9 @@ client.listFiles(input: FileListInput): Promise<HcmResult<FileListData>>
 client.writeFile(input: FileWriteInput): Promise<HcmResult<FileWriteData>>
 ```
 
-Записывает файл по адресу x-local://… целиком; папки сервер создаёт сам. Нужно право write,
-в папку кода (wt, wtv, custom…) — ещё execute.
+Записывает файл по адресу x-local://… целиком из text, base64 или файла на диске (file) и сверяет
+записанное; папки сервер создаёт сам. Нужно право write, в папку кода (wt, wtv, custom…) — ещё
+execute.
 
 Типы: [FileWriteInput](#filewriteinput), [FileWriteData](#filewritedata).
 
@@ -397,7 +414,7 @@ client.exportResult(input: ResultExportInput): Promise<HcmResult<ResultExportDat
 client.uploadFile(input: UploadFileInput): Promise<HcmResult<UploadedFileData>>
 ```
 
-Загружает файл до 8 МБ так же, как админка; нужно право write.
+Загружает файл в папку загрузок сервера так же, как админка; нужно право write.
 
 Типы: [UploadFileInput](#uploadfileinput), [UploadedFileData](#uploadedfiledata).
 
@@ -814,12 +831,32 @@ CreateInput<T extends object = HcmData>
 
 ### FileReadInput
 
-Аргументы readFile.
+Аргументы readFile без file: файл приходит в ответе.
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `url` | `string` | Адрес файла на сервере: x-local://…. |
 | `encoding?` | `"base64"` | "base64" отдаёт байты, даже если файл текстовый. |
+| `file?` | `undefined` | Не задаётся: файл на диск сохраняет вызов с FileSaveInput. |
+
+### FileSaveData
+
+Ответ readFile с file.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `bytes` | `number` | Размер файла в байтах. |
+| `file` | `string` | Полный путь к сохранённому файлу. |
+
+### FileSaveInput
+
+Аргументы readFile с file: файл сохраняется на этот компьютер.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `url` | `string` | Адрес файла на сервере: x-local://…. |
+| `file` | `string` | Полный путь, куда сохранить файл байт в байт; размер не ограничен. Папка должна быть. |
+| `overwrite?` | `boolean` | Заменить файл, если он уже есть; иначе FILE_EXISTS. |
 
 ### FileWriteData
 
@@ -828,17 +865,18 @@ CreateInput<T extends object = HcmData>
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `bytes` | `number` | Сколько байт записано. |
-| `mutationOutcome` | `"confirmed"` | Исход записи: подтверждена. |
+| `mutationOutcome` | `"confirmed"` | Исход записи: файл на сервере прочитан назад и совпал с отправленным. |
 
 ### FileWriteInput
 
-Ровно одно из text и base64.
+Ровно одно из text, base64 и file.
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `url` | `string` | Адрес файла на сервере: x-local://…; файл заменяется целиком. |
 | `text?` | `string` | Текст; пишется в UTF-8. |
 | `base64?` | `string` | Двоичные данные в base64. |
+| `file?` | `string` | Полный путь к файлу на этом компьютере: он читается частями, память не растёт с размером. |
 
 ### FilterCondition
 
@@ -1100,7 +1138,9 @@ type LogResetReason = "overlap-not-found" | "file-size-decreased" | "ambiguous-o
 ### MutationOutcome
 
 Исход записи: not_sent — запрос не ушёл на сервер, confirmed — запись подтверждена,
-indeterminate — запрос мог дойти: прочитать объект, прежде чем повторять.
+indeterminate — подтверждения нет: ответа не было, перечитанный объект не совпал с запросом
+или перечитать его не удалось; прочитать объект, прежде чем повторять. При READ_BACK_MISMATCH
+запись дошла, что не совпало — в details.
 
 ```ts
 type MutationOutcome = "not_sent" | "confirmed" | "indeterminate"
@@ -1234,7 +1274,7 @@ type OperationEffect = "read" | "write" | "execute" | "unknown"
 
 ### PatchChange
 
-Одно изменение документа. Значения показаны как были и как записаны; структура названа, а не скопирована.
+Одно изменение документа. Значения показаны как были и как записаны; у структуры — поля первого уровня, вложенное названо, а не скопировано.
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
@@ -1299,6 +1339,7 @@ type OperationEffect = "read" | "write" | "execute" | "unknown"
 | `noop` | `boolean` | Правка ничего не меняет, и resave не задан. |
 | `changes` | `PatchChange[]` | Что изменила бы правка. |
 | `fingerprint` | `string` | Отпечаток документа сейчас: expectedFingerprint для записи. |
+| `serverFilled?` | `string[]` | Поля правки, которые сервер заполняет сам при сохранении: записанное значение он, скорее всего, заменит. |
 
 ### QueryData
 
@@ -1464,6 +1505,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `targets` | `readonly RpcTargetCard[]` | Функции страницы. |
 | `total` | `number` | Сколько функций подходит всего. |
 | `serverOnlyHidden?` | `number` | Подходящие функции, пропущенные из-за того, что клиент их не вызовет; all:true выводит их. |
+| `hint?` | `string` | Есть при serverOnlyHidden: как их показать. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
 | `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
 | `skipped?` | `readonly string[]` | Библиотеки, список функций которых сервер не отдал. |
@@ -1609,8 +1651,8 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `search?` | `string` | Слова в типе, каталоге или заголовке. |
-| `limit?` | `number` | Типов на странице, 1–1000; по умолчанию 50. |
-| `cursor?` | `number` | Сколько типов пропустить: nextCursor прошлой страницы. |
+| `limit?` | `number` | Строк на странице, 1–1000; по умолчанию 50. |
+| `cursor?` | `number` | Сколько строк пропустить: nextCursor прошлой страницы. |
 
 ### SchemaTypesResult
 
@@ -1618,13 +1660,12 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `types` | `{…}[]` | Типы страницы. |
-| `types[].type` | `string` | Тип объекта. |
-| `types[].catalog?` | `string` | Каталог типа; у части типов каталога нет. |
+| `types` | `{…}[]` | Типы страницы, за ними — каталоги без своего типа объекта. |
+| `types[].type?` | `string` | Тип объекта; нет — строка каталога без своего типа объекта: документов у его строк нет. |
+| `types[].catalog?` | `string` | Каталог; у части типов каталога нет. |
 | `types[].title?` | `string` | Заголовок на языке сервера. |
-| `types[].customFields` | `number \| "by kind"` | Сколько настраиваемых полей; "by kind" — они зависят от вида объекта (kind у schema). |
-| `total` | `number` | Сколько типов подходит всего. |
-| `catalogs` | `number` | Всего каталогов на сервере, включая те, у которых нет своего типа объекта. |
+| `types[].customFields?` | `number \| "by kind"` | Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). |
+| `total` | `number` | Сколько строк подходит всего. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
 | `notes?` | `string[]` | Пояснения к списку. |
 

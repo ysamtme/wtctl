@@ -6,7 +6,7 @@ import type { CreatedObjectData, PatchPreviewData, PatchedObjectData, DeletedObj
 import type { ServerInfoInput, ServerInfoData, ServerDatabase } from "./server-info.js";
 import type { FileExistsInput, FileExistsData, FileReadInput, FileReadData } from "./files.js";
 import type { FileWriteInput, FileWriteData, FileDeleteInput, FileDeleteData } from "./files.js";
-import type { FileListInput, FileListData } from "./files.js";
+import type { FileListInput, FileListData, FileSaveInput, FileSaveData } from "./files.js";
 import type { SchemaInput, SchemaResult, SchemaTypesInput, SchemaTypesResult } from "./schema.js";
 import type { ConnectionConfig, OperationDefinition, OperationError, OperationFilter, OperationPage, OperationResult } from "./contracts.js";
 import type { LogListInput, LogReadInput, LogSearchInput, LogFollowInput } from "./logs.js";
@@ -510,13 +510,18 @@ export declare class HcmClient {
     serverInfo(input?: ServerInfoInput): Promise<HcmResult<ServerInfoData>>;
     /** Есть ли файл или папка по адресу x-local://…; о содержимом и правах ответ ничего не говорит. */
     fileExists(input: FileExistsInput): Promise<HcmResult<FileExistsData>>;
+    /** Сохраняет файл сервера на этот компьютер байт в байт, любого размера. */
+    readFile(input: FileSaveInput): Promise<HcmResult<FileSaveData>>;
     /** Файл по адресу сервера: text, если это текст в UTF-8, иначе base64. */
     readFile(input: FileReadInput): Promise<HcmResult<FileReadData>>;
+    /** Аргумент, собранный заранее как FileReadInput или FileSaveInput: ответ — FileReadData или FileSaveData. */
+    readFile(input: FileReadInput | FileSaveInput): Promise<HcmResult<FileReadData | FileSaveData>>;
     /** Один уровень папки сервера: файлы с размером и вложенные папки. Нужно право execute. */
     listFiles(input: FileListInput): Promise<HcmResult<FileListData>>;
     /**
-     * Записывает файл по адресу x-local://… целиком; папки сервер создаёт сам. Нужно право write,
-     * в папку кода (wt, wtv, custom…) — ещё execute.
+     * Записывает файл по адресу x-local://… целиком из text, base64 или файла на диске (file) и сверяет
+     * записанное; папки сервер создаёт сам. Нужно право write, в папку кода (wt, wtv, custom…) — ещё
+     * execute.
      */
     writeFile(input: FileWriteInput): Promise<HcmResult<FileWriteData>>;
     /** Удаляет файл по адресу x-local://…. Нужно право write, в папке кода — ещё execute. */
@@ -581,7 +586,7 @@ export declare class HcmClient {
     readResult<T = unknown>(input: ResultReadInput): Promise<HcmResult<ResultPage<T>>>;
     /** Записывает сохранённый результат целиком в файл на этом компьютере. */
     exportResult(input: ResultExportInput): Promise<HcmResult<ResultExportData>>;
-    /** Загружает файл до 8 МБ так же, как админка; нужно право write. */
+    /** Загружает файл в папку загрузок сервера так же, как админка; нужно право write. */
     uploadFile(input: UploadFileInput): Promise<HcmResult<UploadedFileData>>;
     /**
      * Отправляет одну часть загрузки по частям; последняя часть собирает файл. Нужно право write.

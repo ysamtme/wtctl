@@ -27,6 +27,8 @@ export interface PatchPreviewData {
     readonly changes: PatchChange[];
     /** Отпечаток документа сейчас: expectedFingerprint для записи. */
     readonly fingerprint: string;
+    /** Поля правки, которые сервер заполняет сам при сохранении: записанное значение он, скорее всего, заменит. */
+    readonly serverFilled?: string[];
 }
 /** Ответ patch, когда правка записана. */
 export interface PatchedObjectData {
@@ -90,7 +92,8 @@ export declare class ServerObjects {
     /**
      * Чего сервер не сохранит, отклоняется до записи: поле, которого нет у типа, выпадает из
      * сохранённого документа, как и значение поля, которое сервер вычисляет сам, а дата, которую
-     * сервер не может прочитать, сохраняется другим значением.
+     * сервер не может прочитать, сохраняется другим значением. Ответ — поля, которые сервер
+     * заполняет при сохранении сам, с полем, из которого их стоит менять, если оно угадывается.
      */
     private requireFields;
     create(args: Record<string, unknown>, out: WriteOutcome): Promise<CreatedObjectData>;

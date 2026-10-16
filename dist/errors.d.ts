@@ -29,3 +29,7 @@ export declare function requiredString(value: unknown, path: string): string;
 export declare function boundedInteger(value: unknown, fallback: number, max: number, path: string): number;
 /** Текст XML-узла, являющегося строкой или имеющего #text; иначе в ответе сервера текста нет. */
 export declare function scalar(value: unknown, label: string): string;
+/** Известное имя похоже на названное: одно содержит другое или отличается опечаткой в одну букву. */
+export declare function isSimilarName(known: string, asked: string): boolean;
+/** Начало подсказки к неизвестному имени: до пяти похожих, первыми — названные раньше. */
+export declare function similarHint(names: Iterable<string>): string;

@@ -49,6 +49,7 @@ npm install -g wtctl
 | --- | --- |
 | Claude Code, Codex | А. Плагин |
 | Cursor, VS Code с Copilot, Copilot CLI, Gemini CLI | Б. Плагин, не проверено |
+| opencode | В. Только MCP-сервер, [с выключенным Code Mode](#opencode) |
 | Любое приложение с поддержкой MCP | В. Только MCP-сервер |
 
 Плагин и отдельный MCP-сервер в одном приложении не нужны: агент увидит два MCP-сервера и два навыка. Если MCP-сервер `wtctl` уже добавлен в конфиг приложения вручную или навык `wtctl` уже лежит отдельной папкой (`~/.claude/skills/wtctl`, `~/.agents/skills/wtctl`), перед установкой плагина их нужно убрать.
@@ -160,10 +161,33 @@ codex mcp add wtctl -- npx -y wtctl mcp
 
 Навыка в этом варианте нет. Агент читает гайд через `hcm_guide`. Навык можно положить отдельно: скопировать папку [skills/wtctl](../skills/wtctl/SKILL.md) в папку навыков приложения.
 
+#### opencode
+
+MCP-сервер записывается в `~/.config/opencode/opencode.json` (в Windows это `C:\Users\ИМЯ\.config\opencode\opencode.json`), для одного проекта — в `opencode.json` в папке проекта:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "wtctl": {
+        "type": "local",
+        "command": ["npx", "-y", "wtctl", "mcp"],
+        "codemode": false
+      }
+    }
+  }
+}
+```
+
+Команда `opencode mcp add --global wtctl -- npx -y wtctl mcp` делает ту же запись без `codemode`, его нужно дописать. Без `--global` запись попадает в `opencode.json` текущей папки.
+
+`"codemode": false` выключает для MCP-сервера Code Mode, который в opencode включён по умолчанию. В Code Mode (проверено на opencode 2.0.29) модель вызывает инструменты из кода JS в инструменте `execute`, сразу видит только часть из них с описаниями, обрезанными примерно до 120 знаков, а отказ инструмента получает исключением с JSON ответа в тексте. Без Code Mode инструменты видны обычными, с именами `wtctl_hcm_*`.
+
 ## Шаг 3. Проверка
 
 - Claude Code: `claude mcp list`. В списке должен быть MCP-сервер с пометкой `Connected`. Из плагина он называется `plugin:wtctl:wtctl`.
 - Codex: `codex mcp list`. В списке должен быть MCP-сервер `wtctl`. Запускается ли он, эта команда не проверяет.
+- opencode: `opencode mcp list`. В списке должно быть `wtctl  connected`. Первый вызов после запуска фонового сервиса opencode может ответить `No MCP servers configured`, тогда команда повторяется.
 
 Затем в новом чате попросить агента вызвать `hcm_status`. В ответе должны быть версия сервера HCM и права подключения.
 
@@ -292,6 +316,16 @@ claude plugin update wtctl@wtctl
 
 - Глобальный пакет, если он ставился: `npm uninstall -g wtctl`.
 - Папка `~/.wtctl`: в ней лежат файл подключений и сохранённые большие ответы.
+
+## Установка из архива пакета
+
+Архив `wtctl-X.Y.Z.tgz` (его собирает `npm pack`) ставится как пакет из npm, только вместо имени — путь к архиву:
+
+```shell
+npm install -g ./wtctl-X.Y.Z.tgz
+```
+
+Дальше всё как после `npm install -g wtctl`: команда `wtctl`, MCP-сервер `"command": "wtctl", "args": ["mcp"]`. Без установки архив распаковывается (`tar -xzf wtctl-X.Y.Z.tgz`) в папку `package`: CLI запускается как `node package/dist/cli/bin.js`, MCP-сервер — `"command": "node", "args": ["ПОЛНЫЙ_ПУТЬ/package/dist/cli/bin.js", "mcp"]`.
 
 ## Установка из папки
 

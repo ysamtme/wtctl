@@ -1,6 +1,6 @@
 import { HcmError } from "./errors.js";
 import type { ServerPort } from "./hcm-server.js";
-export type LogGateway = ServerPort;
+export type LogGateway = Pick<ServerPort, "call">;
 export interface LogFile {
     readonly name: string;
     readonly url: string;

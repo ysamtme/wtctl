@@ -372,8 +372,7 @@ export interface ClearUploadChunksResult {
 export declare class WebPageApi {
     private readonly transport;
     private readonly uploadToken?;
-    private readonly maximumUploadBytes;
-    constructor(transport: HttpTransport, uploadToken?: (() => string | undefined) | undefined, maximumUploadBytes?: number);
+    constructor(transport: HttpTransport, uploadToken?: (() => string | undefined) | undefined);
     /** Прочитать штатную страницу предпросмотра PDF как текст. */
     filePreviewPdf(options?: RequestOptions): Promise<WsHcmResponse<string>>;
     /** Прочитать форму по локальному URL сервера как текст. */
@@ -406,9 +405,9 @@ export declare class WebPageApi {
     }, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
     /**
      * Загрузить один файл штатным способом: multipart с полями f и session_token.
-     * Текущий токен страницы подставляет веб-сессия, которой принадлежит вызов. Размер
-     * ограничен maxResponseBytes и пределом клиента 8 МиБ; части и старый вариант
-     * с base64 не используются. Успешный ответ содержит Url.
+     * Текущий токен страницы подставляет сессия web, которой принадлежит вызов. Размер ограничивает
+     * политика загрузки сервера; части и старый вариант с base64 не используются. Успешный ответ
+     * содержит Url.
      * @mutating Сохраняет файл на сервере; срабатывают правила загрузки платформы.
      */
     uploadFile(request: {

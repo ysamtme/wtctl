@@ -9,7 +9,7 @@ import {
   nativeEffect,
   prepare,
   validate
-} from "./chunks/chunk-7HGZVYS3.js";
+} from "./chunks/chunk-537E3SUJ.js";
 import {
   ArgumentError,
   WebSocketHeartbeatError,
@@ -27,30 +27,7 @@ import {
   parseXml,
   resolvePhysicalDocumentLocation,
   validatePlatformXmlSource
-} from "./chunks/chunk-NNC7WAPQ.js";
-
-// src/operation.ts
-function operation(spec) {
-  return spec;
-}
-function definitionOf(spec) {
-  return spec.native ?? {
-    id: spec.id,
-    group: spec.id.split(".")[0],
-    title: spec.id,
-    description: spec.description,
-    effect: spec.effect,
-    inputSchema: spec.inputSchema
-  };
-}
-var string = { type: "string" };
-var integer = { type: "integer", minimum: 0 };
-var boolean = { type: "boolean" };
-var object = { type: "object" };
-var fields = { type: "array", items: string };
-function schema(properties, required = []) {
-  return { type: "object", properties, required, additionalProperties: false };
-}
+} from "./chunks/chunk-O7P4SP3L.js";
 
 // src/errors.ts
 var HcmError = class extends Error {
@@ -109,6 +86,47 @@ function scalar(value, label) {
   if (value && typeof value === "object" && "#text" in value)
     return String(value["#text"]);
   throw new HcmError("PLATFORM_RESPONSE", `В ответе сервера нет ${label}.`);
+}
+function oneEditApart(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) endA--, endB--;
+  const restA = a.slice(start, endA);
+  const restB = b.slice(start, endB);
+  return Math.max(restA.length, restB.length) <= 1 || restA.length === 2 && restB.length === 2 && restA === restB[1] + restB[0];
+}
+function isSimilarName(known, asked) {
+  return !!known && (asked.length >= 3 && known.includes(asked) || known.length >= 3 && asked.includes(known) || oneEditApart(known, asked));
+}
+function similarHint(names) {
+  const near = [...new Set(names)].filter(Boolean).slice(0, 5);
+  return near.length ? `Похожие: ${near.join(", ")}. ` : "";
+}
+
+// src/operation.ts
+function operation(spec) {
+  return spec;
+}
+function definitionOf(spec) {
+  return spec.native ?? {
+    id: spec.id,
+    group: spec.id.split(".")[0],
+    title: spec.id,
+    description: spec.description,
+    effect: spec.effect,
+    inputSchema: spec.inputSchema
+  };
+}
+var string = { type: "string" };
+var integer = { type: "integer", minimum: 0 };
+var boolean = { type: "boolean" };
+var object = { type: "object" };
+var fields = { type: "array", items: string };
+function schema(properties, required = []) {
+  return { type: "object", properties, required, additionalProperties: false };
 }
 
 // src/server-value.ts
@@ -237,6 +255,25 @@ function uploadedFile(answer) {
   }
   return answer;
 }
+function uploadFailure(error) {
+  if (!(error instanceof WsHcmApiError)) return error;
+  if (error.details?.chunkFailed === true) {
+    const joining = error.status === 503;
+    return new HcmError(
+      "PLATFORM_HTTP",
+      joining ? "Сервер не собрал файл из частей (HTTP 503)." : `Сервер не записал часть файла (HTTP ${error.status}).`,
+      `Загрузку повторить целиком.${joining ? " Если сборка упала, причина — в строке ERROR[upload_big_file] лога xhttp: последние строки показывает logs.follow." : ""}`,
+      { status: error.status }
+    );
+  }
+  if (error.details?.uploadRefused !== true) return error;
+  const reason = error.details.reason;
+  return new HcmError(
+    "UPLOAD_REFUSED",
+    typeof reason === "string" ? reason : `Сервер не принял файл в загрузку (HTTP ${error.status}). Причину он пишет только в свой лог xhttp за сегодня: последние строки показывает logs.follow.`,
+    "Сервер принимает в загрузку только имена из своей политики загрузки (resource_sec.json): обычно .txt, .xml, .zip, документы и картинки; .js, .json, .css, .html, .svg, .bin и имена без расширения — нет. Файл по своему адресу записывает files.write."
+  );
+}
 function asyncStatus(answer) {
   if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return answer;
   const data2 = answer;
@@ -272,13 +309,15 @@ var FACES = {
   },
   // Тема files.
   "web.pages.uploadFile": {
-    summary: "Загрузить файл до 8 МБ в папку загрузок сервера; ответ содержит его адрес.",
+    summary: "Загрузить файл в папку загрузок сервера; ответ содержит его адрес.",
     details: 'filename — имя без пути; data — текст или {base64:"…"}. Ответ: url — адрес файла, folderUrl — папка, которую сервер создал для него.',
-    answer: uploadedFile
+    answer: uploadedFile,
+    failure: uploadFailure
   },
   "web.pages.uploadChunk": {
     summary: "Загрузить одну часть большого файла.",
-    details: "fileId — 32 шестнадцатеричных знака, его выбирает вызывающий. Части идут по порядку, последняя собирает файл. Ответ сервера не доказывает, что часть сохранена. При ошибке на последней части вслепую повторять нельзя: адрес итогового файла может остаться неизвестным."
+    details: "fileId — 32 шестнадцатеричных знака, его выбирает вызывающий. Части идут по порядку, последняя собирает файл. Ответ сервера не доказывает, что часть сохранена. При ошибке на последней части вслепую повторять нельзя: адрес итогового файла может остаться неизвестным.",
+    failure: uploadFailure
   },
   "web.pages.clearUploadChunks": {
     summary: "Удалить загруженные части файла.",
@@ -350,7 +389,7 @@ var FACES = {
   }
 };
 var nativeOperations = getNativeOperations().map((native) => {
-  const { answer, ...texts } = FACES[native.id] ?? {};
+  const { answer, failure, ...texts } = FACES[native.id] ?? {};
   return operation({
     id: native.id,
     effect: native.effect,
@@ -360,13 +399,10 @@ var nativeOperations = getNativeOperations().map((native) => {
     inputSchema: native.inputSchema,
     native,
     run: async (context, args, call) => {
-      prepare(args, native.inputSchema);
       const raw = withoutXmlFormatting(
-        await context.server.call(
-          native.id,
-          args,
-          call.effect === "read" ? void 0 : call.outcome
-        )
+        await context.server.call(native.id, args, call.effect === "read" ? void 0 : call.outcome).catch((error) => {
+          throw failure ? failure(error) : error;
+        })
       );
       return answer ? answer(raw) : raw;
     }
@@ -428,6 +464,7 @@ function decimalLiteral(value) {
   if (point >= digits.length) return `${sign}${digits}${"0".repeat(point - digits.length)}`;
   return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
 }
+var OPERATOR_HINT = 'Условие пишется как {поле: {оператор: значение}}, например {fullname: {contains: "Иван"}}; равенство — {поле: значение}.';
 function catalogQuery(catalog, where = {}, dates = /* @__PURE__ */ new Set(), order, integers = /* @__PURE__ */ new Set()) {
   const name3 = identifier(catalog, "catalog");
   const conditions = [];
@@ -442,7 +479,7 @@ function catalogQuery(catalog, where = {}, dates = /* @__PURE__ */ new Set(), or
         throw new HcmError(
           "INVALID_FILTER_OPERATOR",
           "В условии по полю нет оператора.",
-          void 0,
+          OPERATOR_HINT,
           { field }
         );
       for (const [operation2, value] of operators) {
@@ -460,7 +497,9 @@ function catalogQuery(catalog, where = {}, dates = /* @__PURE__ */ new Set(), or
           throw new HcmError(
             "INVALID_FILTER_OPERATOR",
             "Операторы условия: eq, ne, gt, gte, lt, lte, contains, in. Для in нужен массив от 1 до 100 значений.",
-            void 0,
+            operation2 === "in" ? 'Пример: {role_id: {in: ["admin", "user"]}}.' : /^\$?(starts?_?with|begins?_?with|prefix|ends?_?with|suffix|i?like|regexp?|match(es)?)$/i.test(
+              operation2
+            ) ? "Условий «начинается с» и шаблонов нет: формы, которая работает на обеих базах данных, сервер не даёт. Подходит contains, а строки по началу значения отбираются после ответа." : OPERATOR_HINT,
             { field, operation: operation2 }
           );
       }
@@ -891,6 +930,306 @@ var batchOperations = [
   })
 ];
 
+// src/config.ts
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+var KIB = 1024;
+var MIB = 1024 * KIB;
+var GIB = 1024 * MIB;
+var MAX_CONFIG_BYTES = MIB;
+var SETUP_HINT = "Нужно задать WTCTL_URL, WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init.";
+function homeDirectory() {
+  return resolve(process.env.WTCTL_HOME || join(homedir(), ".wtctl"));
+}
+function defaultConfigPath() {
+  return join(homeDirectory(), "connections.json");
+}
+function readConfiguration(path) {
+  let file;
+  try {
+    file = openSync(path, "r");
+  } catch (error) {
+    if (error.code === "ENOENT")
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `Файл подключений не найден: ${path}.`,
+        "Нужно проверить --config и WTCTL_CONFIG или создать файл: wtctl config init."
+      );
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Файл подключений не открывается: ${path}.`,
+      "Проверить права на файл."
+    );
+  }
+  try {
+    const info = fstatSync(file);
+    if (!info.isFile())
+      throw new HcmError("INVALID_CONFIG", `Файл подключений — не файл: ${path}.`);
+    if (info.size > MAX_CONFIG_BYTES)
+      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
+    const bytes = Buffer.alloc(MAX_CONFIG_BYTES + 1);
+    let used = 0;
+    while (used < bytes.length) {
+      const count = readSync(file, bytes, used, bytes.length - used, null);
+      if (!count) break;
+      used += count;
+    }
+    if (used > MAX_CONFIG_BYTES)
+      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, used));
+  } finally {
+    closeSync(file);
+  }
+}
+function parseConfiguration(text3, path) {
+  let value;
+  try {
+    value = JSON.parse(text3);
+  } catch (error) {
+    const position = /position (\d+)/.exec(error instanceof Error ? error.message : "")?.[1];
+    const line = position === void 0 ? void 0 : text3.slice(0, Number(position)).split("\n").length;
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Файл подключений ${path} — не JSON${line === void 0 ? "" : `: ошибка в строке ${line}`}.`,
+      "Образец файла показывает wtctl config example."
+    );
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Файл подключений ${path} должен содержать объект JSON.`,
+      "Образец файла показывает wtctl config example."
+    );
+  return value;
+}
+function bool(value, fallback, field) {
+  if (value === void 0) return fallback;
+  if (value === true || value === "true" || value === "1") return true;
+  if (value === false || value === "false" || value === "0") return false;
+  throw new HcmError("INVALID_CONFIG", `${field}: нужно true или false.`);
+}
+function string2(value, field) {
+  if (value === void 0) return void 0;
+  if (typeof value !== "string" || value.length === 0)
+    throw new HcmError("INVALID_CONFIG", `${field}: нужна непустая строка.`);
+  return value;
+}
+function object3(value, field) {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new HcmError("INVALID_CONFIG", `${field}: нужен объект.`);
+  return value;
+}
+function integer2(fallback, minimum, maximum, unlimited = false) {
+  return (value, field) => {
+    if (value === void 0) return fallback;
+    const parsed = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+    if (typeof parsed !== "number" || !Number.isSafeInteger(parsed) || parsed < minimum && !(unlimited && parsed === 0) || parsed > maximum)
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `${field}: нужно целое число от ${minimum} до ${maximum}${unlimited ? "; 0 — без предела" : ""}.`
+      );
+    return parsed;
+  };
+}
+var folder = (value, field) => resolve(string2(value, field) ?? join(homeDirectory(), "runtime"));
+var LOCAL_LIMITS = {
+  resultsMaxBytes: GIB,
+  resultsMaxAgeDays: 7,
+  journalMaxBytes: 10 * MIB
+};
+var SETTINGS = {
+  timeoutMs: ["WTCTL_TIMEOUT_MS", integer2(3e4, 1, 6e5)],
+  maxResponseBytes: ["WTCTL_MAX_RESPONSE_BYTES", integer2(32 * MIB, KIB, 512 * MIB)],
+  outputLimitBytes: ["WTCTL_OUTPUT_LIMIT_BYTES", integer2(24 * KIB, KIB, MIB)],
+  runtimeDir: ["WTCTL_RUNTIME_DIR", folder],
+  resultsMaxBytes: [
+    "WTCTL_RESULTS_MAX_BYTES",
+    integer2(LOCAL_LIMITS.resultsMaxBytes, KIB, 1024 * GIB, true)
+  ],
+  resultsMaxAgeDays: [
+    "WTCTL_RESULTS_MAX_AGE_DAYS",
+    integer2(LOCAL_LIMITS.resultsMaxAgeDays, 1, 3650, true)
+  ],
+  journalMaxBytes: [
+    "WTCTL_JOURNAL_MAX_BYTES",
+    integer2(LOCAL_LIMITS.journalMaxBytes, KIB, GIB, true)
+  ]
+};
+var OWN_FIELDS = ["baseUrl", "username", "password", "permissions"];
+function credential(profile, field, globalOverrides) {
+  const envName = string2(profile[`${field}Env`], `${field}Env`);
+  if (envName !== void 0 && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName))
+    throw new HcmError("INVALID_CONFIG", `${field}Env: это не имя переменной окружения.`);
+  const global = globalOverrides ? process.env[`WTCTL_${field.toUpperCase()}`] : void 0;
+  if (global !== void 0 || envName === void 0) return string2(global ?? profile[field], field);
+  const value = process.env[envName];
+  if (!value)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Переменная ${envName} из ${field}Env не задана или пуста.`,
+      "Нужно задать её в окружении процесса; у MCP-сервера — в env его записи."
+    );
+  return value;
+}
+function loadConfig(options = {}) {
+  const settings = object3(options.settings ?? {}, "settings");
+  for (const key of Object.keys(settings))
+    if (!Object.hasOwn(SETTINGS, key) && !OWN_FIELDS.includes(key))
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `settings.${key}: такого поля нет.`,
+        `Поля settings: ${[...OWN_FIELDS, ...Object.keys(SETTINGS)].join(", ")}.`
+      );
+  const standalone = settings.baseUrl !== void 0;
+  if (standalone && options.configPath !== void 0)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "settings.baseUrl задаёт подключение целиком, а configPath называет файл подключений.",
+      "Нужно оставить что-то одно: settings.baseUrl или configPath."
+    );
+  const explicit = options.configPath ?? process.env.WTCTL_CONFIG;
+  const own = standalone ? void 0 : OWN_FIELDS.find((key) => settings[key] !== void 0);
+  if (own !== void 0)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `settings.${own}: адрес, учётные данные и права подключения из файла или переменных кодом не меняются.`,
+      "Отдельное подключение задаёт settings с baseUrl, а с ним username, password и permissions."
+    );
+  const path = standalone ? void 0 : explicit ?? (process.env.WTCTL_URL === void 0 && existsSync(defaultConfigPath()) ? defaultConfigPath() : void 0);
+  let document = {};
+  if (path !== void 0) {
+    let text3;
+    try {
+      text3 = readConfiguration(path);
+    } catch (error) {
+      if (error instanceof HcmError) throw error;
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `Файл подключений не читается: ${path}.`,
+        "Файл должен быть текстом UTF-8."
+      );
+    }
+    document = parseConfiguration(text3, path);
+  }
+  let name3 = options.connection;
+  let chosen = "Имя задано в --connection или аргументе connection.";
+  if (name3 === void 0 && !standalone) {
+    name3 = process.env.WTCTL_CONNECTION;
+    chosen = "Имя взято из переменной WTCTL_CONNECTION.";
+    if (name3 === void 0) {
+      name3 = string2(document.defaultConnection, "defaultConnection");
+      chosen = "Имя взято из defaultConnection файла.";
+    }
+  }
+  if (name3 === void 0) {
+    name3 = "default";
+    chosen = "Имя по умолчанию: --connection, WTCTL_CONNECTION и defaultConnection не заданы.";
+  }
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name3))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Имя подключения: до 64 латинских букв, цифр и знаков . _ -",
+      chosen
+    );
+  let profile = standalone ? settings : {};
+  const globalOverrides = !standalone && document.connections === void 0;
+  if (document.connections !== void 0) {
+    const connections = object3(document.connections, "connections");
+    if (connections[name3] === void 0)
+      throw new HcmError(
+        "UNKNOWN_CONNECTION",
+        `В файле подключений ${path} нет подключения ${name3}. ${chosen}`,
+        `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}. Имя задают --connection, WTCTL_CONNECTION или defaultConnection файла; первое заданное сильнее.`,
+        { connection: name3 }
+      );
+    profile = object3(connections[name3], "connection");
+  } else if (Object.keys(document).length > 0) profile = document;
+  const baseUrl = string2(
+    (globalOverrides ? process.env.WTCTL_URL : void 0) ?? profile.baseUrl,
+    "baseUrl"
+  );
+  if (baseUrl === void 0)
+    throw path === void 0 ? new HcmError("NOT_CONFIGURED", "Подключение к серверу не настроено.", SETUP_HINT) : new HcmError(
+      "INVALID_CONFIG",
+      `В подключении ${name3} не задан адрес сервера (baseUrl).`,
+      "Образец файла показывает wtctl config example."
+    );
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера должен быть полным: http://сервер:порт или https://сервер."
+    );
+  }
+  if (!/^(https?:)$/.test(url.protocol) || url.username || url.password || url.search || url.hash)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера: только http или https, без имени и пароля, без ? и #."
+    );
+  const username = credential(profile, "username", globalOverrides);
+  const password = options.password ?? credential(profile, "password", globalOverrides);
+  if (username === void 0 !== (password === void 0))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `Имя пользователя и пароль задают вместе: не задан${username === void 0 ? "о имя пользователя" : " пароль"}.`,
+      globalOverrides ? "Переменные WTCTL_USERNAME и WTCTL_PASSWORD." : standalone ? "Поля username и password в settings." : "Поля username и password подключения либо переменные, названные в usernameEnv и passwordEnv."
+    );
+  const permissions = profile.permissions === void 0 ? {} : object3(profile.permissions, "permissions");
+  const values = Object.fromEntries(
+    Object.entries(SETTINGS).map(([field, [variable, parse]]) => [
+      field,
+      parse(settings[field] ?? process.env[variable] ?? profile[field], `${field} (${variable})`)
+    ])
+  );
+  const config = {
+    name: name3,
+    baseUrl: url.href,
+    ...username === void 0 ? {} : { username },
+    ...password === void 0 ? {} : { password },
+    ...values,
+    permissions: {
+      write: bool(
+        (globalOverrides ? process.env.WTCTL_ALLOW_WRITE : void 0) ?? permissions.write,
+        false,
+        "permissions.write"
+      ),
+      execute: bool(
+        (globalOverrides ? process.env.WTCTL_ALLOW_EXECUTE : void 0) ?? permissions.execute,
+        false,
+        "permissions.execute"
+      )
+    }
+  };
+  const origin = standalone ? "settings" : path === void 0 ? "environment" : { listed: !globalOverrides, named: explicit !== void 0 };
+  origins.set(config, origin);
+  copies.set(copyKey(config), origin);
+  return config;
+}
+var origins = /* @__PURE__ */ new WeakMap();
+var copies = /* @__PURE__ */ new Map();
+var copyKey = (config) => `${config.name}
+${config.baseUrl}`;
+var servedByMcp = /* @__PURE__ */ new WeakSet();
+function permissionHint(config, right) {
+  const origin = origins.get(config) ?? copies.get(copyKey(config));
+  const field = `permissions.${right}: true`;
+  const variable = `WTCTL_ALLOW_${right.toUpperCase()}=true`;
+  const restart = servedByMcp.has(config) ? " MCP-сервер видит правку после перезапуска." : "";
+  if (origin === void 0)
+    return `Право ${right} включает владелец подключения в его настройках (permissions.${right}).${restart}`;
+  if (origin === "settings")
+    return `Право ${right} подключению из settings даёт settings.${field} в loadConfig.`;
+  let where = `переменная ${variable} рядом с WTCTL_URL (у MCP-сервера — в env его записи)`;
+  if (origin !== "environment") {
+    const file = origin.named ? "в файле подключений из --config или WTCTL_CONFIG" : "в файле подключений (путь показывает wtctl config path)";
+    where = origin.listed ? `${field} у подключения ${config.name} ${file}` : `${field} ${file} или переменная ${variable}`;
+  }
+  return `Право ${right} включает владелец подключения: ${where}.${restart}`;
+}
+
 // src/documents.ts
 import { createHash } from "node:crypto";
 var parser = createPlatformXmlParser({
@@ -1034,10 +1373,18 @@ function sameKey(stored, key) {
   const text3 = String(stored);
   return text3 === key || ID_TEXT.test(text3) && ID_TEXT.test(key) && BigInt(text3) === BigInt(key);
 }
-function brief(value) {
+function sameValue(stored, value, replacement) {
+  if (typeof value === "boolean") return stored === String(value) || stored === (value ? "1" : "0");
+  if (typeof value === "string" || typeof value === "number")
+    return typeof stored === "string" && sameKey(stored, String(withoutFalseOffset(String(value))));
+  return replacement.length === 1 && JSON.stringify(withoutFalseOffset(compact(children(replacement[0])))) === JSON.stringify(stored);
+}
+function brief(value, nested = false) {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return `[${value.length} items]`;
-  const keys = Object.entries(value).map(
+  const entries = Object.entries(value);
+  if (!nested) return Object.fromEntries(entries.map(([key, item]) => [key, brief(item, true)]));
+  const keys = entries.map(
     ([key, item]) => Array.isArray(item) ? `${key}: ${item.length} items` : key
   );
   return `{${keys.slice(0, 4).join(", ")}${keys.length > 4 ? ", …" : ""}}`;
@@ -1124,6 +1471,12 @@ var XmlDocument = class _XmlDocument {
       let created = false;
       if (operation2.op !== "set" && operation2.op !== "remove")
         throw new HcmError("INVALID_PATCH", "op: поддерживаются set и remove.");
+      const absent = () => new HcmError(
+        "PATCH_PATH_MISSING",
+        `remove: в документе нет ${path}.`,
+        "Ничего не записано. Что есть в документе, показывает objects.get.",
+        { path }
+      );
       let parent = children(workingRoot);
       for (let index = 0; index < segments.length; index++) {
         const match = segments[index];
@@ -1154,8 +1507,8 @@ var XmlDocument = class _XmlDocument {
             { path }
           );
         if (index < segments.length - 1) {
+          if (!chosen && operation2.op === "remove") throw absent();
           if (!chosen && position === void 0 && (createdKeyedElement || segments.slice(index).some((part) => part[3] !== void 0))) {
-            if (operation2.op === "remove") break;
             const node = encodeValue(field, key === void 0 ? {} : { [key]: keyValue });
             chosen = { node, i: parent.length };
             parent.push(node);
@@ -1174,9 +1527,10 @@ var XmlDocument = class _XmlDocument {
           parent = children(chosen.node);
           continue;
         }
+        const stored = chosen && !created ? withoutFalseOffset(compact(children(chosen.node))) : void 0;
         if (operation2.op === "remove") {
-          if (chosen) parent.splice(chosen.i, 1);
-          else if (key !== void 0) break;
+          if (!chosen) throw absent();
+          parent.splice(chosen.i, 1);
         } else {
           if (!Object.hasOwn(operation2, "value"))
             throw new HcmError("INVALID_PATCH", "Для set нужно value.", void 0, { path });
@@ -1202,9 +1556,8 @@ var XmlDocument = class _XmlDocument {
                 path
               }
             );
-          const stored = chosen ? compact(children(chosen.node)) : void 0;
-          if (stored !== operation2.value && withoutFalseOffset(stored) === operation2.value) {
-          } else if (chosen) {
+          if (stored !== void 0 && sameValue(stored, operation2.value, replacement)) continue;
+          if (chosen) {
             if (chosen.node[":@"] !== void 0 && replacement.length === 1)
               replacement[0][":@"] = chosen.node[":@"];
             parent.splice(chosen.i, 1, ...replacement);
@@ -1224,7 +1577,7 @@ var XmlDocument = class _XmlDocument {
         changes.push({
           op: operation2.op,
           path,
-          ...chosen && !created ? { before: brief(withoutFalseOffset(compact(children(chosen.node)))) } : {},
+          ...stored === void 0 ? {} : { before: brief(stored) },
           ...operation2.op === "set" ? { after: brief(operation2.value) } : {}
         });
       }
@@ -1509,23 +1862,20 @@ var SchemaReader = class {
   }
   unknownType(info, type, declared = []) {
     const catalogs = this.catalogs(info);
-    const own = catalogs.filter((item) => item.id === type).map((item) => text(item.object_type));
     const types = [
       ...catalogs.map((item) => text(item.object_type)),
       ...declared.map((item) => text(item.name))
     ].filter(Boolean);
     if (types.includes(type)) return void 0;
     const near = [
-      .../* @__PURE__ */ new Set([
-        ...own.filter(Boolean),
-        ...types.filter((item) => item.includes(type) || type.includes(item))
-      ])
-    ].slice(0, 5);
+      ...catalogs.filter((item) => item.id === type),
+      ...catalogs.filter((item) => isSimilarName(text(item.id), type))
+    ].map((item) => text(item.object_type)).concat(types.filter((item) => isSimilarName(item, type)));
     const rows = catalogs.filter((item) => !text(item.object_type) && text(item.id).startsWith(type)).map((item) => text(item.id)).slice(0, 3);
     return new HcmError(
       "UNKNOWN_TYPE",
       `На сервере нет типа объекта ${type}.`,
-      `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}${rows.length ? `Каталог без своего типа объекта: ${rows.join(", ")} — его поля показывает схема по имени каталога. ` : ""}Типы объектов показывает schema.types.`
+      `${similarHint(near)}${rows.length ? `Каталог без своего типа объекта: ${rows.join(", ")} — его поля показывает схема по имени каталога. ` : ""}Типы объектов показывает schema.types.`
     );
   }
   /**
@@ -1552,12 +1902,31 @@ var SchemaReader = class {
     return !declared.length || declared.some((item) => item.name === type);
   }
   /**
-   * Каталоги основной базы. Тип объекта сервер называет только у части из них. Рядом он
-   * перечисляет общие списки (common.…): это не каталоги, и они пропускаются.
+   * Каталоги по базам, основная — первой: каталоги user_data и ещё нескольких типов лежат в базе
+   * trash. Тип объекта сервер называет только у части каталогов. Рядом он перечисляет общие
+   * списки (common.…): это не каталоги, и они пропускаются.
    */
-  catalogs(info) {
+  databases(info) {
     const databases = serverDatabases(info);
-    return ((databases.find((db) => db.id === info.default_db_name) ?? databases[0])?.catalogs ?? []).filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)));
+    const main = databases.find((db) => db.id === info.default_db_name) ?? databases[0];
+    return (main ? [main, ...databases.filter((db) => db !== main)] : []).map(
+      (db) => db.catalogs.filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(text(item.id)))
+    );
+  }
+  catalogs(info) {
+    return this.databases(info).flat();
+  }
+  /** Каталоги с типом объекта; каталоги типа берутся из первой базы, где они есть. */
+  typedCatalogs(info) {
+    const seen = /* @__PURE__ */ new Set();
+    return this.databases(info).flatMap((catalogs) => {
+      const own = catalogs.filter((item) => text(item.object_type) && !seen.has(item.object_type));
+      for (const item of own) seen.add(item.object_type);
+      return own;
+    });
+  }
+  catalog(info, id) {
+    return this.catalogs(info).find((item) => item.id === id);
   }
   /** Тип строк каталога: названный сервером или, если нет, по форме каталога. */
   async rowType(catalog) {
@@ -1574,10 +1943,11 @@ var SchemaReader = class {
    * каталог без имени: тогда засчитывается каталог, названный по типу, если форма согласна.
    */
   async catalogsOf(info, type) {
-    const catalogs = this.catalogs(info);
-    const named = catalogs.filter((item) => item.object_type === type);
+    const named = this.typedCatalogs(info).filter((item) => item.object_type === type);
     if (named.length || !type) return named;
-    const plural = catalogs.find((item) => item.id === `${type}s` && !text(item.object_type));
+    const plural = this.catalogs(info).find(
+      (item) => item.id === `${type}s` && !text(item.object_type)
+    );
     return plural && await this.rowType(plural).catch(() => "") === type ? [{ ...plural, object_type: type }] : [];
   }
   async context(language) {
@@ -1652,23 +2022,23 @@ var SchemaReader = class {
     const roots = catalogRoots.filter((node) => attr(node, "SAMPLE") !== "1");
     const own = roots.find((node) => name2(node) === text(catalog.id));
     const record3 = find(roots, type) ?? (own ? children2(own).find((node) => attr(node, "MULTIPLE") === "1") : void 0);
-    const collect = (nodes, prefix = "", stack = []) => {
+    const collect2 = (nodes, prefix = "", stack = []) => {
       for (const node of nodes) {
         const key = name2(node);
         const base = attr(node, "TYPE");
         if (key === "INHERIT") {
           if (samples.has(base) && !stack.includes(base))
-            collect(children2(samples.get(base)), prefix, [...stack, base]);
+            collect2(children2(samples.get(base)), prefix, [...stack, base]);
         } else if (key && !/^(On|DocDesc)/.test(key)) {
           const path = prefix ? `${prefix}.${key}` : key;
           query.set(path, node);
           if (samples.has(base) && !stack.includes(base))
-            collect(children2(samples.get(base)), path, [...stack, base]);
-          collect(children2(node), path, stack);
+            collect2(children2(samples.get(base)), path, [...stack, base]);
+          collect2(children2(node), path, stack);
         }
       }
     };
-    if (record3) collect(children2(record3));
+    if (record3) collect2(children2(record3));
     return query;
   }
   /** Структура документа одного типа с унаследованными полями; читается один раз на форму. */
@@ -1679,20 +2049,22 @@ var SchemaReader = class {
       const root = roots.find((node) => name2(node) === type && attr(node, "SAMPLE") !== "1");
       const computed = /* @__PURE__ */ new Set();
       const stored = /* @__PURE__ */ new Set();
+      const serverFilled = /* @__PURE__ */ new Set();
       const shape = {
         fields: /* @__PURE__ */ new Set(),
         repeated: /* @__PURE__ */ new Set(),
         dates: /* @__PURE__ */ new Set(),
-        computed
+        computed,
+        serverFilled
       };
-      const collect = (nodes, prefix = "", stack = []) => {
+      const collect2 = (nodes, prefix = "", stack = []) => {
         if (stack.length > 64) return;
         for (const node of nodes) {
           const key = name2(node);
           const base = attr(node, "TYPE");
           const sample = samples.has(base) && !stack.includes(base) ? samples.get(base) : void 0;
           if (key === "INHERIT") {
-            if (sample) collect(children2(sample), prefix, [...stack, base]);
+            if (sample) collect2(children2(sample), prefix, [...stack, base]);
             else if (!stack.includes(base)) shape.partial = true;
             continue;
           }
@@ -1702,19 +2074,24 @@ var SchemaReader = class {
           if (!prefix) (attr(node, "PROPERTY") === "1" ? computed : stored).add(key);
           if (!prefix && base === "date") shape.dates.add(key);
           if (attr(node, "MULTIPLE") === "1") shape.repeated.add(path);
-          if (sample) collect(children2(sample), path, [...stack, base]);
-          collect(children2(node), path, stack);
+          if (sample) collect2(children2(sample), path, [...stack, base]);
+          collect2(children2(node), path, stack);
         }
       };
-      if (root) collect(children2(root));
+      if (root) collect2(children2(root));
       for (const key of stored) computed.delete(key);
+      const onSave = roots.find((node) => name2(node) === "OnBeforeSave");
+      const code = onSave ? attr(onSave, "EXPR") : "";
+      for (const key of stored)
+        if (code.includes(`TopElem.${key}.Clear()`) && new RegExp(String.raw`TopElem\.${key}\s*=(?!=)`).test(code))
+          serverFilled.add(key);
       return shape;
     });
   }
   /** Структура одной строки каталога; каталог назван или находится по типу объекта его строк. */
   async catalogShape(selector) {
     const info = await this.applicationInfo();
-    const catalogs = selector.catalog === void 0 ? await this.catalogsOf(info, selector.type ?? "") : this.catalogs(info).filter((item) => item.id === selector.catalog);
+    const catalogs = selector.catalog === void 0 ? await this.catalogsOf(info, selector.type ?? "") : [this.catalog(info, selector.catalog)].filter((item) => item !== void 0);
     if (catalogs.length !== 1) return void 0;
     const catalog = catalogs[0];
     return this.shape(`catalog#${text(catalog.id)}`, async () => {
@@ -1750,19 +2127,18 @@ var SchemaReader = class {
    */
   async explainQuery(catalogId, fields3) {
     const info = await this.applicationInfo();
-    const catalogs = this.catalogs(info);
-    const catalog = catalogs.find((item) => item.id === catalogId);
+    const catalog = this.catalog(info, catalogId);
     if (!catalog) {
       const near = [
         ...await this.catalogsOf(info, catalogId),
-        ...catalogs.filter(
-          (item) => text(item.id).includes(catalogId) || text(item.object_type) && catalogId.includes(text(item.object_type))
+        ...this.catalogs(info).filter(
+          (item) => isSimilarName(text(item.id), catalogId) || isSimilarName(text(item.object_type), catalogId)
         )
-      ].map((item) => text(item.id)).filter((item, index, all) => all.indexOf(item) === index).slice(0, 5);
+      ].map((item) => text(item.id));
       return new HcmError(
         "UNKNOWN_CATALOG",
         `На сервере нет каталога ${catalogId}.`,
-        `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Каталоги и их типы объектов показывает schema.types.`
+        `${similarHint(near)}Каталоги и их типы объектов показывает schema.types.`
       );
     }
     if (!fields3.length) return void 0;
@@ -1775,7 +2151,7 @@ var SchemaReader = class {
     return new HcmError(
       "UNKNOWN_CATALOG_FIELD",
       `В каталоге ${catalogId} нет поля: ${unknown.join(", ")}.`,
-      await this.hasDocuments(info, type) ? `Поиск идёт по строкам каталога, не по документам. Поля каталога: ${listed}; в schema.get для типа ${type} они отмечены query:true. Остальные поля документа читает objects.get.` : `Поля каталога: ${listed}; подробнее — schema.get по имени каталога ${catalogId}.`,
+      await this.hasDocuments(info, type) ? `Поиск идёт по строкам каталога, не по документам: в schema.get для типа ${type} поля каталога отмечены query:true, остальные поля документа читает objects.get. Поля каталога: ${listed}.` : `Поля каталога: ${listed}; подробнее — schema.get по имени каталога ${catalogId}.`,
       { fields: unknown }
     );
   }
@@ -1790,7 +2166,7 @@ var SchemaReader = class {
     } catch (error) {
       if (input2.url !== void 0 || requestedType === void 0) throw error;
       const declared = await this.declaredTypes(info);
-      const alternative = text(declared.find((item) => item.name === requestedType)?.form_url) || text(this.catalogs(info).find((item) => item.id === requestedType)?.form_url);
+      const alternative = text(declared.find((item) => item.name === requestedType)?.form_url) || text(this.catalog(info, requestedType)?.form_url);
       if (!alternative || alternative === formUrl) {
         throw this.unknownType(info, requestedType, declared) ?? error;
       }
@@ -1810,7 +2186,7 @@ var SchemaReader = class {
       );
     const type = name2(root);
     const catalog = (await this.catalogsOf(info, type))[0];
-    const mistaken = this.catalogs(info).find((item) => item.id === requestedType);
+    const mistaken = requestedType === void 0 ? void 0 : this.catalog(info, requestedType);
     const rows = mistaken ? await this.rowType(mistaken).catch(() => "") : "";
     const byCatalog = !!rows && rows !== requestedType;
     const rowsOnly = byCatalog && !await this.hasDocuments(info, rows);
@@ -2008,14 +2384,14 @@ var SchemaReader = class {
     const translations = await this.typeTranslations(info);
     const common = await this.commonData(info);
     const definitions = list(data(common.exchange_object_types).exchange_object_type);
-    const named = this.catalogs(info).filter((item) => text(item.object_type));
+    const named = this.typedCatalogs(info);
     const unnamed = [];
     for (const definition of definitions) {
       const type = text(definition.name);
       if (!type || named.some((item) => item.object_type === type)) continue;
       unnamed.push((await this.catalogsOf(info, type))[0] ?? { object_type: type });
     }
-    const types = [...named, ...unnamed].map((catalog) => {
+    const all = [...named, ...unnamed].map((catalog) => {
       const type = text(catalog.object_type);
       const definition = definitions.find((item) => item.name === type);
       const title = this.typeTitle(definition ?? {}, dictionary, translations);
@@ -2026,26 +2402,34 @@ var SchemaReader = class {
         ...title ? { title } : {},
         customFields: text(template.template_field) ? "by kind" : list(data(template.fields).field).length
       };
-    }).filter((item) => matches(input2.search, [item.type, item.catalog, item.title]));
-    const listed = new Set(types.map((item) => item.catalog));
-    const untyped = input2.search === void 0 ? [] : this.catalogs(info).filter((item) => !text(item.object_type)).map((item) => text(item.id)).filter(
+    });
+    const types = all.filter(
+      (item) => matches(input2.search, [item.type, item.catalog, item.title])
+    );
+    const listed = new Set(all.map((item) => item.catalog));
+    const untyped = this.catalogs(info).filter((item) => !text(item.object_type)).map((item) => text(item.id)).filter(
       (id) => !listed.has(id) && (matches(input2.search, [id]) || types.length <= 20 && types.some((item) => id.startsWith(`${item.type}_`)))
-    ).slice(0, 5);
+    );
+    const rows = [...types, ...untyped.map((catalog) => ({ catalog }))];
+    const page = rows.slice(cursor, cursor + limit);
+    const notes = [
+      ...page.some((item) => !("type" in item)) ? [
+        "Строка без type — каталог без своего типа объекта: документов у его строк нет, искать в нём можно, поля строки показывает схема по имени каталога."
+      ] : [],
+      ...input2.search !== void 0 && !rows.length ? [
+        nothingFound(
+          "в имени типа, имени каталога и заголовке",
+          "collab, group",
+          input2.search,
+          "типе"
+        )
+      ] : []
+    ];
     return {
-      types: types.slice(cursor, cursor + limit),
-      total: types.length,
-      catalogs: this.catalogs(info).length,
-      ...cursor + limit < types.length ? { nextCursor: cursor + limit } : {},
-      ...input2.search !== void 0 && (!types.length || untyped.length) ? {
-        notes: [
-          untyped.length ? `${types.length ? "Каталоги" : "Типа с таким именем нет; есть каталоги"} без своего типа объекта: ${untyped.join(", ")}. Поля строки показывает схема по имени каталога.` : nothingFound(
-            "в имени типа, имени каталога и заголовке",
-            "collab, group",
-            input2.search,
-            "типе"
-          )
-        ]
-      } : {}
+      types: page,
+      total: rows.length,
+      ...cursor + limit < rows.length ? { nextCursor: cursor + limit } : {},
+      ...notes.length ? { notes } : {}
     };
   }
 };
@@ -2176,7 +2560,7 @@ async function checkServer(config, invoke) {
   };
   const probe = async (name3, id, args = {}, accept = (_) => {
   }) => {
-    const skipped = name3 !== "login" && report.checks[0]?.result === "failed" ? "сессия не открыта" : name3 === "execute" && !config.permissions.execute ? "выполнение кода не разрешено подключением" : void 0;
+    const skipped = name3 !== "login" && report.checks[0]?.result === "failed" ? "сессия не открыта" : name3 === "execute" && !config.permissions.execute ? `выполнение кода не разрешено подключением. ${permissionHint(config, "execute")}` : void 0;
     if (skipped) {
       report.checks.push({ name: name3, result: "skipped", reason: skipped });
       return;
@@ -2382,298 +2766,705 @@ var connectionOperations = [
   })
 ];
 
-// src/config.ts
-import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-var KIB = 1024;
-var MIB = 1024 * KIB;
-var GIB = 1024 * MIB;
-var MAX_CONFIG_BYTES = MIB;
-var SETUP_HINT = "Нужно задать WTCTL_URL, WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init.";
-function homeDirectory() {
-  return resolve(process.env.WTCTL_HOME || join(homedir(), ".wtctl"));
-}
-function defaultConfigPath() {
-  return join(homeDirectory(), "connections.json");
-}
-function readConfiguration(path) {
-  let file;
-  try {
-    file = openSync(path, "r");
-  } catch (error) {
+// src/files.ts
+import { createHash as createHash3 } from "node:crypto";
+import { open as open2, writeFile as writeFile2 } from "node:fs/promises";
+import { isAbsolute, resolve as resolve3 } from "node:path";
+
+// src/results.ts
+import { createHash as createHash2, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, stat, open, unlink } from "node:fs/promises";
+import { constants, copyFile, link, readdir, writeFile } from "node:fs/promises";
+import { dirname, join as join2, resolve as resolve2 } from "node:path";
+async function saveLocalFile(path, overwrite, fill, argument = "path") {
+  if (path.includes("\0"))
+    throw new HcmError("INVALID_ARGUMENT", `${argument}: в пути есть нулевой символ.`);
+  const target = resolve2(path);
+  const existing = await stat(target).catch(() => void 0);
+  if (existing?.isDirectory())
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      `${argument}: по этому пути папка, а нужен путь к файлу.`,
+      "К пути нужно добавить имя файла."
+    );
+  if (existing && !overwrite) throw fileExists();
+  const local2 = (error) => {
+    if (error.code === "EEXIST") throw fileExists();
     if (error.code === "ENOENT")
       throw new HcmError(
-        "INVALID_CONFIG",
-        `Файл подключений не найден: ${path}.`,
-        "Нужно проверить --config и WTCTL_CONFIG или создать файл: wtctl config init."
+        "FOLDER_NOT_FOUND",
+        "Папки для файла нет.",
+        "Сначала нужно создать папку."
       );
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `Файл подключений не открывается: ${path}.`,
-      "Проверить права на файл."
-    );
-  }
-  try {
-    const info = fstatSync(file);
-    if (!info.isFile())
-      throw new HcmError("INVALID_CONFIG", `Файл подключений — не файл: ${path}.`);
-    if (info.size > MAX_CONFIG_BYTES)
-      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
-    const bytes = Buffer.alloc(MAX_CONFIG_BYTES + 1);
-    let used = 0;
-    while (used < bytes.length) {
-      const count = readSync(file, bytes, used, bytes.length - used, null);
-      if (!count) break;
-      used += count;
-    }
-    if (used > MAX_CONFIG_BYTES)
-      throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, used));
-  } finally {
-    closeSync(file);
-  }
-}
-function parseConfiguration(text3, path) {
-  let value;
-  try {
-    value = JSON.parse(text3);
-  } catch (error) {
-    const position = /position (\d+)/.exec(error instanceof Error ? error.message : "")?.[1];
-    const line = position === void 0 ? void 0 : text3.slice(0, Number(position)).split("\n").length;
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `Файл подключений ${path} — не JSON${line === void 0 ? "" : `: ошибка в строке ${line}`}.`,
-      "Образец файла показывает wtctl config example."
-    );
-  }
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `Файл подключений ${path} должен содержать объект JSON.`,
-      "Образец файла показывает wtctl config example."
-    );
-  return value;
-}
-function bool(value, fallback, field) {
-  if (value === void 0) return fallback;
-  if (value === true || value === "true" || value === "1") return true;
-  if (value === false || value === "false" || value === "0") return false;
-  throw new HcmError("INVALID_CONFIG", `${field}: нужно true или false.`);
-}
-function string2(value, field) {
-  if (value === void 0) return void 0;
-  if (typeof value !== "string" || value.length === 0)
-    throw new HcmError("INVALID_CONFIG", `${field}: нужна непустая строка.`);
-  return value;
-}
-function object3(value, field) {
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new HcmError("INVALID_CONFIG", `${field}: нужен объект.`);
-  return value;
-}
-function integer2(fallback, minimum, maximum, unlimited = false) {
-  return (value, field) => {
-    if (value === void 0) return fallback;
-    const parsed = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
-    if (typeof parsed !== "number" || !Number.isSafeInteger(parsed) || parsed < minimum && !(unlimited && parsed === 0) || parsed > maximum)
-      throw new HcmError(
-        "INVALID_CONFIG",
-        `${field}: нужно целое число от ${minimum} до ${maximum}${unlimited ? "; 0 — без предела" : ""}.`
-      );
-    return parsed;
+    throw saveFailed(error);
   };
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  let file = await open(temporary, "wx", 384).catch(local2);
+  try {
+    await fill(file).catch((error) => {
+      throw typeof error?.syscall === "string" ? saveFailed(error) : error;
+    });
+    await file.close();
+    file = void 0;
+    const bytes = (await stat(temporary)).size;
+    if (overwrite) await rename(temporary, target).catch(local2);
+    else
+      await link(temporary, target).catch((error) => {
+        if (error.code === "EEXIST") local2(error);
+        return copyFile(temporary, target, constants.COPYFILE_EXCL).catch(local2);
+      });
+    return bytes;
+  } finally {
+    await file?.close().catch(() => {
+    });
+    await unlink(temporary).catch(() => {
+    });
+  }
 }
-var folder = (value, field) => resolve(string2(value, field) ?? join(homeDirectory(), "runtime"));
-var LOCAL_LIMITS = {
-  resultsMaxBytes: GIB,
-  resultsMaxAgeDays: 7,
-  journalMaxBytes: 10 * MIB
-};
-var SETTINGS = {
-  timeoutMs: ["WTCTL_TIMEOUT_MS", integer2(3e4, 1, 6e5)],
-  maxResponseBytes: ["WTCTL_MAX_RESPONSE_BYTES", integer2(32 * MIB, KIB, 512 * MIB)],
-  outputLimitBytes: ["WTCTL_OUTPUT_LIMIT_BYTES", integer2(24 * KIB, KIB, MIB)],
-  runtimeDir: ["WTCTL_RUNTIME_DIR", folder],
-  resultsMaxBytes: [
-    "WTCTL_RESULTS_MAX_BYTES",
-    integer2(LOCAL_LIMITS.resultsMaxBytes, KIB, 1024 * GIB, true)
-  ],
-  resultsMaxAgeDays: [
-    "WTCTL_RESULTS_MAX_AGE_DAYS",
-    integer2(LOCAL_LIMITS.resultsMaxAgeDays, 1, 3650, true)
-  ],
-  journalMaxBytes: [
-    "WTCTL_JOURNAL_MAX_BYTES",
-    integer2(LOCAL_LIMITS.journalMaxBytes, KIB, GIB, true)
-  ]
-};
-var OWN_FIELDS = ["baseUrl", "username", "password", "permissions"];
-function credential(profile, field, globalOverrides) {
-  const envName = string2(profile[`${field}Env`], `${field}Env`);
-  if (envName !== void 0 && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName))
-    throw new HcmError("INVALID_CONFIG", `${field}Env: это не имя переменной окружения.`);
-  return string2(
-    (globalOverrides ? process.env[`WTCTL_${field.toUpperCase()}`] : void 0) ?? (envName === void 0 ? profile[field] : process.env[envName]),
-    field
+function fileExists() {
+  return new HcmError(
+    "FILE_EXISTS",
+    "Файл по этому пути уже есть.",
+    "Нужно разрешить замену файла (overwrite) или выбрать другой путь."
   );
 }
-function loadConfig(options = {}) {
-  const settings = object3(options.settings ?? {}, "settings");
-  for (const key of Object.keys(settings))
-    if (!Object.hasOwn(SETTINGS, key) && !OWN_FIELDS.includes(key))
+function saveFailed(error) {
+  return new HcmError(
+    "FILE_SAVE_FAILED",
+    `Не удалось записать файл на этом компьютере${error.code ? ` (${error.code})` : ""}.`,
+    "Проверить права на папку и свободное место на диске или выбрать другой путь."
+  );
+}
+async function* jsonLines(source, count, list2 = "items") {
+  const name3 = JSON.stringify(list2).slice(1);
+  let depth = 0, selected = -1, quoted = 0, key = "", row = false;
+  for await (const chunk of source) {
+    let output = "";
+    for (const char of chunk) {
+      if (selected > 0 && depth >= selected) {
+        const end = !quoted && depth === selected && (char === "," || char === "]");
+        output += end ? row ? "\n" : "" : char;
+        if (end && row) count.items++;
+        row = !end;
+        if (end && char === "]") selected = 0;
+      }
+      if (quoted) {
+        if (depth === 1 && key.length < name3.length) key += char;
+        quoted = quoted === 2 ? 1 : char === "\\" ? 2 : char === '"' ? 0 : 1;
+      } else if (char === '"') {
+        quoted = 1;
+        key = "";
+      } else {
+        if (char === "[" && selected < 0 && (!depth || depth === 1 && key === name3))
+          selected = depth + 1;
+        if (char === "[" || char === "{") depth++;
+        if (char === "]" || char === "}") depth--;
+        if (char !== ":") key = "";
+      }
+    }
+    yield output;
+  }
+  if (selected < 0) throw exportFormatError();
+}
+var exportFormatError = () => new HcmError(
+  "INVALID_RESULT_FORMAT",
+  "Этот результат нельзя отдать в запрошенном формате.",
+  "text подходит сохранённой строке и ответу с полем text, jsonl — списку; json подходит любому результату."
+);
+function textOf(data2) {
+  if (typeof data2 === "string") return data2;
+  if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return void 0;
+  const text3 = data2.text;
+  return typeof text3 === "string" ? text3 : void 0;
+}
+function listOf(data2) {
+  if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return void 0;
+  if (textOf(data2) !== void 0) return void 0;
+  let found;
+  for (const [key, value] of Object.entries(data2)) {
+    if (!Array.isArray(value) || value.length < 2 || key.length > 256) continue;
+    const bytes = Buffer.byteLength(JSON.stringify(value));
+    if (bytes > (found?.bytes ?? 0)) found = { key, items: value, bytes };
+  }
+  return found && found.bytes * 2 > Buffer.byteLength(JSON.stringify(data2)) ? found : void 0;
+}
+var CHUNK_CHARS = 65536;
+var RECORD_BYTES = 16;
+var MAX_METADATA_BYTES = 4096;
+var HOUR = 3600 * 1e3;
+var DAY = 24 * HOUR;
+var UUID = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+var RESULT_ID = new RegExp(`^${UUID}$`);
+var RESULT_FILE = new RegExp(`^(${UUID})\\.(json|data\\.json|data\\.idx|rows\\.idx|text\\.bin)$`);
+function invalid() {
+  return new HcmError(
+    "RESULT_INVALID",
+    "Сохранённый результат не читается: его файлы повреждены или неполны."
+  );
+}
+function notFound() {
+  return new HcmError(
+    "RESULT_NOT_FOUND",
+    "Результата с таким resultId нет, или он сохранён другим подключением.",
+    "Результат мог быть удалён по сроку хранения: нужно повторить запрос, который его вернул."
+  );
+}
+function natural(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function record(first, second) {
+  const bytes = Buffer.alloc(RECORD_BYTES);
+  bytes.writeBigUInt64LE(BigInt(first));
+  bytes.writeBigUInt64LE(BigInt(second), 8);
+  return bytes;
+}
+function numbers(bytes) {
+  const first = Number(bytes.readBigUInt64LE());
+  const second = Number(bytes.readBigUInt64LE(8));
+  if (!natural(first) || !natural(second)) throw invalid();
+  return [first, second];
+}
+async function writeAll(file, bytes) {
+  for (let offset = 0; offset < bytes.length; ) {
+    const written = (await file.write(bytes, offset, bytes.length - offset)).bytesWritten;
+    if (!written) throw new Error("Запись результата не продвигается");
+    offset += written;
+  }
+}
+async function readExactly(file, position, length) {
+  const bytes = Buffer.alloc(length);
+  for (let offset = 0; offset < length; ) {
+    const read = (await file.read(bytes, offset, length - offset, position + offset)).bytesRead;
+    if (!read) throw invalid();
+    offset += read;
+  }
+  return bytes;
+}
+async function reading(paths, action) {
+  const files = [];
+  try {
+    for (const path of paths) files.push(await open(path, "r"));
+    return await action(files);
+  } finally {
+    await Promise.all(files.map((file) => file.close()));
+  }
+}
+function splitsPair(text3, index) {
+  return /[\uD800-\uDBFF]/.test(text3.charAt(index - 1)) && /[\uDC00-\uDFFF]/.test(text3.charAt(index));
+}
+var JsonWriter = class {
+  constructor(body, index) {
+    this.body = body;
+    this.index = index;
+  }
+  bytes = 0;
+  chars = 0;
+  checkpoints = 0;
+  pending = "";
+  async append(text3) {
+    for (let offset = 0; offset < text3.length; ) {
+      if (!this.pending) {
+        await writeAll(this.index, record(this.chars, this.bytes));
+        this.checkpoints++;
+      }
+      let length = Math.min(CHUNK_CHARS - this.pending.length, text3.length - offset);
+      if (splitsPair(text3, offset + length)) length--;
+      if (!length) {
+        await this.flush();
+        continue;
+      }
+      const part = text3.slice(offset, offset + length);
+      this.pending += part;
+      this.chars += part.length;
+      this.bytes += Buffer.byteLength(part);
+      offset += length;
+      if (this.pending.length >= CHUNK_CHARS) await this.flush();
+    }
+  }
+  async flush() {
+    if (this.pending) {
+      await writeAll(this.body, Buffer.from(this.pending));
+      this.pending = "";
+    }
+  }
+};
+async function appendJson(writer, value, nested = false) {
+  if (typeof value === "string") {
+    await writer.append('"');
+    for (let offset = 0, end = 0; offset < value.length; offset = end) {
+      end = Math.min(offset + CHUNK_CHARS, value.length);
+      if (splitsPair(value, end)) end--;
+      await writer.append(JSON.stringify(value.slice(offset, end)).slice(1, -1));
+    }
+    await writer.append('"');
+  } else if (nested || value === null || typeof value !== "object" || Array.isArray(value)) {
+    await writer.append(JSON.stringify(value) ?? "null");
+  } else {
+    let separator = "{";
+    for (const [key, child] of Object.entries(value)) {
+      if (child === void 0 || typeof child === "function" || typeof child === "symbol") continue;
+      await writer.append(`${separator}${JSON.stringify(key)}:`);
+      await appendJson(writer, child, true);
+      separator = ",";
+    }
+    await writer.append(separator === "{" ? "{}" : "}");
+  }
+}
+var ResultStore = class {
+  constructor(config) {
+    this.config = config;
+    const scope = createHash2("sha256").update(`${config.name}
+${config.baseUrl}
+${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
+    this.directory = join2(resolve2(config.runtimeDir), scope, "results");
+  }
+  directory;
+  path(id) {
+    if (!RESULT_ID.test(id))
       throw new HcmError(
-        "INVALID_CONFIG",
-        `settings.${key}: такого поля нет.`,
-        `Поля settings: ${[...OWN_FIELDS, ...Object.keys(SETTINGS)].join(", ")}.`
+        "INVALID_RESULT_ID",
+        "resultId неверен: нужен ID из meta.resultId ответа."
       );
-  const standalone = settings.baseUrl !== void 0;
-  if (standalone && options.configPath !== void 0)
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "settings.baseUrl задаёт подключение целиком, а configPath называет файл подключений.",
-      "Нужно оставить что-то одно: settings.baseUrl или configPath."
+    return join2(this.directory, `${id}.json`);
+  }
+  payload(id, extension) {
+    this.path(id);
+    return join2(this.directory, `${id}.${extension}`);
+  }
+  async export(input2, envelope) {
+    const id = requiredString(input2.resultId, "resultId"), path = requiredString(input2.path, "path");
+    const format = input2.format ?? "json";
+    if (!["json", "jsonl", "text"].includes(format)) throw exportFormatError();
+    if (envelope) await mkdir(dirname(resolve2(path)), { recursive: true });
+    const count = { items: 0 };
+    const store = this;
+    const source = async function* () {
+      for (let offset = 0; offset !== void 0; ) {
+        const page = await store.read(id, offset, 65536, format === "text" ? "text" : "json");
+        if (format === "text" && page.format !== "text") throw exportFormatError();
+        yield String(page.text);
+        offset = page.nextOffset;
+      }
+    };
+    const wrapped = async function* () {
+      if (envelope) {
+        const { truncated: _, ...meta } = envelope.meta;
+        yield `${JSON.stringify({ ...envelope, data: void 0, meta }).slice(0, -1)},"data":`;
+      }
+      yield* format === "jsonl" ? jsonLines(source(), count, await store.listName(id)) : source();
+      if (envelope) yield "}\n";
+    };
+    const bytes = await saveLocalFile(
+      path,
+      input2.overwrite === true,
+      (file) => writeFile(file, wrapped(), "utf8")
     );
-  const explicit = options.configPath ?? process.env.WTCTL_CONFIG;
-  const own = standalone ? void 0 : OWN_FIELDS.find((key) => settings[key] !== void 0);
-  if (own !== void 0)
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `settings.${own}: адрес, учётные данные и права подключения из файла или переменных кодом не меняются.`,
-      "Отдельное подключение задаёт settings с baseUrl, а с ним username, password и permissions."
-    );
-  const path = standalone ? void 0 : explicit ?? (process.env.WTCTL_URL === void 0 && existsSync(defaultConfigPath()) ? defaultConfigPath() : void 0);
-  let document = {};
-  if (path !== void 0) {
-    let text3;
+    return { path, bytes, format, ...format === "jsonl" ? count : {} };
+  }
+  async listName(id) {
     try {
-      text3 = readConfiguration(path);
+      const manifest = this.path(id);
+      if ((await stat(manifest)).size > MAX_METADATA_BYTES) return void 0;
+      const list2 = JSON.parse(await readFile(manifest, "utf8")).list;
+      return typeof list2 === "string" ? list2 : void 0;
+    } catch {
+      return void 0;
+    }
+  }
+  /** Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. */
+  async put(data2) {
+    const saved = await this.write(data2);
+    await this.prune().catch(() => {
+    });
+    return saved;
+  }
+  /**
+   * Удаляет результаты старше resultsMaxAgeDays, затем самые старые сверх resultsMaxBytes.
+   * Результаты моложе часа остаются: их может читать другой процесс того же подключения.
+   */
+  async prune() {
+    const maxAge = (this.config.resultsMaxAgeDays ?? LOCAL_LIMITS.resultsMaxAgeDays) * DAY;
+    const maxBytes = this.config.resultsMaxBytes ?? LOCAL_LIMITS.resultsMaxBytes;
+    if (!maxAge && !maxBytes) return;
+    const found = /* @__PURE__ */ new Map();
+    await Promise.all(
+      (await readdir(this.directory)).map(async (name3) => {
+        const [, id, extension] = RESULT_FILE.exec(name3) ?? [];
+        if (id === void 0) return;
+        const info = await stat(join2(this.directory, name3)).catch(() => void 0);
+        if (!info) return;
+        const result = found.get(id) ?? { payloads: [], bytes: 0 };
+        found.set(id, result);
+        result.bytes += info.size;
+        if (extension === "json") result.time = info.mtimeMs;
+        else result.payloads.push(name3);
+      })
+    );
+    const results = [...found].flatMap(([id, { time, ...files }]) => time === void 0 ? [] : [{ id, time, ...files }]).sort((left, right) => left.time - right.time);
+    let total = results.reduce((sum, result) => sum + result.bytes, 0);
+    const now = Date.now();
+    for (const { id, time, payloads, bytes } of results) {
+      const age = now - time;
+      if (age < HOUR || (!maxAge || age <= maxAge) && (!maxBytes || total <= maxBytes)) break;
+      total -= bytes;
+      try {
+        for (const name3 of [...payloads, `${id}.json`])
+          await unlink(join2(this.directory, name3)).catch((error) => {
+            if (error.code !== "ENOENT") throw error;
+          });
+      } catch {
+      }
+    }
+  }
+  async write(data2) {
+    const id = randomUUID();
+    const created = [];
+    const files = [];
+    const create = async (path) => {
+      const file = await open(`${path}.tmp`, "wx", 384);
+      files.push(file);
+      created.push(`${path}.tmp`);
+      return file;
+    };
+    try {
+      await mkdir(this.directory, { recursive: true });
+      const body = await create(this.payload(id, "data.json"));
+      const index = await create(this.payload(id, "data.idx"));
+      const writer = new JsonWriter(body, index);
+      const metadata = {
+        version: 2,
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        kind: Array.isArray(data2) ? "array" : typeof data2 === "string" ? "string" : "json",
+        jsonBytes: 0,
+        jsonChars: 0,
+        checkpoints: 0
+      };
+      const list2 = listOf(data2);
+      const elements = Array.isArray(data2) ? data2 : list2?.items;
+      if (elements) {
+        const rows = await create(this.payload(id, "rows.idx"));
+        metadata.rows = elements.length;
+        if (list2) metadata.list = list2.key;
+        await writer.append(list2 ? `{${JSON.stringify(list2.key)}:[` : "[");
+        let pendingIndex = [];
+        for (const [position, item] of elements.entries()) {
+          if (position) await writer.append(",");
+          const serialised = JSON.stringify(item) ?? "null";
+          pendingIndex.push(record(writer.bytes, Buffer.byteLength(serialised)));
+          if (pendingIndex.length >= 4096) {
+            await writeAll(rows, Buffer.concat(pendingIndex));
+            pendingIndex = [];
+          }
+          await writer.append(serialised);
+        }
+        if (pendingIndex.length) await writeAll(rows, Buffer.concat(pendingIndex));
+        await writer.append("]");
+        if (list2) {
+          const rest = JSON.stringify({ ...data2, [list2.key]: void 0 });
+          await writer.append(rest === "{}" ? "}" : `,${rest.slice(1)}`);
+        }
+      } else {
+        if (data2 === void 0 || typeof data2 === "function" || typeof data2 === "symbol")
+          throw new HcmError("RESULT_SERIALIZATION", "Результат — не значение JSON.");
+        await appendJson(writer, data2);
+      }
+      await writer.flush();
+      Object.assign(metadata, {
+        jsonBytes: writer.bytes,
+        jsonChars: writer.chars,
+        checkpoints: writer.checkpoints
+      });
+      const text3 = textOf(data2);
+      if (text3 !== void 0) {
+        const plain = await create(this.payload(id, "text.bin"));
+        metadata.textChars = text3.length;
+        for (let offset = 0; offset < text3.length; offset += CHUNK_CHARS)
+          await writeAll(plain, Buffer.from(text3.slice(offset, offset + CHUNK_CHARS), "utf16le"));
+      }
+      await Promise.all(files.map((file) => file.close()));
+      files.length = 0;
+      for (const temporary of [...created]) {
+        const target = temporary.slice(0, -4);
+        await rename(temporary, target);
+        created.push(target);
+      }
+      const manifest = this.path(id);
+      const metadataFile = await create(manifest);
+      await writeAll(metadataFile, Buffer.from(JSON.stringify(metadata)));
+      await metadataFile.close();
+      files.length = 0;
+      await rename(`${manifest}.tmp`, manifest);
+      created.push(manifest);
+      return { resultId: id, bytes: writer.bytes, ...list2 ? { list: list2.key } : {} };
+    } catch (error) {
+      await Promise.allSettled(files.map((file) => file.close()));
+      await Promise.allSettled(created.map((path) => unlink(path)));
+      if (error instanceof HcmError) throw error;
+      if (error instanceof TypeError)
+        throw new HcmError("RESULT_SERIALIZATION", "Результат нельзя записать как JSON.");
+      throw new HcmError(
+        "RESULT_WRITE_FAILED",
+        "Не удалось сохранить результат на этом компьютере.",
+        "Проверить права на папку runtimeDir и свободное место на диске."
+      );
+    }
+  }
+  async read(id, offsetValue, limitValue, formatValue) {
+    const manifest = this.path(id);
+    if (formatValue !== void 0 && !["auto", "json", "text"].includes(formatValue))
+      throw new HcmError("INVALID_RESULT_FORMAT", "format: нужно auto, json или text.");
+    let size;
+    try {
+      size = (await stat(manifest)).size;
+    } catch {
+      throw notFound();
+    }
+    if (size > MAX_METADATA_BYTES)
+      return this.legacy(manifest, size, offsetValue, limitValue, formatValue);
+    let envelope;
+    try {
+      envelope = JSON.parse(await readFile(manifest, "utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") throw notFound();
+      throw invalid();
+    }
+    if (envelope !== null && typeof envelope === "object" && "version" in envelope && envelope.version === 1)
+      return this.legacy(manifest, size, offsetValue, limitValue, formatValue);
+    const metadata = this.metadata(envelope);
+    const arrayPage = (metadata.kind === "array" || metadata.list !== void 0) && formatValue !== "json";
+    const offset = boundedInteger(offsetValue, 0, Number.MAX_SAFE_INTEGER, "offset");
+    const asked = boundedInteger(limitValue, arrayPage ? 100 : 12e3, 65536, "limit");
+    if (!asked) throw new HcmError("INVALID_ARGUMENT", "limit: нужно число больше нуля.");
+    const limit = arrayPage ? Math.min(asked, 1e3) : asked;
+    try {
+      await this.assertSize(this.payload(id, "data.json"), metadata.jsonBytes);
+      await this.assertSize(this.payload(id, "data.idx"), metadata.checkpoints * RECORD_BYTES);
+      if (arrayPage && formatValue !== "text") return await this.array(id, metadata, offset, limit);
+      if (formatValue === "text" && metadata.textChars === void 0) throw exportFormatError();
+      const plain = metadata.textChars !== void 0 && formatValue !== "json";
+      const total = plain ? metadata.textChars : metadata.jsonChars;
+      const text3 = plain ? await this.plain(id, metadata, offset, limit) : await this.json(id, metadata, offset, limit);
+      return this.textPage(text3, offset, total, limit, plain ? "text" : "json");
     } catch (error) {
       if (error instanceof HcmError) throw error;
+      if (error.code === "ENOENT") throw notFound();
+      throw invalid();
+    }
+  }
+  metadata(value) {
+    if (value === null || typeof value !== "object") throw invalid();
+    const source = value;
+    if (source.version !== 2 || !["array", "string", "json"].includes(String(source.kind)) || typeof source.createdAt !== "string" || !natural(source.jsonBytes) || source.jsonBytes < 1 || !natural(source.jsonChars) || source.jsonChars < 1 || !natural(source.checkpoints) || source.checkpoints < 1 || source.checkpoints > source.jsonChars || source.checkpoints * RECORD_BYTES > Number.MAX_SAFE_INTEGER || source.checkpoints < Math.ceil(source.jsonChars / CHUNK_CHARS) || source.checkpoints > Math.ceil(source.jsonChars / (CHUNK_CHARS - 1)) || source.kind === "array" && (!natural(source.rows) || source.rows * RECORD_BYTES > Number.MAX_SAFE_INTEGER) || source.list !== void 0 && (typeof source.list !== "string" || source.kind !== "json" || !natural(source.rows) || source.rows * RECORD_BYTES > Number.MAX_SAFE_INTEGER) || source.kind === "string" && source.textChars === void 0 || source.kind === "array" && source.textChars !== void 0 || source.textChars !== void 0 && (!natural(source.textChars) || source.textChars * 2 > Number.MAX_SAFE_INTEGER))
+      throw invalid();
+    return source;
+  }
+  async assertSize(path, expected) {
+    if ((await stat(path)).size !== expected) throw invalid();
+  }
+  async array(id, metadata, offset, limit) {
+    const count = metadata.rows;
+    await this.assertSize(this.payload(id, "rows.idx"), count * RECORD_BYTES);
+    if (offset >= count)
+      return {
+        items: [],
+        total: count,
+        ...metadata.list === void 0 ? {} : { list: metadata.list }
+      };
+    return reading(
+      [this.payload(id, "rows.idx"), this.payload(id, "data.json")],
+      async ([index, body]) => {
+        const selected = await readExactly(
+          index,
+          offset * RECORD_BYTES,
+          Math.min(limit, count - offset) * RECORD_BYTES
+        );
+        const items = [];
+        let used = 128;
+        for (let position = 0; position < selected.length; position += RECORD_BYTES) {
+          const [start, bytes] = numbers(selected.subarray(position, position + RECORD_BYTES));
+          if (start < 1 || !bytes || start + bytes >= metadata.jsonBytes) throw invalid();
+          if (used + bytes > this.config.outputLimitBytes / 2) {
+            if (!items.length)
+              return {
+                items,
+                total: count,
+                blockedItem: { index: offset, bytes },
+                hint: "Элемент blockedItem не помещается в ответ и не пропущен. Читать результат с format:json — текстом JSON по частям."
+              };
+            break;
+          }
+          items.push(
+            JSON.parse(
+              new TextDecoder("utf8", { fatal: true }).decode(
+                await readExactly(body, start, bytes)
+              )
+            )
+          );
+          used += bytes + 1;
+        }
+        return {
+          items,
+          total: count,
+          ...offset + items.length < count ? { nextOffset: offset + items.length } : {},
+          ...items.length < Math.min(limit, count - offset) ? { cutBySize: true } : {},
+          ...metadata.list === void 0 ? {} : { list: metadata.list }
+        };
+      }
+    );
+  }
+  async plain(id, metadata, offset, limit) {
+    await this.assertSize(this.payload(id, "text.bin"), metadata.textChars * 2);
+    if (offset >= metadata.textChars) return "";
+    const file = await open(this.payload(id, "text.bin"), "r");
+    try {
+      const start = Math.max(0, offset - 1);
+      const text3 = (await readExactly(file, start * 2, Math.min(limit + 3, metadata.textChars - start) * 2)).toString("utf16le");
+      if (offset && splitsPair(text3, 1))
+        throw new HcmError(
+          "INVALID_OFFSET",
+          "offset попадает в середину символа Unicode: нужно брать nextOffset из прошлого ответа."
+        );
+      return text3.slice(offset - start);
+    } finally {
+      await file.close();
+    }
+  }
+  async json(id, metadata, offset, limit) {
+    if (offset >= metadata.jsonChars) return "";
+    return reading(
+      [this.payload(id, "data.idx"), this.payload(id, "data.json")],
+      async ([index, body]) => {
+        const first = numbers(await readExactly(index, 0, RECORD_BYTES));
+        if (first[0] !== 0 || first[1] !== 0) throw invalid();
+        let left = 0;
+        let right = metadata.checkpoints - 1;
+        let selected = [0, 0];
+        const target = Math.max(0, offset - 1);
+        while (left <= right) {
+          const middle = Math.floor((left + right) / 2);
+          const checkpoint = numbers(
+            await readExactly(index, middle * RECORD_BYTES, RECORD_BYTES)
+          );
+          if (checkpoint[0] >= metadata.jsonChars || checkpoint[1] >= metadata.jsonBytes)
+            throw invalid();
+          if (checkpoint[0] <= target) {
+            selected = checkpoint;
+            left = middle + 1;
+          } else right = middle - 1;
+        }
+        const [start, byteOffset] = selected;
+        if (target - start >= CHUNK_CHARS) throw invalid();
+        const amount = Math.min(metadata.jsonBytes - byteOffset, (offset - start + limit + 2) * 4);
+        const decoded = new TextDecoder("utf8", { fatal: true }).decode(
+          await readExactly(body, byteOffset, amount),
+          { stream: byteOffset + amount < metadata.jsonBytes }
+        );
+        const relative = offset - start;
+        if (decoded.length < Math.min(metadata.jsonChars - start, relative + limit + 1))
+          throw invalid();
+        if (byteOffset + amount === metadata.jsonBytes && decoded.length !== metadata.jsonChars - start)
+          throw invalid();
+        if (splitsPair(decoded, relative))
+          throw new HcmError(
+            "INVALID_OFFSET",
+            "offset попадает в середину символа Unicode: нужно брать nextOffset из прошлого ответа."
+          );
+        return decoded.slice(relative, relative + limit + 1);
+      }
+    );
+  }
+  textPage(source, offset, total, limit, format) {
+    if (!source.length && offset < total) throw invalid();
+    let lower = 0;
+    let upper = Math.min(limit, source.length);
+    while (lower < upper) {
+      const middle = Math.ceil((lower + upper) / 2);
+      if (Buffer.byteLength(JSON.stringify(source.slice(0, middle))) <= this.config.outputLimitBytes / 2)
+        lower = middle;
+      else upper = middle - 1;
+    }
+    let end = lower;
+    if (splitsPair(source, end)) {
+      if (end === 1) end++;
+      else end--;
+    }
+    if (!end && source.length)
       throw new HcmError(
-        "INVALID_CONFIG",
-        `Файл подключений не читается: ${path}.`,
-        "Файл должен быть текстом UTF-8."
+        "RESULT_OUTPUT_LIMIT",
+        "В ответ не помещается даже один символ: предел размера ответа слишком мал."
       );
-    }
-    document = parseConfiguration(text3, path);
+    return {
+      text: source.slice(0, end),
+      format,
+      totalChars: total,
+      ...offset + end < total ? { nextOffset: offset + end } : {},
+      ...end < Math.min(limit, source.length) ? { cutBySize: true } : {}
+    };
   }
-  let name3 = options.connection;
-  let chosen = "Имя задано в --connection или аргументе connection.";
-  if (name3 === void 0 && !standalone) {
-    name3 = process.env.WTCTL_CONNECTION;
-    chosen = "Имя взято из переменной WTCTL_CONNECTION.";
-    if (name3 === void 0) {
-      name3 = string2(document.defaultConnection, "defaultConnection");
-      chosen = "Имя взято из defaultConnection файла.";
-    }
-  }
-  if (name3 === void 0) {
-    name3 = "default";
-    chosen = "Имя по умолчанию: --connection, WTCTL_CONNECTION и defaultConnection не заданы.";
-  }
-  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name3))
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Имя подключения: до 64 латинских букв, цифр и знаков . _ -",
-      chosen
-    );
-  let profile = standalone ? settings : {};
-  const globalOverrides = !standalone && document.connections === void 0;
-  if (document.connections !== void 0) {
-    const connections = object3(document.connections, "connections");
-    if (connections[name3] === void 0)
+  /** Артефакты версии 1 читает прежний ограниченный читатель; новые ссылки — индексированная v2. */
+  async legacy(path, bytes, offsetValue, limitValue, format) {
+    if (bytes > this.config.maxResponseBytes * 2)
       throw new HcmError(
-        "UNKNOWN_CONNECTION",
-        `В файле подключений ${path} нет подключения ${name3}. ${chosen}`,
-        `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}. Имя задают --connection, WTCTL_CONNECTION или defaultConnection файла; первое заданное сильнее.`,
-        { connection: name3 }
+        "LEGACY_RESULT_TOO_LARGE",
+        "Результат сохранён прежней версией клиента и слишком велик, чтобы его прочитать.",
+        "Новые результаты хранятся иначе и читаются по частям; этот файл нужно открыть напрямую в папке runtimeDir."
       );
-    profile = object3(connections[name3], "connection");
-  } else if (Object.keys(document).length > 0) profile = document;
-  const baseUrl = string2(
-    (globalOverrides ? process.env.WTCTL_URL : void 0) ?? profile.baseUrl,
-    "baseUrl"
-  );
-  if (baseUrl === void 0)
-    throw path === void 0 ? new HcmError("NOT_CONFIGURED", "Подключение к серверу не настроено.", SETUP_HINT) : new HcmError(
-      "INVALID_CONFIG",
-      `В подключении ${name3} не задан адрес сервера (baseUrl).`,
-      "Образец файла показывает wtctl config example."
-    );
-  let url;
-  try {
-    url = new URL(baseUrl);
-  } catch {
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Адрес сервера должен быть полным: http://сервер:порт или https://сервер."
-    );
-  }
-  if (!/^(https?:)$/.test(url.protocol) || url.username || url.password || url.search || url.hash)
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Адрес сервера: только http или https, без имени и пароля, без ? и #."
-    );
-  const username = credential(profile, "username", globalOverrides);
-  const password = options.password ?? credential(profile, "password", globalOverrides);
-  if (username === void 0 !== (password === void 0))
-    throw new HcmError(
-      "INVALID_CONFIG",
-      `Имя пользователя и пароль задают вместе: не задан${username === void 0 ? "о имя пользователя" : " пароль"}.`,
-      globalOverrides ? "Переменные WTCTL_USERNAME и WTCTL_PASSWORD." : standalone ? "Поля username и password в settings." : "Поля username и password подключения либо переменные, названные в usernameEnv и passwordEnv."
-    );
-  const permissions = profile.permissions === void 0 ? {} : object3(profile.permissions, "permissions");
-  const values = Object.fromEntries(
-    Object.entries(SETTINGS).map(([field, [variable, parse]]) => [
-      field,
-      parse(settings[field] ?? process.env[variable] ?? profile[field], `${field} (${variable})`)
-    ])
-  );
-  const config = {
-    name: name3,
-    baseUrl: url.href,
-    ...username === void 0 ? {} : { username },
-    ...password === void 0 ? {} : { password },
-    ...values,
-    permissions: {
-      write: bool(
-        (globalOverrides ? process.env.WTCTL_ALLOW_WRITE : void 0) ?? permissions.write,
-        false,
-        "permissions.write"
-      ),
-      execute: bool(
-        (globalOverrides ? process.env.WTCTL_ALLOW_EXECUTE : void 0) ?? permissions.execute,
-        false,
-        "permissions.execute"
-      )
+    let data2;
+    try {
+      const envelope = JSON.parse(await readFile(path, "utf8"));
+      if (envelope === null || typeof envelope !== "object" || !("version" in envelope) || envelope.version !== 1 || !("data" in envelope))
+        throw invalid();
+      data2 = envelope.data;
+    } catch {
+      throw invalid();
     }
-  };
-  origins.set(
-    config,
-    standalone ? "settings" : path === void 0 ? "environment" : { listed: !globalOverrides, named: explicit !== void 0 }
-  );
-  return config;
-}
-var origins = /* @__PURE__ */ new WeakMap();
-function permissionHint(config, right) {
-  const origin = origins.get(config);
-  const field = `permissions.${right}: true`;
-  const variable = `WTCTL_ALLOW_${right.toUpperCase()}=true`;
-  if (origin === void 0)
-    return `Право ${right} включает владелец подключения в его настройках (permissions.${right}).`;
-  if (origin === "settings")
-    return `Право ${right} подключению из settings даёт settings.${field} в loadConfig.`;
-  let where = `переменная ${variable} рядом с WTCTL_URL (у MCP-сервера — в env его записи)`;
-  if (origin !== "environment") {
-    const file = origin.named ? "в файле подключений из --config или WTCTL_CONFIG" : "в файле подключений (путь показывает wtctl config path)";
-    where = origin.listed ? `${field} у подключения ${config.name} ${file}` : `${field} ${file} или переменная ${variable}`;
+    const array = Array.isArray(data2) && format !== "json";
+    const offset = boundedInteger(offsetValue, 0, Number.MAX_SAFE_INTEGER, "offset");
+    const limit = boundedInteger(limitValue, array ? 100 : 12e3, array ? 1e3 : 65536, "limit");
+    if (!limit) throw new HcmError("INVALID_ARGUMENT", "limit: нужно число больше нуля.");
+    if (array) {
+      const rows = data2;
+      const items = [];
+      let used = 128;
+      for (const item of rows.slice(offset, offset + limit)) {
+        const size = Buffer.byteLength(JSON.stringify(item));
+        if (used + size > this.config.outputLimitBytes / 2) {
+          if (!items.length)
+            return {
+              items,
+              total: rows.length,
+              blockedItem: { index: offset, bytes: size },
+              hint: "Элемент blockedItem не помещается в ответ и не пропущен. Читать результат с format:json."
+            };
+          break;
+        }
+        items.push(item);
+        used += size + 1;
+      }
+      return {
+        items,
+        total: rows.length,
+        ...offset + items.length < rows.length ? { nextOffset: offset + items.length } : {}
+      };
+    }
+    const text3 = typeof data2 === "string" && format !== "json" ? data2 : JSON.stringify(data2);
+    if (splitsPair(text3, offset))
+      throw new HcmError(
+        "INVALID_OFFSET",
+        "offset попадает в середину символа Unicode: нужно брать nextOffset из прошлого ответа."
+      );
+    return this.textPage(
+      text3.slice(offset, offset + limit + 1),
+      offset,
+      text3.length,
+      limit,
+      typeof data2 === "string" && format !== "json" ? "text" : "json"
+    );
   }
-  return `Право ${right} включает владелец подключения: ${where}. MCP-сервер видит правку после перезапуска.`;
-}
+};
 
 // src/scripts.ts
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 var TARGET = "ms_tools.evaluate_remote_collection_obj";
 var FORM = "x-local://wtv/wtv_remote_collection.xmd";
 function paramsJson(params) {
@@ -2690,9 +3481,7 @@ function paramsJson(params) {
 }
 function prepareScript(value, params) {
   const code = (params === void 0 ? "" : `var PARAMS = ParseJson(DecodeCharset(Base64Decode("${Buffer.from(paramsJson(params)).toString("base64")}"), "utf-8")); `) + requiredString(value, "code");
-  if (Buffer.byteLength(code) > 1024 * 1024)
-    throw new HcmError("SCRIPT_TOO_LARGE", "Код SP-XML Script больше 1 МиБ.");
-  const marker = `hcm_inline_${randomUUID().replaceAll("-", "")}`;
+  const marker = `hcm_inline_${randomUUID2().replaceAll("-", "")}`;
   const xml = `<remote_collection SPXML-FORM="${FORM}" SPXML-FORM-ELEM="remote_collection"><code>${marker}</code><name>${marker}</name><use_cache>0</use_cache><script>${escapeXml(code)}</script></remote_collection>`;
   return { request: { target: TARGET, args: [{ lexicalValue: { xml } }] }, executionId: marker };
 }
@@ -2749,11 +3538,12 @@ function scriptResult(response, executionId) {
     const reason = (typeof value.error_text === "string" ? value.error_text : "").split(/\r?\n/).map((line) => line.trim()).filter(
       (line) => line !== "" && !line.startsWith("Error evaluating collection") && !line.includes("wtv_remote_collection.xmd")
     ).join("\n");
-    const unread = /syntax error/i.test(reason) && !/^\(/m.test(reason);
+    const unread = /^JavaScript syntax error\.\nUnknown source,\s+line \d+$/.test(reason);
+    const where = reason === "" ? "" : "Сообщение сервера — в details.scriptError. ";
     throw new HcmError(
       "SCRIPT_FAILED",
       "Сервер сообщил об ошибке в коде SP-XML Script.",
-      unread ? "Сообщение сервера — в details.scriptError. Код не разобран и не выполнялся: данные не менялись." : "Сообщение сервера — в details.scriptError. До ошибки код мог изменить данные: их нужно проверить перед повтором.",
+      unread ? where + "Код не разобран и не выполнялся: данные не менялись." : where + "Код выполнялся до ошибки. Если он только читал, его можно повторить; если менял данные — сначала проверить их.",
       reason === "" ? void 0 : { scriptError: reason },
       unread ? "not_sent" : "indeterminate"
     );
@@ -2786,25 +3576,16 @@ function scriptResult(response, executionId) {
 }
 
 // src/files.ts
-function fileContent(response, encoding) {
-  if (encoding !== void 0 && encoding !== "base64")
-    throw new HcmError(
-      "INVALID_ARGUMENT",
-      'encoding: допустимо только "base64".',
-      "Без encoding текст в UTF-8 приходит в text, остальное — в base64."
-    );
-  const data2 = response !== null && typeof response === "object" ? response.Data : void 0;
-  if (typeof data2 !== "string" || /[^A-Za-z0-9+/=\s]/.test(data2))
-    throw new HcmError("FILE_READ_RESPONSE", "Сервер вернул файл в неожиданном виде.");
-  const content = Buffer.from(data2.replace(/\s+/g, ""), "base64");
-  const binary = { base64: content.toString("base64"), bytes: content.length };
-  if (encoding === "base64") return binary;
+function fileContent(content, encoding) {
+  const binary = () => ({ base64: content.toString("base64"), bytes: content.length });
+  if (encoding === "base64") return binary();
+  let text3;
   try {
-    const text3 = new TextDecoder("utf-8", { fatal: true }).decode(content);
-    return /[\u0000-\u0008\u000b\u000e-\u001f]/.test(text3) ? binary : { text: text3, bytes: content.length };
+    text3 = new TextDecoder("utf-8", { fatal: true }).decode(content);
   } catch {
-    return binary;
+    return binary();
   }
+  return /[\u0000-\u0008\u000b\u000e-\u001f]/.test(text3) ? binary() : { text: text3, bytes: content.length };
 }
 var FILE_EXISTS_TARGET = "tools.file_url_exists_server";
 var FILE_EXISTS_URL_MAX_LENGTH = 256;
@@ -2855,63 +3636,124 @@ function assertFileDeletable(folder2) {
   if (folder2 === "wt_data" || folder2 === "trash")
     throw new HcmError(
       "FILE_NOT_DELETABLE",
-      `В папке ${folder2} сервер не удаляет файлы и папки по адресу.`,
-      "Это папка базы сервера. Документ объекта удаляет objects.delete; обычный файл клиент здесь не удаляет."
+      `В папке ${folder2} файлы и папки не удаляются.`,
+      "Это папка базы сервера: файл на диске сервер по адресу не удаляет, а отличить его клиент не может. Документ объекта удаляет objects.delete. Временные файлы писать в share: там files.delete удаляет."
     );
 }
-function fileRoute(operation2, folders, folder2, config) {
-  if (!folders) return "unlisted";
+function folderKind(folders, folder2) {
+  if (!folders) return void 0;
   if (folders.data.includes(folder2)) return "data";
-  if (!folders.code.includes(folder2))
-    throw new HcmError(
-      "FOLDER_NOT_WRITABLE",
-      `Папка ${folder2} не принимает файлы.`,
-      `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`
-    );
-  if (!config.permissions.execute)
-    throw new HcmError(
-      "EXECUTE_DISABLED",
-      `Папка ${folder2} на этом сервере принимает ${operation2 === "write" ? "запись" : "удаление"} только кодом на сервере: нужно ещё право execute.`,
-      permissionHint(config, "execute")
-    );
-  return "code";
-}
-function fileWriteContent(args) {
-  const { text: text3, base64 } = args;
-  const bytes = typeof text3 === "string" && !new RegExp("\\p{Cs}", "u").test(text3) ? Buffer.from(text3) : typeof base64 === "string" ? Buffer.from(base64, "base64") : void 0;
-  if (text3 === void 0 === (base64 === void 0) || !bytes || text3 === void 0 && bytes.toString("base64") !== base64)
-    throw new HcmError(
-      "INVALID_ARGUMENT",
-      "Нужно ровно одно из text (без непарных суррогатов) и base64 (без переводов строк)."
-    );
-  return {
-    ...typeof text3 === "string" ? { text: text3 } : {},
-    base64: bytes.toString("base64"),
-    bytes: bytes.length
-  };
-}
-function fileScript(code, params) {
-  try {
-    return prepareScript(code, params);
-  } catch (error) {
-    if (!(error instanceof HcmError) || error.code !== "SCRIPT_TOO_LARGE") throw error;
-    throw new HcmError(
-      "FILE_TOO_LARGE",
-      "Файл не помещается в код для сервера.",
-      "В папку кода файл записывает код на сервере: текст — до 750 КБ (меньше, если в нём много переводов строк), двоичные данные — до 580 КБ."
-    );
-  }
-}
-function codeWrite(url, content) {
-  const text3 = content.text !== void 0;
-  return fileScript(
-    `PutUrlData(PARAMS.url, ${text3 ? "PARAMS.text" : "Base64Decode(PARAMS.base64)"});
-RESULT = [UrlFileSize(PARAMS.url)];`,
-    text3 ? { url, text: content.text } : { url, base64: content.base64 }
+  if (folders.code.includes(folder2)) return "code";
+  throw new HcmError(
+    "FOLDER_NOT_WRITABLE",
+    `Папка ${folder2} не принимает файлы.`,
+    `Папки данных: ${folders.data.join(", ")}. Папки кода (нужны права write и execute): ${folders.code.join(", ")}.`
   );
 }
+var UPLOAD_BLOCK_BYTES = 1e7;
+var WRITE_INTERRUPTED = {
+  message: "Запись прервалась: файл на сервере может быть пустым или недописанным. Запись можно повторить целиком."
+};
+var READ_BACK_FAILED = {
+  message: "Файл записан, но прочитать его для сверки не удалось.",
+  hint: "Содержимое на сервере не проверено: сравнить через files.read; запись можно повторить целиком."
+};
+var WRITE_MISMATCH_HINT = "Файл записывается целиком: запись можно повторить; если расхождение повторяется — сервер портит файл при записи, проверить через files.read.";
+async function writeSource(args) {
+  const { text: text3, base64, file } = args;
+  if ([text3, base64, file].filter((value) => value !== void 0).length !== 1)
+    throw new HcmError("INVALID_ARGUMENT", "Нужно ровно одно из text, base64 и file.");
+  if (typeof file === "string") return diskSource(file);
+  const bytes = typeof text3 === "string" && !new RegExp("\\p{Cs}", "u").test(text3) ? Buffer.from(text3) : typeof base64 === "string" ? Buffer.from(base64, "base64") : void 0;
+  if (!bytes || base64 !== void 0 && bytes.toString("base64") !== base64)
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "text — без непарных суррогатов, base64 — без переводов строк."
+    );
+  return {
+    bytes: bytes.length,
+    async *blocks() {
+      for (let start = 0; start < bytes.length; start += UPLOAD_BLOCK_BYTES)
+        yield bytes.subarray(start, start + UPLOAD_BLOCK_BYTES);
+    },
+    close: async () => void 0
+  };
+}
+function localPathError(message) {
+  return new HcmError(
+    "INVALID_ARGUMENT",
+    `file: ${message}`,
+    "Путь — на компьютере, где работает клиент; у MCP-сервера — там, где он запущен."
+  );
+}
+async function diskSource(path) {
+  if (!isAbsolute(path) || path.includes("\0")) throw localPathError("нужен полный путь к файлу.");
+  let handle;
+  try {
+    handle = await open2(path, "r");
+  } catch {
+    throw localPathError("файл не открывается для чтения.");
+  }
+  const info = await handle.stat().catch(() => void 0);
+  if (!info?.isFile()) {
+    await handle.close();
+    throw localPathError("по этому пути не файл.");
+  }
+  const size = info.size;
+  return {
+    bytes: size,
+    // Ровно столько байт, сколько названо в начале записи. Один буфер на все блоки: прошлый блок
+    // к этому времени уже отправлен.
+    async *blocks() {
+      const block = Buffer.allocUnsafe(Math.min(UPLOAD_BLOCK_BYTES, size));
+      for (let position = 0; position < size; ) {
+        const length = Math.min(block.length, size - position);
+        for (let filled = 0; filled < length; ) {
+          const { bytesRead } = await handle.read(
+            block,
+            filled,
+            length - filled,
+            position + filled
+          );
+          if (!bytesRead)
+            throw new HcmError("INVALID_ARGUMENT", "file: файл стал короче, пока шла запись.");
+          filled += bytesRead;
+        }
+        yield block.subarray(0, length);
+        position += length;
+      }
+    },
+    close: () => handle.close()
+  };
+}
+async function collect(body, limit) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of body) {
+    bytes += chunk.length;
+    if (bytes > limit)
+      throw new HcmError(
+        "FILE_TOO_LARGE",
+        `Файл больше предела ответа подключения maxResponseBytes (${limit} байт).`,
+        "Файл любого размера сохраняет на диск files.read с file."
+      );
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, bytes);
+}
+function uploadAnswer(response, type) {
+  try {
+    const { rpc } = strictResponse(response);
+    const value = rpc.lexicalValue;
+    if (!isType(rpc.valueType, type) || typeof value !== "string" || !(type === "string" ? value : value === "1"))
+      throw new Error();
+    return value;
+  } catch {
+    throw new HcmError("FILE_WRITE_RESPONSE", "Сервер ответил на запись файла в неожиданном виде.");
+  }
+}
 function codeDelete(url) {
-  return fileScript(
+  return prepareScript(
     `if (IsDirectory(PARAMS.url)) RESULT = ['directory'];
 else if (!UrlExists(PARAMS.url)) RESULT = ['absent'];
 else { DeleteUrl(PARAMS.url); if (UrlExists(PARAMS.url)) RESULT = ['remains']; else RESULT = ['deleted']; }`,
@@ -2933,7 +3775,7 @@ function codeDeleteRefusal(data2) {
   return void 0;
 }
 function codeList(url) {
-  return fileScript(
+  return prepareScript(
     `var rows = [];
 var item = '';
 var folder = false;
@@ -2993,11 +3835,37 @@ var ServerFiles = class {
       })
     );
   }
+  /** Без file файл собирается в память в пределах maxResponseBytes; с file идёт на диск без предела. */
   async read(args) {
-    return fileContent(
-      await this.server.call("native.lds.loadUrl", { url: requiredString(args.url, "url") }),
-      args.encoding
+    const url = requiredString(args.url, "url");
+    const { encoding, file, overwrite } = args;
+    if (file === void 0) {
+      if (overwrite === true)
+        throw new HcmError("INVALID_ARGUMENT", "overwrite действует только вместе с file.");
+      const limit = this.config.maxResponseBytes;
+      return fileContent(
+        await this.load(url, (body) => collect(body, limit)),
+        encoding
+      );
+    }
+    if (encoding !== void 0)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        "encoding не нужен вместе с file: файл сохраняется байт в байт."
+      );
+    const path = requiredString(file, "file");
+    if (!isAbsolute(path)) throw localPathError("нужен полный путь к файлу.");
+    const bytes = await saveLocalFile(
+      path,
+      overwrite === true,
+      (handle) => this.load(url, (body) => writeFile2(handle, body)),
+      "file"
     );
+    return { bytes, file: resolve3(path) };
+  }
+  /** Файл сервера потоком байт: read читает тело ответа, пока запрос занимает подключение. */
+  load(url, read) {
+    return this.server.stream("native.lds.loadUrl", { url, useBinaryResponse: true }, read);
   }
   async list(args, call) {
     const folder2 = fileTarget(args.url, true).url;
@@ -3009,24 +3877,73 @@ var ServerFiles = class {
     );
     return fileList(data2, folder2, search);
   }
+  /**
+   * Путь настольной админки, одинаковый для всех папок: начало записи делает файл пустым, блоки
+   * ложатся по месту, затем файл читается назад и сверяется по размеру и SHA256.
+   */
   async write(args, call) {
     const target = fileTarget(args.url);
-    const content = fileWriteContent(args);
-    if (await this.route("write", target.folder, call) === "code") {
-      const data2 = await this.server.runCode(codeWrite(target.url, content), call.outcome);
-      return { bytes: Number(data2.result[0]), mutationOutcome: "confirmed" };
+    const source = await writeSource(args);
+    try {
+      const kind = folderKind(await this.folders(), target.folder);
+      if (kind !== "data" && !this.config.permissions.execute)
+        throw new HcmError(
+          "EXECUTE_DISABLED",
+          kind === "code" ? `Папка ${target.folder} — папка кода: файл в ней — код сервера, поэтому запись требует ещё права execute.` : "Сервер не сообщил, какие папки — папки кода, поэтому запись требует ещё права execute.",
+          permissionHint(this.config, "execute")
+        );
+      const upload = (method, ...values) => this.server.call(
+        "native.rpc.call",
+        { target: `tools.upload_${method}`, args: values.map(rpcArgument) },
+        call.outcome
+      );
+      call.afterSend = WRITE_INTERRUPTED;
+      const id = uploadAnswer(await upload("begin", target.url, source.bytes), "string");
+      const sent = createHash3("sha256");
+      let bytes = 0;
+      for await (const block of source.blocks()) {
+        sent.update(block);
+        const end = bytes + block.length;
+        uploadAnswer(await upload("range", id, bytes, end, block.toString("base64")), "bool");
+        bytes = end;
+      }
+      uploadAnswer(await upload("end", id), "bool");
+      call.afterSend = READ_BACK_FAILED;
+      const read = await this.readBack(target.url);
+      delete call.afterSend;
+      if (read.bytes !== bytes || !read.digest.equals(sent.digest()))
+        throw new HcmError(
+          "READ_BACK_MISMATCH",
+          read.bytes !== bytes ? `Файл на сервере после записи отличается от отправленного: ${read.bytes} байт вместо ${bytes}.` : "Файл на сервере после записи того же размера, что отправленный, но с другим содержимым.",
+          WRITE_MISMATCH_HINT
+        );
+      return { bytes, mutationOutcome: "confirmed" };
+    } finally {
+      await source.close();
     }
-    await this.server.call(
-      "native.lds.putUrl",
-      { url: target.url, data: { base64: content.base64 } },
-      call.outcome
-    );
-    return { bytes: content.bytes, mutationOutcome: "confirmed" };
+  }
+  /** Размер и SHA256 файла на сервере: файл читается потоком и в памяти не собирается. */
+  readBack(url) {
+    return this.load(url, async (body) => {
+      const hash2 = createHash3("sha256");
+      let bytes = 0;
+      for await (const chunk of body) {
+        hash2.update(chunk);
+        bytes += chunk.length;
+      }
+      return { bytes, digest: hash2.digest() };
+    });
   }
   async delete(args, call) {
     const target = fileTarget(args.url);
     assertFileDeletable(target.folder);
-    if (await this.route("delete", target.folder, call) === "code") {
+    if (folderKind(await this.folders(), target.folder) === "code") {
+      if (!this.config.permissions.execute)
+        throw new HcmError(
+          "EXECUTE_DISABLED",
+          `Папка ${target.folder} на этом сервере принимает удаление только кодом на сервере: нужно ещё право execute.`,
+          permissionHint(this.config, "execute")
+        );
       const data2 = await this.server.runCode(
         codeDelete(target.url),
         call.outcome,
@@ -3046,11 +3963,6 @@ var ServerFiles = class {
   /** Сбой чтения сведений о приложении означает, что сервер не дал списков папок. */
   async folders() {
     return fileFolders(await this.server.applicationInfo().catch(() => void 0));
-  }
-  async route(operation2, folder2, call) {
-    const route = fileRoute(operation2, await this.folders(), folder2, this.config);
-    if (operation2 === "write" && route !== "unlisted") call.causeRuledOut = true;
-    return route;
   }
 };
 
@@ -3077,11 +3989,20 @@ var fileOperations = [
   operation({
     id: "files.read",
     effect: "read",
-    description: 'Прочитать файл по адресу сервера: text, если содержимое — текст в UTF-8, иначе base64. encoding:"base64" отдаёт base64 и для текста. Документы объектов читает objects.get.',
-    inputSchema: schema({ url: string, encoding: { type: "string", enum: ["base64"] } }, ["url"]),
-    summary: 'Прочитать файл: текст, если это текст в UTF-8, иначе base64; encoding:"base64" — всегда base64.',
+    description: 'Прочитать файл по адресу сервера: text, если содержимое — текст в UTF-8, иначе base64. encoding:"base64" отдаёт base64 и для текста. file — полный путь на этом компьютере: файл любого размера сохраняется туда байт в байт, overwrite заменяет существующий. Документы объектов читает objects.get.',
+    inputSchema: schema(
+      {
+        url: string,
+        encoding: { type: "string", enum: ["base64"] },
+        file: string,
+        overwrite: boolean
+      },
+      ["url"]
+    ),
+    summary: "Прочитать файл: текст в UTF-8 или base64; с file — сохранить на этот компьютер.",
     usualCause: "по этому адресу ничего нет",
-    reply: { store: "always" },
+    // Содержимое сохраняется всегда: results.export пишет его в файл. Ответ о файле на диске — нет.
+    reply: { store: (data2) => data2.file === void 0 },
     run: (context, args) => context.files.read(args)
   }),
   operation({
@@ -3095,10 +4016,9 @@ var fileOperations = [
   operation({
     id: "files.write",
     effect: "write",
-    description: "Записать файл по адресу x-local://…: text — текст (пишется в UTF-8), base64 — двоичные данные. Файл заменяется целиком, вложенные папки сервер создаёт сам. В папку кода (wt, wtv, custom…) файл записывает код на сервере: нужно ещё право execute. Какие папки принимают запись, показывает server.info.",
-    inputSchema: schema({ url: string, text: string, base64: string }, ["url"]),
-    summary: "Записать файл: text или base64; способ записи операция выбирает по папке.",
-    usualCause: "сервер не сообщил, какие папки принимают запись; в папку кода файл записывает код на сервере",
+    description: "Записать файл любого размера по адресу x-local://…: text — текст (пишется в UTF-8), base64 — двоичные данные, file — полный путь к файлу на этом компьютере, без передачи данных в вызове. Файл заменяется целиком, вложенные папки сервер создаёт сам. confirmed — файл прочитан назад и совпал с отправленным. Папке кода (wt, wtv, custom…) нужно ещё право execute: файл в ней — код сервера. Какие папки принимают запись, показывает server.info.",
+    inputSchema: schema({ url: string, text: string, base64: string, file: string }, ["url"]),
+    summary: "Записать файл: text, base64 или file с этого компьютера; после записи файл сверяется.",
     run: (context, args, call) => context.files.write(args, call)
   }),
   operation({
@@ -3308,7 +4228,7 @@ var objectOperations = [
     id: "objects.patch",
     effect: "write",
     effectFor: patchEffect,
-    description: "Изменить поля объекта, сохранив остальное содержимое документа. patch — {путь: значение} или список {op:'set'|'remove', path, value}; remove — пути, которые удалить. preview:true ничего не записывает. Правка, которая ничего не меняет, не записывается: в ответе noop:true; resave:true записывает документ и без правок — сервер при сохранении заново заполняет поля, которые берёт из связанных объектов. expectedFingerprint отклоняет запись, если объект изменился после чтения; это сверка перед записью, а не блокировка.",
+    description: "Изменить поля объекта, сохранив остальное содержимое документа. patch — {путь: значение} или список {op:'set'|'remove', path, value}; remove — пути, которые удалить; путь, которого в документе нет, — отказ, ничего не записано. preview:true ничего не записывает. Правка, которая ничего не меняет, не записывается: в ответе noop:true; resave:true записывает документ и без правок — сервер при сохранении заново заполняет поля, которые берёт из связанных объектов. expectedFingerprint отклоняет запись, если объект изменился после чтения; это сверка перед записью, а не блокировка.",
     inputSchema: schema({
       ...address,
       patch: {},
@@ -3612,7 +4532,7 @@ var schemaOperations = [
   operation({
     id: "schema.types",
     effect: "read",
-    description: "Типы объектов сервера: тип, каталог, заголовок, число настраиваемых полей. Каталога у типа может не быть. catalogs — сколько на сервере каталогов всего, считая каталоги без своего типа объекта.",
+    description: "Типы объектов сервера: тип, каталог, заголовок, число настраиваемых полей. Каталога у типа может не быть. За типами — каталоги без своего типа объекта: строка без type, документов у их строк нет.",
     inputSchema: schema(schemaPage),
     run: (context, args) => context.schema.types(args)
   })
@@ -3626,7 +4546,7 @@ var scriptOperations = [
     description: "Выполнить код SP-XML Script на сервере. Код присваивает массив переменной RESULT; числа, даты и логические значения приходят строками. params — объект JSON, в коде это готовая переменная PARAMS. На сервер ничего не устанавливается. Код может менять данные, отката нет.",
     inputSchema: schema(
       {
-        code: { type: "string", minLength: 1, maxLength: 1048576 },
+        code: { type: "string", minLength: 1 },
         params: { type: "object" }
       },
       ["code"]
@@ -3864,679 +4784,25 @@ function describeHcmOperation(id) {
   return operation2;
 }
 function unknownOperationHint(id, name3 = (known) => known) {
+  if (name3(id) !== id) return `${id} вызывается как ${name3(id)}, а не по ID операции.`;
   const asked = id.split(".").at(-1).toLowerCase();
-  const near = operations.map((item) => item.id).filter((known) => {
-    const last = known.split(".").at(-1).toLowerCase();
-    return last.includes(asked) || asked.includes(last);
-  }).slice(0, 5);
-  return `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Список операций показывает ${name3("api.list")}.`;
+  const near = operations.map((item) => item.id).filter((known) => isSimilarName(known.split(".").at(-1).toLowerCase(), asked));
+  return `${similarHint(near)}Список операций показывает ${name3("api.list")}.`;
 }
-
-// src/results.ts
-import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
-import { mkdir, readFile, rename, stat, open, unlink } from "node:fs/promises";
-import { constants, copyFile, link, readdir, writeFile } from "node:fs/promises";
-import { dirname, join as join2, resolve as resolve2 } from "node:path";
-async function writeResultFile(path, chunks, overwrite = false) {
-  if (path.includes("\0"))
-    throw new HcmError("INVALID_ARGUMENT", "path: в пути есть нулевой символ.");
-  const target = resolve2(path);
-  if ((await stat(target).catch(() => void 0))?.isDirectory())
-    throw new HcmError(
-      "INVALID_ARGUMENT",
-      "path: по этому пути папка, а нужен путь к файлу.",
-      "К пути нужно добавить имя файла, например result.json."
-    );
-  const temporary = `${target}.${randomUUID2()}.tmp`;
-  try {
-    await writeFile(temporary, chunks, { encoding: "utf8", mode: 384, flag: "wx" });
-    const bytes = (await stat(temporary)).size;
-    if (overwrite) await rename(temporary, target);
-    else
-      await link(temporary, target).catch((error) => {
-        if (error.code === "EEXIST") throw error;
-        return copyFile(temporary, target, constants.COPYFILE_EXCL);
-      });
-    return bytes;
-  } catch (error) {
-    const code = error.code;
-    if (code === "EEXIST")
-      throw new HcmError(
-        "FILE_EXISTS",
-        "Файл по этому пути уже есть.",
-        "Нужно разрешить замену файла (overwrite) или выбрать другой путь."
-      );
-    if (code === "ENOENT")
-      throw new HcmError(
-        "FOLDER_NOT_FOUND",
-        "Папки для файла нет.",
-        "Сначала нужно создать папку."
-      );
-    throw error;
-  } finally {
-    await unlink(temporary).catch(() => {
-    });
-  }
-}
-async function* jsonLines(source, count, list2 = "items") {
-  const name3 = JSON.stringify(list2).slice(1);
-  let depth = 0, selected = -1, quoted = 0, key = "", row = false;
-  for await (const chunk of source) {
-    let output = "";
-    for (const char of chunk) {
-      if (selected > 0 && depth >= selected) {
-        const end = !quoted && depth === selected && (char === "," || char === "]");
-        output += end ? row ? "\n" : "" : char;
-        if (end && row) count.items++;
-        row = !end;
-        if (end && char === "]") selected = 0;
-      }
-      if (quoted) {
-        if (depth === 1 && key.length < name3.length) key += char;
-        quoted = quoted === 2 ? 1 : char === "\\" ? 2 : char === '"' ? 0 : 1;
-      } else if (char === '"') {
-        quoted = 1;
-        key = "";
-      } else {
-        if (char === "[" && selected < 0 && (!depth || depth === 1 && key === name3))
-          selected = depth + 1;
-        if (char === "[" || char === "{") depth++;
-        if (char === "]" || char === "}") depth--;
-        if (char !== ":") key = "";
-      }
-    }
-    yield output;
-  }
-  if (selected < 0) throw exportFormatError();
-}
-var exportFormatError = () => new HcmError(
-  "INVALID_RESULT_FORMAT",
-  "Этот результат нельзя отдать в запрошенном формате.",
-  "text подходит сохранённой строке и ответу с полем text, jsonl — списку; json подходит любому результату."
-);
-function textOf(data2) {
-  if (typeof data2 === "string") return data2;
-  if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return void 0;
-  const text3 = data2.text;
-  return typeof text3 === "string" ? text3 : void 0;
-}
-function listOf(data2) {
-  if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return void 0;
-  if (textOf(data2) !== void 0) return void 0;
-  let found;
-  for (const [key, value] of Object.entries(data2)) {
-    if (!Array.isArray(value) || value.length < 2 || key.length > 256) continue;
-    const bytes = Buffer.byteLength(JSON.stringify(value));
-    if (bytes > (found?.bytes ?? 0)) found = { key, items: value, bytes };
-  }
-  return found && found.bytes * 2 > Buffer.byteLength(JSON.stringify(data2)) ? found : void 0;
-}
-var CHUNK_CHARS = 65536;
-var RECORD_BYTES = 16;
-var MAX_METADATA_BYTES = 4096;
-var HOUR = 3600 * 1e3;
-var DAY = 24 * HOUR;
-var UUID = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
-var RESULT_ID = new RegExp(`^${UUID}$`);
-var RESULT_FILE = new RegExp(`^(${UUID})\\.(json|data\\.json|data\\.idx|rows\\.idx|text\\.bin)$`);
-function invalid() {
-  return new HcmError(
-    "RESULT_INVALID",
-    "Сохранённый результат не читается: его файлы повреждены или неполны."
-  );
-}
-function notFound() {
-  return new HcmError(
-    "RESULT_NOT_FOUND",
-    "Результата с таким resultId нет, или он сохранён другим подключением.",
-    "Результат мог быть удалён по сроку хранения: нужно повторить запрос, который его вернул."
-  );
-}
-function natural(value) {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-function record(first, second) {
-  const bytes = Buffer.alloc(RECORD_BYTES);
-  bytes.writeBigUInt64LE(BigInt(first));
-  bytes.writeBigUInt64LE(BigInt(second), 8);
-  return bytes;
-}
-function numbers(bytes) {
-  const first = Number(bytes.readBigUInt64LE());
-  const second = Number(bytes.readBigUInt64LE(8));
-  if (!natural(first) || !natural(second)) throw invalid();
-  return [first, second];
-}
-async function writeAll(file, bytes) {
-  for (let offset = 0; offset < bytes.length; ) {
-    const written = (await file.write(bytes, offset, bytes.length - offset)).bytesWritten;
-    if (!written) throw new Error("Запись результата не продвигается");
-    offset += written;
-  }
-}
-async function readExactly(file, position, length) {
-  const bytes = Buffer.alloc(length);
-  for (let offset = 0; offset < length; ) {
-    const read = (await file.read(bytes, offset, length - offset, position + offset)).bytesRead;
-    if (!read) throw invalid();
-    offset += read;
-  }
-  return bytes;
-}
-async function reading(paths, action) {
-  const files = [];
-  try {
-    for (const path of paths) files.push(await open(path, "r"));
-    return await action(files);
-  } finally {
-    await Promise.all(files.map((file) => file.close()));
-  }
-}
-function high(value) {
-  return /[\uD800-\uDBFF]/.test(value);
-}
-function low(value) {
-  return /[\uDC00-\uDFFF]/.test(value);
-}
-var JsonWriter = class {
-  constructor(body, index) {
-    this.body = body;
-    this.index = index;
-  }
-  bytes = 0;
-  chars = 0;
-  checkpoints = 0;
-  pending = "";
-  async append(text3) {
-    for (let offset = 0; offset < text3.length; ) {
-      if (!this.pending) {
-        await writeAll(this.index, record(this.chars, this.bytes));
-        this.checkpoints++;
-      }
-      let length = Math.min(CHUNK_CHARS - this.pending.length, text3.length - offset);
-      if (high(text3.charAt(offset + length - 1)) && low(text3.charAt(offset + length))) length--;
-      if (!length) {
-        await this.flush();
-        continue;
-      }
-      const part = text3.slice(offset, offset + length);
-      this.pending += part;
-      this.chars += part.length;
-      this.bytes += Buffer.byteLength(part);
-      offset += length;
-      if (this.pending.length >= CHUNK_CHARS) await this.flush();
-    }
-  }
-  async flush() {
-    if (this.pending) {
-      await writeAll(this.body, Buffer.from(this.pending));
-      this.pending = "";
-    }
-  }
-};
-var ResultStore = class {
-  constructor(config) {
-    this.config = config;
-    const scope = createHash2("sha256").update(`${config.name}
-${config.baseUrl}
-${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
-    this.directory = join2(resolve2(config.runtimeDir), scope, "results");
-  }
-  directory;
-  path(id) {
-    if (!RESULT_ID.test(id))
-      throw new HcmError(
-        "INVALID_RESULT_ID",
-        "resultId неверен: нужен ID из meta.resultId ответа."
-      );
-    return join2(this.directory, `${id}.json`);
-  }
-  payload(id, extension) {
-    this.path(id);
-    return join2(this.directory, `${id}.${extension}`);
-  }
-  async export(input2, envelope) {
-    const id = requiredString(input2.resultId, "resultId"), path = requiredString(input2.path, "path");
-    const format = input2.format ?? "json";
-    if (!["json", "jsonl", "text"].includes(format)) throw exportFormatError();
-    if (envelope) await mkdir(dirname(resolve2(path)), { recursive: true });
-    const count = { items: 0 };
-    const store = this;
-    const source = async function* () {
-      for (let offset = 0; offset !== void 0; ) {
-        const page = await store.read(id, offset, 65536, format === "text" ? "text" : "json");
-        if (format === "text" && page.format !== "text") throw exportFormatError();
-        yield String(page.text);
-        offset = page.nextOffset;
-      }
-    };
-    const wrapped = async function* () {
-      if (envelope) {
-        const { truncated: _, ...meta } = envelope.meta;
-        yield `${JSON.stringify({ ...envelope, data: void 0, meta }).slice(0, -1)},"data":`;
-      }
-      yield* format === "jsonl" ? jsonLines(source(), count, await store.listName(id)) : source();
-      if (envelope) yield "}\n";
-    };
-    const bytes = await writeResultFile(path, wrapped(), input2.overwrite === true);
-    return { path, bytes, format, ...format === "jsonl" ? count : {} };
-  }
-  async listName(id) {
-    try {
-      const manifest = this.path(id);
-      if ((await stat(manifest)).size > MAX_METADATA_BYTES) return void 0;
-      const list2 = JSON.parse(await readFile(manifest, "utf8")).list;
-      return typeof list2 === "string" ? list2 : void 0;
-    } catch {
-      return void 0;
-    }
-  }
-  /** Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. */
-  async put(data2) {
-    const saved = await this.write(data2);
-    await this.prune().catch(() => {
-    });
-    return saved;
-  }
-  /**
-   * Удаляет результаты старше resultsMaxAgeDays, затем самые старые сверх resultsMaxBytes.
-   * Результаты моложе часа остаются: их может читать другой процесс того же подключения.
-   */
-  async prune() {
-    const maxAge = (this.config.resultsMaxAgeDays ?? LOCAL_LIMITS.resultsMaxAgeDays) * DAY;
-    const maxBytes = this.config.resultsMaxBytes ?? LOCAL_LIMITS.resultsMaxBytes;
-    if (!maxAge && !maxBytes) return;
-    const found = /* @__PURE__ */ new Map();
-    await Promise.all(
-      (await readdir(this.directory)).map(async (name3) => {
-        const [, id, extension] = RESULT_FILE.exec(name3) ?? [];
-        if (id === void 0) return;
-        const info = await stat(join2(this.directory, name3)).catch(() => void 0);
-        if (!info) return;
-        const result = found.get(id) ?? { payloads: [], bytes: 0 };
-        found.set(id, result);
-        result.bytes += info.size;
-        if (extension === "json") result.time = info.mtimeMs;
-        else result.payloads.push(name3);
-      })
-    );
-    const results = [...found].flatMap(([id, { time, ...files }]) => time === void 0 ? [] : [{ id, time, ...files }]).sort((left, right) => left.time - right.time);
-    let total = results.reduce((sum, result) => sum + result.bytes, 0);
-    const now = Date.now();
-    for (const { id, time, payloads, bytes } of results) {
-      const age = now - time;
-      if (age < HOUR || (!maxAge || age <= maxAge) && (!maxBytes || total <= maxBytes)) break;
-      total -= bytes;
-      try {
-        for (const name3 of [...payloads, `${id}.json`])
-          await unlink(join2(this.directory, name3)).catch((error) => {
-            if (error.code !== "ENOENT") throw error;
-          });
-      } catch {
-      }
-    }
-  }
-  async write(data2) {
-    const id = randomUUID2();
-    const created = [];
-    const files = [];
-    const create = async (path) => {
-      const file = await open(`${path}.tmp`, "wx", 384);
-      files.push(file);
-      created.push(`${path}.tmp`);
-      return file;
-    };
-    try {
-      await mkdir(this.directory, { recursive: true });
-      const body = await create(this.payload(id, "data.json"));
-      const index = await create(this.payload(id, "data.idx"));
-      const writer = new JsonWriter(body, index);
-      const metadata = {
-        version: 2,
-        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-        kind: Array.isArray(data2) ? "array" : typeof data2 === "string" ? "string" : "json",
-        jsonBytes: 0,
-        jsonChars: 0,
-        checkpoints: 0
-      };
-      const list2 = listOf(data2);
-      const elements = Array.isArray(data2) ? data2 : list2?.items;
-      if (elements) {
-        const rows = await create(this.payload(id, "rows.idx"));
-        metadata.rows = elements.length;
-        if (list2) metadata.list = list2.key;
-        await writer.append(list2 ? `{${JSON.stringify(list2.key)}:[` : "[");
-        let pendingIndex = [];
-        for (const [position, item] of elements.entries()) {
-          if (position) await writer.append(",");
-          const serialised = JSON.stringify(item) ?? "null";
-          pendingIndex.push(record(writer.bytes, Buffer.byteLength(serialised)));
-          if (pendingIndex.length >= 4096) {
-            await writeAll(rows, Buffer.concat(pendingIndex));
-            pendingIndex = [];
-          }
-          await writer.append(serialised);
-        }
-        if (pendingIndex.length) await writeAll(rows, Buffer.concat(pendingIndex));
-        await writer.append("]");
-        if (list2) {
-          const rest = JSON.stringify({ ...data2, [list2.key]: void 0 });
-          await writer.append(rest === "{}" ? "}" : `,${rest.slice(1)}`);
-        }
-      } else {
-        const serialised = JSON.stringify(data2);
-        if (serialised === void 0)
-          throw new HcmError("RESULT_SERIALIZATION", "Результат — не значение JSON.");
-        await writer.append(serialised);
-      }
-      await writer.flush();
-      Object.assign(metadata, {
-        jsonBytes: writer.bytes,
-        jsonChars: writer.chars,
-        checkpoints: writer.checkpoints
-      });
-      const text3 = textOf(data2);
-      if (text3 !== void 0) {
-        const plain = await create(this.payload(id, "text.bin"));
-        metadata.textChars = text3.length;
-        for (let offset = 0; offset < text3.length; offset += CHUNK_CHARS)
-          await writeAll(plain, Buffer.from(text3.slice(offset, offset + CHUNK_CHARS), "utf16le"));
-      }
-      await Promise.all(files.map((file) => file.close()));
-      files.length = 0;
-      for (const temporary of [...created]) {
-        const target = temporary.slice(0, -4);
-        await rename(temporary, target);
-        created.push(target);
-      }
-      const manifest = this.path(id);
-      const metadataFile = await create(manifest);
-      await writeAll(metadataFile, Buffer.from(JSON.stringify(metadata)));
-      await metadataFile.close();
-      files.length = 0;
-      await rename(`${manifest}.tmp`, manifest);
-      created.push(manifest);
-      return { resultId: id, bytes: writer.bytes, ...list2 ? { list: list2.key } : {} };
-    } catch (error) {
-      await Promise.allSettled(files.map((file) => file.close()));
-      await Promise.allSettled(created.map((path) => unlink(path)));
-      if (error instanceof HcmError) throw error;
-      if (error instanceof TypeError)
-        throw new HcmError("RESULT_SERIALIZATION", "Результат нельзя записать как JSON.");
-      throw new HcmError(
-        "RESULT_WRITE_FAILED",
-        "Не удалось сохранить результат на этом компьютере.",
-        "Проверить права на папку runtimeDir и свободное место на диске."
-      );
-    }
-  }
-  async read(id, offsetValue, limitValue, formatValue) {
-    const manifest = this.path(id);
-    if (formatValue !== void 0 && !["auto", "json", "text"].includes(formatValue))
-      throw new HcmError("INVALID_RESULT_FORMAT", "format: нужно auto, json или text.");
-    let size;
-    try {
-      size = (await stat(manifest)).size;
-    } catch {
-      throw notFound();
-    }
-    if (size > MAX_METADATA_BYTES)
-      return this.legacy(manifest, size, offsetValue, limitValue, formatValue);
-    let envelope;
-    try {
-      envelope = JSON.parse(await readFile(manifest, "utf8"));
-    } catch (error) {
-      if (error.code === "ENOENT") throw notFound();
-      throw invalid();
-    }
-    if (envelope !== null && typeof envelope === "object" && "version" in envelope && envelope.version === 1)
-      return this.legacy(manifest, size, offsetValue, limitValue, formatValue);
-    const metadata = this.metadata(envelope);
-    const arrayPage = (metadata.kind === "array" || metadata.list !== void 0) && formatValue !== "json";
-    const offset = boundedInteger(offsetValue, 0, Number.MAX_SAFE_INTEGER, "offset");
-    const asked = boundedInteger(limitValue, arrayPage ? 100 : 12e3, 65536, "limit");
-    if (!asked) throw new HcmError("INVALID_ARGUMENT", "limit: нужно число больше нуля.");
-    const limit = arrayPage ? Math.min(asked, 1e3) : asked;
-    try {
-      await this.assertSize(this.payload(id, "data.json"), metadata.jsonBytes);
-      await this.assertSize(this.payload(id, "data.idx"), metadata.checkpoints * RECORD_BYTES);
-      if (arrayPage && formatValue !== "text") return await this.array(id, metadata, offset, limit);
-      if (formatValue === "text" && metadata.textChars === void 0) throw exportFormatError();
-      const plain = metadata.textChars !== void 0 && formatValue !== "json";
-      const total = plain ? metadata.textChars : metadata.jsonChars;
-      const text3 = plain ? await this.plain(id, metadata, offset, limit) : await this.json(id, metadata, offset, limit);
-      return this.textPage(text3, offset, total, limit, plain ? "text" : "json");
-    } catch (error) {
-      if (error instanceof HcmError) throw error;
-      if (error.code === "ENOENT") throw notFound();
-      throw invalid();
-    }
-  }
-  metadata(value) {
-    if (value === null || typeof value !== "object") throw invalid();
-    const source = value;
-    if (source.version !== 2 || !["array", "string", "json"].includes(String(source.kind)) || typeof source.createdAt !== "string" || !natural(source.jsonBytes) || source.jsonBytes < 1 || !natural(source.jsonChars) || source.jsonChars < 1 || !natural(source.checkpoints) || source.checkpoints < 1 || source.checkpoints > source.jsonChars || source.checkpoints * RECORD_BYTES > Number.MAX_SAFE_INTEGER || source.checkpoints < Math.ceil(source.jsonChars / CHUNK_CHARS) || source.checkpoints > Math.ceil(source.jsonChars / (CHUNK_CHARS - 1)) || source.kind === "array" && (!natural(source.rows) || source.rows * RECORD_BYTES > Number.MAX_SAFE_INTEGER) || source.list !== void 0 && (typeof source.list !== "string" || source.kind !== "json" || !natural(source.rows) || source.rows * RECORD_BYTES > Number.MAX_SAFE_INTEGER) || source.kind === "string" && source.textChars === void 0 || source.kind === "array" && source.textChars !== void 0 || source.textChars !== void 0 && (!natural(source.textChars) || source.textChars * 2 > Number.MAX_SAFE_INTEGER))
-      throw invalid();
-    return source;
-  }
-  async assertSize(path, expected) {
-    if ((await stat(path)).size !== expected) throw invalid();
-  }
-  async array(id, metadata, offset, limit) {
-    const count = metadata.rows;
-    await this.assertSize(this.payload(id, "rows.idx"), count * RECORD_BYTES);
-    if (offset >= count)
-      return {
-        items: [],
-        total: count,
-        ...metadata.list === void 0 ? {} : { list: metadata.list }
-      };
-    return reading(
-      [this.payload(id, "rows.idx"), this.payload(id, "data.json")],
-      async ([index, body]) => {
-        const selected = await readExactly(
-          index,
-          offset * RECORD_BYTES,
-          Math.min(limit, count - offset) * RECORD_BYTES
-        );
-        const items = [];
-        let used = 128;
-        for (let position = 0; position < selected.length; position += RECORD_BYTES) {
-          const [start, bytes] = numbers(selected.subarray(position, position + RECORD_BYTES));
-          if (start < 1 || !bytes || start + bytes >= metadata.jsonBytes) throw invalid();
-          if (used + bytes > this.config.outputLimitBytes / 2) {
-            if (!items.length)
-              return {
-                items,
-                total: count,
-                blockedItem: { index: offset, bytes },
-                hint: "Элемент blockedItem не помещается в ответ и не пропущен. Читать результат с format:json — текстом JSON по частям."
-              };
-            break;
-          }
-          items.push(
-            JSON.parse(
-              new TextDecoder("utf8", { fatal: true }).decode(
-                await readExactly(body, start, bytes)
-              )
-            )
-          );
-          used += bytes + 1;
-        }
-        return {
-          items,
-          total: count,
-          ...offset + items.length < count ? { nextOffset: offset + items.length } : {},
-          ...items.length < Math.min(limit, count - offset) ? { cutBySize: true } : {},
-          ...metadata.list === void 0 ? {} : { list: metadata.list }
-        };
-      }
-    );
-  }
-  async plain(id, metadata, offset, limit) {
-    await this.assertSize(this.payload(id, "text.bin"), metadata.textChars * 2);
-    if (offset >= metadata.textChars) return "";
-    const file = await open(this.payload(id, "text.bin"), "r");
-    try {
-      const start = Math.max(0, offset - 1);
-      const text3 = (await readExactly(file, start * 2, Math.min(limit + 3, metadata.textChars - start) * 2)).toString("utf16le");
-      if (offset && high(text3.charAt(0)) && low(text3.charAt(1)))
-        throw new HcmError(
-          "INVALID_OFFSET",
-          "offset попадает в середину символа Unicode: нужно брать nextOffset из прошлого ответа."
-        );
-      return text3.slice(offset - start);
-    } finally {
-      await file.close();
-    }
-  }
-  async json(id, metadata, offset, limit) {
-    if (offset >= metadata.jsonChars) return "";
-    return reading(
-      [this.payload(id, "data.idx"), this.payload(id, "data.json")],
-      async ([index, body]) => {
-        const first = numbers(await readExactly(index, 0, RECORD_BYTES));
-        if (first[0] !== 0 || first[1] !== 0) throw invalid();
-        let left = 0;
-        let right = metadata.checkpoints - 1;
-        let selected = [0, 0];
-        const target = Math.max(0, offset - 1);
-        while (left <= right) {
-          const middle = Math.floor((left + right) / 2);
-          const checkpoint = numbers(
-            await readExactly(index, middle * RECORD_BYTES, RECORD_BYTES)
-          );
-          if (checkpoint[0] >= metadata.jsonChars || checkpoint[1] >= metadata.jsonBytes)
-            throw invalid();
-          if (checkpoint[0] <= target) {
-            selected = checkpoint;
-            left = middle + 1;
-          } else right = middle - 1;
-        }
-        const [start, byteOffset] = selected;
-        if (target - start >= CHUNK_CHARS) throw invalid();
-        const amount = Math.min(metadata.jsonBytes - byteOffset, (offset - start + limit + 2) * 4);
-        const decoded = new TextDecoder("utf8", { fatal: true }).decode(
-          await readExactly(body, byteOffset, amount),
-          { stream: byteOffset + amount < metadata.jsonBytes }
-        );
-        const relative = offset - start;
-        if (decoded.length < Math.min(metadata.jsonChars - start, relative + limit + 1))
-          throw invalid();
-        if (byteOffset + amount === metadata.jsonBytes && decoded.length !== metadata.jsonChars - start)
-          throw invalid();
-        if (relative && high(decoded.charAt(relative - 1)) && low(decoded.charAt(relative)))
-          throw new HcmError(
-            "INVALID_OFFSET",
-            "offset попадает в середину символа Unicode: нужно брать nextOffset из прошлого ответа."
-          );
-        return decoded.slice(relative, relative + limit + 1);
-      }
-    );
-  }
-  textPage(source, offset, total, limit, format) {
-    if (!source.length && offset < total) throw invalid();
-    let lower = 0;
-    let upper = Math.min(limit, source.length);
-    while (lower < upper) {
-      const middle = Math.ceil((lower + upper) / 2);
-      if (Buffer.byteLength(JSON.stringify(source.slice(0, middle))) <= this.config.outputLimitBytes / 2)
-        lower = middle;
-      else upper = middle - 1;
-    }
-    let end = lower;
-    if (end && high(source.charAt(end - 1)) && low(source.charAt(end))) {
-      if (end === 1) end++;
-      else end--;
-    }
-    if (!end && source.length)
-      throw new HcmError(
-        "RESULT_OUTPUT_LIMIT",
-        "В ответ не помещается даже один символ: предел размера ответа слишком мал."
-      );
-    return {
-      text: source.slice(0, end),
-      format,
-      totalChars: total,
-      ...offset + end < total ? { nextOffset: offset + end } : {},
-      ...end < Math.min(limit, source.length) ? { cutBySize: true } : {}
-    };
-  }
-  /** Артефакты версии 1 читает прежний ограниченный читатель; новые ссылки — индексированная v2. */
-  async legacy(path, bytes, offsetValue, limitValue, format) {
-    if (bytes > this.config.maxResponseBytes * 2)
-      throw new HcmError(
-        "LEGACY_RESULT_TOO_LARGE",
-        "Результат сохранён прежней версией клиента и слишком велик, чтобы его прочитать.",
-        "Новые результаты хранятся иначе и читаются по частям; этот файл нужно открыть напрямую в папке runtimeDir."
-      );
-    let data2;
-    try {
-      const envelope = JSON.parse(await readFile(path, "utf8"));
-      if (envelope === null || typeof envelope !== "object" || !("version" in envelope) || envelope.version !== 1 || !("data" in envelope))
-        throw invalid();
-      data2 = envelope.data;
-    } catch {
-      throw invalid();
-    }
-    const array = Array.isArray(data2) && format !== "json";
-    const offset = boundedInteger(offsetValue, 0, Number.MAX_SAFE_INTEGER, "offset");
-    const limit = boundedInteger(limitValue, array ? 100 : 12e3, array ? 1e3 : 65536, "limit");
-    if (!limit) throw new HcmError("INVALID_ARGUMENT", "limit: нужно число больше нуля.");
-    if (array) {
-      const rows = data2;
-      const items = [];
-      let used = 128;
-      for (const item of rows.slice(offset, offset + limit)) {
-        const size = Buffer.byteLength(JSON.stringify(item));
-        if (used + size > this.config.outputLimitBytes / 2) {
-          if (!items.length)
-            return {
-              items,
-              total: rows.length,
-              blockedItem: { index: offset, bytes: size },
-              hint: "Элемент blockedItem не помещается в ответ и не пропущен. Читать результат с format:json."
-            };
-          break;
-        }
-        items.push(item);
-        used += size + 1;
-      }
-      return {
-        items,
-        total: rows.length,
-        ...offset + items.length < rows.length ? { nextOffset: offset + items.length } : {}
-      };
-    }
-    const text3 = typeof data2 === "string" && format !== "json" ? data2 : JSON.stringify(data2);
-    if (offset && high(text3.charAt(offset - 1)) && low(text3.charAt(offset)))
-      throw new HcmError(
-        "INVALID_OFFSET",
-        "offset попадает в середину символа Unicode: нужно брать nextOffset из прошлого ответа."
-      );
-    return this.textPage(
-      text3.slice(offset, offset + limit + 1),
-      offset,
-      text3.length,
-      limit,
-      typeof data2 === "string" && format !== "json" ? "text" : "json"
-    );
-  }
-};
 
 // src/logs.ts
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash4 } from "node:crypto";
 var LogReadUnavailableError = class extends HcmError {
   constructor() {
     super(
       "LOG_READ_UNAVAILABLE",
       "Сервер не отдал текст лога и со второй попытки. Несколько секунд после каждой записанной строки он держит файл лога занятым.",
-      "На нагруженном сервере лог за сегодня может не читаться вовсе; логи за прошлые даты читаются в любое время."
+      "Повторить через несколько секунд. На нагруженном сервере лог за сегодня может не читаться вовсе; логи за прошлые даты читаются в любое время."
     );
   }
 };
 var LEVELS = ["normal", "debug", "info", "warning", "error", "critical"];
-var hash = (text3) => createHash3("sha256").update(text3).digest("hex");
+var hash = (text3) => createHash4("sha256").update(text3).digest("hex");
 function text2(value, label, optional = false) {
   if (typeof value === "string") return value;
   if (value !== null && typeof value === "object" && "#text" in value && typeof value["#text"] === "string")
@@ -4713,7 +4979,7 @@ var LogReader = class {
   }
   async whileBusy() {
     const wait = this.busyUntil - Date.now();
-    if (wait > 0) await new Promise((resolve3) => setTimeout(resolve3, wait));
+    if (wait > 0) await new Promise((resolve4) => setTimeout(resolve4, wait));
   }
   async allFiles() {
     const params = "<func_params><server_log_report><type_id>all</type_id><show_alert>false</show_alert></server_log_report></func_params>";
@@ -5610,7 +5876,10 @@ var RpcCatalog = class {
     const filtered = filter.all === true ? matching : matching.filter((target) => target.serverOnly !== true);
     const total = filtered.length;
     const hidden = matching.length - filtered.length;
-    const serverOnlyHidden = hidden ? { serverOnlyHidden: hidden } : {};
+    const serverOnlyHidden = hidden ? {
+      serverOnlyHidden: hidden,
+      hint: "serverOnlyHidden — сколько подходящих функций не показано: они вызываются только из кода на сервере. all:true (в CLI --all) добавит их в список."
+    } : {};
     const selected = [];
     for (const { id, parameters, allowed, serverOnly } of filtered.slice(cursor, cursor + limit)) {
       const target = { id, parameters, allowed, ...serverOnly ? { serverOnly } : {} };
@@ -5813,17 +6082,6 @@ function documentText(bytes) {
     throw new HcmError("INVALID_XML", "XML документа — не текст UTF-8.");
   }
 }
-function oneEditApart(a, b) {
-  if (Math.abs(a.length - b.length) > 1) return false;
-  let start = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) start++;
-  let endA = a.length;
-  let endB = b.length;
-  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) endA--, endB--;
-  const restA = a.slice(start, endA);
-  const restB = b.slice(start, endB);
-  return Math.max(restA.length, restB.length) <= 1 || restA.length === 2 && restB.length === 2 && restA === restB[1] + restB[0];
-}
 function patchInput(patch, remove, resave = false) {
   if (remove === void 0) {
     if (patch === void 0) {
@@ -5976,23 +6234,25 @@ var ServerObjects = class {
   /**
    * Чего сервер не сохранит, отклоняется до записи: поле, которого нет у типа, выпадает из
    * сохранённого документа, как и значение поля, которое сервер вычисляет сам, а дата, которую
-   * сервер не может прочитать, сохраняется другим значением.
+   * сервер не может прочитать, сохраняется другим значением. Ответ — поля, которые сервер
+   * заполняет при сохранении сам, с полем, из которого их стоит менять, если оно угадывается.
    */
   async requireFields(type, formUrl, data2, names) {
+    const filled = /* @__PURE__ */ new Map();
     const shape = await this.schema.documentShape(type, formUrl).catch(() => void 0);
-    if (!shape) return;
+    if (!shape) return filled;
     const written = [...new Set(names)];
     const unknown = shape.fields.size && !shape.partial ? written.filter((name3) => !shape.fields.has(name3)) : [];
     if (unknown.length) {
+      const rows = await this.schema.catalogShape({ type }).catch(() => void 0);
+      const rowOnly = unknown.filter((name3) => rows?.fields.has(name3));
       const near = [...shape.fields].filter(
-        (field) => unknown.some(
-          (name3) => name3.length > 3 && field.includes(name3) || field.length > 3 && name3.includes(field) || oneEditApart(field, name3)
-        )
-      ).slice(0, 5);
+        (field) => unknown.some((name3) => isSimilarName(field, name3))
+      );
       throw new HcmError(
         "UNKNOWN_FIELD",
         `У типа ${type} нет поля: ${unknown.join(", ")}.`,
-        `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Поля типа показывает schema.get.`,
+        `${rowOnly.length ? `${rowOnly.join(", ")}: есть только в строке каталога, в документ не пишется. ` : ""}${similarHint(near)}Поля типа показывает schema.get.`,
         { fields: unknown }
       );
     }
@@ -6015,6 +6275,12 @@ var ServerObjects = class {
         'Писать нужно "2026-12-05" или "2026-12-05T09:30:00". Время — местное время сервера: смещение в значении сервер не учитывает.',
         { fields: wrong }
       );
+    for (const name3 of written.filter((name4) => shape.serverFilled?.has(name4))) {
+      const source = name3.replace(/_name$/, "_id");
+      const usable = source !== name3 && shape.fields.has(source) && !shape.serverFilled?.has(source);
+      filled.set(name3, usable ? source : void 0);
+    }
+    return filled;
   }
   async create(args, out) {
     const type = identifier(args.type, "type");
@@ -6107,7 +6373,7 @@ var ServerObjects = class {
         "Объект изменился после чтения: его fingerprint не равен expectedFingerprint.",
         "Прочитать объект заново и составить изменение по его текущему состоянию."
       );
-    await this.requireFields(
+    const filled = await this.requireFields(
       changes.before.type,
       changes.before.formUrl,
       changes.after.data,
@@ -6119,7 +6385,8 @@ var ServerObjects = class {
         preview: args.preview === true,
         noop: noop && args.resave !== true,
         changes: changes.changes,
-        fingerprint: changes.before.fingerprint
+        fingerprint: changes.before.fingerprint,
+        ...filled.size ? { serverFilled: [...filled.keys()] } : {}
       };
     const current = await this.load(args);
     if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
@@ -6147,7 +6414,23 @@ var ServerObjects = class {
     );
     const verified = await this.load(args);
     const snapshot = verified.document.snapshot();
-    verifyFields(changes.after.data, snapshot.data, form.fields, branches, changes.before.xml);
+    try {
+      verifyFields(changes.after.data, snapshot.data, form.fields, branches, changes.before.xml);
+    } catch (error) {
+      const fields3 = error instanceof HcmError ? error.details?.fields : void 0;
+      const copies2 = Array.isArray(fields3) ? [...filled.keys()].filter((name3) => fields3.includes(name3)) : [];
+      if (!(error instanceof HcmError) || !copies2.length) throw error;
+      const sources = copies2.flatMap((name3) => {
+        const source = filled.get(name3);
+        return source ? [`${source} вместо ${name3}`] : [];
+      });
+      throw new HcmError(
+        error.code,
+        error.message,
+        `${copies2.join(", ")}: сервер заполняет при сохранении документа из связанного объекта. Менять нужно связанное поле${sources.length ? `: ${sources.join(", ")}` : ""}. Остальные поля запроса сохранены: заново объект не создавать.`,
+        error.details
+      );
+    }
     verifyRemovals(changes.after.data, snapshot.data, changes.changes, form.fields);
     await this.journal({
       mutationId,
@@ -6245,6 +6528,11 @@ var HcmServer = class {
     refuseUnowned(id, args, (effect) => effect === "write");
     return this.port.call(id, args);
   }
+  /** Чтение реестра с двоичным ответом потоком: read получает тело. */
+  async stream(id, args, read) {
+    refuseUnowned(id, args, (effect) => effect !== "read");
+    return this.port.stream(id, args, read);
+  }
   /** Сведения о приложении, хранятся 30 секунд; отклонённый запрос не хранится. */
   async applicationInfo() {
     if (!this.appInfo || this.appInfo.expires < Date.now()) {
@@ -6261,7 +6549,6 @@ var HcmServer = class {
    * перехваченную ошибку. `idle` по ответу узнаёт, что код ничего не сделал: отметка снимается.
    */
   async runCode(script, outcome, idle) {
-    prepare(script.request, describeHcmOperation("web.rpc.call").inputSchema);
     outcome.note({ executionId: script.executionId });
     const withdraw = outcome.sending();
     try {
@@ -6272,7 +6559,7 @@ var HcmServer = class {
       if (idle?.(data2)) withdraw();
       return data2;
     } catch (error) {
-      if (error instanceof HcmError && error.mutationOutcome === "not_sent" || refusedAtDoor(error))
+      if (error instanceof ArgumentError || error instanceof HcmError && error.mutationOutcome === "not_sent" || refusedAtDoor(error))
         withdraw();
       throw error;
     }
@@ -6289,10 +6576,38 @@ function jsonSafe(value) {
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
   return value;
 }
-function beginning(data2) {
-  const cut = (value) => Array.isArray(value) ? value.slice(0, 3) : typeof value === "string" ? value.slice(0, 1e3) : value;
-  if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return cut(data2);
-  return Object.fromEntries(Object.entries(data2).map(([key, value]) => [key, cut(value)]));
+function longerThan(data2, limit) {
+  let chars = 0;
+  const count = (value) => {
+    if (typeof value === "string") chars += value.length;
+    else if (value !== null && typeof value === "object") {
+      for (const item of Object.values(value)) if (chars <= limit) count(item);
+    }
+  };
+  count(data2);
+  return chars > limit || Buffer.byteLength(JSON.stringify(data2) ?? "null") > limit;
+}
+function beginning(data2, budget, summarised = {}) {
+  const whole = data2 === null || typeof data2 !== "object" || Array.isArray(data2);
+  const entries = whole ? [["", data2]] : Object.entries(data2);
+  const shown2 = entries.map(
+    ([, value]) => Array.isArray(value) ? [] : typeof value === "string" ? value.slice(0, 1e3) : value
+  );
+  const preview = () => whole ? shown2[0] : Object.fromEntries(entries.map(([key], index) => [key, shown2[index]]));
+  let used = Buffer.byteLength(JSON.stringify(preview()) ?? "null");
+  for (const [index, [key, value]] of entries.entries()) {
+    if (!Array.isArray(value)) continue;
+    const items = shown2[index];
+    for (const item of value) {
+      const bytes = Buffer.byteLength(JSON.stringify(item) ?? "null") + (items.length ? 1 : 0);
+      if (used + bytes > budget) break;
+      used += bytes;
+      items.push(item);
+    }
+    if (value.length && (!items.length || Object.hasOwn(summarised, key) && items.length < value.length))
+      return void 0;
+  }
+  return preview();
 }
 var ReplyPacker = class {
   constructor(config, results) {
@@ -6307,30 +6622,32 @@ var ReplyPacker = class {
   async success(id, start, value, bound) {
     const rules = operationSpec(id)?.reply;
     const data2 = jsonSafe(value);
-    const serialised = JSON.stringify(data2);
     const outcome = (stored) => {
       const error = rules?.failed?.(data2, stored);
       return error ? { ok: false, error } : { ok: true };
     };
-    if (bound && Buffer.byteLength(serialised ?? "null") > this.config.outputLimitBytes && rules?.store !== "never") {
+    if (bound && longerThan(data2, this.config.outputLimitBytes) && rules?.store !== "never") {
       const stored = await this.results.put(data2);
-      let preview = beginning(data2);
-      if (Buffer.byteLength(JSON.stringify(preview)) > this.config.outputLimitBytes / 2)
-        preview = {
-          kind: "stored-result",
-          ...data2 !== null && typeof data2 === "object" && !Array.isArray(data2) ? Object.fromEntries(
-            Object.entries(data2).slice(0, 40).map(([key, value2]) => [
-              key,
-              Array.isArray(value2) ? rules?.preview && Object.hasOwn(rules.preview, key) ? value2.map(rules.preview[key]) : `[список: ${value2.length}]` : value2 !== null && typeof value2 === "object" ? "{структура}" : typeof value2 === "string" && value2.length > 120 ? `${value2.slice(0, 120)}…` : value2
-            ])
-          ) : {}
-        };
+      const budget = this.config.outputLimitBytes / 2;
+      const fitted = beginning(data2, budget, rules?.preview);
+      const preview = fitted !== void 0 && Buffer.byteLength(JSON.stringify(fitted)) <= budget ? fitted : {
+        kind: "stored-result",
+        ...data2 !== null && typeof data2 === "object" && !Array.isArray(data2) ? Object.fromEntries(
+          Object.entries(data2).slice(0, 40).map(([key, value2]) => [
+            key,
+            Array.isArray(value2) ? rules?.preview && Object.hasOwn(rules.preview, key) ? value2.map(rules.preview[key]) : `[список: ${value2.length}]` : value2 !== null && typeof value2 === "object" ? "{структура}" : typeof value2 === "string" && value2.length > 120 ? `${value2.slice(0, 120)}…` : value2
+          ])
+        ) : {}
+      };
+      const { list: list2 } = stored;
+      const shown2 = list2 === void 0 || preview !== fitted ? void 0 : fitted[list2];
+      const reads = list2 === void 0 ? "его частями" : `список ${list2} по элементам${Array.isArray(shown2) ? ` (в preview первые ${shown2.length} из ${data2[list2].length})` : ""}`;
       return {
         ...outcome(true),
         data: {
           preview,
           resultId: stored.resultId,
-          hint: `Ответ не поместился и сохранён целиком: results.read читает ${stored.list === void 0 ? "его частями" : `список ${stored.list} по элементам`}, results.export сохраняет в файл.`
+          hint: `Ответ не поместился и сохранён целиком: results.read читает ${reads}, results.export сохраняет в файл.`
         },
         meta: {
           operationId: id,
@@ -6342,7 +6659,7 @@ var ReplyPacker = class {
         }
       };
     }
-    const kept = bound && rules?.store === "always" ? await this.results.put(data2).catch(() => void 0) : void 0;
+    const kept = bound && (typeof rules?.store === "function" ? rules.store(data2) : rules?.store === "always") ? await this.results.put(data2).catch(() => void 0) : void 0;
     return {
       ...outcome(false),
       data: data2,
@@ -6356,7 +6673,7 @@ var ReplyPacker = class {
   }
   /** Что операция выбросила: формулировка по классу ошибки, без секретов, в пределах лимита. */
   failure(id, start, error, verdict, extra = {}) {
-    const failure = this.pack(id, start, error, verdict, extra.causeRuledOut);
+    const failure = this.pack(id, start, error, verdict, extra.afterSend);
     if (!extra.batchRecovery) return failure;
     return { ...failure, data: this.batchRecoveryData(extra.batchRecovery) };
   }
@@ -6386,7 +6703,7 @@ var ReplyPacker = class {
     }
     return data2;
   }
-  pack(id, start, error, verdict, causeRuledOut) {
+  pack(id, start, error, verdict, afterSend) {
     const redact = (message, limit = 500) => {
       let safe = message;
       for (const secret of [
@@ -6394,7 +6711,8 @@ var ReplyPacker = class {
         this.config.username && this.config.password ? Buffer.from(`${this.config.username}:${this.config.password}`).toString("base64") : void 0
       ])
         if (secret) safe = safe.replaceAll(secret, "[redacted]");
-      return safe.replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]").replace(/(?:SessionID|Authorization|Cookie)\s*[:=]\s*[^\s,;]+/gi, "[redacted]").slice(0, limit);
+      safe = safe.replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]").replace(/(?:SessionID|Authorization|Cookie)\s*[:=]\s*[^\s,;]+/gi, "[redacted]");
+      return safe.length > limit ? `${safe.slice(0, limit - 1)}…` : safe;
     };
     const { mutationOutcome, refusedAfterSend, ids, exactIds } = verdict;
     const { mutationOutcome: _own, ...normal } = error instanceof HcmError ? error.toJSON() : error instanceof WebSocketHeartbeatError ? {
@@ -6404,11 +6722,7 @@ var ReplyPacker = class {
       retryable: false
     } : error instanceof WsHcmApiError ? {
       code: `PLATFORM_${error.kind.toUpperCase()}`,
-      ...platformFailure(
-        error,
-        this.config.baseUrl,
-        causeRuledOut ? void 0 : operationSpec(id)?.usualCause
-      ),
+      ...platformFailure(error, this.config.baseUrl, operationSpec(id)?.usualCause),
       retryable: false,
       ...error.status === void 0 ? {} : { details: { status: error.status } }
     } : error instanceof ArgumentError ? {
@@ -6424,11 +6738,12 @@ var ReplyPacker = class {
     };
     if (refusedAfterSend)
       normal.hint = `${normal.hint ?? ""} До этого отказа запрос на запись уже ушёл: после восстановления входа проверить, прошла ли запись, прежде чем повторять.`.trim();
+    if (afterSend && mutationOutcome === "indeterminate") {
+      normal.hint = [afterSend.hint, normal.message, normal.hint].filter(Boolean).join(" ");
+      normal.message = afterSend.message;
+    }
     const trim = (value, depth = 0, limit = 256) => {
-      if (typeof value === "string") {
-        const text3 = redact(value, limit + 1);
-        return text3.length > limit ? `${text3.slice(0, limit - 1)}…` : text3;
-      }
+      if (typeof value === "string") return redact(value, limit);
       if (depth > 3) return "[details omitted]";
       if (Array.isArray(value)) return value.slice(0, 12).map((item) => trim(item, depth + 1));
       if (value !== null && typeof value === "object")
@@ -6472,7 +6787,8 @@ var ReplyPacker = class {
         // пароль, случайно ставший частью слова, не должен вырезать в нём дыры.
         ...error instanceof WsHcmApiError ? {} : {
           message: redact(normal.message),
-          ...normal.hint === void 0 ? {} : { hint: redact(normal.hint) }
+          // Подсказка бывает длиннее сообщения: она называет имена, из которых выбирать.
+          ...normal.hint === void 0 ? {} : { hint: redact(normal.hint, 1e3) }
         },
         ...mutationOutcome === void 0 ? {} : { mutationOutcome },
         ...Object.keys(details).length ? { details } : {}
@@ -6665,7 +6981,7 @@ var HcmRuntime = class {
     }
   }
   failure(id, start, error, state = { outcome: new WriteOutcome(), effect: "read" }) {
-    if (error instanceof WsHcmApiError && error.status === 500 || error instanceof HcmError && error.code === "SCRIPT_FAILED")
+    if (error instanceof WsHcmApiError && error.status === 500 || error instanceof HcmError && (error.code === "SCRIPT_FAILED" || error.code === "UPLOAD_REFUSED"))
       this.logs.serverWroteLog();
     return this.replies.failure(
       id,
@@ -6796,7 +7112,6 @@ var HcmClient = class {
   fileExists(input2) {
     return callOperation(this, "files.exists", { ...input2 });
   }
-  /** Файл по адресу сервера: text, если это текст в UTF-8, иначе base64. */
   readFile(input2) {
     return callOperation(this, "files.read", { ...input2 });
   }
@@ -6805,8 +7120,9 @@ var HcmClient = class {
     return callOperation(this, "files.list", { ...input2 });
   }
   /**
-   * Записывает файл по адресу x-local://… целиком; папки сервер создаёт сам. Нужно право write,
-   * в папку кода (wt, wtv, custom…) — ещё execute.
+   * Записывает файл по адресу x-local://… целиком из text, base64 или файла на диске (file) и сверяет
+   * записанное; папки сервер создаёт сам. Нужно право write, в папку кода (wt, wtv, custom…) — ещё
+   * execute.
    */
   writeFile(input2) {
     return callOperation(this, "files.write", { ...input2 });
@@ -6919,7 +7235,7 @@ var HcmClient = class {
   exportResult(input2) {
     return callOperation(this, "results.export", { ...input2 });
   }
-  /** Загружает файл до 8 МБ так же, как админка; нужно право write. */
+  /** Загружает файл в папку загрузок сервера так же, как админка; нужно право write. */
   uploadFile(input2) {
     return this.call("web.pages.uploadFile", { ...input2 });
   }

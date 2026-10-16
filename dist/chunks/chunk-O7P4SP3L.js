@@ -8678,7 +8678,7 @@ function restoreXmlNames(value) {
     ])
   );
 }
-var parser = createPlatformXmlParser({
+var parserOptions = {
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   textNodeName: "#text",
@@ -8686,7 +8686,9 @@ var parser = createPlatformXmlParser({
   parseAttributeValue: false,
   trimValues: false,
   removeNSPrefix: false
-});
+};
+var parser = createPlatformXmlParser(parserOptions);
+var topLevelParser = createPlatformXmlParser({ ...parserOptions, stopNodes: ["*"] });
 var builder = createPlatformXmlBuilder({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
@@ -8697,10 +8699,9 @@ var builder = createPlatformXmlBuilder({
 function validXmlCodePoint(code) {
   return code === 9 || code === 10 || code === 13 || code >= 32 && code <= 55295 || code >= 57344 && code <= 65533 || code >= 65536 && code <= 1114111;
 }
+var invalidXmlCharacter = /[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]/u;
 function assertXmlCharacters(source) {
-  for (const character of source)
-    if (!validXmlCodePoint(character.codePointAt(0)))
-      throw new ArgumentError("В XML есть недопустимый символ.");
+  if (invalidXmlCharacter.test(source)) throw new ArgumentError("В XML есть недопустимый символ.");
 }
 function assertSafe(source) {
   assertXmlCharacters(source);
@@ -8784,16 +8785,21 @@ function buildXml(value) {
 function rawXml(source) {
   assertSafe(source);
   assertWellFormed(`<ws-hcm-fragment>${source}</ws-hcm-fragment>`);
+  return assembledXml(source);
+}
+function assembledXml(source) {
   return Object.freeze({ [RAW_XML]: true, xml: source });
 }
 function rawXmlElement(source) {
-  const value = parseXml2(source);
+  assertSafe(source);
+  assertWellFormed(source);
+  const value = topLevelParser.parse(source);
   const elements = Object.keys(value).filter(
     (key) => !key.startsWith("?") && !key.startsWith("@_") && key !== "#text"
   );
   if (elements.length !== 1 || Array.isArray(value[elements[0]]) || typeof value["#text"] === "string" && value["#text"].trim() !== "")
     throw new ArgumentError("Аргумент XML должен быть ровно одним элементом.");
-  return rawXml(source);
+  return assembledXml(source);
 }
 function isRawXml(value) {
   return typeof value === "object" && value !== null && RAW_XML in value;
@@ -9027,6 +9033,9 @@ var HttpTransport = class {
     let ownsCookieHeader = this.cookie.value !== void 0;
     if (ownsCookieHeader) headers.set("Cookie", `SessionID=${this.cookie.value}`);
     if (this.#webHeaders) headers.set("X-SpXml-Client", "SP-XML Web client 1.0");
+    const maxResponseBytes = options.maxResponseBytes ?? this.#maxResponseBytes;
+    if (!(maxResponseBytes === Infinity || Number.isSafeInteger(maxResponseBytes)) || maxResponseBytes < 1)
+      throw new ArgumentError("maxResponseBytes: нужно положительное целое число или Infinity");
     const timeoutMs = options.timeoutMs ?? this.#timeoutMs;
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const signal = options.signal === void 0 ? timeoutSignal : AbortSignal.any([options.signal, timeoutSignal]);
@@ -9086,7 +9095,7 @@ var HttpTransport = class {
     this.cookie.capture(response.headers);
     if (options.allowStatuses !== void 0) {
       if (options.allowStatuses === "any" || options.allowStatuses.includes(response.status))
-        return limitResponse(response, this.#maxResponseBytes);
+        return limitResponse(response, maxResponseBytes);
       await response.body?.cancel();
       if (response.status === 401)
         throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", {
@@ -9104,7 +9113,7 @@ var HttpTransport = class {
       await response.body?.cancel();
       throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
     }
-    return limitResponse(response, this.#maxResponseBytes);
+    return limitResponse(response, maxResponseBytes);
   }
 };
 function networkFailure(error) {
@@ -9166,7 +9175,11 @@ function limitResponse(response, maxBytes) {
         await reader.cancel().catch(() => void 0);
         reader.releaseLock();
         controller.error(
-          error instanceof WsHcmApiError ? error : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", { cause: error })
+          error instanceof WsHcmApiError ? error : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", {
+            cause: error,
+            // Время запроса истекает и посреди тела: большой файл читается дольше timeoutMs.
+            ...error instanceof DOMException && error.name === "TimeoutError" ? { details: { network: "timeout" } } : {}
+          })
         );
       }
     },
@@ -9720,7 +9733,7 @@ var rpc = Object.freeze({
   }
 });
 function rpcArgs(args) {
-  return rawXml(
+  return assembledXml(
     args.map((arg, index) => {
       if (arg.valueType === void 0 && !isRawXml(arg.lexicalValue))
         throw new ArgumentError(
@@ -9970,12 +9983,9 @@ function appendBytes(left, right) {
   return result;
 }
 var WebPageApi = class {
-  constructor(transport2, uploadToken, maximumUploadBytes = 8 * 1024 * 1024) {
+  constructor(transport2, uploadToken) {
     this.transport = transport2;
     this.uploadToken = uploadToken;
-    this.maximumUploadBytes = maximumUploadBytes;
-    if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1)
-      throw new ArgumentError("maximumUploadBytes: нужно целое число больше нуля.");
   }
   /** Прочитать штатную страницу предпросмотра PDF как текст. */
   async filePreviewPdf(options) {
@@ -10042,9 +10052,9 @@ var WebPageApi = class {
   }
   /**
    * Загрузить один файл штатным способом: multipart с полями f и session_token.
-   * Текущий токен страницы подставляет веб-сессия, которой принадлежит вызов. Размер
-   * ограничен maxResponseBytes и пределом клиента 8 МиБ; части и старый вариант
-   * с base64 не используются. Успешный ответ содержит Url.
+   * Текущий токен страницы подставляет сессия web, которой принадлежит вызов. Размер ограничивает
+   * политика загрузки сервера; части и старый вариант с base64 не используются. Успешный ответ
+   * содержит Url.
    * @mutating Сохраняет файл на сервере; срабатывают правила загрузки платформы.
    */
   async uploadFile(request, options) {
@@ -10059,15 +10069,10 @@ var WebPageApi = class {
       throw invalidInput("В веб-сессии нет действующего токена страницы для загрузки файла.");
     const value = isRawXml(request.data) ? request.data.xml : request.data;
     let bytes;
-    if (typeof value === "string") {
-      if (Buffer.byteLength(value, "utf8") > this.maximumUploadBytes)
-        throw invalidInput("Файл больше допустимого размера загрузки.");
-      bytes = new TextEncoder().encode(value);
-    } else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+    if (typeof value === "string") bytes = new TextEncoder().encode(value);
+    else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
     else if (value instanceof Uint8Array) bytes = value;
     else throw invalidInput("data: нужен текст или двоичные данные.");
-    if (bytes.byteLength > this.maximumUploadBytes)
-      throw invalidInput("Файл больше допустимого размера загрузки.");
     const form = new FormData();
     form.append(
       "f",
@@ -10075,13 +10080,20 @@ var WebPageApi = class {
       filename
     );
     form.append("session_token", token);
-    const result = await jsonResponse(
-      await this.transport.send(
-        "/spxml_web/service/upload_file.htm?json_response=1",
-        { method: "POST", body: form },
-        options
-      )
+    const response = await this.transport.send(
+      "/spxml_web/service/upload_file.htm?json_response=1",
+      { method: "POST", body: form },
+      options
     );
+    if (response.status === 415) {
+      await response.body?.cancel().catch(() => void 0);
+      throw new WsHcmApiError("http", "HTTP 415", {
+        operation: "uploadFile",
+        status: 415,
+        details: { uploadRefused: true }
+      });
+    }
+    const result = await jsonResponse(response);
     const body = result.data;
     const uploadedPath = body && typeof body === "object" && "Url" in body && typeof body.Url === "string" ? body.Url.split("/") : void 0;
     if (!body || typeof body !== "object" || Array.isArray(body) || !uploadedPath || uploadedPath.length !== 2 || !/^[A-Za-z0-9_-]{1,256}$/.test(uploadedPath[0]) || uploadedPath[1] !== filename || "error" in body && body.error !== 0 && body.error !== false)
@@ -10123,17 +10135,11 @@ var WebPageApi = class {
       );
     const value = isRawXml(request.data) ? request.data.xml : request.data;
     let bytes;
-    if (typeof value === "string") {
-      if (Buffer.byteLength(value, "utf8") > this.maximumUploadBytes)
-        throw invalidInput("Часть больше допустимого размера загрузки.");
-      bytes = new TextEncoder().encode(value);
-    } else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+    if (typeof value === "string") bytes = new TextEncoder().encode(value);
+    else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
     else if (value instanceof Uint8Array) bytes = value;
     else throw invalidInput("data: нужен текст или двоичные данные.");
-    if (bytes.byteLength < 1 || bytes.byteLength > this.maximumUploadBytes)
-      throw invalidInput(
-        "data: часть должна быть непустой и не больше допустимого размера загрузки."
-      );
+    if (bytes.byteLength < 1) throw invalidInput("data: часть должна быть непустой.");
     if (request.offset > request.totalBytes || bytes.byteLength > request.totalBytes - request.offset)
       throw invalidInput("Часть выходит за totalBytes.");
     const endExclusive = request.offset + bytes.byteLength;
@@ -10154,24 +10160,41 @@ var WebPageApi = class {
       "file_data",
       `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}`
     );
-    const result = await jsonResponse(
-      await this.transport.send(
-        query("/spxml_web/service/upload_file.htm", {
-          json_response: 1,
-          action: "upload_chunk",
-          file_id: request.fileId,
-          file_name: filename
-        }),
-        {
-          method: "POST",
-          headers: {
-            "Content-Range": `bytes ${request.offset}-${endExclusive - 1}/${request.totalBytes}`
-          },
-          body: form
+    const response = await this.transport.send(
+      query("/spxml_web/service/upload_file.htm", {
+        json_response: 1,
+        action: "upload_chunk",
+        file_id: request.fileId,
+        file_name: filename
+      }),
+      {
+        method: "POST",
+        headers: {
+          "Content-Range": `bytes ${request.offset}-${endExclusive - 1}/${request.totalBytes}`
         },
-        options
-      )
+        body: form
+      },
+      options
     );
+    const status = response.status;
+    if (status >= 500 && status <= 503) {
+      let reason;
+      try {
+        const source = new TextDecoder(responseCharset(response, "utf-8")).decode(
+          await response.arrayBuffer()
+        );
+        reason = JSON.parse(source)?.error_text;
+      } catch {
+      }
+      const text = typeof reason === "string" ? reason.trim() : void 0;
+      const details = text === void 0 ? void 0 : status > 500 ? { chunkFailed: true } : text && { uploadRefused: true, reason: text.slice(0, 500) };
+      throw new WsHcmApiError("http", `HTTP ${status}`, {
+        operation: "uploadChunk",
+        status,
+        ...details ? { details } : {}
+      });
+    }
+    const result = await jsonResponse(response);
     const body = result.data;
     const parts = body && typeof body === "object" && "Url" in body && typeof body.Url === "string" ? body.Url.split("/") : void 0;
     if (!body || typeof body !== "object" || Array.isArray(body) || !("error" in body) || body.error !== 0 || !parts || parts.length !== 2 || !/^[A-Za-z0-9_-]{1,256}$/.test(parts[0]) || parts[1] !== filename)
@@ -11168,7 +11191,7 @@ var WebLifecycleApi = class {
   }
 };
 var WebSession = class _WebSession {
-  constructor(transport2, sessionId, uploadToken, maximumUploadBytes, webSocketFactory) {
+  constructor(transport2, sessionId, uploadToken, webSocketFactory) {
     this.transport = transport2;
     this.webSocketFactory = webSocketFactory;
     this.#uploadToken = uploadToken;
@@ -11177,7 +11200,7 @@ var WebSession = class _WebSession {
     this.rpc = new RpcApi(transport2, "web");
     this.spxml = new WebSpXmlApi(transport2);
     this.spxml2 = new WebSpXml2Api(transport2);
-    this.pages = new WebPageApi(transport2, () => this.#uploadToken, maximumUploadBytes);
+    this.pages = new WebPageApi(transport2, () => this.#uploadToken);
     this.resources = new ResourceApi(transport2);
     this.lifecycle = new WebLifecycleApi(transport2, (html) => {
       this.#uploadToken = html === void 0 ? void 0 : extractWebUploadToken(html);
@@ -11215,7 +11238,6 @@ var WebSession = class _WebSession {
         http,
         opened.sessionId,
         extractWebUploadToken(html),
-        Math.min(defaults.maxResponseBytes, 8 * 1024 * 1024),
         defaults.webSocketFactory
       );
     } catch (error) {

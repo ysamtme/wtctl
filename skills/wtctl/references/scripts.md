@@ -104,7 +104,7 @@ RESULT = [{ id: doc.DocID + '', comment: doc.TopElem.comment + '' }];
 - ID агента находит `hcm_query {catalog:"server_agents", where:{code:"…"}, fields:["id","name"]}`.
 - `objectId` в коде агента — `OBJECT_ID`, список `objectIds` — `OBJECTS_ID_STR`. Параметры агента берутся из его документа.
 - Ошибку в коде агента ответ не показывает: `started:true` значит только, что код запущен и закончился. Что он написал, ищи в логах за время между `startedAt` и `finishedAt`: строки `Starting server agent` и `Finished server agent` — в логе `agent`, `alert` и текст ошибки — в `xhttp`. У строк одного запуска одна метка потока в квадратных скобках: `hcm_logs_search {file:"xhttp_….log", context:"0139"}`.
-- Вызов ждёт не дольше времени ожидания подключения (`timeoutMs`). Долгого агента запускай без ожидания — `rpc.call {library:"tools", method:"start_agent", arguments:["0x…"]}` — и следи за логом `agent` через `hcm_log_follow`.
+- Вызов ждёт не дольше времени ожидания подключения (`timeoutMs`). Долгого агента запускай без ожидания — `rpc.call {library:"tools", method:"start_agent", arguments:["0x…"]}` — и следи за логом `agent` через `hcm_logs_follow`.
 - Как и запуск из админки, вызов сохраняет в агенте дату последнего запуска.
 
 ## Фоновые задачи

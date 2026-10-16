@@ -1,3 +1,4 @@
+import { type FileHandle } from "node:fs/promises";
 import type { ConnectionConfig, OperationResult } from "./contracts.js";
 /** Аргументы exportResult. */
 export interface ResultExportInput {
@@ -24,7 +25,12 @@ export interface ResultExportData {
     /** Сколько элементов записано; только у jsonl. */
     readonly items?: number;
 }
-export declare function writeResultFile(path: string, chunks: AsyncIterable<string> | string[], overwrite?: boolean): Promise<number>;
+/**
+ * Файл на этом компьютере: fill пишет содержимое во временный файл рядом, и под своим именем файл
+ * появляется только целиком. Путь проверяется до fill, поэтому отказ приходит раньше содержимого.
+ * argument — имя аргумента с путём в тексте отказа.
+ */
+export declare function saveLocalFile(path: string, overwrite: boolean, fill: (file: FileHandle) => Promise<void>, argument?: string): Promise<number>;
 /**
  * Непрозрачные ID привязаны к подключению и пользователю. Опубликованные метаданные
  * указывают только на полные локальные payload.

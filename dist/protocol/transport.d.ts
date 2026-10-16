@@ -32,7 +32,10 @@ export declare class HttpTransport {
 }
 /** Почему на запрос не пришёл ответ HTTP, одним словом; текст системной ошибки не хранится. */
 export type NetworkFailure = "refused" | "unknown_host" | "unreachable" | "certificate" | "tls" | "not_http" | "redirect" | "timeout" | "reset" | "aborted" | "failed";
-/** Ограничивает число байтов до того, как потребитель сможет буферизовать недоверенный ответ. */
+/**
+ * Ограничивает число байтов до того, как потребитель сможет буферизовать недоверенный ответ.
+ * Сбой чтения тела — WsHcmApiError с причиной, и при пределе Infinity тоже.
+ */
 export declare function limitResponse(response: Response, maxBytes: number): Response;
 export declare function responseBytes<T>(response: Response, data: T): Promise<WsHcmResponse<T>>;
 export declare function query(path: string, values: Readonly<Record<string, unknown>>): string;

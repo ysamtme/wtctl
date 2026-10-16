@@ -49,6 +49,8 @@ export interface RpcCatalogPage extends RpcCatalogSource {
     readonly total: number;
     /** Подходящие функции, пропущенные из-за того, что клиент их не вызовет; all:true выводит их. */
     readonly serverOnlyHidden?: number;
+    /** Есть при serverOnlyHidden: как их показать. */
+    readonly hint?: string;
     /** cursor следующей страницы; нет — страница последняя. */
     readonly nextCursor?: number;
 }
