@@ -187,6 +187,24 @@ test("отклонённый вызов инструмента говорит, �
   assert.deepEqual(await validation("hcm_query", { catalog: "c", limit: 5000 }), [
     { path: "limit", code: "too_big", maximum: 1000 },
   ]);
+  // Лишний ключ назван и в сообщении, и в причине — именем, без значения.
+  const extra = mcpJson(await f.tools.invoke("hcm_schema", { query: "synthetic-value" })).error;
+  assert.equal(extra?.message, "Аргументы не подходят инструменту: лишний аргумент query.");
+  assert.deepEqual((extra?.details as { validation: unknown[] }).validation[0], {
+    path: "",
+    code: "unrecognized_keys",
+    keys: ["query"],
+  });
+  assert.doesNotMatch(JSON.stringify(extra), /synthetic-value/);
+  assert.equal(
+    mcpJson(await f.tools.invoke("hcm_types", { query: "x", foo: 1 })).error?.message,
+    "Аргументы не подходят инструменту: лишние аргументы query, foo.",
+  );
+  // Имя не из латиницы может быть значением: оно не выводится, но о лишнем аргументе сказано.
+  assert.equal(
+    mcpJson(await f.tools.invoke("hcm_types", { тип: "x" })).error?.message,
+    "Аргументы не подходят инструменту: лишний аргумент.",
+  );
   assert.equal(f.calls.length, 0);
   // Список ID заменяет id: вызов проходит со списком в том виде, как он передан.
   await f.tools.invoke("hcm_object_get", { ids: ["1", "2"], fields: ["name"] });

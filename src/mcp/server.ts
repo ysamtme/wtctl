@@ -575,11 +575,12 @@ export class HcmMcpTools {
     const parsed = tool.validator.safeParse(args);
     if (!parsed.success) {
       // Только имена, коды, фиксированные пределы и тексты собственных правил; никогда не значения.
+      const named = (item: string | number) =>
+        typeof item === "number" || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(item);
       const validation = parsed.error.issues.map((issue) => ({
-        path: issue.path
-          .filter((item) => typeof item === "number" || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(item))
-          .join("."),
+        path: issue.path.filter(named).join("."),
         code: issue.code,
+        ...(issue.code === "unrecognized_keys" ? { keys: issue.keys.filter(named) } : {}),
         ...(issue.code === "custom" ? { message: issue.message } : {}),
         ...(issue.code === "too_big" ? { maximum: Number(issue.maximum) } : {}),
         ...(issue.code === "too_small" ? { minimum: Number(issue.minimum) } : {}),
@@ -587,18 +588,25 @@ export class HcmMcpTools {
           ? { message: "Пустая строка: убери аргумент." }
           : {}),
       }));
-      // Граница названа в самом сообщении: агент с несколькими вызовами сразу читает его первым.
+      // Лишний аргумент и граница названы в самом сообщении: агент с несколькими вызовами сразу
+      // читает его первым. Лишний аргумент — обычно перепутанное имя, поэтому он раньше правила.
+      const extra = parsed.error.issues.flatMap((issue) =>
+        issue.code === "unrecognized_keys" ? issue.keys : [],
+      );
+      const extraNames = extra.filter(named).join(", ");
       const bound = validation.find((issue) => issue.maximum !== undefined);
       // То же с правилом самого инструмента: какие его аргументы обязательны.
       const rule = validation.find((issue) => issue.code === "custom" && issue.message);
       const failed = this.error(
         name,
         "mcp.invalid_arguments",
-        bound
-          ? `Аргументы не подходят инструменту: ${bound.path} — не больше ${bound.maximum}.`
-          : rule
-            ? `Аргументы не подходят инструменту. ${rule.message}`
-            : "Аргументы не подходят инструменту.",
+        extra.length
+          ? `Аргументы не подходят инструменту: ${extra.length > 1 ? "лишние аргументы" : "лишний аргумент"}${extraNames ? ` ${extraNames}` : ""}.`
+          : bound
+            ? `Аргументы не подходят инструменту: ${bound.path} — не больше ${bound.maximum}.`
+            : rule
+              ? `Аргументы не подходят инструменту. ${rule.message}`
+              : "Аргументы не подходят инструменту.",
         `Причины — в details.validation.${bound?.path === "limit" ? " Остальное читается следующими страницами." : ""}${parsed.error.issues.some((issue) => issue.code === "invalid_type") ? " ID передавай строкой." : ""}`,
       );
       return mcpResult({ ...failed, error: { ...failed.error!, details: { validation } } });
