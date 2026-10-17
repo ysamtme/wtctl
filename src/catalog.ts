@@ -1,7 +1,17 @@
-import { operations, operationDefinition, operationSearchRank } from "./operations.js";
+import {
+  operations,
+  operationDefinition,
+  operationSearchRank,
+  operationSpec,
+} from "./operations.js";
 import { HcmError, boundedInteger, isSimilarName, similarHint } from "./errors.js";
 import { operationOrder, operationTopic, requireTopic, overviewMatches } from "./operation-map.js";
-import type { OperationDefinition, OperationFilter, OperationPage } from "./contracts.js";
+import type {
+  OperationDefinition,
+  OperationEffect,
+  OperationFilter,
+  OperationPage,
+} from "./contracts.js";
 
 /** Операции клиента по странице, без подключения к серверу: то же, что client.listOperations. */
 export function listHcmOperations(filter: OperationFilter = {}): OperationPage {
@@ -54,6 +64,18 @@ export function describeHcmOperation(id: string): OperationDefinition {
       operationId: id,
     });
   return operation;
+}
+
+/** Класс вызова по фактическим аргументам, без подключения к серверу. */
+export function operationEffect(id: string, args: Record<string, unknown> = {}): OperationEffect {
+  return effectOf(id)(args);
+}
+
+/** Сначала ID, затем аргументы: неизвестная операция шага пакета — отказ раньше его аргументов. */
+function effectOf(id: string): (args: Record<string, unknown>) => OperationEffect {
+  describeHcmOperation(id);
+  const operation = operationSpec(id)!;
+  return (args) => operation.effectFor?.(args, effectOf) ?? operation.effect;
 }
 
 /**

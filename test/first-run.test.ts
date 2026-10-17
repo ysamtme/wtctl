@@ -13,6 +13,9 @@ import type { ConnectionConfig, OperationResult } from "../src/contracts.js";
 import { HcmError } from "../src/errors.js";
 import { HcmRuntime } from "../src/runtime.js";
 import { VERSION } from "../src/version.js";
+import { HcmMcpTools } from "../src/mcp/server.js";
+import { fakeServer } from "./fake-server.js";
+import { mcpJson } from "./mcp-json.js";
 
 const SETTINGS = [
   "WTCTL_HOME",
@@ -434,21 +437,26 @@ test("config init спрашивает в терминале и отказыва
   });
 });
 
+/** Runtime без сервера: каждый вызов успешен. */
+function stubRuntime(onCall = (_id: string) => {}, onClose = () => {}): RuntimePort {
+  return {
+    listOperations: () => ({ operations: [], total: 0 }),
+    describe: () => {
+      throw new Error("unused");
+    },
+    getOperationEffect: () => "read",
+    call: async (id) => {
+      onCall(id);
+      return { ok: true, data: 1, meta: { operationId: id, connection: "c", durationMs: 0 } };
+    },
+    close: async () => onClose(),
+  };
+}
+
 test("MCP-сервер без настроек запускается и отвечает, что задать, а после их появления работает", async () => {
   await cleanSettings(async () => {
     const calls: string[] = [];
-    const real: RuntimePort = {
-      listOperations: () => ({ operations: [], total: 0 }),
-      describe: () => {
-        throw new Error("unused");
-      },
-      getOperationEffect: () => "read",
-      call: async (id) => {
-        calls.push(id);
-        return { ok: true, data: 1, meta: { operationId: id, connection: "c", durationMs: 0 } };
-      },
-      close: async () => {},
-    };
+    const real = stubRuntime((id) => calls.push(id));
     let served: RuntimePort | undefined;
     const f = cli();
     const dependencies: CliDependencies = {
@@ -470,6 +478,67 @@ test("MCP-сервер без настроек запускается и отв�
     assert.ok(served instanceof DeferredRuntime);
     assert.deepEqual(calls, ["runtime.status"]);
   });
+});
+
+test("MCP-сервер без настроек проверяет инструмент по эффекту с аргументами и до, и после создания runtime", async () => {
+  // Сервер стартовал без настроек; к первому вызову подключение уже есть.
+  const server = fakeServer({ "native.lds.loadDoc": "<synthetic/>" });
+  const runtime = new DeferredRuntime(
+    () => base,
+    (config) => new HcmRuntime(config, server),
+    new HcmError("NOT_CONFIGURED", "Подключение не настроено."),
+  );
+  const tools = new HcmMcpTools(runtime);
+  const lock = {
+    operationId: "native.lds.loadDoc",
+    args: { url: "x-local://wt_data/synthetic.xml", tryLock: true },
+  };
+  const reads = {
+    operationId: "runtime.batch",
+    args: { steps: [{ id: "native.lds.loadDoc", args: { url: "x-local://wt_data/a.xml" } }] },
+  };
+  const refusal = async () => mcpJson(await tools.invoke("hcm_api_read", lock)).error;
+  try {
+    const refused = await refusal();
+    assert.equal(refused?.code, "mcp.effect_mismatch");
+    assert.equal(refused?.hint, "Вызови её через hcm_api_write.");
+    assert.deepEqual(server.calls, []);
+    // Пакет из одних чтений проходит и создаёт runtime; блокировка и после этого отклоняется.
+    assert.equal(mcpJson(await tools.invoke("hcm_api_read", reads)).ok, true);
+    assert.equal(server.calls.length, 1);
+    assert.equal((await refusal())?.code, "mcp.effect_mismatch");
+    assert.equal(server.calls.length, 1);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("одновременные первые вызовы MCP-сервера без настроек создают один runtime и закрывают его", async () => {
+  let created = 0;
+  let closed = 0;
+  const deferred = () =>
+    new DeferredRuntime(
+      async () => base,
+      () => {
+        created++;
+        return stubRuntime(undefined, () => closed++);
+      },
+      new HcmError("NOT_CONFIGURED", "Подключение не настроено."),
+    );
+  const runtime = deferred();
+  const tools = new HcmMcpTools(runtime);
+  const replies = await Promise.all([tools.invoke("hcm_status"), tools.invoke("hcm_status")]);
+  assert.deepEqual(
+    replies.map((reply) => mcpJson(reply).ok),
+    [true, true],
+  );
+  await runtime.close();
+  assert.deepEqual([created, closed], [1, 1]);
+  // Вызов после закрытия не создаёт runtime, который потом некому закрыть.
+  const unused = deferred();
+  await unused.close();
+  assert.equal((await unused.call("runtime.status")).error?.code, "RUNTIME_CLOSED");
+  assert.equal(created, 1);
 });
 
 test("сервер, запущенный через npx, называет команду npx, а не путь внутри её кэша", async () => {

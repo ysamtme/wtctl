@@ -1,4 +1,4 @@
-import { describeHcmOperation, listHcmOperations } from "../catalog.js";
+import { describeHcmOperation, listHcmOperations, operationEffect } from "../catalog.js";
 import type {
   ConnectionConfig,
   OperationDefinition,
@@ -18,7 +18,10 @@ import type { RuntimePort } from "../runtime-port.js";
  */
 export class DeferredRuntime implements RuntimePort {
   #runtime: RuntimePort | undefined;
+  /** Чтение настроек, которое идёт сейчас: одновременные первые вызовы ждут одно, а не читают свои. */
+  #opening: Promise<RuntimePort> | undefined;
   #error: HcmError;
+  #closed = false;
   constructor(
     private readonly load: () => ConnectionConfig | Promise<ConnectionConfig>,
     private readonly create: (config: ConnectionConfig) => RuntimePort,
@@ -32,14 +35,19 @@ export class DeferredRuntime implements RuntimePort {
     return this.#runtime?.results;
   }
   private async ready(): Promise<RuntimePort | undefined> {
-    if (this.#runtime) return this.#runtime;
+    if (this.#runtime || this.#closed) return this.#runtime;
+    this.#opening ??= (async () => (this.#runtime = this.create(await this.load())))().finally(
+      () => {
+        this.#opening = undefined;
+      },
+    );
     try {
-      this.#runtime = this.create(await this.load());
+      return await this.#opening;
     } catch (error) {
       if (!(error instanceof HcmError)) throw error;
       this.#error = error;
+      return undefined;
     }
-    return this.#runtime;
   }
   listOperations(filter?: OperationFilter): OperationPage {
     return this.#runtime ? this.#runtime.listOperations(filter) : listHcmOperations(filter);
@@ -48,8 +56,7 @@ export class DeferredRuntime implements RuntimePort {
     return this.#runtime ? this.#runtime.describe(id) : describeHcmOperation(id);
   }
   getOperationEffect(id: string, args?: Record<string, unknown>): OperationEffect {
-    // Без подключения любой вызов, какого бы он ни был класса, кончается одной ошибкой настройки.
-    return this.#runtime ? this.#runtime.getOperationEffect(id, args) : this.describe(id).effect;
+    return this.#runtime ? this.#runtime.getOperationEffect(id, args) : operationEffect(id, args);
   }
   async call(id: string, args?: Record<string, unknown>): Promise<OperationResult> {
     const runtime = await this.ready();
@@ -65,6 +72,10 @@ export class DeferredRuntime implements RuntimePort {
     };
   }
   async close(): Promise<void> {
+    // После закрытия runtime не создаётся; тот, что ещё создаётся, тоже закрывается.
+    this.#closed = true;
+    this.#error = new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто.");
+    await this.#opening?.catch(() => undefined);
     await this.#runtime?.close();
   }
 }

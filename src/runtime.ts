@@ -1,6 +1,6 @@
 import { operations, operationDefinition, operationSpec } from "./operations.js";
 import type { Operation, OperationCall, OperationContext } from "./operation.js";
-import { listHcmOperations, describeHcmOperation } from "./catalog.js";
+import { listHcmOperations, describeHcmOperation, operationEffect } from "./catalog.js";
 import { NativeGateway, WsHcmApiError } from "./native/index.js";
 import { validate } from "./native/validation.js";
 import { HcmError, inputObject, requiredString } from "./errors.js";
@@ -99,7 +99,7 @@ export class HcmRuntime implements RuntimePort {
    * до маршрутизации.
    */
   getOperationEffect(id: string, args: Record<string, unknown> = {}): OperationEffect {
-    return this.effect(this.operation(id), args);
+    return operationEffect(id, args);
   }
   /** Определение операции; отказ для неверного или неизвестного ID формулирует describe. */
   private operation(id: string): Operation {
@@ -138,14 +138,6 @@ export class HcmRuntime implements RuntimePort {
   private unsent(id: string): OperationCall {
     return { outcome: new WriteOutcome(), effect: operationDefinition(id)?.effect ?? "unknown" };
   }
-  private effect(operation: Operation, args: Record<string, unknown>): OperationEffect {
-    return (
-      operation.effectFor?.(args, (id) => {
-        const other = this.operation(id);
-        return (otherArgs) => this.effect(other, otherArgs);
-      }) ?? operation.effect
-    );
-  }
   private authorize(effect: OperationEffect): void {
     if ((effect === "write" || effect === "unknown") && !this.config.permissions.write)
       throw new HcmError(
@@ -171,7 +163,7 @@ export class HcmRuntime implements RuntimePort {
       const operation = this.operation(id);
       state.effect = operation.effect;
       validate(args, operation.inputSchema);
-      state.effect = this.effect(operation, args);
+      state.effect = operationEffect(id, args);
       this.authorize(state.effect);
       const value = await operation.run(this.context, args, state);
       return await this.replies.success(id, start, value, boundOutput);
