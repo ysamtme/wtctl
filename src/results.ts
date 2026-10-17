@@ -161,9 +161,12 @@ function textOf(data: unknown): string | undefined {
  * Список, из которого состоит ответ: элементы поиска, типы, поля, шаги пакета. Читается по
  * элементам, как и голый список. Список засчитывается, когда составляет основную часть ответа:
  * имена неизвестных полей рядом с длинным документом — не то, за чем пришёл вызывающий.
+ * Список, который назвала сама операция (named), засчитывается при любой длине.
  */
-function listOf(data: unknown): { key: string; items: unknown[] } | undefined {
+function listOf(data: unknown, named?: string): { key: string; items: unknown[] } | undefined {
   if (data === null || typeof data !== "object" || Array.isArray(data)) return undefined;
+  const own = named === undefined ? undefined : (data as Record<string, unknown>)[named];
+  if (Array.isArray(own)) return { key: named!, items: own };
   if (textOf(data) !== undefined) return undefined;
   let found: { key: string; items: unknown[]; bytes: number } | undefined;
   for (const [key, value] of Object.entries(data)) {
@@ -392,9 +395,15 @@ export class ResultStore {
       return undefined;
     }
   }
-  /** Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. */
-  async put(data: unknown): Promise<{ resultId: string; bytes: number; list?: string }> {
-    const saved = await this.write(data);
+  /**
+   * Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. list — поле,
+   * которое операция называет своим списком; без него список угадывается по ответу.
+   */
+  async put(
+    data: unknown,
+    list?: string,
+  ): Promise<{ resultId: string; bytes: number; list?: string }> {
+    const saved = await this.write(data, list);
     await this.prune().catch(() => {});
     return saved;
   }
@@ -443,7 +452,10 @@ export class ResultStore {
       }
     }
   }
-  private async write(data: unknown): Promise<{ resultId: string; bytes: number; list?: string }> {
+  private async write(
+    data: unknown,
+    named?: string,
+  ): Promise<{ resultId: string; bytes: number; list?: string }> {
     const id = randomUUID();
     const created: string[] = [];
     const files: FileHandle[] = [];
@@ -466,7 +478,7 @@ export class ResultStore {
         jsonChars: 0,
         checkpoints: 0,
       };
-      const list = listOf(data);
+      const list = listOf(data, named);
       const elements = Array.isArray(data) ? data : list?.items;
       if (elements) {
         const rows = await create(this.payload(id, "rows.idx"));
@@ -666,6 +678,7 @@ export class ResultStore {
                 total: count,
                 blockedItem: { index: offset, bytes },
                 hint: "Элемент blockedItem не помещается в ответ и не пропущен. Читать результат с format:json — текстом JSON по частям.",
+                ...(metadata.list === undefined ? {} : { list: metadata.list }),
               };
             break;
           }

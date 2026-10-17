@@ -79,7 +79,7 @@ export const batchOperations = [
     id: "runtime.batch",
     effect: "unknown",
     effectFor: batchEffect,
-    reply: { failed: batchFailed, preview: { results: stepSummary } },
+    reply: { failed: batchFailed, list: { key: "results", summary: stepSummary } },
     description:
       "Несколько операций одним вызовом: steps — список {id, args, as}. Значение из прошлого шага: {$ref:'имя.data.items.0.id'}, где имя — as того шага, дальше путь по его ответу. Класс вызова — по самому сильному шагу: все шаги читают — чтение, есть запись — запись, есть выполнение кода — выполнение. Права проверяются для каждого шага. Это не транзакция: выполненные шаги не откатываются; первый сбой останавливает остальные, если не задано stopOnError:false.",
     inputSchema: schema(

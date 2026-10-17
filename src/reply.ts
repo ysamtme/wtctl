@@ -25,6 +25,7 @@ function jsonSafe(value: unknown): unknown {
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
   return value;
 }
+const jsonBytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value) ?? "null");
 /**
  * Длиннее ли JSON значения limit байт. Байтов в JSON не меньше, чем знаков в его строках: большой
  * ответ (текст файла) узнаётся без копии в JSON размером с сам файл.
@@ -37,14 +38,14 @@ function longerThan(data: unknown, limit: number): boolean {
       for (const item of Object.values(value)) if (chars <= limit) count(item);
   };
   count(data);
-  return chars > limit || Buffer.byteLength(JSON.stringify(data) ?? "null") > limit;
+  return chars > limit || jsonBytes(data) > limit;
 }
 /**
  * С чего начинается сохранённый ответ: первые символы длинного текста и столько первых элементов
  * списков, сколько помещается в budget байт. undefined — от непустого списка не поместилось ничего
- * или неполным вышел список, у которого есть строка об элементе.
+ * или неполным вышел список summarised, у которого есть строка об элементе.
  */
-function beginning(data: unknown, budget: number, summarised: object = {}): unknown {
+function beginning(data: unknown, budget: number, summarised?: string): unknown {
   const whole = data === null || typeof data !== "object" || Array.isArray(data);
   const entries = whole ? [["", data] as const] : Object.entries(data);
   const shown = entries.map(([, value]) =>
@@ -52,20 +53,17 @@ function beginning(data: unknown, budget: number, summarised: object = {}): unkn
   );
   const preview = () =>
     whole ? shown[0] : Object.fromEntries(entries.map(([key], index) => [key, shown[index]]));
-  let used = Buffer.byteLength(JSON.stringify(preview()) ?? "null");
+  let used = jsonBytes(preview());
   for (const [index, [key, value]] of entries.entries()) {
     if (!Array.isArray(value)) continue;
     const items = shown[index] as unknown[];
     for (const item of value) {
-      const bytes = Buffer.byteLength(JSON.stringify(item) ?? "null") + (items.length ? 1 : 0);
+      const bytes = jsonBytes(item) + (items.length ? 1 : 0);
       if (used + bytes > budget) break;
       used += bytes;
       items.push(item);
     }
-    if (
-      value.length &&
-      (!items.length || (Object.hasOwn(summarised, key) && items.length < value.length))
-    )
+    if (value.length && (!items.length || (key === summarised && items.length < value.length)))
       return undefined;
   }
   return preview();
@@ -95,12 +93,14 @@ export class ReplyPacker {
       return error ? { ok: false, error } : { ok: true };
     };
     if (bound && longerThan(data, this.config.outputLimitBytes) && rules?.store !== "never") {
-      const stored = await this.results.put(data);
+      const own = rules?.list;
+      const stored = await this.results.put(data, own?.key);
       const budget = this.config.outputLimitBytes / 2;
-      const fitted = beginning(data, budget, rules?.preview);
-      // Не поместились ни элементы списка, ни строки: остаются счётчики, позиции и размеры списков.
+      const fitted = beginning(data, budget, own?.key);
+      // Не поместились ни элементы списка, ни строки: остаются счётчики, позиции и размеры списков,
+      // а у списка операции — строки о его первых элементах.
       const preview =
-        fitted !== undefined && Buffer.byteLength(JSON.stringify(fitted)) <= budget
+        fitted !== undefined && jsonBytes(fitted) <= budget
           ? fitted
           : {
               kind: "stored-result",
@@ -111,8 +111,8 @@ export class ReplyPacker {
                       .map(([key, value]) => [
                         key,
                         Array.isArray(value)
-                          ? rules?.preview && Object.hasOwn(rules.preview, key)
-                            ? value.map(rules.preview[key]!)
+                          ? key === own?.key
+                            ? []
                             : `[список: ${value.length}]`
                           : value !== null && typeof value === "object"
                             ? "{структура}"
@@ -124,20 +124,19 @@ export class ReplyPacker {
                 : {}),
             };
       const { list } = stored;
-      const shown =
-        list === undefined || preview !== fitted
-          ? undefined
-          : (fitted as Record<string, unknown>)[list];
-      const reads =
-        list === undefined
-          ? "его частями"
-          : `список ${list} по элементам${Array.isArray(shown) ? ` (в preview первые ${shown.length} из ${(data as Record<string, unknown[]>)[list]!.length})` : ""}`;
-      return {
-        ...outcome(true),
+      const whole = list === undefined ? [] : (data as Record<string, unknown[]>)[list]!;
+      const shown = list === undefined ? undefined : (preview as Record<string, unknown>)[list];
+      const result = outcome(true);
+      const reply = (): OperationResult => ({
+        ...result,
         data: {
           preview,
           resultId: stored.resultId,
-          hint: `Ответ не поместился и сохранён целиком: results.read читает ${reads}, results.export сохраняет в файл.`,
+          hint: `Ответ не поместился и сохранён целиком: results.read читает ${
+            list === undefined
+              ? "его частями"
+              : `список ${list} по элементам${Array.isArray(shown) && shown.length < whole.length ? ` (в preview первые ${shown.length} из ${whole.length})` : ""}`
+          }, results.export сохраняет в файл.`,
         },
         meta: {
           operationId: id,
@@ -147,12 +146,22 @@ export class ReplyPacker {
           resultId: stored.resultId,
           resultBytes: stored.bytes,
         },
-      };
+      });
+      // Строки об элементах добавляются, пока превью в своей доле лимита, а весь ответ — в лимите.
+      if (own && preview !== fitted && Array.isArray(shown))
+        for (const item of whole) {
+          shown.push(own.summary(item));
+          if (jsonBytes(preview) > budget || jsonBytes(reply()) > this.config.outputLimitBytes) {
+            shown.pop();
+            break;
+          }
+        }
+      return reply();
     }
     // Текст лога или файла сохраняется, даже если помещается: results.export пишет его в файл.
     const kept =
       bound && (typeof rules?.store === "function" ? rules.store(data) : rules?.store === "always")
-        ? await this.results.put(data).catch(() => undefined)
+        ? await this.results.put(data, rules?.list?.key).catch(() => undefined)
         : undefined;
     return {
       ...outcome(false),
@@ -196,7 +205,7 @@ export class ReplyPacker {
       if (typeof compact.url === "string" && compact.url.length > 256) delete compact.url;
       receipts.push(compact);
       data.omittedReceipts = recovery.receipts.length - receipts.length;
-      if (Buffer.byteLength(JSON.stringify(data)) > budget) {
+      if (jsonBytes(data) > budget) {
         receipts.pop();
         data.omittedReceipts = recovery.receipts.length - receipts.length;
         break;
@@ -297,13 +306,13 @@ export class ReplyPacker {
       }) as Record<string, unknown>),
       ...exactIds,
     };
-    if (Buffer.byteLength(JSON.stringify(details)) > this.config.outputLimitBytes / 4)
+    if (jsonBytes(details) > this.config.outputLimitBytes / 4)
       details = {
         omitted: true,
         ...exactIds,
       };
     const omitOversizedConnection = (value: OperationResult): OperationResult => {
-      const bytes = Buffer.byteLength(JSON.stringify(value));
+      const bytes = jsonBytes(value);
       if (bytes <= this.config.outputLimitBytes) return value;
       const omitted: OperationResult = {
         ...value,
@@ -312,7 +321,7 @@ export class ReplyPacker {
       // Прямые вызывающие SDK могут передать метку длиннее, чем позволяют границы
       // подключения. Метка опускается целиком раньше, чем жертвуют полезной диагностикой или
       // точными сведениями для восстановления и чтения; короткая обычная метка сохраняется.
-      return Buffer.byteLength(JSON.stringify(omitted)) < bytes ? omitted : value;
+      return jsonBytes(omitted) < bytes ? omitted : value;
     };
     const result: OperationResult = omitOversizedConnection({
       ok: false,
@@ -350,8 +359,7 @@ export class ReplyPacker {
           details: { ...result.error?.details, heartbeatReceipt: error.receipt },
         },
       });
-      if (Buffer.byteLength(JSON.stringify(contextual)) <= this.config.outputLimitBytes)
-        return contextual;
+      if (jsonBytes(contextual) <= this.config.outputLimitBytes) return contextual;
       const receipt = error.receipt;
       return {
         ...contextual,

@@ -45,8 +45,11 @@ export interface ReplyRules {
   readonly store?: "never" | "always" | ((data: unknown) => boolean);
   /** Ответ, который сам отказ: ошибка поверх данных. stored — данные не поместились и сохранены. */
   readonly failed?: (data: unknown, stored: boolean) => OperationError | undefined;
-  /** Список сохранённого ответа, который превью показывает поэлементно: ключ ответа → строка об элементе. */
-  readonly preview?: Readonly<Record<string, (item: unknown) => unknown>>;
+  /**
+   * Список ответа: сохранённый ответ читается и выгружается по его элементам при любой длине
+   * списка, а превью показывает строки о первых элементах, пока они помещаются.
+   */
+  readonly list?: { readonly key: string; readonly summary: (item: unknown) => unknown };
 }
 
 /** Что обработчику доступно от подключения; собирается один раз в конструкторе HcmRuntime. */

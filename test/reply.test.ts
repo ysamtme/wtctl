@@ -136,6 +136,30 @@ test("превью пакета, шаги которого поместилис�
   assert.doesNotMatch(hint, /первые/);
 });
 
+test("превью отказавшего пакета берёт строки о шагах, пока весь ответ с ошибкой в пределе", async () => {
+  const limit = 2600;
+  const { packer } = setup(limit, "t", "results");
+  const results = Array.from({ length: 40 }, (_, index) => ({
+    ok: false,
+    error: { code: `STEP_FAILED_${index}` },
+    meta: { operationId: "runtime.query" },
+    data: { text: "x".repeat(200) },
+  }));
+  const reply = await packer.success(
+    "runtime.batch",
+    0,
+    { results, completed: 40, requested: 40, atomic: false, ok: false },
+    true,
+  );
+  const { preview, hint } = reply.data as { preview: { results: unknown[] }; hint: string };
+  assert.equal(reply.error?.code, "BATCH_FAILED");
+  assert.ok(Buffer.byteLength(JSON.stringify(reply)) <= limit);
+  // Доля превью (половина предела) ещё не занята: остановил размер всего ответа.
+  assert.ok(Buffer.byteLength(JSON.stringify(preview)) < limit / 2 - 40);
+  assert.ok(preview.results.length > 0 && preview.results.length < 40);
+  assert.match(hint, new RegExp(`первые ${preview.results.length} из 40\\)`));
+});
+
 test("details больше четверти предела сжимаются до omitted с точными ID", () => {
   const { packer } = setup(2000);
   const ids = {

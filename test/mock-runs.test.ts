@@ -676,6 +676,60 @@ test("упавший пакет с сохранённым ответом гов�
   }
 });
 
+test("превью сохранённого пакета из 100 шагов помещается в предел и говорит, сколько шагов показано", async () => {
+  const limit = 4096;
+  const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
+  const { runtime } = fakeRuntime(
+    { "*": manyRows },
+    { runtimeDir: directory, outputLimitBytes: limit },
+  );
+  try {
+    const batch = await runtime.call("runtime.batch", {
+      steps: Array.from({ length: 100 }, (_, index) => ({
+        id: "runtime.query",
+        as: `step${index}`,
+        args: { catalog: "people" },
+      })),
+    });
+    assert.equal(batch.meta.truncated, true);
+    assert.ok(Buffer.byteLength(JSON.stringify(batch)) <= limit);
+    const { preview, hint } = batch.data as any;
+    assert.ok(preview.results.length > 0 && preview.results.length < 100);
+    assert.deepEqual([preview.results[0].as, preview.results[0].ok], ["step0", true]);
+    assert.match(hint, new RegExp(`первые ${preview.results.length} из 100\\)`));
+  } finally {
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("сохранённый ответ пакета из одного шага читается по шагам и выгружается в JSONL одной строкой", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
+  const { runtime } = fakeRuntime(
+    { "*": manyRows },
+    { runtimeDir: directory, outputLimitBytes: 2048 },
+  );
+  try {
+    const batch = await runtime.call("runtime.batch", {
+      steps: [{ id: "runtime.query", args: { catalog: "people", limit: 1000 } }],
+    });
+    const resultId = batch.meta.resultId!;
+    assert.deepEqual((batch.data as any).preview.results, [{ ok: true, total: 200, rows: 200 }]);
+    assert.match((batch.data as any).hint, /results\.read читает список results по элементам,/);
+    // Шаг больше страницы чтения: он назван, а не пропущен.
+    const steps = (await runtime.call("results.read", { resultId })).data as any;
+    assert.deepEqual([steps.list, steps.total, steps.blockedItem.index], ["results", 1, 0]);
+    const path = join(directory, "one.jsonl");
+    const exported = await runtime.call("results.export", { resultId, path, format: "jsonl" });
+    assert.equal((exported.data as any).items, 1);
+    const line = JSON.parse(await readFile(path, "utf8"));
+    assert.equal(line.data.items.length, 200);
+  } finally {
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("список сохранённого ответа читается по элементам и экспортируется по строкам", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-mock-runs-"));
   const { runtime } = fakeRuntime(
