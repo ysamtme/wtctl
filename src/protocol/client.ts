@@ -297,8 +297,7 @@ export class WebLifecycleApi {
       "/admin",
       {},
       {
-        ...(options?.signal === undefined ? {} : { signal: options.signal }),
-        ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        ...options,
         redirect: "manual",
         allowStatuses: [301],
       },
@@ -335,8 +334,7 @@ export class WebLifecycleApi {
         "/spxml_web/logout.htm",
         {},
         {
-          ...(options?.signal === undefined ? {} : { signal: options.signal }),
-          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+          ...options,
           redirect: "manual",
           allowStatuses: [200, 302, 401],
         },
@@ -361,8 +359,7 @@ export class WebLifecycleApi {
       "/spxml_web/logout2.htm",
       {},
       {
-        ...(options?.signal === undefined ? {} : { signal: options.signal }),
-        ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        ...options,
         redirect: "manual",
         allowStatuses: [200, 302, 401],
       },

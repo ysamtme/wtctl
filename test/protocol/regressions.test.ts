@@ -813,3 +813,27 @@ test("экспериментальные регрессии транспорта
   });
   assert.deepEqual(seen, ["authenticate", "image"]);
 });
+
+test("maxResponseBytes отдельного SOAP-вызова заменяет предел клиента: меньший отклоняет большой ответ, Infinity снимает предел", async () => {
+  const client = (maxResponseBytes: number) =>
+    new WsHcmClient({
+      baseUrl: "http://wt.test/",
+      auth: { username: "user", password: "secret" },
+      maxResponseBytes,
+      fetch: nativeLifecycle((_url, init) =>
+        bodyText(init).includes("<XQuery")
+          ? soap("XQuery", `<Result>${"x".repeat(4096)}</Result>`)
+          : undefined,
+      ),
+    });
+  await client(16 * 1024 * 1024).withNativeSession(async (session) => {
+    await assert.rejects(
+      session.lds.xQuery({ query: "1" }, { maxResponseBytes: 1024 }),
+      /предел в байтах/,
+    );
+  });
+  await client(1024).withNativeSession(async (session) => {
+    const response = await session.lds.xQuery({ query: "1" }, { maxResponseBytes: Infinity });
+    assert.equal(response.status, 200);
+  });
+});

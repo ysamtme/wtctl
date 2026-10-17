@@ -119,14 +119,14 @@ const createFromXml: Operation["run"] = async ({ server }, args, { outcome }) =>
   );
   return { objectId: created.objectId, url: created.url, document: created.loadResponse.data };
 };
-/** Низкоуровневая операция из нескольких запросов реестра: её обработчик — в runtime, не в шлюзе. */
-const composite: NativeOperation[] = [
+/** Операции `native.*` из нескольких запросов к серверу: их обработчик — в runtime, не в шлюзе. */
+const inRuntime: NativeOperation[] = [
   {
     id: "native.physicalDocuments.createFromXml",
     profile: "native",
     group: "physicalDocuments",
     method: "createFromXml",
-    title: "Create a physical XML document",
+    title: "Создать документ из XML",
     description:
       "Выделить ID, подставить его вместо {{objectId}} в documentXmlTemplate, сохранить через PutDoc и сверить ID корня через LoadDoc. Обработка XMD, как в клиенте администратора, не воспроизводится.",
     effect: "write",
@@ -280,7 +280,7 @@ const FACES: Readonly<Record<string, Face>> = {
   },
 };
 
-export const nativeOperations: readonly Operation[] = [...getNativeOperations(), ...composite].map(
+export const nativeOperations: readonly Operation[] = [...getNativeOperations(), ...inRuntime].map(
   (native) => {
     const { answer, failure, run, ...texts } = FACES[native.id] ?? {};
     return operation({

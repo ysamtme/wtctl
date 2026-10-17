@@ -220,11 +220,38 @@ export function buildXml(value: XmlObject): string {
   return source;
 }
 
+/** Декларация `<?xml …?>` в самом начале, можно после BOM. */
+const leadingDeclaration = /^\uFEFF?<\?xml(?=[\s?])[\s\S]*?\?>/i;
+
+/**
+ * Отклоняет декларацию `<?xml …?>` не в самом начале: такой XML неверен где угодно. В комментарии,
+ * CDATA и данных другой инструкции обработки это текст.
+ */
+function assertDeclarationFirst(source: string): void {
+  const rest = source.replace(leadingDeclaration, "");
+  if (!/<\?xml(?=[\s?])/i.test(rest)) return;
+  for (const [, target] of rest.matchAll(
+    /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?([^\s?]+)[\s\S]*?\?>/g,
+  ))
+    if (target?.toLowerCase() === "xml")
+      throw new ArgumentError("Декларация XML <?xml …?> допустима только в самом начале.");
+}
+
+/**
+ * Текст XML для вставки внутрь SOAP, где декларация недопустима: декларация в начале убирается.
+ * @internal
+ */
+export function inlineXml(value: RawXml): string {
+  return value.xml.replace(leadingDeclaration, "");
+}
+
 /**
  * Проверяет точный фрагмент XML и помечает его для полей сырых дочерних элементов и вложений.
  * Фрагмент вставляется без экранирования; объявления DTD и сущностей по-прежнему запрещены.
+ * Декларация `<?xml …?>` допустима только в самом начале; внутри SOAP клиент её убирает.
  */
 export function rawXml(source: string): RawXml {
+  assertDeclarationFirst(source);
   assertSafe(source);
   assertWellFormed(`<ws-hcm-fragment>${source}</ws-hcm-fragment>`);
   return assembledXml(source);
@@ -241,6 +268,7 @@ export function assembledXml(source: string): RawXml {
 
 /** Ровно один дочерний элемент, как требует нетипизированный структурный аргумент XmElem RPC. */
 export function rawXmlElement(source: string): RawXml {
+  assertDeclarationFirst(source);
   assertSafe(source);
   assertWellFormed(source);
   const value = topLevelParser.parse(source) as XmlObject;

@@ -18,7 +18,10 @@ const base = {
 function mock() {
   const bodies: string[] = [];
   const fetch: typeof globalThis.fetch = async (_input, init) => {
-    const body = String(init?.body ?? "");
+    const body =
+      init?.body instanceof Uint8Array
+        ? new TextDecoder().decode(init.body)
+        : String(init?.body ?? "");
     bodies.push(body);
     const method = /<soap:Body><([A-Za-z]+)/.exec(body)?.[1] ?? "OpenSession";
     const content =
@@ -123,5 +126,70 @@ test("удобные булевы значения RPC записываются 
     assert.doesNotMatch(call, /VALUE-TYPE="bool">(?:true|false)</);
   } finally {
     await runtime.close();
+  }
+});
+
+test("декларация XML в начале аргумента убирается внутри SOAP и остаётся во вложении, в другом месте — отказ до отправки", async () => {
+  const declaration = '<?xml version="1.0" encoding="utf-8"?>';
+  const fixture = mock();
+  const runtime = new HcmRuntime({
+    ...base,
+    fetch: fixture.fetch,
+    name: "fixture",
+    runtimeDir: ".runtime",
+    outputLimitBytes: 24000,
+    permissions: { write: false, execute: true },
+  });
+  try {
+    // Так выглядит документ, прочитанный через files.read.
+    const result = await runtime.call("rpc.call", {
+      library: "fixture",
+      method: "accept_xml",
+      arguments: [{ lexicalValue: { xml: `\uFEFF${declaration}\n${element}` } }],
+    });
+    assert.equal(result.ok, true);
+    const call = fixture.bodies.find((body) => body.includes("<CallMethod "))!;
+    assert.ok(call.includes(`<arg-0>\n${element}</arg-0>`));
+    assert.doesNotMatch(call.slice(1), /<\?xml[\s?]/);
+
+    const sent = fixture.bodies.length;
+    const refused = await runtime.call("rpc.call", {
+      library: "fixture",
+      method: "accept_xml",
+      arguments: [{ lexicalValue: { xml: `<sample>${declaration}</sample>` } }],
+    });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.error?.code, "INVALID_ARGUMENT");
+    assert.equal(refused.error?.mutationOutcome, "not_sent");
+    assert.equal(fixture.bodies.length, sent);
+  } finally {
+    await runtime.close();
+  }
+
+  const native = mock();
+  const gateway = new NativeGateway({ ...base, fetch: native.fetch });
+  try {
+    await assert.rejects(
+      gateway.call("native.rpc.call", {
+        target: "fixture.accept_xml",
+        args: [{ lexicalValue: { xml: `<sample/>${declaration}` } }],
+      }),
+      /допустима только в самом начале/,
+    );
+    // В комментарии, CDATA и данных другой инструкции обработки это текст.
+    const text = `<sample><!--${declaration}--><![CDATA[${declaration}]]><?p ${declaration}</sample>`;
+    await gateway.call("native.rpc.call", {
+      target: "fixture.accept_xml",
+      args: [{ lexicalValue: { xml: text } }],
+    });
+    assert.ok(native.bodies.some((body) => body.includes(`<arg-0>${text}</arg-0>`)));
+    // Вложение XOP — отдельный документ: декларация в нём допустима и уходит как есть.
+    await gateway.call("native.lds.putDoc", {
+      url: "x-local://wt_data/objects/AA/01.xml",
+      data: `${declaration}<sample/>`,
+    });
+    assert.ok(native.bodies.some((body) => body.includes(`\r\n\r\n${declaration}<sample/>\r\n`)));
+  } finally {
+    await gateway.close();
   }
 });

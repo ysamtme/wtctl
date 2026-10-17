@@ -1,5 +1,13 @@
 import { redactCredentials, WsHcmApiError } from "./error.js";
-import { escapeXml, findXmlNode, isRawXml, parseXml, type RawXml, type XmlObject } from "./xml.js";
+import {
+  escapeXml,
+  findXmlNode,
+  inlineXml,
+  isRawXml,
+  parseXml,
+  type RawXml,
+  type XmlObject,
+} from "./xml.js";
 
 export type SoapProfile = "native" | "web";
 export type SoapScalar = string | number | boolean | RawXml | null | undefined;
@@ -8,7 +16,7 @@ export type SoapField = readonly [name: string, value: SoapScalar];
 function fieldXml([name, value]: SoapField): string {
   if (value === undefined) return "";
   if (value === null) return `<${name}></${name}>`;
-  const content = isRawXml(value) ? value.xml : escapeXml(value);
+  const content = isRawXml(value) ? inlineXml(value) : escapeXml(value);
   return `<${name}>${content}</${name}>`;
 }
 

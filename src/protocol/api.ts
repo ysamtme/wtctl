@@ -20,6 +20,7 @@ import {
 import {
   escapeXml,
   findXmlNode,
+  inlineXml,
   isRawXml,
   parseXml,
   rawXml,
@@ -90,11 +91,7 @@ async function soapCall(
       headers: { "Content-Type": soapContentType(profile) },
       body: source,
     },
-    {
-      ...(options.basic === undefined ? {} : { basic: options.basic }),
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-    },
+    options,
   );
   return readSoapResponse(response, method);
 }
@@ -782,9 +779,9 @@ function rpcArgs(args: readonly RpcArgument[]): RawXml {
           );
         const value =
           arg.valueType === undefined
-            ? rawXmlElement((arg.lexicalValue as RawXml).xml).xml
+            ? inlineXml(rawXmlElement((arg.lexicalValue as RawXml).xml))
             : isRawXml(arg.lexicalValue)
-              ? arg.lexicalValue.xml
+              ? inlineXml(arg.lexicalValue)
               : escapeXml(arg.lexicalValue);
         const type = arg.valueType === undefined ? "" : ` VALUE-TYPE="${escapeXml(arg.valueType)}"`;
         return `<arg-${index}${type}>${value}</arg-${index}>`;
