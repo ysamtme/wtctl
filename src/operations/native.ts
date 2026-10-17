@@ -1,8 +1,12 @@
+import type { NativeOperation } from "../contracts.js";
 import { HcmError } from "../errors.js";
 import { getNativeOperations, getEffectiveNativeEffect } from "../native/index.js";
 import { WsHcmApiError } from "../protocol/error.js";
+import { createPhysicalDocument, parsePhysicalDocumentId } from "../protocol/physical-documents.js";
+import { rawXml } from "../protocol/xml.js";
 import { operation, type Operation } from "../operation.js";
 import { rpcValue } from "../server-value.js";
+import { WriteOutcome } from "../write-outcome.js";
 
 /** Сырой ответ протокола несёт форматирование XML: отступы между элементами и атрибут xmlns. */
 export function withoutXmlFormatting(value: unknown): unknown {
@@ -81,6 +85,65 @@ function asyncStatus(answer: unknown): unknown {
     }
   return answer;
 }
+/**
+ * Документ создаётся отдельными запросами реестра. После сброса сессии шлюз повторяет только
+ * отклонённый запрос: записанный документ второй раз не пишется, а неудавшийся новый вход после
+ * PutDoc оставляет исход неопределённым и называет адрес документа.
+ */
+const createFromXml: Operation["run"] = async ({ server }, args, { outcome }) => {
+  // Исход вызова решает PutDoc. Выданный ID и удаление документа после сбоя — запросы в стороне:
+  // отказ шаблона после выдачи ID — по-прежнему not_sent.
+  const aside = new WriteOutcome();
+  const created = await createPhysicalDocument(
+    {
+      getNewObjectId: async (request) => ({
+        data: await server.call("native.lds.getNewObjectId", request, aside),
+      }),
+      putDoc: async ({ data, ...request }) => {
+        outcome.note({ url: request.url, objectId: parsePhysicalDocumentId(request.url) });
+        return {
+          data: await server.call("native.lds.putDoc", { ...request, data: data.xml }, outcome),
+        };
+      },
+      loadDoc: async (request) => ({ data: await server.call("native.lds.loadDoc", request) }),
+      deleteDoc: (request) => server.call("native.lds.deleteDoc", request, aside),
+    },
+    {
+      ...(args.dbName === undefined ? {} : { dbName: args.dbName as string }),
+      ...(args.writeDocInfo === undefined ? {} : { writeDocInfo: args.writeDocInfo as boolean }),
+      ...(args.skipActions === undefined ? {} : { skipActions: args.skipActions as boolean }),
+      ...(args.neverSaved === undefined ? {} : { neverSaved: args.neverSaved as boolean }),
+      document: ({ objectId }) =>
+        rawXml((args.documentXmlTemplate as string).replaceAll("{{objectId}}", objectId)),
+    },
+  );
+  return { objectId: created.objectId, url: created.url, document: created.loadResponse.data };
+};
+/** Низкоуровневая операция из нескольких запросов реестра: её обработчик — в runtime, не в шлюзе. */
+const composite: NativeOperation[] = [
+  {
+    id: "native.physicalDocuments.createFromXml",
+    profile: "native",
+    group: "physicalDocuments",
+    method: "createFromXml",
+    title: "Create a physical XML document",
+    description:
+      "Выделить ID, подставить его вместо {{objectId}} в documentXmlTemplate, сохранить через PutDoc и сверить ID корня через LoadDoc. Обработка XMD, как в клиенте администратора, не воспроизводится.",
+    effect: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentXmlTemplate: { type: "string" },
+        dbName: { type: "string" },
+        writeDocInfo: { type: "boolean" },
+        skipActions: { type: "boolean" },
+        neverSaved: { type: "boolean" },
+      },
+      required: ["documentXmlTemplate"],
+      additionalProperties: false,
+    },
+  },
+];
 /** Что вызывающий получает от низкоуровневой операции поверх реестра протокола. */
 interface Face {
   /** Строка обзора. */
@@ -93,6 +156,8 @@ interface Face {
   answer?: (raw: unknown) => unknown;
   /** Отказ сервера в виде, который называет причину; другая ошибка возвращается как есть. */
   failure?: (error: unknown) => unknown;
+  /** Обработчик операции из нескольких запросов вместо одного запроса реестра. */
+  run?: Operation["run"];
 }
 /** Строка на операцию; строки идут по темам обзора. */
 const FACES: Readonly<Record<string, Face>> = {
@@ -160,6 +225,7 @@ const FACES: Readonly<Record<string, Face>> = {
       "ObjectID — новый ID десятичной записью; остальные операции принимают его и так, и в записи 0x….",
   },
   "native.physicalDocuments.createFromXml": {
+    run: createFromXml,
     summary: "Создать документ из готового XML; новый ID подставляется вместо {{objectId}}.",
     details:
       "documentXmlTemplate — текст XML документа с {{objectId}} на месте ID. После записи документ перечитывается, и его ID сверяется. Обработчики, которые админка выполняет при создании, не запускаются.",
@@ -214,28 +280,36 @@ const FACES: Readonly<Record<string, Face>> = {
   },
 };
 
-export const nativeOperations: readonly Operation[] = getNativeOperations().map((native) => {
-  const { answer, failure, ...texts } = FACES[native.id] ?? {};
-  return operation({
-    id: native.id,
-    effect: native.effect,
-    effectFor: (args) => getEffectiveNativeEffect(native, args),
-    description: native.description,
-    ...texts,
-    inputSchema: native.inputSchema,
-    native,
-    run: async (context, args, call) => {
-      const raw = withoutXmlFormatting(
-        await context.server
-          .call(native.id, args, call.effect === "read" ? undefined : call.outcome)
-          .catch((error: unknown) => {
+export const nativeOperations: readonly Operation[] = [...getNativeOperations(), ...composite].map(
+  (native) => {
+    const { answer, failure, run, ...texts } = FACES[native.id] ?? {};
+    return operation({
+      id: native.id,
+      effect: native.effect,
+      effectFor: (args) => getEffectiveNativeEffect(native, args),
+      description: native.description,
+      ...texts,
+      inputSchema: native.inputSchema,
+      native,
+      run: async (context, args, call) => {
+        const raw = withoutXmlFormatting(
+          await (
+            run
+              ? run(context, args, call)
+              : context.server.call(
+                  native.id,
+                  args,
+                  call.effect === "read" ? undefined : call.outcome,
+                )
+          ).catch((error: unknown) => {
             throw failure ? failure(error) : error;
           }),
-      );
-      return answer ? answer(raw) : raw;
-    },
-  });
-});
+        );
+        return answer ? answer(raw) : raw;
+      },
+    });
+  },
+);
 for (const id of Object.keys(FACES))
   if (!nativeOperations.some((item) => item.id === id))
     throw new Error(`Строка таблицы для неизвестной низкоуровневой операции: ${id}`);

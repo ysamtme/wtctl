@@ -108,6 +108,94 @@ function validateDbName(dbName: string): void {
     throw new ArgumentError("dbName: нужно имя базы из латинских букв, цифр и знаков . _ -");
 }
 
+/** Запросы LDS, из которых складывается создание документа; ответ несёт разобранные данные. */
+export interface PhysicalDocumentRequests<
+  R extends { readonly data: unknown; readonly status?: number },
+> {
+  getNewObjectId(request: { dbName: string }, options?: RequestOptions): Promise<R>;
+  putDoc(
+    request: {
+      url: string;
+      writeDocInfo: boolean;
+      skipActions?: boolean;
+      neverSaved: boolean;
+      data: RawXml;
+    },
+    options?: RequestOptions,
+  ): Promise<R>;
+  loadDoc(request: { url: string }, options?: RequestOptions): Promise<R>;
+  deleteDoc(request: { url: string; strictDelete: boolean }): Promise<unknown>;
+}
+
+/** Создание документа по запросам `lds`: выделение ID, PutDoc, проверка LoadDoc, очистка при сбое. */
+export async function createPhysicalDocument<
+  R extends { readonly data: unknown; readonly status?: number },
+>(
+  lds: PhysicalDocumentRequests<R>,
+  request: CreatePhysicalDocumentRequest,
+  options?: RequestOptions,
+): Promise<PhysicalDocumentLocation & { putResponse: R; loadResponse: R }> {
+  const dbName = request.dbName ?? "wt_data";
+  validateDbName(dbName);
+  const allocated = await lds.getNewObjectId({ dbName }, options);
+  const rawId = lexical(findXmlNode(allocated.data, "ObjectID"), "ObjectID", "GetNewObjectID");
+  const location = resolvePhysicalDocumentLocation(rawId, dbName);
+  const document = request.document(location);
+  if (!isRawXml(document))
+    throw new ArgumentError("document: функция должна вернуть проверенный XML (RawXml).");
+  const parsed = parseXml(document.xml);
+  const documentId = directDocumentId(parsed);
+  if (documentId === undefined)
+    throw new ArgumentError(
+      "document: в XML нужен один корневой элемент и в нём ровно один элемент id.",
+    );
+  if (documentId.toUpperCase() !== location.objectId.toUpperCase()) {
+    throw new ArgumentError("document: id в XML должен совпадать с выданным ID объекта.");
+  }
+
+  try {
+    const putResponse = await lds.putDoc(
+      {
+        url: location.url,
+        writeDocInfo: request.writeDocInfo ?? true,
+        ...(request.skipActions !== undefined ? { skipActions: request.skipActions } : {}),
+        neverSaved: request.neverSaved ?? true,
+        data: document,
+      },
+      options,
+    );
+    const loadResponse = await lds.loadDoc({ url: location.url }, options);
+    const data = elementEntries(loadResponse.data).filter(([name]) => localName(name) === "Data");
+    const loadedId =
+      data.length === 1 && !Array.isArray(data[0]![1]) ? directDocumentId(data[0]![1]) : undefined;
+    if (loadedId?.toUpperCase() !== location.objectId.toUpperCase()) {
+      throw new WsHcmApiError(
+        "protocol",
+        "ID загруженного документа не совпадает с выделенным objectId",
+        {
+          operation: "LoadDoc",
+          ...(loadResponse.status === undefined ? {} : { status: loadResponse.status }),
+        },
+      );
+    }
+    return { ...location, putResponse, loadResponse };
+  } catch (operationError) {
+    try {
+      await lds.deleteDoc({ url: location.url, strictDelete: false });
+    } catch (cause) {
+      const cleanupError = new WsHcmApiError("cleanup", "Не удалось удалить созданный документ", {
+        operation: "DeleteDoc",
+        ...(cause instanceof WsHcmApiError && cause.status !== undefined
+          ? { status: cause.status }
+          : {}),
+        cause,
+      });
+      attachCleanupError(operationError, cleanupError);
+    }
+    throw operationError;
+  }
+}
+
 /**
  * Собирает примитивы физического сохранения native без клиентского XMD и регистрации типа объекта.
  * LDS native выполняет серверную обработку перед сохранением, если не задан `skipActions`.
@@ -124,78 +212,10 @@ export class NativePhysicalDocumentsApi {
    *
    * @mutating
    */
-  async createFromXml(
+  createFromXml(
     request: CreatePhysicalDocumentRequest,
     options?: RequestOptions,
   ): Promise<CreatedPhysicalDocument> {
-    const dbName = request.dbName ?? "wt_data";
-    validateDbName(dbName);
-    const allocated = await this.lds.getNewObjectId({ dbName }, options);
-    const rawId = lexical(findXmlNode(allocated.data, "ObjectID"), "ObjectID", "GetNewObjectID");
-    const location = resolvePhysicalDocumentLocation(rawId, dbName);
-    const document = request.document(location);
-    if (!isRawXml(document))
-      throw new ArgumentError("document: функция должна вернуть проверенный XML (RawXml).");
-    const parsed = parseXml(document.xml);
-    const documentId = directDocumentId(parsed);
-    if (documentId === undefined)
-      throw new ArgumentError(
-        "document: в XML нужен один корневой элемент и в нём ровно один элемент id.",
-      );
-    if (documentId.toUpperCase() !== location.objectId.toUpperCase()) {
-      throw new ArgumentError("document: id в XML должен совпадать с выданным ID объекта.");
-    }
-
-    let putStarted = false;
-    try {
-      putStarted = true;
-      const putResponse = await this.lds.putDoc(
-        {
-          url: location.url,
-          writeDocInfo: request.writeDocInfo ?? true,
-          ...(request.skipActions !== undefined ? { skipActions: request.skipActions } : {}),
-          neverSaved: request.neverSaved ?? true,
-          data: document,
-        },
-        options,
-      );
-      const loadResponse = await this.lds.loadDoc({ url: location.url }, options);
-      const data = elementEntries(loadResponse.data).filter(([name]) => localName(name) === "Data");
-      const loadedId =
-        data.length === 1 && !Array.isArray(data[0]![1])
-          ? directDocumentId(data[0]![1])
-          : undefined;
-      if (loadedId?.toUpperCase() !== location.objectId.toUpperCase()) {
-        throw new WsHcmApiError(
-          "protocol",
-          "ID загруженного документа не совпадает с выделенным objectId",
-          {
-            operation: "LoadDoc",
-            status: loadResponse.status,
-          },
-        );
-      }
-      return { ...location, putResponse, loadResponse };
-    } catch (operationError) {
-      if (putStarted) {
-        try {
-          await this.lds.deleteDoc({ url: location.url, strictDelete: false });
-        } catch (cause) {
-          const cleanupError = new WsHcmApiError(
-            "cleanup",
-            "Не удалось удалить созданный документ",
-            {
-              operation: "DeleteDoc",
-              ...(cause instanceof WsHcmApiError && cause.status !== undefined
-                ? { status: cause.status }
-                : {}),
-              cause,
-            },
-          );
-          attachCleanupError(operationError, cleanupError);
-        }
-      }
-      throw operationError;
-    }
+    return createPhysicalDocument<SoapResult>(this.lds, request, options);
   }
 }

@@ -7,7 +7,6 @@ import {
   attachCleanupError,
   isTransportFailure,
 } from "../protocol/error.js";
-import { rawXml } from "../protocol/xml.js";
 import { NATIVE_ENTRIES, type NativeEntry } from "./generated.js";
 import { prepare } from "./validation.js";
 import { freezeRegistry } from "../immutable.js";
@@ -83,42 +82,6 @@ for (const profile of ["native", "web"] as const) {
     });
   }
 }
-managed.push({
-  operation: {
-    id: "native.physicalDocuments.createFromXml",
-    profile: "native",
-    group: "physicalDocuments",
-    method: "createFromXml",
-    title: "Create a physical XML document",
-    description:
-      "Выделить ID, подставить его вместо {{objectId}} в documentXmlTemplate, сохранить через PutDoc и сверить ID корня через LoadDoc. Обработка XMD, как в клиенте администратора, не воспроизводится.",
-    effect: "write",
-    inputSchema: {
-      type: "object",
-      properties: {
-        documentXmlTemplate: { type: "string" },
-        dbName: { type: "string" },
-        writeDocInfo: { type: "boolean" },
-        skipActions: { type: "boolean" },
-        neverSaved: { type: "boolean" },
-      },
-      required: ["documentXmlTemplate"],
-      additionalProperties: false,
-    },
-  },
-  invoke: async (gateway, args) => {
-    const session = await gateway.native();
-    return session.physicalDocuments.createFromXml({
-      ...(args.dbName === undefined ? {} : { dbName: args.dbName as string }),
-      ...(args.writeDocInfo === undefined ? {} : { writeDocInfo: args.writeDocInfo as boolean }),
-      ...(args.skipActions === undefined ? {} : { skipActions: args.skipActions as boolean }),
-      ...(args.neverSaved === undefined ? {} : { neverSaved: args.neverSaved as boolean }),
-      document: ({ objectId }) =>
-        rawXml((args.documentXmlTemplate as string).replaceAll("{{objectId}}", objectId)),
-    });
-  },
-});
-
 /** Чтение, чей двоичный ответ шлюз отдаёт потоком без предела maxResponseBytes: тело читает вызывающий. */
 const streams: Readonly<Record<string, NativeEntry["invoke"]>> = {
   "native.lds.loadUrl": async (gateway, args) =>
@@ -288,8 +251,9 @@ export class NativeGateway {
    * Сервер сбрасывает сессию, простоявшую без дела (на стендах — в пределах двадцати минут),
    * или закрытую с его стороны; каждый следующий запрос получает HTTP 401. Долгоживущий владелец
    * остался бы без доступа, поэтому сброшенная сессия заменяется новым входом, и запрос
-   * отправляется ещё раз. Сервер отклоняет такой запрос до обработки, поэтому повтор не может
-   * выполнить что-либо дважды.
+   * отправляется ещё раз. Операция шлюза — один запрос, и сервер отклоняет его до обработки,
+   * поэтому повтор не может выполнить что-либо дважды. Операции из нескольких запросов
+   * собираются выше, в runtime: так повторяется только отклонённый запрос.
    */
   private async invoke(entry: NativeEntry, args: Record<string, unknown>): Promise<unknown> {
     const profile = entry.operation.profile;
@@ -328,14 +292,6 @@ export class NativeGateway {
     }
     if (result && typeof result === "object" && "data" in result && "rawBody" in result)
       return (result as { data: unknown }).data;
-    if (result && typeof result === "object" && "putResponse" in result) {
-      const created = result as unknown as {
-        objectId: string;
-        url: string;
-        loadResponse: { data: unknown };
-      };
-      return { objectId: created.objectId, url: created.url, document: created.loadResponse.data };
-    }
     return result;
   }
   close(): Promise<void> {

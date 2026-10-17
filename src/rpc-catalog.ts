@@ -133,10 +133,14 @@ export class RpcCatalog {
   }
   /** Почему сервер отказал в вызове, если это объясняет его собственный список функций. */
   async refusal(targetId: string): Promise<HcmError | undefined> {
-    const { targets: available, source } = await this.catalog(false, targetId.split(".")[0]);
-    if (source !== "server") return undefined;
-    const target = available.find((item) => item.id === targetId);
-    if (!target) return unknownTarget(targetId, available, source);
+    const server = await this.reader?.read(targetId.split(".")[0]);
+    if (!server) return undefined;
+    const target = server.targets.find((item) => item.id === targetId);
+    // Функции нет, только если её библиотека прочитана целиком или её нет среди общих документов.
+    if (!target)
+      return server.skipped.length || server.excluded.length
+        ? undefined
+        : unknownTarget(targetId, server.targets, "server");
     if (target.allowed !== false) return undefined;
     const [library, method] = targetId.split(".") as [string, string];
     return new HcmError(

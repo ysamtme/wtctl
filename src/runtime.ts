@@ -77,7 +77,7 @@ export class HcmRuntime implements RuntimePort {
       operationCount: operations.length,
       pipeline: {
         describe: (id) => this.describe(id),
-        failure: (id, error) => this.failure(id, performance.now(), error),
+        failure: (id, error) => this.failure(id, performance.now(), error, this.unsent(id)),
         step: (id, args, call) => this.perform(id, args, performance.now(), false, call),
         // async: и отказ до первого запроса приходит отклонённым промисом, а не исключением.
         invoke: async (id, args) =>
@@ -108,11 +108,7 @@ export class HcmRuntime implements RuntimePort {
   }
   call(id: string, args: Record<string, unknown> = {}): Promise<OperationResult> {
     const start = performance.now();
-    // Отказ до очереди: запрос не ушёл, исход несут только запись и выполнение кода.
-    const unsent = {
-      outcome: new WriteOutcome(),
-      effect: operationDefinition(id)?.effect ?? "unknown",
-    };
+    const unsent = this.unsent(id);
     if (this.closed)
       return Promise.resolve(
         this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто."), unsent),
@@ -137,6 +133,10 @@ export class HcmRuntime implements RuntimePort {
     const run = this.queue.then(() => this.perform(id, snapshot, start));
     this.queue = run.catch(() => undefined);
     return run;
+  }
+  /** Вызов, отклонённый до первого запроса: исход not_sent несут только запись и выполнение кода. */
+  private unsent(id: string): OperationCall {
+    return { outcome: new WriteOutcome(), effect: operationDefinition(id)?.effect ?? "unknown" };
   }
   private effect(operation: Operation, args: Record<string, unknown>): OperationEffect {
     return (

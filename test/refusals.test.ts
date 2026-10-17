@@ -123,6 +123,45 @@ test("отказ при вызове функции библиотеки объ�
   }
 });
 
+test("отказ функции называется отсутствием функции, только когда её библиотека прочитана целиком или её нет на сервере", async () => {
+  // Своя библиотека с комментарием в windows-1251: файл не в UTF-8.
+  const cp1251 = Buffer.concat([
+    Buffer.from('<?xml version="1.0" encoding="windows-1251"?>\n<SPXML-INLINE-FORM><tools><!-- '),
+    Buffer.from([0xcf, 0xf0, 0xe8, 0xec, 0xe5, 0xf0]),
+    Buffer.from(
+      ' --><get_version PROPERTY="1" ALLOW-CALL-FROM-CLIENT="1" EXPR="return 1;"/></tools></SPXML-INLINE-FORM>',
+    ),
+  ]);
+  const cases: [string, Record<string, string>, string | Buffer | undefined, string][] = [
+    ["файл библиотеки не прочитан", { tools: "x-local://l/t.xml" }, undefined, "indeterminate"],
+    ["файл не в UTF-8", { tools: "x-local://l/t.xml" }, cp1251, "indeterminate"],
+    // Общий документ в базе данных клиент как библиотеку не читает.
+    ["библиотека в базе данных", { tools: "x-local://sample/t.xml" }, library, "indeterminate"],
+    ["библиотеки нет на сервере", { other: "x-local://l/o.xml" }, library, "not_sent"],
+  ];
+  for (const [name, docs, file, outcome] of cases) {
+    const { runtime } = fakeRuntime({
+      "native.spxml2.getAppInfo": {
+        default_db_name: "sample",
+        shared_docs: Object.entries(docs).map(([id, url]) => ({ id, url })),
+      },
+      "native.lds.loadUrl":
+        file === undefined ? refuse() : { Data: Buffer.from(file).toString("base64") },
+      "native.rpc.call": refuse(),
+    });
+    try {
+      const { error } = await runtime.call("rpc.call", { library: "tools", method: "nope" });
+      assert.deepEqual(
+        [error?.code, error?.mutationOutcome],
+        [outcome === "not_sent" ? "UNKNOWN_RPC_TARGET" : "PLATFORM_SOAP-FAULT", outcome],
+        name,
+      );
+    } finally {
+      await runtime.close();
+    }
+  }
+});
+
 test("неверный аргумент функции называется по его месту среди аргументов", async () => {
   const { runtime } = fakeRuntime();
   try {

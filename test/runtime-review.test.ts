@@ -361,6 +361,20 @@ test("сбой хранилища пакета сохраняет not_sent, ес
   );
 });
 
+test("шаг записи пакета с неразрешимой ссылкой $ref — not_sent", async () => {
+  await fixture({}, async (runtime, server) => {
+    const result = await runtime.call("runtime.batch", {
+      steps: [{ id: "objects.create", args: { type: "group", data: { name: { $ref: "x.id" } } } }],
+    });
+    const step = (result.data as { results: { error?: Record<string, unknown> }[] }).results[0];
+    assert.deepEqual(
+      [step?.error?.code, step?.error?.mutationOutcome],
+      ["INVALID_REFERENCE", "not_sent"],
+    );
+    assert.equal(server.calls.length, 0);
+  });
+});
+
 test("remove, за которым идёт set, проверяется по итоговому намерению правки, а не по промежуточному удалению", async () => {
   let source = "<fixture><id>41</id><name>old</name></fixture>";
   let writes = 0;

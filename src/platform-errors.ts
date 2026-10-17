@@ -61,11 +61,15 @@ function network(reason: NetworkFailure, address: string, host: string): Failure
   }
 }
 
-/** Что значит неудавшийся обмен с сервером для того, кто настраивал подключение. */
+/**
+ * Что значит неудавшийся обмен с сервером для того, кто настраивал подключение. indeterminate —
+ * запрос на запись или код ушёл и исход не определён: совет повторить без проверки неверен.
+ */
 export function platformFailure(
   error: WsHcmApiError,
   baseUrl: string,
   usualCause?: string,
+  indeterminate = false,
 ): FailureText {
   let address = baseUrl.replace(/\/+$/, "");
   let host = address;
@@ -78,14 +82,19 @@ export function platformFailure(
   }
   const status = error.status;
   if (status === undefined) {
-    const reason = error.details?.network;
-    if (error.kind === "http")
+    if (error.kind === "http") {
       // Без названной причины ответ оборвался после заголовков.
-      return network(
-        typeof reason === "string" ? (reason as NetworkFailure) : "reset",
-        address,
-        host,
-      );
+      const reason =
+        typeof error.details?.network === "string"
+          ? (error.details.network as NetworkFailure)
+          : "reset";
+      const text = network(reason, address, host);
+      if (!indeterminate) return text;
+      return {
+        message: text.message,
+        hint: `Запрос на запись ушёл, а ответа нет: проверить, прошла ли запись, прежде чем повторять.${reason === "timeout" ? " Для долгих операций — увеличить timeoutMs подключения." : ""}`,
+      };
+    }
     if (error.kind === "auth")
       return {
         message: "Не заданы имя пользователя и пароль подключения.",

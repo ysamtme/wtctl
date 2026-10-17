@@ -232,6 +232,40 @@ test("сервер, до которого не достучаться, назв�
   }
 });
 
+test("обрыв и таймаут после отправленного вызова функции советуют проверить запись, а не повторить", async () => {
+  for (const [code, extra] of [
+    ["ECONNRESET", ""],
+    ["ETIMEDOUT", " Для долгих операций — увеличить timeoutMs подключения."],
+  ]) {
+    const fail = failingFetch(code!);
+    const runtime = new HcmRuntime({
+      ...base,
+      username: "u",
+      password: "p",
+      permissions: { write: true, execute: true },
+      fetch: async (input, init) => {
+        const method = /<soap:Body><([A-Za-z]+)/.exec(String(init?.body ?? ""))?.[1];
+        // Вход проходит, а ответа на сам вызов нет.
+        if (method === "CallMethod") return fail(input, init);
+        return new Response(
+          `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope/"><soap:Body><${method}Response><SessionID>42</SessionID></${method}Response></soap:Body></soap:Envelope>`,
+          { headers: { "content-type": "application/soap+xml", "set-cookie": "SessionID=c" } },
+        );
+      },
+    });
+    try {
+      const { error } = await runtime.call("rpc.call", { library: "tools", method: "change_data" });
+      assert.equal(error?.mutationOutcome, "indeterminate", code);
+      assert.equal(
+        error?.hint,
+        `Запрос на запись ушёл, а ответа нет: проверить, прошла ли запись, прежде чем повторять.${extra}`,
+      );
+    } finally {
+      await runtime.close();
+    }
+  }
+});
+
 test("отсутствующий или отклонённый вход говорит, который из двух", async () => {
   const anonymous = new HcmRuntime({ ...base, fetch: async () => new Response("") });
   const missing = await anonymous.call("runtime.status", {});

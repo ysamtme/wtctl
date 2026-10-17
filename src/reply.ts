@@ -239,7 +239,13 @@ export class ReplyPacker {
           : error instanceof WsHcmApiError
             ? {
                 code: `PLATFORM_${error.kind.toUpperCase()}`,
-                ...platformFailure(error, this.config.baseUrl, operationSpec(id)?.usualCause),
+                ...platformFailure(
+                  error,
+                  this.config.baseUrl,
+                  operationSpec(id)?.usualCause,
+                  // Своё сообщение после отправки операция даёт сама (afterSend).
+                  mutationOutcome === "indeterminate" && !afterSend,
+                ),
                 retryable: false,
                 ...(error.status === undefined ? {} : { details: { status: error.status } }),
               }

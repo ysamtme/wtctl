@@ -43,7 +43,8 @@ export class WriteOutcome {
     };
   }
 
-  note(ids: WriteIds): void {
+  /** Значение undefined ничего не стирает. */
+  note(ids: { readonly [K in keyof WriteIds]?: string | undefined }): void {
     for (const [key, value] of Object.entries(ids))
       if (value !== undefined) this.ids[key as keyof WriteIds] = value;
   }

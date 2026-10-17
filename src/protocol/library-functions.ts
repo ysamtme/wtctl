@@ -34,7 +34,8 @@ export function normalizeFormParams(source: string, library = false): string {
 
 /** Читает объявления библиотек как данные, не вычисляя их выражения. */
 export class LibraryReader {
-  private shared: Promise<SharedFile[] | undefined> | undefined;
+  /** Общие документы сервера: библиотеки, которые клиент читает, и ID остальных. */
+  private shared: Promise<{ files: SharedFile[]; excluded: Set<string> } | undefined> | undefined;
   private files = new Map<string, Promise<LibraryFunction[] | undefined>>();
   constructor(
     private applicationInfo: () => Promise<Data>,
@@ -90,24 +91,33 @@ export class LibraryReader {
     }
     return cached;
   }
+  /**
+   * Функции библиотек. skipped — библиотеки, файл которых не прочитан; excluded — общие документы
+   * с этим ID, которые клиент как библиотеки не читает: они лежат в базе данных.
+   */
   async read(
     library?: string,
-  ): Promise<{ targets: LibraryFunction[]; skipped: string[] } | undefined> {
+  ): Promise<{ targets: LibraryFunction[]; skipped: string[]; excluded: string[] } | undefined> {
     this.shared ??= this.applicationInfo()
       .then((info) => {
         if (!Array.isArray(info.shared_docs)) throw new Error();
-        return (info.shared_docs as SharedFile[]).filter((file) => {
-          if (!file || typeof file.id !== "string" || typeof file.url !== "string") return false;
+        const files: SharedFile[] = [];
+        const excluded = new Set<string>();
+        for (const file of info.shared_docs as SharedFile[]) {
+          if (!file || typeof file.id !== "string" || typeof file.url !== "string") continue;
+          let read = true;
           try {
             const url = new URL(file.url);
-            return (
+            read =
               url.hostname.toLowerCase() !== String(info.default_db_name).toLowerCase() &&
-              !(url.protocol === "x-local:" && url.hostname === "data_local")
-            );
+              !(url.protocol === "x-local:" && url.hostname === "data_local");
           } catch {
-            return true;
+            /* Адрес, который не разобрать, читается как есть. */
           }
-        });
+          if (read) files.push(file);
+          else excluded.add(file.id);
+        }
+        return { files, excluded };
       })
       .catch(() => {
         this.shared = undefined;
@@ -115,7 +125,8 @@ export class LibraryReader {
       });
     const shared = await this.shared;
     if (!shared) return undefined;
-    const files = shared.filter((file) => library === undefined || file.id === library);
+    const wanted = (id: string) => library === undefined || id === library;
+    const files = shared.files.filter((file) => wanted(file.id));
     const targets = new Map<string, LibraryFunction>();
     const skipped = new Set<string>();
     for (let offset = 0; offset < files.length; offset += 4) {
@@ -133,6 +144,7 @@ export class LibraryReader {
     return {
       targets: [...targets.values()].sort((a, b) => a.id.localeCompare(b.id)),
       skipped: [...skipped],
+      excluded: [...shared.excluded].filter(wanted),
     };
   }
 }

@@ -116,6 +116,122 @@ test("отказ во входе окончателен: одна попытка
   await runtime.close();
 });
 
+/**
+ * Сервер документов: после PutDoc при dropAfterPut забывает открытые сессии, а при refuseRelogin
+ * затем отклоняет и новый вход. ID документа выдаётся по порядку с 101.
+ */
+function documentServer() {
+  const state = {
+    opened: 0,
+    validFrom: 1,
+    allocated: 0,
+    dropAfterPut: false,
+    refuseRelogin: false,
+    methods: [] as string[],
+  };
+  const soap = (method: string, inner = ""): Response =>
+    new Response(
+      `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope/"><soap:Body><${method}Response>${inner}</${method}Response></soap:Body></soap:Envelope>`,
+      { headers: { "content-type": "application/soap+xml", "set-cookie": "SessionID=c" } },
+    );
+  const runtime = new HcmRuntime({
+    ...base,
+    username: "u",
+    password: "p",
+    permissions: { write: true, execute: true },
+    fetch: async (input, init = {}) => {
+      if (new URL(String(input)).pathname === "/loggedoff.html") return new Response("");
+      // PutDoc уходит вложением XOP, остальные — строкой.
+      const body =
+        init.body instanceof Uint8Array ? new TextDecoder().decode(init.body) : String(init.body);
+      const method = /<soap:Body><([A-Za-z]+)/.exec(body)?.[1] ?? "?";
+      state.methods.push(method);
+      if (method === "OpenSession") {
+        if (state.refuseRelogin && state.validFrom > 1) return new Response("", { status: 401 });
+        state.opened++;
+        return soap(method, `<SessionID>${40 + state.opened}</SessionID>`);
+      }
+      if (Number(/<SessionID>(\d+)</.exec(body)?.[1]) < 40 + state.validFrom)
+        return new Response("", { status: 401 });
+      if (method === "GetNewObjectID")
+        return soap(method, `<ObjectID>${100 + ++state.allocated}</ObjectID>`);
+      if (method === "PutDoc" && state.dropAfterPut) {
+        // Запись прошла, и только после неё сервер сбросил сессию.
+        state.dropAfterPut = false;
+        state.validFrom = state.opened + 1;
+      }
+      if (method === "LoadDoc") {
+        const [, high, low] = /objects\/(\d+)\/(\d+)\.xml/.exec(body)!;
+        return soap(
+          method,
+          `<Data><collaborator><id>${Number(high) * 100 + Number(low)}</id></collaborator></Data>`,
+        );
+      }
+      return soap(method);
+    },
+  });
+  const create = () =>
+    runtime.call("native.physicalDocuments.createFromXml", {
+      documentXmlTemplate: "<collaborator><id>{{objectId}}</id></collaborator>",
+    });
+  return { runtime, state, create };
+}
+
+test("createFromXml после сброса сессии повторяет только отклонённый запрос: документ записан один раз", async () => {
+  for (const opened of [true, false]) {
+    const { runtime, state, create } = documentServer();
+    try {
+      // Сессия открыта прошлым вызовом либо её открывает сам вызов.
+      if (opened) assert.equal((await create()).ok, true);
+      state.methods.length = 0;
+      state.dropAfterPut = true;
+      const result = await create();
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal((result.data as { objectId: string }).objectId, opened ? "102" : "101");
+      assert.deepEqual(state.methods, [
+        ...(opened ? [] : ["OpenSession"]),
+        "GetNewObjectID",
+        "PutDoc",
+        "LoadDoc",
+        "OpenSession",
+        "LoadDoc",
+      ]);
+    } finally {
+      await runtime.close();
+    }
+  }
+});
+
+test("отказ шаблона createFromXml после выдачи ID — not_sent: документ не записан", async () => {
+  const { runtime, state } = documentServer();
+  try {
+    const { error } = await runtime.call("native.physicalDocuments.createFromXml", {
+      documentXmlTemplate: "<collaborator><id>1</id></collaborator>",
+    });
+    assert.deepEqual([error?.code, error?.mutationOutcome], ["INVALID_ARGUMENT", "not_sent"]);
+    // Адреса незаписанного документа в ответе нет: искать нечего.
+    assert.equal(error?.details?.url, undefined);
+    assert.deepEqual(state.methods, ["OpenSession", "GetNewObjectID"]);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("если после записи createFromXml войти заново не удалось, исход не определён, и ошибка называет адрес документа", async () => {
+  const { runtime, state, create } = documentServer();
+  try {
+    state.dropAfterPut = true;
+    state.refuseRelogin = true;
+    const result = await create();
+    assert.equal(state.methods.filter((method) => method === "PutDoc").length, 1);
+    assert.equal(result.error?.mutationOutcome, "indeterminate", JSON.stringify(result.error));
+    assert.equal(result.error?.details?.url, "x-local://wt_data/objects/0001/01.xml");
+    assert.match(result.error!.hint!, /проверить, прошла ли запись, прежде чем повторять/);
+  } finally {
+    await runtime.close();
+  }
+});
+
 test("отказ, который сервер пишет в лог по-русски, — событие уровня error", () => {
   const levels = parseLogEvents(
     [
