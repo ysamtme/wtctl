@@ -8,6 +8,7 @@ import { WebPageApi, type UploadChunkRequest } from "../src/protocol/api.js";
 import { HttpTransport } from "../src/protocol/transport.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
 import { rawXml } from "../src/protocol/xml.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 const fileId = "0123456789abcdef0123456789abcdef";
 const otherId = "ABCDEF0123456789ABCDEF0123456789";
@@ -100,7 +101,7 @@ function fixture(maximumBytes = 4096) {
       timeoutMs: 1000,
       maxResponseBytes: maximumBytes,
       outputLimitBytes: 4096,
-      runtimeDir: ".unused",
+      runtimeDir: scratchRuntimeDir,
       permissions: { write, execute: false },
       fetch,
     });

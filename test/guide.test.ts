@@ -6,6 +6,7 @@ import type { CliDependencies, CliIo, RuntimePort } from "../src/cli/types.js";
 import type { OperationResult } from "../src/contracts.js";
 import { guide, guideTopics } from "../src/guide.js";
 import { HcmMcpTools } from "../src/mcp/server.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 const noBackend = (): never => {
   throw new Error("The guide must not reach a server.");
@@ -196,7 +197,7 @@ test("та же тема говорит, как команда и програм
           timeoutMs: 1000,
           maxResponseBytes: 1024,
           outputLimitBytes: 1024,
-          runtimeDir: ".unused",
+          runtimeDir: scratchRuntimeDir,
           permissions: { write: false, execute: false },
         }),
         createRuntime: () => ({ ...runtime, close: async () => {} }),

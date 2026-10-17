@@ -14,6 +14,7 @@ import { HcmRuntime } from "../src/runtime.js";
 import type { ConnectionConfig } from "../src/contracts.js";
 import { mcpJson } from "./mcp-json.js";
 import { operationHelp } from "../src/operation-help.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 function fixture() {
   const definitions: OperationDefinition[] = (
@@ -196,7 +197,7 @@ test("фактический эффект в runtime не пропускает T
     timeoutMs: 1000,
     maxResponseBytes: 1024,
     outputLimitBytes: 1024,
-    runtimeDir: ".unused",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: true, execute: true },
     fetch: async () => {
       requests++;
@@ -270,7 +271,11 @@ test("без прав чтение через rawRequest по GET, POST и getNe
   let requests = 0;
   const fetch = async () => (requests++, new Response("page"));
   const permissions = { write: false, execute: false };
-  const base = { name: "synthetic", baseUrl: "http://fixture.invalid", runtimeDir: ".unused" };
+  const base = {
+    name: "synthetic",
+    baseUrl: "http://fixture.invalid",
+    runtimeDir: scratchRuntimeDir,
+  };
   const runtime = new HcmRuntime({
     ...base,
     timeoutMs: 1000,
@@ -620,7 +625,7 @@ test("обзор MCP на настоящем runtime компактен, а desc
     timeoutMs: 1000,
     maxResponseBytes: 1024,
     outputLimitBytes: 24000,
-    runtimeDir: ".unused",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: false, execute: false },
     fetch: async () => {
       networkCalls++;

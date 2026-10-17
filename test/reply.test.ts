@@ -5,6 +5,7 @@ import { HcmError } from "../src/errors.js";
 import { WebSocketHeartbeatError } from "../src/protocol/websocket.js";
 import { ReplyPacker, type BatchRecovery } from "../src/reply.js";
 import { WriteOutcome } from "../src/write-outcome.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 function setup(outputLimitBytes: number, name = "t", list?: string) {
   const stored = { calls: 0 };
@@ -14,7 +15,7 @@ function setup(outputLimitBytes: number, name = "t", list?: string) {
     timeoutMs: 1000,
     maxResponseBytes: 1024 * 1024,
     outputLimitBytes,
-    runtimeDir: ".unused",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: true, execute: true },
   };
   const packer = new ReplyPacker(config, {

@@ -14,6 +14,7 @@ import {
 } from "../src/sdk.js";
 import { HcmError } from "../src/errors.js";
 import type { ConnectionConfig, OperationDefinition, OperationResult } from "../src/contracts.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 const config: ConnectionConfig = {
   name: "synthetic",
@@ -21,7 +22,7 @@ const config: ConnectionConfig = {
   timeoutMs: 1000,
   maxResponseBytes: 65536,
   outputLimitBytes: 4096,
-  runtimeDir: ".unused",
+  runtimeDir: scratchRuntimeDir,
   permissions: { write: false, execute: false },
 };
 const meta = { operationId: "synthetic.operation", connection: "synthetic", durationMs: 1 };

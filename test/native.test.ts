@@ -14,6 +14,7 @@ import { parseSoapBody } from "../src/protocol/protocol.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
 import { createNativeLdsApi, WebSpXmlApi } from "../src/protocol/api.js";
 import { LogReader } from "../src/logs.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 const base = {
   baseUrl: "http://fixture.invalid/hcm/",
@@ -486,7 +487,7 @@ test("составные целые и пределы пакета отказы�
     fetch: mock.fetch,
     name: "synthetic-validation",
     outputLimitBytes: 1024,
-    runtimeDir: ".work/synthetic-validation",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: true, execute: true },
   });
   for (const [id, args] of [
@@ -510,7 +511,7 @@ test("отказ по аргументу с именем password не маск�
     fetch: mock.fetch,
     name: "synthetic-validation",
     outputLimitBytes: 1024,
-    runtimeDir: ".work/synthetic-validation",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: true, execute: true },
   });
   const result = await runtime.call("web.experimental.authenticate", {
@@ -534,7 +535,7 @@ test("отказ по аргументу, который шлюз находит
     fetch: mock.fetch,
     name: "synthetic-validation",
     outputLimitBytes: 1024,
-    runtimeDir: ".work/synthetic-validation",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: true, execute: true },
   });
   // Сессии native и web открываются заранее: дальше ни один запрос не должен уйти.

@@ -11,7 +11,14 @@ import { XmlDocument } from "../src/documents.js";
 import { getNativeOperations } from "../src/native/index.js";
 import { findXmlNode, parseXml } from "../src/protocol/xml.js";
 import type { ConnectionConfig } from "../src/contracts.js";
-import { fakeRuntime, refusal, refuse, type FakeServer, type Script } from "./fake-server.js";
+import {
+  fakeRuntime,
+  refusal,
+  refuse,
+  type FakeServer,
+  type Script,
+  scratchRuntimeDir,
+} from "./fake-server.js";
 
 const config = (runtimeDir: string, outputLimitBytes = 1024): ConnectionConfig => ({
   name: "review",
@@ -26,7 +33,7 @@ const config = (runtimeDir: string, outputLimitBytes = 1024): ConnectionConfig =
 test("обзор в runtime и SDK отклоняет нулевые лимиты и проходит все ранжированные совпадения без сети", async () => {
   let requests = 0;
   const runtime = new HcmRuntime({
-    ...config(".runtime"),
+    ...config(scratchRuntimeDir),
     fetch: async () => {
       requests++;
       throw new Error("Offline discovery must not contact HCM");
@@ -215,7 +222,7 @@ test("неудачные записи документов сохраняют UU
 });
 
 test("параллельное закрытие runtime ждёт принятую работу и тот же исход очистки", async () => {
-  const runtime = new HcmRuntime(config(".unused"));
+  const runtime = new HcmRuntime(config(scratchRuntimeDir));
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;

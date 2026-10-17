@@ -5,6 +5,7 @@ import { NativeGateway } from "../src/native/index.js";
 import { RpcApi, rpc } from "../src/protocol/api.js";
 import { HttpTransport } from "../src/protocol/transport.js";
 import { rawXml } from "../src/protocol/xml.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 const element =
   '<remote_collection SPXML-FORM="x-local://wtv/wtv_remote_collection.xmd" SPXML-FORM-ELEM="remote_collection"><script>RESULT=[{value:42}];</script></remote_collection>';
@@ -83,7 +84,7 @@ test("общий runtime поддерживает RPC с упакованным 
     ...base,
     fetch: fixture.fetch,
     name: "fixture",
-    runtimeDir: ".runtime",
+    runtimeDir: scratchRuntimeDir,
     outputLimitBytes: 24000,
     permissions: { write: false, execute: true },
   });
@@ -108,7 +109,7 @@ test("удобные булевы значения RPC записываются 
     ...base,
     fetch: fixture.fetch,
     name: "fixture",
-    runtimeDir: ".runtime",
+    runtimeDir: scratchRuntimeDir,
     outputLimitBytes: 24000,
     permissions: { write: false, execute: true },
   });
@@ -136,7 +137,7 @@ test("декларация XML в начале аргумента убирает
     ...base,
     fetch: fixture.fetch,
     name: "fixture",
-    runtimeDir: ".runtime",
+    runtimeDir: scratchRuntimeDir,
     outputLimitBytes: 24000,
     permissions: { write: false, execute: true },
   });

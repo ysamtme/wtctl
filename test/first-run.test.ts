@@ -14,7 +14,7 @@ import { HcmError } from "../src/errors.js";
 import { HcmRuntime } from "../src/runtime.js";
 import { VERSION } from "../src/version.js";
 import { HcmMcpTools } from "../src/mcp/server.js";
-import { fakeServer } from "./fake-server.js";
+import { fakeServer, scratchRuntimeDir } from "./fake-server.js";
 import { mcpJson } from "./mcp-json.js";
 
 const SETTINGS = [
@@ -56,7 +56,7 @@ const base = {
   timeoutMs: 1000,
   maxResponseBytes: 1024 * 1024,
   outputLimitBytes: 4096,
-  runtimeDir: ".unused",
+  runtimeDir: scratchRuntimeDir,
   permissions: { write: true, execute: true },
 } as const;
 /** Сбой сети в том виде, как его сообщает fetch в Node: TypeError, чья cause несёт системный код. */

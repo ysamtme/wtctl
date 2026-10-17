@@ -19,7 +19,7 @@ import { HcmRuntime } from "../src/runtime.js";
 import { withRepeated } from "../src/schema.js";
 import type { ConnectionConfig, OperationResult } from "../src/contracts.js";
 import type { RuntimePort } from "../src/cli/types.js";
-import { fakeRuntime, refusal, type Answer } from "./fake-server.js";
+import { fakeRuntime, refusal, type Answer, scratchRuntimeDir } from "./fake-server.js";
 import { mcpJson } from "./mcp-json.js";
 
 const base = {
@@ -28,7 +28,7 @@ const base = {
   timeoutMs: 1000,
   maxResponseBytes: 1024 * 1024,
   outputLimitBytes: 4096,
-  runtimeDir: ".unused",
+  runtimeDir: scratchRuntimeDir,
   logBusyMs: 1,
 } as const;
 const readOnly = { outputLimitBytes: 4096, permissions: { write: false, execute: false } };

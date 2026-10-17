@@ -15,6 +15,7 @@ import { WsHcmApiError } from "../src/protocol/error.js";
 import { WebPageApi } from "../src/protocol/api.js";
 import { HttpTransport } from "../src/protocol/transport.js";
 import { rawXml } from "../src/protocol/xml.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 const tokenOne = "synthetic_upload_token_01";
 const tokenTwo = "synthetic_upload_token_02";
@@ -134,7 +135,7 @@ const runtimeOver = (f: ReturnType<typeof fixture>): HcmRuntime =>
     timeoutMs: 1000,
     maxResponseBytes: 1024,
     outputLimitBytes: 4096,
-    runtimeDir: ".unused",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: true, execute: false },
     fetch: f.fetch,
   });
@@ -551,7 +552,7 @@ test(
       timeoutMs: 1000,
       maxResponseBytes: 4096,
       outputLimitBytes: 4096,
-      runtimeDir: ".unused",
+      runtimeDir: scratchRuntimeDir,
       permissions: { write: true, execute: false },
     });
     const directory = await mkdtemp(join(tmpdir(), "wtctl-upload-"));

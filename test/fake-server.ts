@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ConnectionConfig } from "../src/contracts.js";
 import type { ServerPort } from "../src/hcm-server.js";
 import { getNativeOperations } from "../src/native/gateway.js";
@@ -5,6 +8,13 @@ import { NATIVE_ENTRIES } from "../src/native/generated.js";
 import { prepare } from "../src/native/validation.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
 import { HcmRuntime } from "../src/runtime.js";
+
+/**
+ * runtimeDir теста, которому своя папка не нужна. Ответы files.read и журнал всё равно пишутся
+ * на диск, поэтому папка временная и удаляется по выходе процесса, а не лежит в папке проекта.
+ */
+export const scratchRuntimeDir = mkdtempSync(join(tmpdir(), "wtctl-test-"));
+process.on("exit", () => rmSync(scratchRuntimeDir, { recursive: true, force: true }));
 
 export type Args = Record<string, any>;
 /** Значение — ответ операции; функция считает ответ по аргументам и может бросить отказ. */
@@ -90,7 +100,7 @@ export function fakeRuntime(
       timeoutMs: 1000,
       maxResponseBytes: 1024 * 1024,
       outputLimitBytes: 65536,
-      runtimeDir: ".unused",
+      runtimeDir: scratchRuntimeDir,
       permissions: { write: true, execute: true },
       ...config,
     },

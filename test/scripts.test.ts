@@ -4,7 +4,7 @@ import { HcmRuntime } from "../src/runtime.js";
 import { scriptRequest, scriptResult } from "../src/scripts.js";
 import { decodeRpcValue } from "../src/server-value.js";
 import { findXmlNode, parseXml } from "../src/protocol/xml.js";
-import { fakeRuntime } from "./fake-server.js";
+import { fakeRuntime, scratchRuntimeDir } from "./fake-server.js";
 
 const fields =
   '<error VALUE-TYPE="integer">0</error><error_text VALUE-TYPE="string"/><ticks VALUE-TYPE="integer">7</ticks><result VALUE-TYPE="Array"><e VALUE-TYPE="Object"><id VALUE-TYPE="integer">9223372036854775807</id><text VALUE-TYPE="string">Текст &amp; &lt;tag&gt; 😀</text><flags VALUE-TYPE="Array"><e VALUE-TYPE="bool">1</e><e VALUE-TYPE="null"/></flags></e></result><columns VALUE-TYPE="Array"/><data VALUE-TYPE="Object"/><total VALUE-TYPE="integer">1</total>';
@@ -42,7 +42,7 @@ function fixture(responseFields = fields) {
     timeoutMs: 1000,
     maxResponseBytes: 1024 * 1024,
     outputLimitBytes: 24000,
-    runtimeDir: ".runtime",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: false, execute: true },
     fetch,
   });
@@ -301,7 +301,7 @@ test("право execute и знаки XML отклоняют запрос ло�
     timeoutMs: 1000,
     maxResponseBytes: 1024,
     outputLimitBytes: 1024,
-    runtimeDir: ".runtime",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: true, execute: false },
   });
   try {

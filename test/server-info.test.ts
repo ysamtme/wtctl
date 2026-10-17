@@ -8,6 +8,7 @@ import { HcmRuntime } from "../src/runtime.js";
 import { HcmClient, HcmStoredResultError, unwrap } from "../src/sdk.js";
 import { parseServerInfo, type ServerInfoProfile } from "../src/server-info.js";
 import { escapeXml, parseXml } from "../src/protocol/xml.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 const metadataFields = (
   options: {
@@ -221,7 +222,7 @@ function fixture(
     timeoutMs: 1000,
     maxResponseBytes: 1024 * 1024,
     outputLimitBytes: options.outputLimitBytes ?? 65536,
-    runtimeDir: options.runtimeDir ?? ".runtime",
+    runtimeDir: options.runtimeDir ?? scratchRuntimeDir,
     permissions: { write: false, execute: false },
     fetch,
   });

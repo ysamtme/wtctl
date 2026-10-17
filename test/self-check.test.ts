@@ -9,14 +9,14 @@ import { DiagnosticsApi } from "../src/protocol/api.js";
 import { runCli } from "../src/cli/run.js";
 import type { CliIo } from "../src/cli/types.js";
 import type { ConnectionConfig } from "../src/contracts.js";
-import { fakeRuntime } from "./fake-server.js";
+import { fakeRuntime, scratchRuntimeDir } from "./fake-server.js";
 const config: ConnectionConfig = {
   name: "check-fixture",
   baseUrl: "http://fixture.invalid/mounted/",
   timeoutMs: 1000,
   maxResponseBytes: 65536,
   outputLimitBytes: 1024,
-  runtimeDir: ".unused",
+  runtimeDir: scratchRuntimeDir,
   permissions: { write: false, execute: true },
 };
 const appInfo = {

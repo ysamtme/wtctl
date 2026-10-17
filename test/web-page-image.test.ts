@@ -5,6 +5,7 @@ import { HttpTransport } from "../src/protocol/transport.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
 import { HcmRuntime } from "../src/runtime.js";
 import { HcmClient } from "../src/sdk.js";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 test("штатная SVG-страница использует свой отдельный маршрут GET с точным кодированием URL и state и сохраняет возвращённые байты", async () => {
   const url = "x-app://local/pict/цвет & '😀.svg?variant=a&b=two";
@@ -80,7 +81,7 @@ test("описание SVG доходит до существующего мар
     timeoutMs: 1000,
     maxResponseBytes: 4096,
     outputLimitBytes: 4096,
-    runtimeDir: ".unused",
+    runtimeDir: scratchRuntimeDir,
     permissions: { write: false, execute: false },
     fetch: async (input, init) => {
       const url = new URL(String(input));

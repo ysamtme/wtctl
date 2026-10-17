@@ -13,6 +13,7 @@ import { ResultStore } from "../src/results.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scratchRuntimeDir } from "./fake-server.js";
 
 const config: ConnectionConfig = {
   name: "synthetic",
@@ -20,7 +21,7 @@ const config: ConnectionConfig = {
   timeoutMs: 1000,
   maxResponseBytes: 1024,
   outputLimitBytes: 1024,
-  runtimeDir: ".unused",
+  runtimeDir: scratchRuntimeDir,
   permissions: { write: false, execute: false },
 };
 const operation: OperationDefinition = {
