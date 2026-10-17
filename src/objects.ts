@@ -478,7 +478,11 @@ export class ServerObjects {
     const loaded = await this.load(args);
     // Форма отличает целое поле, где 0x1F и 31 — один ID, от строкового.
     const { type, formUrl } = loaded.document.form();
-    const shape = await this.schema.documentShape(type, formUrl).catch(() => undefined);
+    let unread: unknown;
+    const shape = await this.schema.documentShape(type, formUrl).catch((error: unknown) => {
+      unread = error;
+      return undefined;
+    });
     const changes = loaded.document.patch(
       patchInput(args.patch, args.remove, args.resave === true),
       shape?.types.size ? shape.types : undefined,
@@ -515,6 +519,8 @@ export class ServerObjects {
     const current = await this.load(args);
     if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
       throw new HcmError("CONFLICT", "Объект изменился, пока готовилась запись.");
+    // Правка посчитана без формы: её не записать, даже если позже в этом вызове форма прочиталась.
+    if (unread !== undefined) throw unread;
     const form = await this.schema.documentForm(
       changes.before.formUrl ?? (await this.schema.typeFormUrl(changes.before.type)),
     );

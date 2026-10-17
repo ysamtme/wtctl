@@ -107,7 +107,7 @@ export interface SchemaTypesResult {
     catalog?: string;
     /** Заголовок на языке сервера. */
     title?: string;
-    /** Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). */
+    /** Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). У типа без него документ с настраиваемыми полями не прочитан: об этом сказано в notes. */
     customFields?: number | "by kind";
   }[];
   /** Сколько строк подходит всего. */
@@ -213,23 +213,42 @@ const matches = (search: string | undefined, values: (string | undefined)[]): bo
 const nothingFound = (where: string, examples: string, search = "", one = "поле"): string =>
   `Ничего не найдено: search ищет слова ${where}.${/\S\s+\S/.test(search) ? ` Все слова должны быть в одном ${one}: искать нужно по одному слову.` : ""} Можно попробовать слово из заголовка на языке сервера, часть имени латиницей (${examples}) или вызов без search.`;
 const pageSize = (value: unknown): number => Buffer.byteLength(JSON.stringify(value));
+const usualFormUrl = (type: string): string => `x-local://wtv/wtv_${type}.xmd`;
+const customUnreadable =
+  "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет.";
+/** Чтение из кэша: отказ не запоминается, и следующий вызов читает заново. */
+function remembered<V>(
+  cache: Map<string, Promise<V>>,
+  key: string,
+  read: () => Promise<V>,
+): Promise<V> {
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const reading = read();
+  cache.set(key, reading);
+  reading.catch(() => {
+    if (cache.get(key) === reading) cache.delete(key);
+  });
+  return reading;
+}
 
 /** Читает живые метаданные через фиксированные операции чтения runtime; все кэши — в памяти. */
 export class SchemaReader {
   private forms = new Map<string, Promise<Node[]>>();
   private shapes = new Map<string, Promise<DataShape>>();
   private dictionaries = new Map<string, Promise<Map<string, string>>>();
-  private common: Promise<Data> | undefined;
-  private custom: { expires: number; value: Promise<Data> } | undefined;
+  private documents = new Map<string, Promise<Data>>();
+  private customExpires = 0;
+  /** Найденный адрес формы по имени типа или каталога; ненайденный следующий вызов ищет заново. */
+  private formUrls = new Map<string, string>();
   constructor(
     private applicationInfo: () => Promise<Data>,
     private readForm: (url: string) => Promise<string>,
     private readDocument: (url: string) => Promise<Data>,
   ) {}
   private form(url: string): Promise<Node[]> {
-    let cached = this.forms.get(url);
-    if (!cached) {
-      cached = this.readForm(url).then((source) => {
+    return remembered(this.forms, url, () =>
+      this.readForm(url).then((source) => {
         const normalized = normalizeFormParams(source);
         try {
           validatePlatformXmlSource(normalized);
@@ -239,10 +258,8 @@ export class SchemaReader {
           throw new HcmError("FORM_RESPONSE", "Сервер вернул форму с ошибкой в XML.");
         }
         throw new HcmError("FORM_RESPONSE", "В ответе сервера нет формы (SPXML-FORM).");
-      });
-      this.forms.set(url, cached);
-    }
-    return cached;
+      }),
+    );
   }
   /**
    * Типы полей для проверки после записи. Базовый тип отдаёт свои поля тому месту, которое его
@@ -284,13 +301,7 @@ export class SchemaReader {
       : this.readDocument(url);
   }
   private commonData(info: Data): Promise<Data> {
-    if (!this.common) {
-      const reading = (this.common = this.shared(info, "common"));
-      reading.catch(() => {
-        if (this.common === reading) this.common = undefined;
-      });
-    }
-    return this.common;
+    return remembered(this.documents, "common", () => this.shared(info, "common"));
   }
   /** Типы объектов, которые объявляет сервер; пустой список, если объявление не читается. */
   private async declaredTypes(info: Data): Promise<Data[]> {
@@ -298,26 +309,22 @@ export class SchemaReader {
     return list(data(common.exchange_object_types).exchange_object_type);
   }
   private customData(info: Data): Promise<Data> {
-    if (!this.custom || this.custom.expires <= Date.now())
-      this.custom = { expires: Date.now() + 60000, value: this.shared(info, "custom_templates") };
-    return this.custom.value;
+    if (this.customExpires <= Date.now()) {
+      this.documents.delete("custom_templates");
+      this.customExpires = Date.now() + 60000;
+    }
+    return remembered(this.documents, "custom_templates", () =>
+      this.shared(info, "custom_templates"),
+    );
   }
   private language(info: Data, language: string | undefined): Promise<Map<string, string>> {
-    const folder = languageFileUrl(info.ui_lang_id, language);
-    let cached = this.dictionaries.get(folder);
-    if (!cached) {
-      cached = this.readDocument(folder).then(
-        (value) =>
-          new Map(
-            list(data(value.items).item ?? value.item).map((item) => [
-              text(item.id),
-              text(item.val),
-            ]),
-          ),
+    const url = languageFileUrl(info.ui_lang_id, language);
+    return remembered(this.dictionaries, url, async () => {
+      const value = await this.readDocument(url);
+      return new Map(
+        list(data(value.items).item ?? value.item).map((item) => [text(item.id), text(item.val)]),
       );
-      this.dictionaries.set(folder, cached);
-    }
-    return cached;
+    });
   }
   private unknownType(info: Data, type: string, declared: Data[] = []): HcmError | undefined {
     const catalogs = this.catalogs(info);
@@ -417,9 +424,13 @@ export class SchemaReader {
       ? [{ ...plural, object_type: type }]
       : [];
   }
-  private async context(
-    language?: string,
-  ): Promise<{ info: Data; custom: Data; dictionary: Map<string, string>; notes: string[] }> {
+  private async context(language?: string): Promise<{
+    info: Data;
+    /** Нет — документ с настраиваемыми полями не прочитан, примечание об этом в notes. */
+    custom?: Data;
+    dictionary: Map<string, string>;
+    notes: string[];
+  }> {
     const info = await this.applicationInfo();
     const notes: string[] = [];
     const dictionary = await this.language(info, language).catch(() => {
@@ -429,12 +440,10 @@ export class SchemaReader {
       return new Map<string, string>();
     });
     const custom = await this.customData(info).catch(() => {
-      notes.push(
-        "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет.",
-      );
-      return {};
+      notes.push(customUnreadable);
+      return undefined;
     });
-    return { info, dictionary, custom, notes };
+    return { info, dictionary, ...(custom ? { custom } : {}), notes };
   }
   private title(value: string, dictionary: Map<string, string>): string {
     if (value.startsWith("const="))
@@ -443,19 +452,12 @@ export class SchemaReader {
   }
   private typeTranslations(info: Data): Promise<Map<string, string>> {
     const url = `x-local://i18n/common/${identifier(info.ui_lang_id ?? "ru", "ui_lang_id")}/const.json`;
-    let cached = this.dictionaries.get(url);
-    if (!cached) {
-      cached = this.readForm(url)
-        .then(
-          (source) =>
-            new Map(
-              Object.entries(data(JSON.parse(source))).map(([key, value]) => [key, text(value)]),
-            ),
-        )
-        .catch(() => new Map<string, string>());
-      this.dictionaries.set(url, cached);
-    }
-    return cached;
+    return remembered(this.dictionaries, url, async () => {
+      const source = await this.readForm(url);
+      return new Map(
+        Object.entries(data(JSON.parse(source))).map(([key, value]) => [key, text(value)]),
+      );
+    }).catch(() => new Map<string, string>());
   }
   private typeTitle(
     definition: Data,
@@ -533,23 +535,29 @@ export class SchemaReader {
   }
   /**
    * Адрес формы документа типа: обычный, а если такой формы нет — тот, что сервер объявляет для
-   * типа в common. Формы типов тестирования (assessment и др.) лежат вне x-local://wtv.
+   * типа в common. Формы типов тестирования (assessment и др.) лежат вне x-local://wtv. Если не
+   * нашлась ни та, ни другая, отказ — тот, что дало чтение обычной формы.
    */
   async typeFormUrl(type: string): Promise<string> {
-    const usual = `x-local://wtv/wtv_${type}.xmd`;
+    const known = this.formUrls.get(type);
+    if (known) return known;
+    const usual = usualFormUrl(type);
+    let url = usual;
     try {
       await this.form(usual);
-      return usual;
-    } catch {
+    } catch (error) {
       const info = await this.applicationInfo().catch(() => undefined);
       const declared = info ? await this.declaredTypes(info) : [];
-      return text(declared.find((item) => item.name === type)?.form_url) || usual;
+      url = text(declared.find((item) => item.name === type)?.form_url);
+      if (!url) throw error;
     }
+    this.formUrls.set(type, url);
+    return url;
   }
   /** Структура документа одного типа с унаследованными полями; читается один раз на форму. */
   async documentShape(type: string, url?: string): Promise<DataShape> {
     const formUrl = url ?? (await this.typeFormUrl(type));
-    return this.shape(`${formUrl}#${type}`, async () => {
+    return remembered(this.shapes, `${formUrl}#${type}`, async () => {
       const samples = new Map<string, Node>();
       const roots = await this.samples(formUrl, samples);
       const root = roots.find((node) => name(node) === type && attr(node, "SAMPLE") !== "1");
@@ -610,7 +618,7 @@ export class SchemaReader {
         : [this.catalog(info, selector.catalog)].filter((item) => item !== undefined);
     if (catalogs.length !== 1) return undefined;
     const catalog = catalogs[0]!;
-    return this.shape(`catalog#${text(catalog.id)}`, async () => {
+    return remembered(this.shapes, `catalog#${text(catalog.id)}`, async () => {
       const known = await this.catalogFields(catalog, await this.rowType(catalog), new Map());
       const shape: DataShape = {
         fields: new Set(),
@@ -624,15 +632,6 @@ export class SchemaReader {
       }
       return shape;
     });
-  }
-  private shape(key: string, read: () => Promise<DataShape>): Promise<DataShape> {
-    let cached = this.shapes.get(key);
-    if (!cached) {
-      cached = read();
-      this.shapes.set(key, cached);
-      cached.catch(() => this.shapes.delete(key));
-    }
-    return cached;
   }
   /**
    * Сервер отвечает на отклонённый запрос к каталогу голым HTTP 500. После такого отказа здесь
@@ -677,23 +676,24 @@ export class SchemaReader {
     const limit = boundedInteger(input.limit, 80, 1000, "limit");
     const cursor = boundedInteger(input.cursor, 0, Number.MAX_SAFE_INTEGER, "cursor");
     const requestedType = input.type === undefined ? undefined : identifier(input.type, "type");
-    let formUrl =
-      input.url === undefined
-        ? await this.typeFormUrl(requiredString(requestedType, "type"))
-        : requiredString(input.url, "url");
+    const byType = input.url === undefined ? requiredString(requestedType, "type") : undefined;
+    let formUrl = byType === undefined ? requiredString(input.url, "url") : usualFormUrl(byType);
     const { info, custom, dictionary, notes } = await this.context(input.language);
     try {
+      if (byType !== undefined) formUrl = await this.typeFormUrl(byType);
       await this.form(formUrl);
     } catch (error) {
-      if (input.url !== undefined || requestedType === undefined) throw error;
+      if (byType === undefined) throw error;
       // Имя каталога: его форма — форма строк каталога.
       const declared = await this.declaredTypes(info);
-      const alternative = text(this.catalog(info, requestedType)?.form_url);
+      const alternative = text(this.catalog(info, byType)?.form_url);
       if (!alternative || alternative === formUrl) {
-        throw this.unknownType(info, requestedType, declared) ?? error;
+        throw this.unknownType(info, byType, declared) ?? error;
       }
       formUrl = alternative;
       await this.form(formUrl);
+      // Имя каталога, а не типа: обычный адрес для него больше не читается.
+      if (this.unknownType(info, byType, declared)) this.formUrls.set(byType, formUrl);
     }
     const samples = new Map<string, Node>();
     const roots = await this.samples(formUrl, samples);
@@ -830,7 +830,7 @@ export class SchemaReader {
       ).length;
       if (count) field.children = count;
     }
-    const template = data(custom[type]);
+    const template = data(custom?.[type]);
     const templateField = text(template.template_field);
     const templates = [template];
     if (templateField) {
@@ -839,7 +839,7 @@ export class SchemaReader {
           `Вид объекта хранится в поле ${templateField}_id: его значение передаётся в kind, чтобы увидеть настраиваемые поля этого вида.`,
         );
       else {
-        const kind = list(data(data(custom[templateField]).items).item).find(
+        const kind = list(data(data(custom?.[templateField]).items).item).find(
           (item) => text(item.id) === input.kind,
         );
         if (kind) templates.push(kind);
@@ -962,14 +962,16 @@ export class SchemaReader {
       const type = text(catalog.object_type);
       const definition = definitions.find((item) => item.name === type);
       const title = this.typeTitle(definition ?? {}, dictionary, translations);
-      const template = data(custom[type]);
+      const template = data(custom?.[type]);
       return {
         type,
         ...(text(catalog.id) ? { catalog: text(catalog.id) } : {}),
         ...(title ? { title } : {}),
-        customFields: text(template.template_field)
-          ? ("by kind" as const)
-          : list(data(template.fields).field).length,
+        ...(custom && {
+          customFields: text(template.template_field)
+            ? ("by kind" as const)
+            : list(data(template.fields).field).length,
+        }),
       };
     });
     const types = all.filter((item) =>
@@ -990,6 +992,7 @@ export class SchemaReader {
     const rows = [...types, ...untyped.map((catalog) => ({ catalog }))];
     const page = rows.slice(cursor, cursor + limit);
     const notes = [
+      ...(!custom && page.some((item) => "type" in item) ? [customUnreadable] : []),
       ...(page.some((item) => !("type" in item))
         ? [
             "Строка без type — каталог без своего типа объекта: документов у его строк нет, искать в нём можно, поля строки показывает схема по имени каталога.",

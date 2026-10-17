@@ -1,5 +1,6 @@
 import type { ConnectionConfig } from "../src/contracts.js";
 import type { ServerPort } from "../src/hcm-server.js";
+import { getNativeOperations } from "../src/native/gateway.js";
 import { NATIVE_ENTRIES } from "../src/native/generated.js";
 import { prepare } from "../src/native/validation.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
@@ -18,8 +19,11 @@ export interface FakeServer extends ServerPort {
   on(id: string, answer: Answer): this;
 }
 
+// Вместе с операциями сессии: их шлюз добавляет к реестру сам.
 const schemas = new Map(
-  NATIVE_ENTRIES.map(({ operation }) => [operation.id, operation.inputSchema]),
+  [...NATIVE_ENTRIES.map(({ operation }) => operation), ...getNativeOperations()].map(
+    (operation) => [operation.id, operation.inputSchema],
+  ),
 );
 
 /**

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SchemaReader } from "../src/schema.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SchemaReader, type SchemaResult, type SchemaTypesResult } from "../src/schema.js";
 import { buildXml, type XmlObject } from "../src/protocol/xml.js";
-import { fakeRuntime } from "./fake-server.js";
+import { fakeRuntime, refusal, type Script } from "./fake-server.js";
 
 const personUrl = "x-local://wtv/wtv_person.xmd";
 const catalogUrl = "x-local://wtv/wtv_people.xmd";
@@ -291,7 +294,7 @@ test("настраиваемые поля включают значения и �
   assert.ok(!unknown.fields.some((field) => field.name === "position_name"));
 });
 
-test("названия типов разбирают выражения без выполнения и кэшируют необязательные переводы JSON", async () => {
+test("названия типов разбирают выражения без выполнения; прочитанные переводы JSON кэшируются, непрочитанные читаются заново", async () => {
   const definitions = new Map(documents);
   definitions.set(commonUrl, {
     exchange_object_types: {
@@ -315,7 +318,7 @@ test("названия типов разбирают выражения без �
   const missing = fixture({ documents: definitions });
   assert.equal((await missing.reader.types()).types[0]?.title, undefined);
   await missing.reader.types();
-  assert.equal(missing.formCalls.filter((call) => call === url).length, 1);
+  assert.equal(missing.formCalls.filter((call) => call === url).length, 2);
   definitions.set(commonUrl, {
     exchange_object_types: {
       exchange_object_type: { name: "person", title: "unrecognized()", web_const: "c_person" },
@@ -433,7 +436,9 @@ test("разбор форм отклоняет неверный XML и цикл�
 test("формы, язык и common живут, пока жив reader; настраиваемые поля обновляются через 60 секунд", async (t) => {
   let now = 1000;
   t.mock.method(Date, "now", () => now);
-  const { reader, formCalls, documentCalls } = fixture();
+  const { reader, formCalls, documentCalls } = fixture({
+    forms: new Map([...forms, ["x-local://i18n/common/ru/const.json", "{}"]]),
+  });
   await reader.get({ type: "person" });
   await reader.types();
   const beforeForms = [...formCalls];
@@ -487,6 +492,174 @@ test("повторные вызовы schema.get в runtime читают каж�
       "x-local://wtv/base/name.xmd",
     ])
       assert.equal(server.calls.filter((call) => call.args.url === url).length, 1);
+  } finally {
+    await runtime.close();
+  }
+});
+
+const translationsUrl = "x-local://i18n/common/ru/const.json";
+/** runtime над формами и документами этого файла; адреса из down отказывают, как сервер в сбое. */
+function schemaRuntime(down: Set<string>) {
+  const answer = (args: Record<string, unknown>, id: string, read: () => unknown) => {
+    if (down.has(String(args.url))) throw refusal(id);
+    return read();
+  };
+  return fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": applicationInfo,
+      "native.spxml2.getForm": (args, id) =>
+        answer(args, id, () => {
+          if (args.url === commonUrl) return buildXml({ common: documents.get(commonUrl)! });
+          if (args.url === translationsUrl) return "{}";
+          const source = forms.get(String(args.url));
+          if (source === undefined) throw refusal(id);
+          return source;
+        }),
+      "native.lds.loadDoc": (args, id) =>
+        answer(args, id, () => {
+          const document = documents.get(String(args.url));
+          if (document === undefined) throw refusal(id);
+          const root = args.url === customUrl ? "custom_templates" : "const";
+          return { kind: "binary", bytes: Buffer.from(buildXml({ [root]: document })) };
+        }),
+    },
+    { permissions: { write: false, execute: false } },
+  );
+}
+
+for (const [operation, args] of [
+  ["schema.get", { type: "fixture" }],
+  ["objects.create", { type: "fixture", data: { name: "новый" } }],
+] as const)
+  test(`${operation}: после временного отказа чтения формы форма читается заново`, async () => {
+    const formUrl = "x-local://wtv/wtv_fixture.xmd";
+    const objectUrl = "x-local://wt_data/objects/10000000000000/29.xml";
+    const directory = await mkdtemp(join(tmpdir(), "hcm-form-"));
+    let down = true;
+    let formReads = 0;
+    let source = "";
+    const script: Script = {
+      "native.spxml2.getAppInfo": {
+        default_db_name: "wt_data",
+        databases: [{ id: "wt_data", catalogs: [{ id: "fixtures", object_type: "fixture" }] }],
+      },
+      "native.spxml2.getForm": (args) => {
+        if (args.url !== formUrl) throw refusal("native.spxml2.getForm");
+        formReads++;
+        // Первый запрос попадает на временный сбой сервера, дальше сервер отвечает.
+        if (down) throw refusal("native.spxml2.getForm");
+        return '<SPXML-FORM><fixture><id TYPE="integer"/><name TYPE="string"/></fixture></SPXML-FORM>';
+      },
+      "native.lds.getNewObjectId": { ObjectID: "0x1000000000000029" },
+      "native.lds.putDoc": (args) => {
+        source = String(args.data);
+        return { completed: true };
+      },
+      "native.lds.loadDoc": (args) => {
+        if (args.url !== objectUrl) throw refusal("native.lds.loadDoc");
+        return { kind: "binary", bytes: Buffer.from(source), contentType: "application/xml" };
+      },
+    };
+    const { runtime } = fakeRuntime(script, { runtimeDir: directory, outputLimitBytes: 24000 });
+    try {
+      const failed = await runtime.call(operation, args);
+      assert.equal(failed.ok, false, JSON.stringify(failed));
+      assert.equal(formReads, 1);
+      down = false;
+      const recovered = await runtime.call(operation, args);
+      assert.equal(formReads, 2, "после отказа форма должна читаться с сервера заново");
+      assert.equal(recovered.ok, true, JSON.stringify(recovered));
+    } finally {
+      await runtime.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+test("адрес формы из common запоминается: обычный адрес читается один раз", async () => {
+  const { runtime, server } = schemaRuntime(new Set());
+  try {
+    for (let call = 0; call < 2; call++) {
+      const result = await runtime.call("schema.get", { type: "assessment" });
+      assert.equal((result.data as SchemaResult).formUrl, "x-local://qti/assessment.xmd");
+    }
+    const usual = "x-local://wtv/wtv_assessment.xmd";
+    assert.equal(server.calls.filter((call) => call.args.url === usual).length, 1);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("schema.types: непрочитанные настраиваемые поля не показаны нулём, и после сбоя метаданные читаются заново", async () => {
+  const down = new Set([languageUrl, translationsUrl, customUrl]);
+  const { runtime, server } = schemaRuntime(down);
+  const types = async () =>
+    (await runtime.call("schema.types", { search: "people" })).data as SchemaTypesResult;
+  try {
+    const failed = await types();
+    assert.deepEqual(
+      [failed.types, failed.notes],
+      [
+        [{ type: "person", catalog: "people", title: "const=c_person" }],
+        [
+          "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет.",
+        ],
+      ],
+    );
+    down.clear();
+    const recovered = await types();
+    assert.deepEqual(
+      [recovered.types, recovered.notes],
+      [[{ type: "person", catalog: "people", title: "Сотрудник", customFields: 1 }], undefined],
+    );
+    for (const url of [languageUrl, translationsUrl, customUrl])
+      assert.equal(server.calls.filter((call) => call.args.url === url).length, 2, url);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("runtime.query читает отказавшую форму каталога один раз за вызов", async () => {
+  const { runtime, server } = schemaRuntime(new Set([catalogUrl]));
+  server.on("native.lds.xQuery", { Data: "", EOF: "true", TotalCount: "0" });
+  try {
+    const result = await runtime.call("runtime.query", {
+      catalog: "people",
+      where: { manager_id: "0x1000000000000001" },
+      order: "lastname",
+      fields: ["lastname"],
+    });
+    assert.equal(result.ok, true, JSON.stringify(result.error));
+    assert.equal(server.calls.filter((call) => call.args.url === catalogUrl).length, 1);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("форма каталога с необычным адресом запоминается: обычный адрес по имени каталога читается один раз", async () => {
+  const staffForm = "x-local://wtv/catalogs/staff.xmd";
+  const { runtime, server } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": {
+        default_db_name: "sample",
+        databases: [{ id: "sample", catalogs: [{ id: "staff", form_url: staffForm }] }],
+      },
+      "native.spxml2.getForm": (args, id) => {
+        if (args.url !== staffForm) throw refusal(id);
+        return '<SPXML-FORM CATALOG="1"><staff><member MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/></member></staff></SPXML-FORM>';
+      },
+      "native.lds.loadDoc": (_, id) => {
+        throw refusal(id);
+      },
+    },
+    { permissions: { write: false, execute: false } },
+  );
+  try {
+    for (let call = 0; call < 2; call++) {
+      const result = await runtime.call("schema.get", { type: "staff" });
+      assert.equal((result.data as SchemaResult).formUrl, staffForm, JSON.stringify(result));
+    }
+    const usual = "x-local://wtv/wtv_staff.xmd";
+    assert.equal(server.calls.filter((call) => call.args.url === usual).length, 1);
   } finally {
     await runtime.close();
   }

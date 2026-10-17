@@ -9,6 +9,7 @@ import { DiagnosticsApi } from "../src/protocol/api.js";
 import { runCli } from "../src/cli/run.js";
 import type { CliIo } from "../src/cli/types.js";
 import type { ConnectionConfig } from "../src/contracts.js";
+import { fakeRuntime } from "./fake-server.js";
 const config: ConnectionConfig = {
   name: "check-fixture",
   baseUrl: "http://fixture.invalid/mounted/",
@@ -189,4 +190,33 @@ test("SDK и CLI сообщают о таймауте входа, сохраня
     1,
   );
   assert.equal(JSON.parse(output.text).data.checks[0].reason, "превышено время проверки");
+});
+
+test("runtime.check: запрос, который отвергла база, — шаг query failed с причиной", async () => {
+  const { runtime } = fakeRuntime({
+    "native.session.open": { opened: true },
+    "native.spxml2.getAppInfo": {
+      default_db_name: "sample",
+      databases: [
+        { id: "sample", catalogs: [{ id: "collaborators", object_type: "collaborator" }] },
+      ],
+    },
+    // Пустой Data и EOF без TotalCount — так сервер отвечает на запрос, который отвергла база.
+    "native.lds.xQuery": { Data: "", EOF: "true" },
+    "native.spxml2.getForm":
+      '<SPXML-FORM CATALOG="1"><collaborators><collaborator MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/></collaborator></collaborators></SPXML-FORM>',
+  });
+  try {
+    const result = await runtime.call("runtime.check", {});
+    assert.deepEqual(
+      (result.data as CheckData).checks.find((check) => check.name === "query"),
+      {
+        name: "query",
+        result: "failed",
+        reason: "база данных отвергла запрос; причина — в логе spxml_unibridge",
+      },
+    );
+  } finally {
+    await runtime.close();
+  }
 });

@@ -1664,7 +1664,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `types[].type?` | `string` | Тип объекта; нет — строка каталога без своего типа объекта: документов у его строк нет. |
 | `types[].catalog?` | `string` | Каталог; у части типов каталога нет. |
 | `types[].title?` | `string` | Заголовок на языке сервера. |
-| `types[].customFields?` | `number \| "by kind"` | Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). |
+| `types[].customFields?` | `number \| "by kind"` | Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). У типа без него документ с настраиваемыми полями не прочитан: об этом сказано в notes. |
 | `total` | `number` | Сколько строк подходит всего. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
 | `notes?` | `string[]` | Пояснения к списку. |

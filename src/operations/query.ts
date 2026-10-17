@@ -14,7 +14,7 @@ import {
   withoutFalseOffset,
   xqueryNames,
 } from "../query.js";
-import { withRepeated, type SchemaReader } from "../schema.js";
+import { withRepeated, type DataShape } from "../schema.js";
 
 /** Запрос с query или со ссылкой $ref выполняет код на сервере; запрос по каталогу читает. */
 const queryEffect: EffectFor = (args) => {
@@ -28,7 +28,7 @@ const queryEffect: EffectFor = (args) => {
  * как число, а до строкового — строкой, и отличить их может только форма.
  */
 async function fieldTypes(
-  schemaReader: SchemaReader,
+  catalogShape: () => Promise<DataShape | undefined>,
   catalog: unknown,
   where: unknown,
 ): Promise<ReadonlyMap<string, string> | undefined> {
@@ -42,7 +42,7 @@ async function fieldTypes(
     )
   )
     return undefined;
-  const shape = await schemaReader.catalogShape({ catalog }).catch(() => undefined);
+  const shape = await catalogShape();
   return shape?.types.size ? shape.types : undefined;
 }
 
@@ -78,20 +78,24 @@ export const queryOperations = [
           `${args.catalog} — общий список сервера, а не каталог.`,
           `Его элементы читает запрос XQuery: for $e in ${args.catalog} return $e.`,
         );
+      // Форма каталога читается за вызов один раз, даже если чтение отказало.
+      let reading: Promise<DataShape | undefined> | undefined;
+      const catalogShape = () =>
+        (reading ??= context.schema
+          .catalogShape({ catalog: requiredString(args.catalog, "catalog") })
+          .catch(() => undefined));
       const query =
         args.query === undefined
           ? catalogQuery(
               args.catalog,
               args.where,
               args.order,
-              await fieldTypes(context.schema, args.catalog, args.where),
+              await fieldTypes(catalogShape, args.catalog, args.where),
             )
           : requiredString(args.query, "query");
       if (args.query === undefined && args.order !== undefined) {
         // MS SQL не сортирует по многозначному полю, PostgreSQL сортирует как получится.
-        const shape = await context.schema
-          .catalogShape({ catalog: requiredString(args.catalog, "catalog") })
-          .catch(() => undefined);
+        const shape = await catalogShape();
         const repeated = orderFields(args.order)
           .map((item) => item.field)
           .filter((field) => shape?.repeated.has(field));
@@ -165,13 +169,12 @@ export const queryOperations = [
         requested.some((field) => !Object.hasOwn(item, field)),
       );
       if (!absent.length && !lacking && !page.items.some(hasStructure)) return page;
-      const shape = await context.schema
-        .catalogShape(
-          args.query === undefined
-            ? { catalog: requiredString(args.catalog, "catalog") }
-            : { type: rowTag(response) ?? "" },
-        )
-        .catch(() => undefined);
+      const shape =
+        args.query === undefined
+          ? await catalogShape()
+          : await context.schema
+              .catalogShape({ type: rowTag(response) ?? "" })
+              .catch(() => undefined);
       if (!shape) return page;
       const unknownFields = shape.fields.size
         ? absent.filter((field) => !shape.fields.has(field))

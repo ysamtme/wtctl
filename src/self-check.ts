@@ -33,6 +33,8 @@ export interface CheckData {
   };
 }
 type Invoke = (id: string, args: Record<string, unknown>) => Promise<unknown>;
+/** Шаг не прошёл по причине, которую проба называет сама. */
+class CheckFailure extends Error {}
 
 /** Фиксированные пробы не сохраняют в отчёте ни payload сервера, ни тексты ошибок. */
 export async function checkServer(config: ConnectionConfig, invoke: Invoke): Promise<CheckData> {
@@ -88,15 +90,17 @@ export async function checkServer(config: ConnectionConfig, invoke: Invoke): Pro
           : undefined;
       const reason = late
         ? "превышено время проверки"
-        : status === 500 && name === "portal"
-          ? "HTTP 500: проверить порт в объекте «хост» и адрес подключения"
-          : explained
-            ? [explained.message, explained.hint].filter(Boolean).join(" ")
-            : status !== undefined
-              ? `HTTP ${status}`
-              : error instanceof HcmError
-                ? `проверка не пройдена: ${error.code}`
-                : "проверка не пройдена";
+        : error instanceof CheckFailure
+          ? error.message
+          : status === 500 && name === "portal"
+            ? "HTTP 500: проверить порт в объекте «хост» и адрес подключения"
+            : explained
+              ? [explained.message, explained.hint].filter(Boolean).join(" ")
+              : status !== undefined
+                ? `HTTP ${status}`
+                : error instanceof HcmError
+                  ? `проверка не пройдена: ${error.code}`
+                  : "проверка не пройдена";
       report.checks.push({ name, result: "failed", reason });
     } finally {
       clearTimeout(timer);
@@ -114,7 +118,16 @@ export async function checkServer(config: ConnectionConfig, invoke: Invoke): Pro
     const database = serverDatabases(info).find((db) => db.id === text(info.default_db_name));
     if (!database?.catalogs.length) throw new Error();
   });
-  await probe("query", "runtime.query", { catalog: "collaborators", limit: 1, fields: ["id"] });
+  await probe(
+    "query",
+    "runtime.query",
+    { catalog: "collaborators", limit: 1, fields: ["id"] },
+    (v) => {
+      // Неполная первая страница — запрос, который отвергла база: так отвечает runtime.query.
+      if (inputObject(v).incomplete === true)
+        throw new CheckFailure("база данных отвергла запрос; причина — в логе spxml_unibridge");
+    },
+  );
   await probe("document", "objects.get", {
     url: rows(info.shared_docs).find((doc) => doc.id === "custom_templates")?.url,
   });

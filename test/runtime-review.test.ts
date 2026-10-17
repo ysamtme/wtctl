@@ -962,3 +962,31 @@ test("если форма не читается, 0x… — ID по виду зн
     24000,
   );
 });
+
+test("правка, посчитанная без формы, не записывается, даже если форма прочиталась позже в том же вызове", async () => {
+  const form =
+    '<SPXML-FORM><fixture><id TYPE="integer"/><items><item MULTIPLE="1" PRIMARY-KEY="code"><code TYPE="string"/><note TYPE="string"/></item></items></fixture></SPXML-FORM>';
+  let formReads = 0;
+  let writes = 0;
+  const script: Script = {
+    "native.lds.loadDoc": () =>
+      doc("<fixture><id>41</id><items><item><code>31</code></item></items></fixture>"),
+    // Отказывает только первое чтение формы.
+    "native.spxml2.getForm": (_, id) => {
+      if (formReads++ === 0) throw refusal(id);
+      return form;
+    },
+    "native.lds.putDoc": () => {
+      writes++;
+      return { completed: true };
+    },
+  };
+  await fixture(script, async (runtime) => {
+    const result = await runtime.call("objects.patch", {
+      id: "41",
+      patch: { "items.item[code=0x1F].note": "другая" },
+    });
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(writes, 0);
+  });
+});
