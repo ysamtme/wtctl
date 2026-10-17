@@ -741,7 +741,7 @@ CreateInput<T extends object = HcmData>
 | `type` | `string` | Тип объекта: collaborator, group… |
 | `data` | `T` | Поля нового объекта; id выдаёт сервер. |
 | `dbName?` | `string` | База сервера для объекта; по умолчанию wt_data. |
-| `formUrl?` | `string` | Адрес формы типа; по умолчанию x-local://wtv/wtv_&lt;type>.xmd. |
+| `formUrl?` | `string` | Адрес формы типа; по умолчанию — та, что сервер объявляет для типа, как в schema.get. |
 
 ### DeletedObjectData
 

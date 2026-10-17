@@ -11,7 +11,7 @@ import { XmlDocument } from "../src/documents.js";
 import { getNativeOperations } from "../src/native/index.js";
 import { findXmlNode, parseXml } from "../src/protocol/xml.js";
 import type { ConnectionConfig } from "../src/contracts.js";
-import { fakeRuntime, type FakeServer, type Script } from "./fake-server.js";
+import { fakeRuntime, refusal, type FakeServer, type Script } from "./fake-server.js";
 
 const config = (runtimeDir: string, outputLimitBytes = 1024): ConnectionConfig => ({
   name: "review",
@@ -454,6 +454,7 @@ test("аргументы в очереди сохраняют намерение
       return doc("<fixture><id>41</id><name>original</name></fixture>");
     },
     // Форма читается для проверки имён полей; в этом подставном ответе их нет.
+    "native.spxml2.getAppInfo": {},
     "native.spxml2.getForm": () => {
       throw new Error("Fixture form is unavailable");
     },
@@ -645,6 +646,108 @@ test("противоречащие друг другу ID и URL не позво
     }
     assert.equal(mutations, 0);
   });
+});
+
+// Около 20 штатных справочников хранят документ без <id> или с пустым <id>: ID задаёт только адрес.
+for (const [label, url, idElement] of [
+  ["адрес другого объекта, в документе нет <id>", "x-local://wt_data/objects/0000/41.xml", ""],
+  ["адрес другого объекта, <id> пуст", "x-local://wt_data/objects/0000/41.xml", "<id/>"],
+  ["адрес не называет ID, в документе нет <id>", "x-local://wt_data/lists/fixture.xml", ""],
+] as const)
+  test(`id и url не сверить или они расходятся (${label}) — TARGET_MISMATCH до записи`, async () => {
+    const sent: string[] = [];
+    const script: Script = {
+      "native.lds.loadDoc": doc(`<fixture>${idElement}<name>объект 41</name></fixture>`),
+      // Каталог не назван: удаление проверить по нему нечем, как у типа без своего каталога.
+      "native.spxml2.getAppInfo": {},
+      "native.spxml2.getForm": fixtureForm,
+      "native.lds.putDoc": (args) => (sent.push(`putDoc ${args.url}`), { completed: true }),
+      "native.lds.deleteDoc": (args) => (sent.push(`deleteDoc ${args.url}`), { completed: true }),
+    };
+    await fixture(script, async (runtime) => {
+      const byUrl = await runtime.call("objects.get", { url });
+      assert.equal(byUrl.ok, true, JSON.stringify(byUrl));
+      assert.equal((byUrl.data as { id?: string }).id, url.includes("/41.") ? "41" : undefined);
+      for (const [operation, extra] of [
+        ["objects.get", {}],
+        ["objects.patch", { patch: { name: "чужое имя" } }],
+        ["objects.delete", { permanent: true }],
+      ] as const) {
+        const result = await runtime.call(operation, { id: "42", url, ...extra });
+        assert.equal(result.error?.code, "TARGET_MISMATCH", JSON.stringify(result));
+        assert.equal(
+          result.error?.mutationOutcome,
+          operation === "objects.get" ? undefined : "not_sent",
+        );
+        if (url.includes("/41.")) assert.match(result.error?.message ?? "", /\b41\b/);
+        assert.doesNotMatch(result.error?.message ?? "", /\b42\b/);
+      }
+      assert.deepEqual(sent, [], "на сервер не должно уходить записи");
+    });
+  });
+
+test("неверно записанный id рядом с url отклоняется до чтения документа", async () => {
+  await fixture({}, async (runtime, server) => {
+    const url = "x-local://wt_data/objects/0000/41.xml";
+    const result = await runtime.call("objects.patch", { id: "x41", url, patch: { name: "x" } });
+    assert.equal(result.error?.code, "INVALID_ARGUMENT", JSON.stringify(result));
+    assert.equal(result.error?.mutationOutcome, "not_sent");
+    assert.deepEqual(server.calls, []);
+  });
+});
+
+test("objects.create и objects.patch без formUrl берут форму, которую тип объявляет в common, как schema.get", async () => {
+  const commonUrl = "x-local://wtv/wtv_common.xml";
+  const formUrl = "x-local://qti/qti_assessment.xmd";
+  const objectId = "0x1000000000000029";
+  const written: string[] = [];
+  let source = "";
+  const script: Script = {
+    "native.spxml2.getAppInfo": {
+      default_db_name: "wt_data",
+      databases: [{ id: "wt_data", catalogs: [] }],
+      shared_docs: [{ id: "common", url: commonUrl }],
+    },
+    "native.spxml2.getForm": (args) => {
+      if (args.url === commonUrl)
+        return `<common><exchange_object_types><exchange_object_type><name>assessment</name><form_url>${formUrl}</form_url></exchange_object_type></exchange_object_types></common>`;
+      if (args.url === formUrl)
+        return '<SPXML-FORM><assessment><id TYPE="integer"/><title TYPE="string"/></assessment></SPXML-FORM>';
+      // Формы по обычному адресу x-local://wtv/wtv_assessment.xmd у такого типа нет.
+      throw refusal("native.spxml2.getForm");
+    },
+    "native.lds.getNewObjectId": { ObjectID: objectId },
+    "native.lds.putDoc": (args) => {
+      written.push(String(args.data));
+      // Сервер хранит документ и без адреса формы: правка тоже должна найти её сама.
+      source = String(args.data).replace(/ SPXML-FORM="[^"]*"/, "");
+      return { completed: true };
+    },
+    "native.lds.loadDoc": () => doc(source),
+  };
+  await fixture(
+    script,
+    async (runtime) => {
+      const schema = await runtime.call("schema.get", { type: "assessment" });
+      assert.equal((schema.data as { formUrl?: string }).formUrl, formUrl, JSON.stringify(schema));
+      const created = await runtime.call("objects.create", {
+        type: "assessment",
+        data: { title: "тест" },
+      });
+      assert.equal(created.ok, true, JSON.stringify(created));
+      assert.equal((created.data as { id: string }).id, objectId);
+      assert.match(written[0] ?? "", /SPXML-FORM="x-local:\/\/qti\/qti_assessment\.xmd"/);
+      const patched = await runtime.call("objects.patch", {
+        id: objectId,
+        patch: { title: "другой тест" },
+      });
+      assert.equal(patched.ok, true, JSON.stringify(patched));
+      assert.match(source, /<title>другой тест<\/title>/);
+      const unknown = await runtime.call("objects.patch", { id: objectId, patch: { nope: "1" } });
+      assert.equal(unknown.error?.code, "UNKNOWN_FIELD", JSON.stringify(unknown));
+    },
+    24000,
+  );
 });
 
 test("пакет ограниченных запросов остаётся доступным для чтения, когда его суммарный ответ превышает два отдельных бюджета ответа", async () => {

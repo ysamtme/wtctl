@@ -533,8 +533,24 @@ export class SchemaReader {
     if (record) collect(children(record));
     return query;
   }
+  /**
+   * Адрес формы документа типа: обычный, а если такой формы нет — тот, что сервер объявляет для
+   * типа в common. Формы типов тестирования (assessment и др.) лежат вне x-local://wtv.
+   */
+  async typeFormUrl(type: string): Promise<string> {
+    const usual = `x-local://wtv/wtv_${type}.xmd`;
+    try {
+      await this.form(usual);
+      return usual;
+    } catch {
+      const info = await this.applicationInfo().catch(() => undefined);
+      const declared = info ? await this.declaredTypes(info) : [];
+      return text(declared.find((item) => item.name === type)?.form_url) || usual;
+    }
+  }
   /** Структура документа одного типа с унаследованными полями; читается один раз на форму. */
-  documentShape(type: string, formUrl = `x-local://wtv/wtv_${type}.xmd`): Promise<DataShape> {
+  async documentShape(type: string, url?: string): Promise<DataShape> {
+    const formUrl = url ?? (await this.typeFormUrl(type));
     return this.shape(`${formUrl}#${type}`, async () => {
       const samples = new Map<string, Node>();
       const roots = await this.samples(formUrl, samples);
@@ -668,17 +684,16 @@ export class SchemaReader {
     const requestedType = input.type === undefined ? undefined : identifier(input.type, "type");
     let formUrl =
       input.url === undefined
-        ? `x-local://wtv/wtv_${requiredString(requestedType, "type")}.xmd`
+        ? await this.typeFormUrl(requiredString(requestedType, "type"))
         : requiredString(input.url, "url");
     const { info, custom, dictionary, notes } = await this.context(input.language);
     try {
       await this.form(formUrl);
     } catch (error) {
       if (input.url !== undefined || requestedType === undefined) throw error;
+      // Имя каталога: его форма — форма строк каталога.
       const declared = await this.declaredTypes(info);
-      const alternative =
-        text(declared.find((item) => item.name === requestedType)?.form_url) ||
-        text(this.catalog(info, requestedType)?.form_url);
+      const alternative = text(this.catalog(info, requestedType)?.form_url);
       if (!alternative || alternative === formUrl) {
         throw this.unknownType(info, requestedType, declared) ?? error;
       }

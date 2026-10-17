@@ -135,7 +135,7 @@ export class ServerObjects {
     private readonly server: Pick<HcmServer, "call" | "read" | "applicationInfo">,
     private readonly schema: Pick<
       SchemaReader,
-      "documentShape" | "catalogShape" | "requireType" | "documentForm"
+      "documentShape" | "catalogShape" | "requireType" | "documentForm" | "typeFormUrl"
     >,
     /** Журнал записей: папка с mutations.jsonl и его предел в байтах, 0 — без предела. */
     private readonly journalFile: { readonly directory: string; readonly maxBytes: number },
@@ -183,10 +183,11 @@ export class ServerObjects {
   async load(
     args: Record<string, unknown>,
   ): Promise<{ document: XmlDocument; url: string; id: string | undefined }> {
-    const url =
-      args.url === undefined
-        ? resolvePhysicalDocumentLocation(requiredString(args.id, "id")).url
-        : requiredString(args.url, "url");
+    const requested =
+      args.id === undefined && args.url !== undefined
+        ? undefined
+        : resolvePhysicalDocumentLocation(requiredString(args.id, "id"));
+    const url = args.url === undefined ? requested!.url : requiredString(args.url, "url");
     const response = await this.server.call("native.lds.loadDoc", {
       url,
       useBinaryResponse: true,
@@ -207,24 +208,28 @@ export class ServerObjects {
       );
     }
     const snapshot = document.snapshot();
+    // У некоторых штатных типов в документе нет <id> или он пуст: тогда ID задаёт адрес хранилища.
     const documentId =
       typeof snapshot.data.id === "string" && snapshot.data.id !== ""
         ? snapshot.data.id
         : undefined;
-    const requested =
-      args.id === undefined
-        ? undefined
-        : resolvePhysicalDocumentLocation(requiredString(args.id, "id")).objectId;
-    if (
-      requested !== undefined &&
-      documentId !== undefined &&
-      BigInt(resolvePhysicalDocumentLocation(documentId).objectId) !== BigInt(requested)
-    )
-      throw new HcmError(
-        "TARGET_MISMATCH",
-        "ID в прочитанном документе не совпадает с запрошенным.",
-        "Нужно передать id и url одного объекта или что-то одно.",
-      );
+    const id = documentId ?? parsePhysicalDocumentId(url);
+    if (requested) {
+      if (id === undefined)
+        throw new HcmError(
+          "TARGET_MISMATCH",
+          "В документе нет ID, и адрес его не называет: сверить его с id нечем.",
+          "Нужно передать что-то одно: id или url.",
+        );
+      if (BigInt(resolvePhysicalDocumentLocation(id).objectId) !== BigInt(requested.objectId))
+        throw new HcmError(
+          "TARGET_MISMATCH",
+          `${documentId === undefined ? "Адрес документа" : "Прочитанный документ"} — объекта ${id}, а не того, что в id.`,
+          args.url === undefined
+            ? undefined
+            : "Нужно передать id и url одного объекта или что-то одно.",
+        );
+    }
     if (args.type !== undefined && snapshot.type !== identifier(args.type, "type"))
       throw new HcmError(
         "TYPE_MISMATCH",
@@ -232,8 +237,7 @@ export class ServerObjects {
         undefined,
         { actualType: snapshot.type },
       );
-    // У некоторых штатных типов в документе нет <id>: тогда ID — запрошенный или адрес хранилища.
-    return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
+    return { document, url, id };
   }
   private async journal(entry: Record<string, unknown>): Promise<void> {
     const { directory, maxBytes } = this.journalFile;
@@ -394,7 +398,7 @@ export class ServerObjects {
     if (args.formUrl === undefined) await this.schema.requireType(type);
     const formUrl =
       args.formUrl === undefined
-        ? `x-local://wtv/wtv_${type}.xmd`
+        ? await this.schema.typeFormUrl(type)
         : requiredString(args.formUrl, "formUrl");
     const form = await this.schema.documentForm(formUrl);
     if (!Array.isArray(form.roots) || !form.roots.includes(type))
@@ -503,7 +507,7 @@ export class ServerObjects {
     if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
       throw new HcmError("CONFLICT", "Объект изменился, пока готовилась запись.");
     const form = await this.schema.documentForm(
-      changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`,
+      changes.before.formUrl ?? (await this.schema.typeFormUrl(changes.before.type)),
     );
     const branches = changes.changes.map((change) => patchSegments(change.path)[0]![1]!);
     const mutationId = randomUUID();
