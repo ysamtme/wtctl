@@ -198,8 +198,8 @@ function fileTarget(value: unknown, listing = false): { url: string; folder: str
 }
 
 /**
- * Адрес, который сервер передаёт как документ объекта: objects строчными и первой частью пути,
- * цифры и .xml в любом регистре. Удаление по нему кладёт объект в корзину мимо objects.delete,
+ * Адрес, который сервер (2025.1.1171 — 2025.2.1535) передаёт как документ объекта: objects строчными
+ * и первой частью пути, цифры и .xml в любом регистре. Удаление по нему кладёт объект в корзину мимо objects.delete,
  * запись меняет документ, но не строку каталога.
  */
 const DOCUMENT_URL = /^x-local:\/\/[^/]+\/objects\/[\da-fA-F]{14}\/[\da-fA-F]{2}\.[xX][mM][lL]$/;
@@ -408,17 +408,45 @@ export interface FileListData {
   /** Сколько элементов в списке. */
   readonly total: number;
 }
-/** Один уровень папки: адреса из ReadDirectory, какие из них папки, и размеры файлов. */
-function codeList(url: string) {
+/**
+ * Один уровень папки: адреса из ReadDirectory, какие из них папки, и размеры файлов. В папке
+ * в базе данных (db) сначала идут адреса базы: вложенных папок там нет, «папка» — первая часть
+ * более глубокого адреса. GetUrlsByPattern сравнивает как LIKE в SQL: _ и % — любые знаки, [ —
+ * набор знаков, регистр на MS SQL не важен (2025.2.1535); поэтому образец обрезается до [, а начало адреса
+ * сверяет код. UrlFileSize файла базы не находит, размер даёт FetchUrlAttribute.
+ */
+function codeList(url: string, db: boolean) {
   return prepareScript(
     `var rows = [];
 var item = '';
 var folder = false;
 var dir = false;
+var prefix = PARAMS.url + '/';
+var cut = StrOptSubStrPos(prefix, '[');
+var provider = undefined;
+var urls = undefined;
+var name = '';
+var slash = undefined;
+var seen = {};
 try { dir = IsDirectory(PARAMS.url); } catch (e) { dir = false; }
+if (PARAMS.db) {
+  provider = tools.spxml_unibridge.Object.provider;
+  urls = provider.GetUrlsByPattern(cut == undefined ? prefix : StrLeftRange(prefix, cut));
+  while (urls.GetNext()) {
+    item = urls.GetValue();
+    if (!StrBegins(item, prefix, true)) { continue; }
+    name = StrRightRangePos(item, StrLen(prefix));
+    slash = StrOptSubStrPos(name, '/');
+    folder = slash != undefined;
+    if (folder) { name = StrLeftRange(name, slash); }
+    if ((name == '') || seen.HasProperty('/' + name)) { continue; }
+    seen.SetProperty('/' + name, true);
+    rows.push({ u: prefix + name, f: folder, b: (folder ? 0 : provider.FetchUrlAttribute(item, 'Length')) });
+  }
+}
 if (dir) { for (item in ReadDirectory(PARAMS.url)) { folder = IsDirectory(item); rows.push({ u: item, f: folder, b: folder ? 0 : UrlFileSize(item) }); } }
-RESULT = dir ? rows : ['none'];`,
-    { url },
+RESULT = (dir || (ArrayCount(rows) > 0)) ? rows : ['none'];`,
+    { url, db },
   );
 }
 function fileList(data: ScriptData, folder: string, search = ""): FileListData {
@@ -428,7 +456,8 @@ function fileList(data: ScriptData, folder: string, search = ""): FileListData {
       "По адресу нет папки.",
       "Список показывает только папку; файл читает files.read, адрес проверяет files.exists.",
     );
-  const rows = (data.result as { u?: unknown; f?: unknown; b?: unknown }[]).map((row) => {
+  const rows = new Map<string, FileListData["items"][number]>();
+  for (const row of data.result as { u?: unknown; f?: unknown; b?: unknown }[]) {
     // Строка — адрес на один уровень внутри папки; всё остальное не показывается.
     const name =
       typeof row?.u === "string" && row.u.startsWith(`${folder}/`)
@@ -437,10 +466,11 @@ function fileList(data: ScriptData, folder: string, search = ""): FileListData {
     const bytes = Number(row?.b);
     if (!name || /[/\\]/.test(name) || (row.f !== "1" && !Number.isFinite(bytes)))
       throw new HcmError("SCRIPT_RESPONSE", "Сервер вернул список папки в неожиданном виде.");
-    return row.f === "1" ? { name, folder: true as const } : { name, bytes };
-  });
+    // У файла с копией в базе и на диске строка базы идёт первой: её содержимое отдаёт files.read.
+    if (!rows.has(name)) rows.set(name, row.f === "1" ? { name, folder: true } : { name, bytes });
+  }
   const part = search.toLowerCase();
-  const items = rows.filter((item) => item.name.toLowerCase().includes(part));
+  const items = [...rows.values()].filter((item) => item.name.toLowerCase().includes(part));
   items.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return { items, total: items.length };
 }
@@ -532,14 +562,15 @@ export class ServerFiles {
   }
 
   async list(args: Record<string, unknown>, call: FileCall): Promise<FileListData> {
-    const folder = fileTarget(args.url, true).url;
+    const target = fileTarget(args.url, true);
     const search = args.search === undefined ? "" : requiredString(args.search, "search");
+    const database = (await this.folders())?.database.includes(target.folder) === true;
     const data = await this.server.runCode(
-      codeList(folder),
+      codeList(target.url, database),
       call.outcome,
       (answer) => answer.result[0] === "none",
     );
-    return fileList(data, folder, search);
+    return fileList(data, target.url, search);
   }
 
   /**
@@ -633,15 +664,15 @@ export class ServerFiles {
     // файл с копией на диске: исход видит только проверка адреса до и после.
     const database = folders?.database.includes(target.folder) === true;
     // Адрес, который проверка существования не принимает (больше 256 символов), не проверяется.
-    const checked = target.url.length <= FILE_EXISTS_URL_MAX_LENGTH;
-    if (database && !checked)
+    const checkable = target.url.length <= FILE_EXISTS_URL_MAX_LENGTH;
+    if (database && !checkable)
       throw new HcmError(
         "INVALID_ARGUMENT",
         `url: в папке ${target.folder} адрес для удаления — не длиннее 256 знаков.`,
         "Удаление в папке, которую сервер хранит в базе данных, проверяется по адресу, а проверка принимает до 256 знаков.",
       );
     const present = async () => (await this.exists({ url: target.url })).exists;
-    if (checked && !(await present()))
+    if (checkable && !(await present()))
       throw new HcmError(
         "FILE_NOT_FOUND",
         database ? "По адресу нет файла." : "По адресу нет файла или папки.",
@@ -650,7 +681,7 @@ export class ServerFiles {
           : "Адрес проверяет files.exists.",
       );
     await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
-    if (checked && (await present()))
+    if (checkable && (await present()))
       throw database
         ? new HcmError(
             "FILE_NOT_DELETABLE",

@@ -538,6 +538,7 @@ test("удаление в папке данных проверяет адрес 
       const empty = await f.runtime.call("files.delete", { url: `x-local://${folder}/x` });
       assert.equal(empty.error?.code, "FILE_NOT_FOUND");
       assert.equal(empty.error?.mutationOutcome, "not_sent");
+      assert.deepEqual(ids(f.state), []);
       if (lists) {
         assert.equal(empty.error?.message, "По адресу нет файла.");
         assert.equal(
@@ -561,6 +562,10 @@ test("удаление в папке данных проверяет адрес 
   assert.equal(
     long.error?.message,
     "url: в папке wt_data адрес для удаления — не длиннее 256 знаков.",
+  );
+  assert.equal(
+    long.error?.hint,
+    "Удаление в папке, которую сервер хранит в базе данных, проверяется по адресу, а проверка принимает до 256 знаков.",
   );
   assert.equal(long.error?.mutationOutcome, "not_sent");
   assert.deepEqual(ids(state), []);

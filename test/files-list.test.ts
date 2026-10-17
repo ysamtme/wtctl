@@ -21,10 +21,29 @@ const scriptAnswer = (rows: (string | Record<string, string>)[]) =>
 
 function fixture(rows: (string | Record<string, string>)[], execute = true) {
   return fakeRuntime(
-    { "*": (_args, id) => (id === "web.rpc.call" ? scriptAnswer(rows) : Buffer.from("ABC")) },
+    {
+      "native.spxml2.getAppInfo": {
+        config_entries: [
+          { name: "DATA-DB", value: "share" },
+          { name: "DATA-DB", value: "wt_data" },
+          { name: "DB-STORE-HOOK", value: "wt_data x-local://fixture/sx_store_sql.xml" },
+        ],
+      },
+      "*": (_args, id) => (id === "web.rpc.call" ? scriptAnswer(rows) : Buffer.from("ABC")),
+    },
     { runtimeDir: join(tmpdir(), "wtctl-files-list"), permissions: { write: true, execute } },
   );
 }
+/** PARAMS, с которыми ушёл код последнего списка. */
+const sentParams = (server: ReturnType<typeof fixture>["server"]) => {
+  const code = JSON.stringify(server.calls.findLast((call) => call.id === "web.rpc.call")!.args);
+  return JSON.parse(
+    Buffer.from(
+      /Base64Decode\(&quot;([A-Za-z0-9+/=]+)&quot;\)/.exec(code)![1]!,
+      "base64",
+    ).toString(),
+  );
+};
 
 test("папка перечисляется по имени с размерами файлов и пометками папок; код получает адрес как задан", async () => {
   const { runtime, server } = fixture([
@@ -43,13 +62,29 @@ test("папка перечисляется по имени с размерам�
   });
   const found = await runtime.call("files.list", { url: "x-local://share", search: "Файл" });
   assert.deepEqual(found.data, { items: [{ name: "б файл%20.txt", bytes: 12 }], total: 1 });
-  assert.match(JSON.stringify(server.calls[0]!.args), /ReadDirectory\(PARAMS\.url\)/);
-  const params = /Base64Decode\(&quot;([A-Za-z0-9+/=]+)&quot;\)/.exec(
-    JSON.stringify(server.calls[0]!.args),
-  )![1]!;
-  assert.deepEqual(JSON.parse(Buffer.from(params, "base64").toString()), {
-    url: "x-local://share",
+  assert.match(JSON.stringify(server.calls.at(-1)!.args), /ReadDirectory\(PARAMS\.url\)/);
+  assert.deepEqual(sentParams(server), { url: "x-local://share", db: false });
+  await runtime.close();
+});
+
+test("в папке в базе данных код получает признак базы, а имя из базы и с диска — одна строка, первая", async () => {
+  const { runtime, server } = fixture([
+    { u: "x-local://wt_data/x/a.txt", f: "0", b: "5" },
+    { u: "x-local://wt_data/x/sub", f: "1", b: "0" },
+    { u: "x-local://wt_data/x/a.txt", f: "0", b: "3" },
+    { u: "x-local://wt_data/x/sub/", f: "1", b: "0" },
+  ]);
+  const data = await runtime.call("files.list", { url: "x-local://wt_data/x/" });
+  assert.deepEqual(data.data, {
+    items: [
+      { name: "a.txt", bytes: 5 },
+      { name: "sub", folder: true },
+    ],
+    total: 2,
   });
+  assert.deepEqual(sentParams(server), { url: "x-local://wt_data/x", db: true });
+  await runtime.call("files.list", { url: "x-local://share/x" });
+  assert.deepEqual(sentParams(server), { url: "x-local://share/x", db: false });
   await runtime.close();
 });
 
