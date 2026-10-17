@@ -211,6 +211,43 @@ no_such_var not defined
   }
 });
 
+test("значения заголовков авторизации и cookie в ошибке кода закрыты до конца строки", async () => {
+  const fixtureValue = fixture(
+    fields
+      .replace('<error VALUE-TYPE="integer">0</error>', '<error VALUE-TYPE="integer">1</error>')
+      .replace(
+        '<error_text VALUE-TYPE="string"/>',
+        `<error_text VALUE-TYPE="string">HTTP 401. Authorization: Bearer tok456
+Proxy-Authorization: Basic cHJveHk6c2VjcmV0
+Cookie: a=1; sid=sid789; b=2
+Set-Cookie: tail=sess321; Path=/
+SessionID=sid654, повтор
+сеанс JSESSIONID=sid111 устарел, access_token=tok222
+{"password": "pw444", "Cookie":"a=1; sid=sid333"}
+(eval,  Unknown source,   line 3)</error_text>`,
+      ),
+  );
+  try {
+    const result = await fixtureValue.runtime.call("execute.script", { code: "RESULT = [];" });
+    assert.equal(result.error?.code, "SCRIPT_FAILED");
+    assert.equal(
+      result.error?.details?.scriptError,
+      [
+        "HTTP 401. Authorization: [redacted]",
+        "Proxy-Authorization: [redacted]",
+        "Cookie: [redacted]",
+        "Set-Cookie: [redacted]",
+        "SessionID=[redacted], повтор",
+        "сеанс JSESSIONID=[redacted] устарел, access_token=[redacted]",
+        '{"password": [redacted], "Cookie":[redacted]',
+        "(eval,  Unknown source,   line 3)",
+      ].join("\n"),
+    );
+  } finally {
+    await fixtureValue.runtime.close();
+  }
+});
+
 test("синтаксическая ошибка всего кода — not_sent, а вызванная eval() или throw в работающем коде — нет", async () => {
   const syntax = "JavaScript syntax error.\nUnknown source,   line 1";
   for (const [text, expected] of [

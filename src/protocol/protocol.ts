@@ -1,4 +1,4 @@
-import { WsHcmApiError } from "./error.js";
+import { redactCredentials, WsHcmApiError } from "./error.js";
 import { escapeXml, findXmlNode, isRawXml, parseXml, type RawXml, type XmlObject } from "./xml.js";
 
 export type SoapProfile = "native" | "web";
@@ -69,14 +69,10 @@ function soapFault(document: XmlObject): unknown {
 }
 
 function boundedFaultText(value: unknown, fallback: string, maxLength = 512): string {
-  const source = textOf(value)?.replace(/\s+/g, " ").trim();
+  const source = textOf(value)?.trim();
   if (!source) return fallback;
-  const redacted = source
-    .replace(
-      /\b(password|passwd|pwd|token|sessionid|cookie|authorization)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      "$1$2[redacted]",
-    )
-    .replace(/\b(Basic|Bearer)\s+[^\s,;]+/gi, "$1 [redacted]");
+  // Значение заголовка закрывается до конца строки, поэтому строки склеиваются после.
+  const redacted = redactCredentials(source).replace(/\s+/g, " ");
   return redacted.length <= maxLength ? redacted : `${redacted.slice(0, maxLength - 3)}...`;
 }
 

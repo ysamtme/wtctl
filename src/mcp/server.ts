@@ -359,15 +359,27 @@ export class HcmMcpTools {
       "execute",
       async ({ file, ...args }) => {
         if (file === undefined) return this.runtime.call("execute.script", args);
-        let code: string;
+        let bytes: Buffer;
         try {
-          code = await readFile(file as string, "utf8");
+          bytes = await readFile(file as string);
         } catch {
           return this.error(
             "hcm_script",
             "mcp.file_unreadable",
             "Файл с кодом не прочитан.",
             "Проверь путь: он задаётся полным, файл читается на компьютере, где запущен сервер MCP.",
+          );
+        }
+        let code: string;
+        try {
+          // Как в CLI: BOM убирается, неверный UTF-8 — отказ, а не знаки U+FFFD в коде.
+          code = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        } catch {
+          return this.error(
+            "hcm_script",
+            "mcp.file_unreadable",
+            "Файл с кодом должен быть текстом UTF-8.",
+            "Сохрани файл в кодировке UTF-8 и повтори.",
           );
         }
         return this.runtime.call("execute.script", { ...args, code });

@@ -11,6 +11,7 @@ import { validate } from "../src/native/validation.js";
 import { HcmRuntime } from "../src/runtime.js";
 import { rawXml, parseXml, escapeXml, buildXml } from "../src/protocol/xml.js";
 import { parseSoapBody } from "../src/protocol/protocol.js";
+import { WsHcmApiError } from "../src/protocol/error.js";
 import { createNativeLdsApi, WebSpXmlApi } from "../src/protocol/api.js";
 import { LogReader } from "../src/logs.js";
 
@@ -502,6 +503,30 @@ test("составные целые и пределы пакета отказы�
   await runtime.close();
 });
 
+test("отказ по аргументу с именем password не маскируется, а длина сообщения ограничена", async () => {
+  const mock = fixture();
+  const runtime = new HcmRuntime({
+    ...base,
+    fetch: mock.fetch,
+    name: "synthetic-validation",
+    outputLimitBytes: 1024,
+    runtimeDir: ".work/synthetic-validation",
+    permissions: { write: true, execute: true },
+  });
+  const result = await runtime.call("web.experimental.authenticate", {
+    login: "a",
+    password: 1,
+    token: "t",
+  });
+  assert.equal(result.error?.code, "INVALID_ARGUMENT");
+  assert.match(result.error?.message ?? "", /password: нужна строка\./);
+  // Имя неизвестного аргумента задаёт вызывающий: сообщение всё равно короткое.
+  const long = await runtime.call("runtime.status", { ["x".repeat(10_000)]: 1 });
+  assert.equal(long.error?.code, "INVALID_ARGUMENT");
+  assert.ok((long.error?.message.length ?? 0) <= 500);
+  await runtime.close();
+});
+
 test("отказ по аргументу, который шлюз находит до отправки, у записи и выполнения кода — not_sent", async () => {
   const mock = fixture();
   const runtime = new HcmRuntime({
@@ -588,6 +613,25 @@ test("присутствующие пустые узлы ответа SOAP пр�
       /В ответе нет/,
     );
   }
+});
+
+test("SOAP Fault закрывает значения заголовков авторизации и cookie до конца строки", () => {
+  assert.throws(
+    () =>
+      parseSoapBody(
+        "CallMethod",
+        '<Fault><faultstring>Отказ.\nAuthorization: Bearer tok456\nCookie: a=1; sid=sid789\npassword="first\nsecond" SessionID=\nsid654 Выход</faultstring></Fault>',
+        500,
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof WsHcmApiError);
+      assert.equal(
+        error.message,
+        "Отказ. Authorization: [redacted] Cookie: [redacted] password=[redacted] SessionID= [redacted] Выход",
+      );
+      return true;
+    },
+  );
 });
 
 test("символьные ссылки XML раскрываются ровно один раз в тексте и атрибутах, без сущностей HTML", () => {

@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -451,6 +453,26 @@ test("hcm_script читает код из локального файла и п�
   const missing = structured(await f.tools.invoke("hcm_script", { file: `${file}.absent` }));
   assert.equal(missing.error?.code, "mcp.file_unreadable");
   assert.equal(f.calls.length, 1);
+});
+
+test("hcm_script не отправляет файл не в UTF-8, а BOM из файла убирает", async () => {
+  const f = fixture();
+  const directory = mkdtempSync(join(tmpdir(), "hcm-script-"));
+  try {
+    const file = join(directory, "code.js");
+    // «Привет» в Windows-1251: такие байты не образуют UTF-8.
+    const cp1251 = Buffer.from([0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2]);
+    writeFileSync(file, Buffer.concat([Buffer.from("RESULT = ['"), cp1251, Buffer.from("'];")]));
+    const refused = structured(await f.tools.invoke("hcm_script", { file }));
+    assert.equal(refused.error?.code, "mcp.file_unreadable");
+    assert.equal(refused.error?.message, "Файл с кодом должен быть текстом UTF-8.");
+    assert.deepEqual(f.calls, []);
+    writeFileSync(file, "﻿RESULT = ['Привет'];");
+    assert.equal(structured(await f.tools.invoke("hcm_script", { file })).ok, true);
+    assert.deepEqual(f.calls, [{ id: "execute.script", args: { code: "RESULT = ['Привет'];" } }]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("все неверные вводы отклоняются до runtime, с путями, по которым можно исправить, и без значений", async () => {

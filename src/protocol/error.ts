@@ -88,3 +88,22 @@ export function attachCleanupError(operationError: unknown, cleanupError: unknow
     value,
   });
 }
+
+/**
+ * Закрывает учётные данные в тексте ошибки сервера. Значение заголовка уходит до конца строки:
+ * у Authorization за схемой идёт токен, у Cookie — пары через «;». Имя бывает в кавычках, как
+ * в JSON, и с приставкой: JSESSIONID, access_token. Значение, перенесённое на следующую строку,
+ * тоже закрывается: лишнее закрытое слово дешевле открытого секрета.
+ */
+export function redactCredentials(text: string): string {
+  return text
+    .replace(
+      /\b(proxy-authorization|authorization|set-cookie|cookie)(["']?\s*[:=]\s*)[^\r\n]*/gi,
+      "$1$2[redacted]",
+    )
+    .replace(
+      /\b(\w*(?:password|passwd|pwd|token|sessionid))(["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      "$1$2[redacted]",
+    )
+    .replace(/\b(Basic|Bearer)\s+[^\s,;]+/gi, "$1 [redacted]");
+}

@@ -1,5 +1,5 @@
 import { WsHcmApiError } from "./native/index.js";
-import { ArgumentError } from "./protocol/error.js";
+import { ArgumentError, redactCredentials } from "./protocol/error.js";
 import { WebSocketHeartbeatError } from "./protocol/websocket.js";
 import { HcmError } from "./errors.js";
 import { operationSpec } from "./operations.js";
@@ -211,6 +211,8 @@ export class ReplyPacker {
     verdict: Verdict,
     afterSend: OperationCall["afterSend"],
   ): OperationResult {
+    const bound = (text: string, limit: number): string =>
+      text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
     const redact = (message: string, limit = 500): string => {
       let safe = message;
       for (const secret of [
@@ -220,10 +222,8 @@ export class ReplyPacker {
           : undefined,
       ])
         if (secret) safe = safe.replaceAll(secret, "[redacted]");
-      safe = safe
-        .replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]")
-        .replace(/(?:SessionID|Authorization|Cookie)\s*[:=]\s*[^\s,;]+/gi, "[redacted]");
-      return safe.length > limit ? `${safe.slice(0, limit - 1)}…` : safe;
+      safe = redactCredentials(safe.replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]"));
+      return bound(safe, limit);
     };
     const { mutationOutcome, refusedAfterSend, ids, exactIds } = verdict;
     const { mutationOutcome: _own, ...normal }: OperationError =
@@ -318,15 +318,19 @@ export class ReplyPacker {
       ok: false,
       error: {
         ...normal,
-        // Отказ платформы формулируется здесь из фиксированного текста и настроенного адреса;
-        // пароль, случайно ставший частью слова, не должен вырезать в нём дыры.
+        // Отказ платформы формулируется здесь из фиксированного текста и настроенного адреса,
+        // отказ по аргументу — из текста клиента и имени аргумента: пароль, случайно ставший
+        // частью слова, и имя аргумента password не должны вырезать в них дыры. Имя аргумента
+        // задаёт вызывающий, поэтому длина сообщения всё равно ограничена.
         ...(error instanceof WsHcmApiError
           ? {}
-          : {
-              message: redact(normal.message),
-              // Подсказка бывает длиннее сообщения: она называет имена, из которых выбирать.
-              ...(normal.hint === undefined ? {} : { hint: redact(normal.hint, 1000) }),
-            }),
+          : error instanceof ArgumentError
+            ? { message: bound(normal.message, 500) }
+            : {
+                message: redact(normal.message),
+                // Подсказка бывает длиннее сообщения: она называет имена, из которых выбирать.
+                ...(normal.hint === undefined ? {} : { hint: redact(normal.hint, 1000) }),
+              }),
         ...(mutationOutcome === undefined ? {} : { mutationOutcome }),
         ...(Object.keys(details).length ? { details } : {}),
       },
