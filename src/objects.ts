@@ -361,7 +361,12 @@ export class ServerObjects {
       );
     const wrong = written.filter((name) => {
       const value = data[name];
-      return shape.dates.has(name) && typeof value === "string" && value && !isServerDate(value);
+      return (
+        shape.types.get(name) === "date" &&
+        typeof value === "string" &&
+        value &&
+        !isServerDate(value)
+      );
     });
     if (wrong.length)
       throw new HcmError(
@@ -471,8 +476,12 @@ export class ServerObjects {
     out: WriteOutcome,
   ): Promise<PatchedObjectData | PatchPreviewData> {
     const loaded = await this.load(args);
+    // Форма отличает целое поле, где 0x1F и 31 — один ID, от строкового.
+    const { type, formUrl } = loaded.document.form();
+    const shape = await this.schema.documentShape(type, formUrl).catch(() => undefined);
     const changes = loaded.document.patch(
       patchInput(args.patch, args.remove, args.resave === true),
+      shape?.types.size ? shape.types : undefined,
     );
     if (
       args.expectedFingerprint !== undefined &&

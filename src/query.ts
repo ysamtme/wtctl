@@ -23,12 +23,20 @@ export function looksLikeDate(value: unknown): value is string {
 export function looksLikeDecimalId(value: unknown): value is string {
   return typeof value === "string" && /^[1-9]\d{0,18}$/.test(value);
 }
-function literal(value: unknown, date = false, integer = false): string {
+/** ID в записи 0x…, как его отдают каталоги. */
+export function looksLikeHexId(value: unknown): value is string {
+  return typeof value === "string" && /^0x[0-9a-fA-F]{1,16}$/.test(value);
+}
+/**
+ * Значение условия в тексте запроса. type — TYPE поля в форме; undefined — форма не прочитана
+ * или поля в ней нет, и тогда 0x… считается ID по виду значения.
+ */
+function literal(value: unknown, type?: string): string {
   // Число в кавычках на PostgreSQL никогда не равно целому полю: сервер отклоняет запрос.
-  if (integer && looksLikeDecimalId(value)) return value;
+  if (type === "integer" && looksLikeDecimalId(value)) return value;
   // Поле даты, сравнённое со строкой в кавычках, на PostgreSQL ничего не находит без ошибки;
   // date('…') понимает любая база, с которой работает сервер.
-  if (date && looksLikeDate(value) && value.length <= 40 && !value.includes("'"))
+  if (type === "date" && looksLikeDate(value) && value.length <= 40 && !value.includes("'"))
     return `date('${value}')`;
   if (value === null) return "null()";
   if (typeof value === "boolean") return value ? "true()" : "false()";
@@ -40,7 +48,8 @@ function literal(value: unknown, date = false, integer = false): string {
     return decimalLiteral(value);
   // ID передаётся строкой, чтобы сохранить 64 бита, но 0x… в кавычках никогда не равно целому
   // полю: запрос молча ничего не найдёт. Десятичная запись — то, что пишет код платформы.
-  if (typeof value === "string" && /^0x[0-9a-fA-F]{1,16}$/.test(value)) {
+  // У строкового поля 0x… — обычная строка.
+  if ((type === undefined || type === "integer") && looksLikeHexId(value)) {
     const id = BigInt(value);
     return id < 1n << 63n ? id.toString(10) : value;
   }
@@ -66,20 +75,21 @@ function decimalLiteral(value: number): string {
 }
 const OPERATOR_HINT =
   'Условие пишется как {поле: {оператор: значение}}, например {fullname: {contains: "Иван"}}; равенство — {поле: значение}.';
-/** Закрытый DSL запросов: идентификаторы и значения не могут внедрить сырое выражение сервера. */
+/**
+ * Закрытый DSL запросов: идентификаторы и значения не могут внедрить сырое выражение сервера.
+ * types — TYPE полей строки каталога из формы; без него значения понимаются по виду.
+ */
 export function catalogQuery(
   catalog: unknown,
   where: unknown = {},
-  dates: ReadonlySet<string> = new Set(),
   order?: unknown,
-  integers: ReadonlySet<string> = new Set(),
+  types?: ReadonlyMap<string, string>,
 ): string {
   const name = identifier(catalog, "catalog");
   const conditions: string[] = [];
   for (const [field, condition] of Object.entries(inputObject(where, "where"))) {
     const path = `$elem/${identifier(field, "поле условия")}`;
-    const date = dates.has(field);
-    const integer = integers.has(field);
+    const type = types?.get(field);
     // «Поле пусто» требует обеих форм. Поле с несколькими значениями: на PostgreSQL его находит
     // только IsEmpty; на MS SQL IsEmpty пропускает заполненное, а затем опустошённое, а = ''
     // находит. У «не пусто» такой пары нет: != '' совпадает со всеми строками на MS SQL
@@ -87,7 +97,7 @@ export function catalogQuery(
     const equals = (value: unknown): string =>
       value === "" || value === null
         ? `(${path} = '' or IsEmpty(${path}) = true())`
-        : `${path} = ${literal(value, date, integer)}`;
+        : `${path} = ${literal(value, type)}`;
     if (condition !== null && typeof condition === "object") {
       const operators = Object.entries(inputObject(condition, "условие"));
       if (operators.length === 0)
@@ -110,9 +120,9 @@ export function catalogQuery(
           if (operation === "eq") conditions.push(equals(value));
           else if (operation === "ne" && (value === "" || value === null))
             conditions.push(`IsEmpty(${path}) = false()`);
-          else conditions.push(`${path} ${operator} ${literal(value, date, integer)}`);
+          else conditions.push(`${path} ${operator} ${literal(value, type)}`);
         } else if (operation === "contains")
-          conditions.push(`contains(${path}, ${literal(value)})`);
+          conditions.push(`contains(${path}, ${literal(value, "string")})`);
         else if (
           operation === "in" &&
           Array.isArray(value) &&

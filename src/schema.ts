@@ -122,10 +122,8 @@ export interface DataShape {
   readonly fields: Set<string>;
   /** Пути элементов, объявленных формой повторяющимися, например collaborators.collaborator. */
   readonly repeated: Set<string>;
-  /** Поля верхнего уровня, которые форма объявляет датами. */
-  readonly dates: Set<string>;
-  /** Поля верхнего уровня строки каталога, которые форма объявляет целыми: ID и счётчики. */
-  readonly integers?: Set<string>;
+  /** TYPE полей формы по пути, на любой глубине; у поля без TYPE — пустая строка. */
+  readonly types: Map<string, string>;
   /** Поля верхнего уровня, которые вычисляет сервер: записанное в них значение не сохраняется. */
   readonly computed?: Set<string>;
   /**
@@ -561,7 +559,7 @@ export class SchemaReader {
       const shape: DataShape = {
         fields: new Set(),
         repeated: new Set(),
-        dates: new Set(),
+        types: new Map(),
         computed,
         serverFilled,
       };
@@ -580,7 +578,7 @@ export class SchemaReader {
           const path = prefix ? `${prefix}.${key}` : key;
           if (!prefix) shape.fields.add(key);
           if (!prefix) (attr(node, "PROPERTY") === "1" ? computed : stored).add(key);
-          if (!prefix && base === "date") shape.dates.add(key);
+          shape.types.set(path, base);
           if (attr(node, "MULTIPLE") === "1") shape.repeated.add(path);
           if (sample) collect(children(sample), path, [...stack, base]);
           collect(children(node), path, stack);
@@ -614,17 +612,14 @@ export class SchemaReader {
     const catalog = catalogs[0]!;
     return this.shape(`catalog#${text(catalog.id)}`, async () => {
       const known = await this.catalogFields(catalog, await this.rowType(catalog), new Map());
-      const integers = new Set<string>();
       const shape: DataShape = {
         fields: new Set(),
         repeated: new Set(),
-        dates: new Set(),
-        integers,
+        types: new Map(),
       };
       for (const [path, node] of known) {
         if (!path.includes(".")) shape.fields.add(path);
-        if (!path.includes(".") && attr(node, "TYPE") === "date") shape.dates.add(path);
-        if (!path.includes(".") && attr(node, "TYPE") === "integer") integers.add(path);
+        shape.types.set(path, attr(node, "TYPE"));
         if (attr(node, "MULTIPLE") === "1") shape.repeated.add(path);
       }
       return shape;

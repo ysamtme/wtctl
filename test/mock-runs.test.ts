@@ -429,19 +429,15 @@ test("CLI: правка может быть одним --resave; справка 
 
 test("запрос по каталогу сортирует по полям каталога; неверный порядок отклоняется до сервера", async () => {
   assert.equal(
-    catalogQuery("people", { lastname: "A" }, new Set(), ["fullname", "hire_date desc", "id ASC"]),
+    catalogQuery("people", { lastname: "A" }, ["fullname", "hire_date desc", "id ASC"]),
     "for $elem in people where ($elem/lastname = 'A') order by $elem/fullname, $elem/hire_date descending, $elem/id return $elem",
   );
   assert.equal(
-    catalogQuery("people", {}, new Set(), "fullname"),
+    catalogQuery("people", {}, "fullname"),
     "for $elem in people order by $elem/fullname return $elem",
   );
   for (const order of [[], ["a b c"], ["a down"], ["a;b"], [1], ["a", "b", "c", "d", "e", "f"], {}])
-    assert.throws(
-      () => catalogQuery("people", {}, new Set(), order),
-      HcmError,
-      JSON.stringify(order),
-    );
+    assert.throws(() => catalogQuery("people", {}, order), HcmError, JSON.stringify(order));
   const sent: string[] = [];
   const { runtime } = fakeRuntime({
     ...base,

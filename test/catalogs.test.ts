@@ -112,7 +112,10 @@ test("каталог без типа объекта даёт поля своей
   for (const selector of [{ catalog: "events" }, { type: "event" }]) {
     const shape = await reader().catalogShape(selector);
     assert.deepEqual([...shape!.fields], ["id", "name", "start_date", "place_id", "days"]);
-    assert.deepEqual([...shape!.dates], ["start_date"]);
+    assert.deepEqual(
+      [...shape!.types].filter(([, type]) => type === "date").map(([path]) => path),
+      ["start_date"],
+    );
   }
   assert.deepEqual(
     [...(await reader().catalogShape({ catalog: "event_members" }))!.fields],
@@ -184,9 +187,9 @@ test("каталог другой базы находится по имени и
     (await withTrash.explainQuery("trash_docs", ["modification_date"]))?.code,
     "UNKNOWN_CATALOG_FIELD",
   );
-  assert.deepEqual(
-    [...(await withTrash.catalogShape({ catalog: "trash_docs" }))!.dates],
-    ["del_date"],
+  assert.equal(
+    (await withTrash.catalogShape({ catalog: "trash_docs" }))!.types.get("del_date"),
+    "date",
   );
   assert.match((await reader().explainQuery("evnts", []))!.hint!, /^Похожие: events\. /);
   await assert.rejects(reader().requireType("evnt"), { hint: /^Похожие: event\. / });

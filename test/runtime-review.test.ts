@@ -11,7 +11,7 @@ import { XmlDocument } from "../src/documents.js";
 import { getNativeOperations } from "../src/native/index.js";
 import { findXmlNode, parseXml } from "../src/protocol/xml.js";
 import type { ConnectionConfig } from "../src/contracts.js";
-import { fakeRuntime, refusal, type FakeServer, type Script } from "./fake-server.js";
+import { fakeRuntime, refusal, refuse, type FakeServer, type Script } from "./fake-server.js";
 
 const config = (runtimeDir: string, outputLimitBytes = 1024): ConnectionConfig => ({
   name: "review",
@@ -857,5 +857,108 @@ test("создание, для которого выдан ID и запись к
       assert.match(result.error?.hint ?? "", readBackHint);
       assert.equal(result.error?.details?.objectId, "0x1000000000000029");
     },
+  );
+});
+
+test("0x1F и 31 — один ключ и одно значение только у целого поля формы", async () => {
+  // code и note — строки, person_id — целое.
+  const form =
+    '<SPXML-FORM><fixture><id TYPE="integer"/><items><item MULTIPLE="1" PRIMARY-KEY="code"><code TYPE="string"/><note TYPE="string"/><person_id TYPE="integer"/></item></items></fixture></SPXML-FORM>';
+  let source =
+    "<fixture><id>41</id><items><item><code>31</code><note>31</note><person_id>31</person_id></item></items></fixture>";
+  let writes = 0;
+  const script: Script = {
+    "native.lds.loadDoc": () => doc(source),
+    "native.spxml2.getForm": form,
+    "native.lds.putDoc": (args) => {
+      writes++;
+      source = String(args.data);
+      return { completed: true };
+    },
+  };
+  await fixture(
+    script,
+    async (runtime) => {
+      const removed = await runtime.call("objects.patch", {
+        id: "41",
+        remove: ["items.item[code=0x1F]"],
+      });
+      assert.equal(removed.error?.code, "PATCH_PATH_MISSING", JSON.stringify(removed));
+      assert.equal(writes, 0);
+      const same = await runtime.call("objects.patch", {
+        id: "41",
+        patch: { "items.item[person_id=0x1F].person_id": "0x1F" },
+      });
+      assert.equal((same.data as { noop?: boolean }).noop, true, JSON.stringify(same));
+      assert.equal(writes, 0);
+      const changed = await runtime.call("objects.patch", {
+        id: "41",
+        patch: { "items.item[code=31].note": "0x1F" },
+      });
+      assert.equal(changed.ok, true, JSON.stringify(changed));
+      assert.equal((changed.data as { noop?: boolean }).noop, undefined);
+      assert.equal(writes, 1);
+      assert.match(source, /<note>0x1F<\/note>/);
+    },
+    24000,
+  );
+});
+
+test("0x… в условии запроса — число у целого поля и строка у строкового и в contains", async () => {
+  const script: Script = {
+    "native.spxml2.getAppInfo": {
+      default_db_name: "sample",
+      databases: [
+        {
+          id: "sample",
+          catalogs: [{ id: "events", object_type: "", form_url: "x-local://wtv/wtv_events.xmd" }],
+        },
+      ],
+    },
+    "native.spxml2.getForm":
+      '<SPXML-FORM CATALOG="1"><events><event MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><name TYPE="string"/></event></events></SPXML-FORM>',
+    "native.lds.xQuery": { Data: "", TotalCount: "0", EOF: "true" },
+  };
+  await fixture(script, async (runtime, server) => {
+    const sent = async (where: unknown): Promise<string> => {
+      await runtime.call("runtime.query", { catalog: "events", where });
+      return String(server.calls.findLast(({ id }) => id === "native.lds.xQuery")!.args.query);
+    };
+    assert.match(await sent({ name: "0x10" }), /\$elem\/name = '0x10'/);
+    assert.match(await sent({ name: { contains: "0x10" } }), /contains\(\$elem\/name, '0x10'\)/);
+    assert.match(await sent({ id: { in: ["0x10", "17"] } }), /\$elem\/id = 16 or \$elem\/id = 17/);
+  });
+});
+
+test("если форма не читается, 0x… — ID по виду значения, как прежде", async () => {
+  const source = "<fixture><id>41</id><items><item><code>31</code></item></items></fixture>";
+  const script: Script = {
+    "native.lds.loadDoc": () => doc(source),
+    "native.spxml2.getForm": refuse(),
+    "native.spxml2.getAppInfo": {
+      default_db_name: "sample",
+      databases: [{ id: "sample", catalogs: [{ id: "events", form_url: "x-local://wtv/x.xmd" }] }],
+    },
+    "native.lds.xQuery": { Data: "", TotalCount: "0", EOF: "true" },
+  };
+  await fixture(
+    script,
+    async (runtime, server) => {
+      // Без формы запись отказывает до отправки, а предпросмотр показывает, что правка нашла.
+      const removed = await runtime.call("objects.patch", {
+        id: "41",
+        remove: ["items.item[code=0x1F]"],
+        preview: true,
+      });
+      assert.equal(
+        (removed.data as { changes?: unknown[] }).changes?.length,
+        1,
+        JSON.stringify(removed),
+      );
+      await runtime.call("runtime.query", { catalog: "events", where: { name: "0x10" } });
+      const sent = server.calls.findLast(({ id }) => id === "native.lds.xQuery")!.args.query;
+      assert.match(String(sent), /\$elem\/name = 16/);
+    },
+    24000,
   );
 });

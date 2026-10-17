@@ -180,20 +180,37 @@ function encodeValue(key: string, value: unknown, depth = 0): Node {
   return { [key]: nested };
 }
 
-/** Ключ в пути находит свой элемент по тому же тексту или по тому же ID, записанному иначе. */
+/**
+ * Ключ в пути находит свой элемент по тому же тексту, а у целого поля — и по тому же ID,
+ * записанному иначе. type — TYPE поля в форме; undefined — форма не прочитана или поля в ней
+ * нет, и тогда ID узнаётся по виду значения.
+ */
 const ID_TEXT = /^(?:0x[0-9a-f]{1,16}|[1-9]\d{0,19})$/i;
-function sameKey(stored: unknown, key: string): boolean {
+function sameKey(stored: unknown, key: string, type: string | undefined): boolean {
   const text = String(stored);
-  return text === key || (ID_TEXT.test(text) && ID_TEXT.test(key) && BigInt(text) === BigInt(key));
+  return (
+    text === key ||
+    ((type === undefined || type === "integer") &&
+      ID_TEXT.test(text) &&
+      ID_TEXT.test(key) &&
+      BigInt(text) === BigInt(key))
+  );
 }
 /**
  * Записываемое значение совпадает с хранимым: ID в другой записи, логическое значение,
  * которое сервер хранит как 0 или 1, дата без смещения.
  */
-function sameValue(stored: unknown, value: unknown, replacement: Node[]): boolean {
+function sameValue(
+  stored: unknown,
+  value: unknown,
+  replacement: Node[],
+  type: string | undefined,
+): boolean {
   if (typeof value === "boolean") return stored === String(value) || stored === (value ? "1" : "0");
   if (typeof value === "string" || typeof value === "number")
-    return typeof stored === "string" && sameKey(stored, String(withoutFalseOffset(String(value))));
+    return (
+      typeof stored === "string" && sameKey(stored, String(withoutFalseOffset(String(value))), type)
+    );
   return (
     replacement.length === 1 &&
     JSON.stringify(withoutFalseOffset(compact(children(replacement[0]!)))) ===
@@ -279,24 +296,29 @@ export class XmlDocument {
     }
     return new XmlDocument(root);
   }
+  /** Тип и адрес формы — без сборки XML, которую делает snapshot. */
+  form(): Pick<DocumentSnapshot, "type" | "formUrl"> {
+    const formUrl = (this.root[":@"] as Record<string, unknown> | undefined)?.["@_SPXML-FORM"];
+    return { type: local(name(this.root)!), ...(typeof formUrl === "string" ? { formUrl } : {}) };
+  }
   snapshot(): DocumentSnapshot {
-    const type = local(name(this.root)!);
     const xml = builder.build(withoutIndentation([this.root])) as string;
     assertXml(xml);
     const data = inputObject(compact(children(this.root)), "содержимое документа");
-    const attributes = this.root[":@"] as Record<string, unknown> | undefined;
-    const formUrl = attributes?.["@_SPXML-FORM"];
     return {
-      type,
+      ...this.form(),
       xml,
       data,
       fingerprint: createHash("sha256")
         .update(JSON.stringify(semantic([this.root])))
         .digest("hex"),
-      ...(typeof formUrl === "string" ? { formUrl } : {}),
     };
   }
-  patch(input: unknown): {
+  /** types — TYPE полей формы по пути, как DataShape.types; без него ID узнаётся по виду. */
+  patch(
+    input: unknown,
+    types?: ReadonlyMap<string, string>,
+  ): {
     before: DocumentSnapshot;
     after: DocumentSnapshot;
     changes: PatchChange[];
@@ -322,6 +344,14 @@ export class XmlDocument {
           .slice(0, count)
           .map((part) => part[0])
           .join(".");
+      // Тип поля по пути без номеров и ключей, как его называет форма.
+      const typeOf = (count: number, child?: string): string | undefined =>
+        types?.get(
+          [
+            ...segments.slice(0, count).map((part) => part[1]),
+            ...(child === undefined ? [] : [child]),
+          ].join("."),
+        );
       let createdKeyedElement = false;
       // Элемент, созданный по пути, содержит только свой ключ: найденного в нём раньше не было.
       let created = false;
@@ -351,7 +381,9 @@ export class XmlDocument {
               name(item.node) === field &&
               (key === undefined ||
                 children(item.node).some(
-                  (child) => name(child) === key && sameKey(compact(children(child)), keyValue),
+                  (child) =>
+                    name(child) === key &&
+                    sameKey(compact(children(child)), keyValue, typeOf(index + 1, key)),
                 )),
           );
         if (position === undefined && matches.length > 1)
@@ -411,7 +443,11 @@ export class XmlDocument {
           if (key !== undefined) inputObject(operation.value, "значение элемента с ключом");
           // Элемент создан этим путём вместе с ключом: поле ключа получает то же значение.
           const made = segments[index - 1];
-          if (created && made?.[3] === field && !sameKey(operation.value, made[4]!))
+          if (
+            created &&
+            made?.[3] === field &&
+            !sameKey(operation.value, made[4]!, typeOf(index + 1))
+          )
             throw new HcmError(
               "INVALID_PATCH",
               "Ключ в значении не совпадает с ключом в пути.",
@@ -426,6 +462,7 @@ export class XmlDocument {
             !sameKey(
               inputObject(compact(children(replacement[0]!)), "значение элемента с ключом")[key],
               keyValue,
+              typeOf(index + 1, key),
             )
           )
             throw new HcmError(
@@ -437,7 +474,11 @@ export class XmlDocument {
               },
             );
           // То же значение — не изменение: хранимый текст остаётся, в changes строки нет.
-          if (stored !== undefined && sameValue(stored, operation.value, replacement)) continue;
+          if (
+            stored !== undefined &&
+            sameValue(stored, operation.value, replacement, typeOf(index + 1))
+          )
+            continue;
           if (chosen) {
             if (chosen.node[":@"] !== undefined && replacement.length === 1)
               replacement[0]![":@"] = chosen.node[":@"];

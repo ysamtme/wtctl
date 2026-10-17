@@ -394,7 +394,11 @@ test("пустое поле запрашивается в виде, на кот�
 });
 
 test("дата попадает в поле даты как date('…'): дата в кавычках на PostgreSQL ничего не находит", () => {
-  const dates = new Set(["hire_date", "birth_date"]);
+  const types = new Map([
+    ["hire_date", "date"],
+    ["birth_date", "date"],
+    ["code", "string"],
+  ]);
   assert.equal(
     catalogQuery(
       "collaborators",
@@ -403,7 +407,8 @@ test("дата попадает в поле даты как date('…'): дат�
         birth_date: { in: ["1990-05-01", ""] },
         code: "2024-01-01",
       },
-      dates,
+      undefined,
+      types,
     ),
     "for $elem in collaborators where ($elem/hire_date >= date('2024-01-01')) and ($elem/hire_date < date('2024-02-01T10:30:00'))" +
       " and (($elem/birth_date = date('1990-05-01') or ($elem/birth_date = '' or IsEmpty($elem/birth_date) = true()))) and ($elem/code = '2024-01-01') return $elem",
@@ -414,7 +419,7 @@ test("дата попадает в поле даты как date('…'): дат�
     "for $elem in collaborators where ($elem/hire_date = '2024-01-01') return $elem",
   );
   assert.equal(
-    catalogQuery("collaborators", { hire_date: "yesterday" }, dates),
+    catalogQuery("collaborators", { hire_date: "yesterday" }, undefined, types),
     "for $elem in collaborators where ($elem/hire_date = 'yesterday') return $elem",
   );
 });

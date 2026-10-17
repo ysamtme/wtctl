@@ -6,6 +6,7 @@ import {
   hasStructure,
   looksLikeDate,
   looksLikeDecimalId,
+  looksLikeHexId,
   orderFields,
   projectFields,
   queryPage,
@@ -22,23 +23,27 @@ const queryEffect: EffectFor = (args) => {
 };
 
 /**
- * Поля каталога с датой и целым, которые читаются, только когда условие содержит значение,
- * записанное как дата или как десятичный ID: такое значение должно дойти до поля даты как
- * date('…'), а до целого поля — как число, и отличить их от строк может только форма.
+ * Типы полей каталога, которые читаются, только когда условие содержит значение, записанное
+ * как дата или как ID: такое значение должно дойти до поля даты как date('…'), до целого поля —
+ * как число, а до строкового — строкой, и отличить их может только форма.
  */
-async function typedFields(
+async function fieldTypes(
   schemaReader: SchemaReader,
   catalog: unknown,
   where: unknown,
-): Promise<{ dates: ReadonlySet<string>; integers: ReadonlySet<string> }> {
-  const none = { dates: new Set<string>(), integers: new Set<string>() };
-  if (typeof catalog !== "string" || !where || typeof where !== "object") return none;
+): Promise<ReadonlyMap<string, string> | undefined> {
+  if (typeof catalog !== "string" || !where || typeof where !== "object") return undefined;
   const values = Object.values(where).flatMap((condition) =>
     condition && typeof condition === "object" ? Object.values(condition).flat() : [condition],
   );
-  if (!values.some((value) => looksLikeDate(value) || looksLikeDecimalId(value))) return none;
+  if (
+    !values.some(
+      (value) => looksLikeDate(value) || looksLikeDecimalId(value) || looksLikeHexId(value),
+    )
+  )
+    return undefined;
   const shape = await schemaReader.catalogShape({ catalog }).catch(() => undefined);
-  return { dates: shape?.dates ?? none.dates, integers: shape?.integers ?? none.integers };
+  return shape?.types.size ? shape.types : undefined;
 }
 
 export const queryOperations = [
@@ -73,13 +78,15 @@ export const queryOperations = [
           `${args.catalog} — общий список сервера, а не каталог.`,
           `Его элементы читает запрос XQuery: for $e in ${args.catalog} return $e.`,
         );
-      const typed =
+      const query =
         args.query === undefined
-          ? await typedFields(context.schema, args.catalog, args.where)
-          : undefined;
-      const query = typed
-        ? catalogQuery(args.catalog, args.where, typed.dates, args.order, typed.integers)
-        : requiredString(args.query, "query");
+          ? catalogQuery(
+              args.catalog,
+              args.where,
+              args.order,
+              await fieldTypes(context.schema, args.catalog, args.where),
+            )
+          : requiredString(args.query, "query");
       if (args.query === undefined && args.order !== undefined) {
         // MS SQL не сортирует по многозначному полю, PostgreSQL сортирует как получится.
         const shape = await context.schema
