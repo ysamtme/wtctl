@@ -435,7 +435,7 @@ export class SchemaReader {
     const notes: string[] = [];
     const dictionary = await this.language(info, language).catch(() => {
       notes.push(
-        `Файл языка ${languageFileUrl(info.ui_lang_id, language)} прочитать не удалось: заголовки, которые берутся из него, показаны как есть.`,
+        `Файл языка ${languageFileUrl(info.ui_lang_id, language)} прочитать не удалось: заголовков из него в ответе нет.`,
       );
       return new Map<string, string>();
     });
@@ -446,8 +446,7 @@ export class SchemaReader {
     return { info, dictionary, ...(custom ? { custom } : {}), notes };
   }
   private title(value: string, dictionary: Map<string, string>): string {
-    if (value.startsWith("const="))
-      return dictionary.get(value.slice(6)) ?? (dictionary.size ? "" : value);
+    if (value.startsWith("const=")) return dictionary.get(value.slice(6)) ?? "";
     return /^##(['"])([\s\S]*)\1##$/.exec(value)?.[2] ?? value;
   }
   private typeTranslations(info: Data): Promise<Map<string, string>> {
@@ -869,7 +868,8 @@ export class SchemaReader {
           field.required = true;
         if (text(item.catalog)) field.references = text(item.catalog);
         if (values.length) field.values = values;
-        if (sheet) field.sheet = this.title(sheet, dictionary);
+        const sheetTitle = sheet && this.title(sheet, dictionary);
+        if (sheetTitle) field.sheet = sheetTitle;
         fields.set(field.path, field);
       }
     }
@@ -946,7 +946,7 @@ export class SchemaReader {
   async types(input: SchemaTypesInput = {}): Promise<SchemaTypesResult> {
     const limit = boundedInteger(input.limit, 50, 1000, "limit");
     const cursor = boundedInteger(input.cursor, 0, Number.MAX_SAFE_INTEGER, "cursor");
-    const { info, custom, dictionary } = await this.context();
+    const { info, custom, dictionary, notes: unread } = await this.context();
     const translations = await this.typeTranslations(info);
     const common = await this.commonData(info);
     const definitions = list(data(common.exchange_object_types).exchange_object_type);
@@ -992,7 +992,8 @@ export class SchemaReader {
     const rows = [...types, ...untyped.map((catalog) => ({ catalog }))];
     const page = rows.slice(cursor, cursor + limit);
     const notes = [
-      ...(!custom && page.some((item) => "type" in item) ? [customUnreadable] : []),
+      // Файл языка и настраиваемые поля касаются только строк с типом.
+      ...(page.some((item) => "type" in item) ? unread : []),
       ...(page.some((item) => !("type" in item))
         ? [
             "Строка без type — каталог без своего типа объекта: документов у его строк нет, искать в нём можно, поля строки показывает схема по имени каталога.",

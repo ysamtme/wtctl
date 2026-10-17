@@ -77,7 +77,11 @@ const documents = new Map<string, XmlObject>([
         exchange_object_type: [
           { name: "person", web_const: "c_person", form_url: personUrl },
           { name: "request", web_const: "c_request" },
-          { name: "assessment", form_url: "x-local://qti/assessment.xmd" },
+          {
+            name: "assessment",
+            title: "i18n.t('c_assessment')",
+            form_url: "x-local://qti/assessment.xmd",
+          },
         ],
       },
     },
@@ -379,8 +383,6 @@ test("формы вне обычной папки берутся из common, а
   unavailable.delete(customUrl);
   const result = await fixture({ documents: unavailable }).reader.get({ type: "person" });
   assert.equal(result.notes.length, 2);
-  assert.ok(result.notes[0]?.startsWith(`Файл языка ${languageUrl} прочитать не удалось`));
-  assert.equal(result.fields.find((field) => field.path === "lastname")?.title, "const=c_last");
 });
 
 test("страницы схемы соблюдают числа по умолчанию и потолок 16 КиБ в UTF-8, не теряя поля", async () => {
@@ -510,7 +512,7 @@ function schemaRuntime(down: Set<string>) {
       "native.spxml2.getForm": (args, id) =>
         answer(args, id, () => {
           if (args.url === commonUrl) return buildXml({ common: documents.get(commonUrl)! });
-          if (args.url === translationsUrl) return "{}";
+          if (args.url === translationsUrl) return JSON.stringify({ c_assessment: "Тест" });
           const source = forms.get(String(args.url));
           if (source === undefined) throw refusal(id);
           return source;
@@ -589,30 +591,48 @@ test("адрес формы из common запоминается: обычный
   }
 });
 
-test("schema.types: непрочитанные настраиваемые поля не показаны нулём, и после сбоя метаданные читаются заново", async () => {
+test("schema.types и schema.get без файла языка и настраиваемых полей не выдают ключи за заголовки, а после сбоя метаданные читаются заново", async () => {
   const down = new Set([languageUrl, translationsUrl, customUrl]);
   const { runtime, server } = schemaRuntime(down);
-  const types = async () =>
-    (await runtime.call("schema.types", { search: "people" })).data as SchemaTypesResult;
+  const types = async (search: string) =>
+    (await runtime.call("schema.types", { search })).data as SchemaTypesResult;
+  const languageUnread = `Файл языка ${languageUrl} прочитать не удалось: заголовков из него в ответе нет.`;
+  const customUnread =
+    "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет.";
   try {
-    const failed = await types();
+    const failed = await types("people");
     assert.deepEqual(
       [failed.types, failed.notes],
-      [
-        [{ type: "person", catalog: "people", title: "const=c_person" }],
-        [
-          "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет.",
-        ],
-      ],
+      [[{ type: "person", catalog: "people" }], [languageUnread, customUnread]],
+    );
+    assert.deepEqual((await types("c_person")).types, []);
+    const person = (await runtime.call("schema.get", { type: "person" })).data as SchemaResult;
+    assert.deepEqual(person.notes, [languageUnread, customUnread]);
+    const titles = Object.fromEntries(person.fields.map((field) => [field.path, field.title]));
+    // Заголовки из формы остаются, ключей файла языка нет.
+    assert.equal(titles.manager_id, "Менеджер");
+    assert.equal(titles.status, "Статус");
+    assert.equal(titles.lastname, undefined);
+    assert.equal(titles.untranslated, undefined);
+    down.delete(translationsUrl);
+    down.delete(customUrl);
+    const translated = await types("assessment");
+    assert.deepEqual(
+      [translated.types, translated.notes],
+      [[{ type: "assessment", title: "Тест", customFields: 0 }], [languageUnread]],
     );
     down.clear();
-    const recovered = await types();
+    const recovered = await types("people");
     assert.deepEqual(
       [recovered.types, recovered.notes],
       [[{ type: "person", catalog: "people", title: "Сотрудник", customFields: 1 }], undefined],
     );
-    for (const url of [languageUrl, translationsUrl, customUrl])
-      assert.equal(server.calls.filter((call) => call.args.url === url).length, 2, url);
+    for (const [url, reads] of [
+      [languageUrl, 5],
+      [translationsUrl, 3],
+      [customUrl, 4],
+    ] as const)
+      assert.equal(server.calls.filter((call) => call.args.url === url).length, reads, url);
   } finally {
     await runtime.close();
   }
