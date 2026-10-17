@@ -605,7 +605,11 @@ test("schema.types и schema.get без файла языка и настраи�
       [failed.types, failed.notes],
       [[{ type: "person", catalog: "people" }], [languageUnread, customUnread]],
     );
-    assert.deepEqual((await types("c_person")).types, []);
+    // По ключу файла языка тип не находится, и пустой ответ говорит, что заголовков нет.
+    const byKey = await types("c_person");
+    assert.deepEqual(byKey.types, []);
+    assert.equal(byKey.notes?.length, 2);
+    assert.equal(byKey.notes?.[0], languageUnread);
     const person = (await runtime.call("schema.get", { type: "person" })).data as SchemaResult;
     assert.deepEqual(person.notes, [languageUnread, customUnread]);
     const titles = Object.fromEntries(person.fields.map((field) => [field.path, field.title]));
@@ -633,6 +637,19 @@ test("schema.types и schema.get без файла языка и настраи�
       [customUrl, 4],
     ] as const)
       assert.equal(server.calls.filter((call) => call.args.url === url).length, reads, url);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("schema.types: пустой поиск без настраиваемых полей не говорит о них, если файл языка прочитан", async () => {
+  const { runtime } = schemaRuntime(new Set([customUrl]));
+  try {
+    const result = (await runtime.call("schema.types", { search: "zzz" }))
+      .data as SchemaTypesResult;
+    assert.deepEqual(result.types, []);
+    assert.equal(result.notes?.length, 1);
+    assert.ok(!result.notes?.[0]?.startsWith("Документ с настраиваемыми полями"));
   } finally {
     await runtime.close();
   }
