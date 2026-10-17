@@ -1508,7 +1508,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `hint?` | `string` | Есть при serverOnlyHidden: как их показать. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
 | `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
-| `skipped?` | `readonly string[]` | Библиотеки, список функций которых сервер не отдал. |
+| `skipped?` | `readonly string[]` | Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. |
 
 ### RpcDescribeOptions
 
@@ -1555,7 +1555,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `allowed` | `boolean \| null` | Разрешён ли вызов с клиента; null — не установлено. |
 | `serverOnly?` | `true` | Функция не допускает вызова с клиента: её зовёт только код сервера. |
 | `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
-| `skipped?` | `readonly string[]` | Библиотеки, список функций которых сервер не отдал. |
+| `skipped?` | `readonly string[]` | Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. |
 
 ### RpcTypedArgument
 

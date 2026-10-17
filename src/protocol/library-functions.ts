@@ -32,6 +32,25 @@ export function normalizeFormParams(source: string, library = false): string {
   );
 }
 
+/**
+ * Текст файла библиотеки в кодировке, которую выберет сервер: метка порядка байтов, затем encoding
+ * из объявления XML, затем UTF-8. Неподходящие байты и неизвестная кодировка — исключение.
+ */
+function decodeLibrary(bytes: Buffer): string {
+  const [first, second, third] = bytes;
+  const encoding =
+    first === 0xef && second === 0xbb && third === 0xbf
+      ? "utf-8"
+      : first === 0xff && second === 0xfe
+        ? "utf-16le"
+        : first === 0xfe && second === 0xff
+          ? "utf-16be"
+          : (/^\s*<\?xml\s[^>]*?\bencoding\s*=\s*["']([^"']+)["']/.exec(
+              bytes.subarray(0, 256).toString("latin1"),
+            )?.[1] ?? "utf-8");
+  return new TextDecoder(encoding, { fatal: true }).decode(bytes);
+}
+
 /** Читает объявления библиотек как данные, не вычисляя их выражения. */
 export class LibraryReader {
   /** Общие документы сервера: библиотеки, которые клиент читает, и ID остальных. */
@@ -52,9 +71,7 @@ export class LibraryReader {
         .then((response) => {
           const encoded = findXmlNode(response, "Data");
           if (typeof encoded !== "string") throw new Error();
-          const source = new TextDecoder("utf-8", { fatal: true }).decode(
-            Buffer.from(encoded, "base64"),
-          );
+          const source = decodeLibrary(Buffer.from(encoded, "base64"));
           const root = findXmlNode(
             parseXml(normalizeFormParams(source, true)),
             "SPXML-INLINE-FORM",

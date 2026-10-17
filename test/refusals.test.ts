@@ -124,17 +124,22 @@ test("отказ при вызове функции библиотеки объ�
 });
 
 test("отказ функции называется отсутствием функции, только когда её библиотека прочитана целиком или её нет на сервере", async () => {
-  // Своя библиотека с комментарием в windows-1251: файл не в UTF-8.
+  // Своя библиотека с комментарием в windows-1251: без объявления кодировки её не прочитать.
   const cp1251 = Buffer.concat([
-    Buffer.from('<?xml version="1.0" encoding="windows-1251"?>\n<SPXML-INLINE-FORM><tools><!-- '),
+    Buffer.from("<SPXML-INLINE-FORM><tools><!-- "),
     Buffer.from([0xcf, 0xf0, 0xe8, 0xec, 0xe5, 0xf0]),
     Buffer.from(
       ' --><get_version PROPERTY="1" ALLOW-CALL-FROM-CLIENT="1" EXPR="return 1;"/></tools></SPXML-INLINE-FORM>',
     ),
   ]);
+  const declared = Buffer.concat([
+    Buffer.from('<?xml version="1.0" encoding="windows-1251"?>\n'),
+    cp1251,
+  ]);
   const cases: [string, Record<string, string>, string | Buffer | undefined, string][] = [
     ["файл библиотеки не прочитан", { tools: "x-local://l/t.xml" }, undefined, "indeterminate"],
-    ["файл не в UTF-8", { tools: "x-local://l/t.xml" }, cp1251, "indeterminate"],
+    ["файл не в UTF-8 и без объявления", { tools: "x-local://l/t.xml" }, cp1251, "indeterminate"],
+    ["файл в объявленной windows-1251", { tools: "x-local://l/t.xml" }, declared, "not_sent"],
     // Общий документ в базе данных клиент как библиотеку не читает.
     ["библиотека в базе данных", { tools: "x-local://sample/t.xml" }, library, "indeterminate"],
     ["библиотеки нет на сервере", { other: "x-local://l/o.xml" }, library, "not_sent"],

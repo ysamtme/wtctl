@@ -16,7 +16,7 @@ const library = `<SPXML-INLINE-FORM><tools>
   <server_side PROPERTY="1" PARAM="id" EXPR="return id;"/>
   <denied ALLOW-CALL-FROM-CLIENT="0" EXPR="return false;"/>
 </tools></SPXML-INLINE-FORM>`;
-const response = (source: string) => ({
+const response = (source: string | Buffer) => ({
   Data: Buffer.from(source).toString("base64").replace(/.{60}/g, "$&\n"),
 });
 test("встроенный обзор сохраняет постраничность, краткие карточки, фильтры и неизменяемые параметры", async () => {
@@ -287,4 +287,85 @@ test("на запасной вариант переходят только пр�
     total: 0,
   });
   await assert.rejects(empty.describe("tools.get_version"), { code: "UNKNOWN_RPC_TARGET" });
+});
+
+test("файл библиотеки читается в кодировке по метке порядка байтов или объявлению, а непрочитанная библиотека так и называется", async () => {
+  const cp1251 = (text: string) =>
+    Buffer.from(
+      [...text].map((char) => {
+        const code = char.codePointAt(0)!;
+        return code >= 0x410 && code <= 0x44f ? code - 0x350 : code;
+      }),
+    );
+  const russian = `<SPXML-INLINE-FORM><lib_ru>
+  <privet PROPERTY="1" ALLOW-CALL-FROM-CLIENT="1" PARAM="имя" EXPR="return 'Привет, ' + имя;"/>
+</lib_ru></SPXML-INLINE-FORM>`;
+  const declared = (encoding: string) => `<?xml version="1.0" encoding="${encoding}"?>\n`;
+  const files = new Map<string, Buffer>([
+    ["x-local://libs/cp1251.xml", cp1251(declared("windows-1251") + russian)],
+    [
+      "x-local://libs/bom.xml",
+      Buffer.from(`﻿${declared("windows-1251")}${russian.replaceAll("lib_ru", "lib_bom")}`),
+    ],
+    [
+      "x-local://libs/utf16.xml",
+      Buffer.from(`﻿${declared("UTF-16")}${russian.replaceAll("lib_ru", "lib_utf16")}`, "utf16le"),
+    ],
+    [
+      "x-local://libs/strange.xml",
+      Buffer.from(declared("x-strange") + library.replaceAll("tools", "strange")),
+    ],
+    [
+      "x-local://libs/strange-extra.xml",
+      Buffer.from(
+        '<SPXML-INLINE-FORM><strange><get_version_ex ALLOW-CALL-FROM-CLIENT="1"/></strange></SPXML-INLINE-FORM>',
+      ),
+    ],
+    // Без объявления файл читается как UTF-8, а кириллица Windows-1251 в UTF-8 не годится.
+    ["x-local://libs/invalid.xml", cp1251(russian.replaceAll("lib_ru", "lib_bad"))],
+  ]);
+  const { runtime } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": {
+        shared_docs: [
+          { id: "lib_ru", url: "x-local://libs/cp1251.xml" },
+          { id: "lib_bom", url: "x-local://libs/bom.xml" },
+          { id: "lib_utf16", url: "x-local://libs/utf16.xml" },
+          { id: "strange", url: "x-local://libs/strange.xml" },
+          { id: "strange", url: "x-local://libs/strange-extra.xml" },
+          { id: "lib_bad", url: "x-local://libs/invalid.xml" },
+        ],
+      },
+      "native.lds.loadUrl": (args) => response(files.get(String(args.url))!),
+    },
+    { permissions: { write: false, execute: false } },
+  );
+  try {
+    const all = await runtime.call("rpc.list");
+    assert.deepEqual(all.data, {
+      source: "server",
+      skipped: ["strange", "lib_bad"],
+      targets: [
+        { id: "lib_bom.privet", parameters: ["имя"], allowed: true },
+        { id: "lib_ru.privet", parameters: ["имя"], allowed: true },
+        { id: "lib_utf16.privet", parameters: ["имя"], allowed: true },
+        { id: "strange.get_version_ex", parameters: [], allowed: true },
+      ],
+      total: 4,
+    });
+    const privet = await runtime.call("rpc.describe", { targetId: "lib_ru.privet", source: true });
+    assert.equal((privet.data as { code: string }).code, "return 'Привет, ' + имя;");
+    const unread = await runtime.call("rpc.describe", { targetId: "strange.get_version" });
+    assert.equal(unread.error?.code, "UNKNOWN_RPC_TARGET");
+    assert.equal(
+      unread.error!.message,
+      "Библиотеку strange прочитать не удалось, описания функции get_version нет.",
+    );
+    assert.equal(
+      unread.error!.hint,
+      "Похожие: get_version_ex. rpc.call вызывает функцию и без описания; есть ли она, проверит сервер.",
+    );
+  } finally {
+    await runtime.close();
+  }
 });

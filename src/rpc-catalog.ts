@@ -44,7 +44,7 @@ export interface RpcDescribeOptions {
 interface RpcCatalogSource {
   /** Откуда список: с сервера или из встроенной таблицы 2025.1.1171. */
   readonly source: "server" | "built-in 2025.1.1171";
-  /** Библиотеки, список функций которых сервер не отдал. */
+  /** Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. */
   readonly skipped?: readonly string[];
 }
 /** Страница функций: ответ listRpc. */
@@ -90,7 +90,7 @@ function input(id: string, value: unknown): Record<string, unknown> {
 function unknownTarget(
   targetId: string,
   available: readonly RpcTargetCard[],
-  source: string,
+  { source, skipped }: RpcCatalogSource,
 ): HcmError {
   const [library, method] = targetId.split(".") as [string, string];
   const inLibrary = available.filter((item) => item.id.startsWith(`${library}.`));
@@ -98,6 +98,14 @@ function unknownTarget(
     .map((item) => item.id.slice(library.length + 1))
     .filter((name) => name.toLowerCase().includes(method.toLowerCase()))
     .slice(0, 5);
+  const similar = near.length ? `Похожие: ${near.join(", ")}. ` : "";
+  // Функция может быть в файле, который клиент не прочитал: есть ли она, знает только сервер.
+  if (skipped?.includes(library))
+    return new HcmError(
+      "UNKNOWN_RPC_TARGET",
+      `Библиотеку ${library} прочитать не удалось, описания функции ${method} нет.`,
+      `${similar}rpc.call вызывает функцию и без описания; есть ли она, проверит сервер.`,
+    );
   return new HcmError(
     "UNKNOWN_RPC_TARGET",
     source !== "server"
@@ -105,7 +113,7 @@ function unknownTarget(
       : inLibrary.length
         ? `В библиотеке ${library} нет функции ${method}.`
         : `Среди библиотек сервера нет библиотеки ${library} или в ней нет функций.`,
-    `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Имена ищет rpc.list: query — часть имени, all:true — вместе с функциями, которые вызываются только из кода на сервере.`,
+    `${similar}Имена ищет rpc.list: query — часть имени, all:true — вместе с функциями, которые вызываются только из кода на сервере.`,
   );
 }
 
@@ -140,7 +148,7 @@ export class RpcCatalog {
     if (!target)
       return server.skipped.length || server.excluded.length
         ? undefined
-        : unknownTarget(targetId, server.targets, "server");
+        : unknownTarget(targetId, server.targets, { source: "server" });
     if (target.allowed !== false) return undefined;
     const [library, method] = targetId.split(".") as [string, string];
     return new HcmError(
@@ -218,7 +226,7 @@ export class RpcCatalog {
       targetId.split(".")[0],
     );
     const target = available.find((item) => item.id === targetId);
-    if (!target) throw unknownTarget(targetId, available, metadata.source);
+    if (!target) throw unknownTarget(targetId, available, metadata);
     const { id, parameters, allowed, serverOnly } = target;
     let code: Pick<RpcTargetDescription, "code" | "codeTruncated"> = {};
     if (options.source === true && metadata.source === "server") {
