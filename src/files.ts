@@ -141,20 +141,34 @@ export type FileDeleteData = {
   readonly mutationOutcome: "confirmed";
 };
 
-/** Папки сервера: папка кода хранит код сервера, поэтому запись в неё требует ещё права execute. */
-export type FileFolders = { readonly data: readonly string[]; readonly code: readonly string[] };
-/** Читаются только два списка папок из сведений о приложении; undefined, если сервер их не дал. */
+/**
+ * Папки сервера: папка кода хранит код сервера, поэтому запись в неё требует ещё права execute.
+ * database — папки данных, которые сервер хранит в базе данных, а не на диске.
+ */
+export type FileFolders = {
+  readonly data: readonly string[];
+  readonly code: readonly string[];
+  readonly database: readonly string[];
+};
+/** Читаются только списки папок из сведений о приложении; undefined, если сервер их не дал. */
 function fileFolders(info: Record<string, unknown> | undefined): FileFolders | undefined {
   const data = new Set<string>();
   const design = new Set<string>();
+  const database = new Set<string>();
   const entries = Array.isArray(info?.config_entries) ? info.config_entries : [];
   for (const entry of entries as { name?: unknown; value?: unknown }[]) {
-    const list =
-      entry?.name === "DATA-DB" ? data : entry?.name === "DESIGN-DB" ? design : undefined;
-    if (list && typeof entry.value === "string" && entry.value) list.add(entry.value);
+    if (typeof entry?.value !== "string" || !entry.value) continue;
+    if (entry.name === "DATA-DB") data.add(entry.value);
+    else if (entry.name === "DESIGN-DB") design.add(entry.value);
+    // Значение — имя папки и через пробел адрес формы, которая хранит её в базе.
+    else if (entry.name === "DB-STORE-HOOK") database.add(entry.value.trim().split(/\s/, 1)[0]!);
   }
   if (!data.size && !design.size) return undefined;
-  return { data: [...data], code: [...design].filter((name) => !data.has(name)) };
+  return {
+    data: [...data],
+    code: [...design].filter((name) => !data.has(name)),
+    database: [...database],
+  };
 }
 
 /** Папка — первая часть адреса и определяет маршрут: никакая часть не должна его обходить. */
@@ -184,17 +198,23 @@ function fileTarget(value: unknown, listing = false): { url: string; folder: str
 }
 
 /**
- * Папки базы: файл на диске удаление по адресу молча не удаляет (2025.1.1333 - 2025.2.1535),
- * а файл, записанный files.write, сервер хранит не на диске. Клиент их не различает: отказ
- * до любого запроса.
+ * Адрес, который сервер передаёт как документ объекта: objects строчными и первой частью пути,
+ * цифры и .xml в любом регистре. Удаление по нему кладёт объект в корзину мимо objects.delete,
+ * запись меняет документ, но не строку каталога.
  */
-function assertFileDeletable(folder: string): void {
-  if (folder === "wt_data" || folder === "trash")
-    throw new HcmError(
-      "FILE_NOT_DELETABLE",
-      `В папке ${folder} файлы и папки не удаляются.`,
-      "Это папка базы сервера: файл на диске сервер по адресу не удаляет, а отличить его клиент не может. Документ объекта удаляет objects.delete. Временные файлы писать в share: там files.delete удаляет.",
-    );
+const DOCUMENT_URL = /^x-local:\/\/[^/]+\/objects\/[\da-fA-F]{14}\/[\da-fA-F]{2}\.[xX][mM][lL]$/;
+const DOCUMENT_REFUSALS: Record<"delete" | "write", [message: string, hint: string]> = {
+  delete: [
+    "Адрес — документ объекта: files.delete его не удаляет.",
+    "Объект удаляет objects.delete: он сверяет каталог. Удаление по адресу положило бы объект в корзину сервера в обход этой проверки.",
+  ],
+  write: [
+    "Адрес — документ объекта: files.write его не записывает.",
+    "Поля объекта правит objects.patch, документ целиком — native.lds.putDoc. Запись по адресу меняет документ, но не строку каталога.",
+  ],
+};
+function assertNotDocument(url: string, action: "delete" | "write"): void {
+  if (DOCUMENT_URL.test(url)) throw new HcmError("FILE_IS_DOCUMENT", ...DOCUMENT_REFUSALS[action]);
 }
 
 /** Вид папки по спискам сервера, до отправки; undefined — сервер не сообщил списков. */
@@ -528,6 +548,7 @@ export class ServerFiles {
    */
   async write(args: Record<string, unknown>, call: FileCall): Promise<FileWriteData> {
     const target = fileTarget(args.url);
+    assertNotDocument(target.url, "write");
     const source = await writeSource(args);
     try {
       const kind = folderKind(await this.folders(), target.folder);
@@ -589,8 +610,9 @@ export class ServerFiles {
 
   async delete(args: Record<string, unknown>, call: FileCall): Promise<FileDeleteData> {
     const target = fileTarget(args.url);
-    assertFileDeletable(target.folder);
-    if (folderKind(await this.folders(), target.folder) === "code") {
+    assertNotDocument(target.url, "delete");
+    const folders = await this.folders();
+    if (folderKind(folders, target.folder) === "code") {
       if (!this.config.permissions.execute)
         throw new HcmError(
           "EXECUTE_DISABLED",
@@ -607,10 +629,35 @@ export class ServerFiles {
       if (data.result[0] === "remains") throw fileRemains();
       return { deleted: true, mutationOutcome: "confirmed" };
     }
-    await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
+    // В папке в базе данных сервер подтверждает удаление пустого адреса и «папки» и не удаляет
+    // файл с копией на диске: исход видит только проверка адреса до и после.
+    const database = folders?.database.includes(target.folder) === true;
     // Адрес, который проверка существования не принимает (больше 256 символов), не проверяется.
-    if (target.url.length <= FILE_EXISTS_URL_MAX_LENGTH)
-      if ((await this.exists({ url: target.url })).exists) throw fileRemains();
+    const checked = target.url.length <= FILE_EXISTS_URL_MAX_LENGTH;
+    if (database && !checked)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        `url: в папке ${target.folder} адрес для удаления — не длиннее 256 знаков.`,
+        "Удаление в папке, которую сервер хранит в базе данных, проверяется по адресу, а проверка принимает до 256 знаков.",
+      );
+    const present = async () => (await this.exists({ url: target.url })).exists;
+    if (checked && !(await present()))
+      throw new HcmError(
+        "FILE_NOT_FOUND",
+        database ? "По адресу нет файла." : "По адресу нет файла или папки.",
+        database
+          ? `Папку ${target.folder} сервер хранит в базе данных: вложенных папок в ней нет, файлы удаляются по одному. Список показывает files.list.`
+          : "Адрес проверяет files.exists.",
+      );
+    await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
+    if (checked && (await present()))
+      throw database
+        ? new HcmError(
+            "FILE_NOT_DELETABLE",
+            "Файл остался: у него есть копия на диске сервера, а её сервер по адресу не удаляет.",
+            "Свою копию в базе данных сервер удалил, если она была, и теперь отдаёт файл с диска: содержимое могло стать прежним, проверить через files.read. Файл на диске удаляют на самом сервере.",
+          )
+        : fileRemains();
     return { deleted: true, mutationOutcome: "confirmed" };
   }
 

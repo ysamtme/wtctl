@@ -25,6 +25,8 @@ const entries = [
   { name: "DATA-DB", value: "trash" },
   { name: "DESIGN-DB", value: "wt" },
   { name: "DESIGN-DB", value: "source" },
+  { name: "DB-STORE-HOOK", value: "wt_data x-local://fixture/sx_store_sql.xml" },
+  { name: "DB-STORE-HOOK", value: "trash\tx-local://fixture/sx_store_sql.xml" },
   { name: "OTHER", value: "never read" },
 ];
 const value = (type: string, text: string) => ({
@@ -42,14 +44,14 @@ const INTERRUPTED =
   "Запись прервалась: файл на сервере может быть пустым или недописанным. Запись можно повторить целиком.";
 
 /**
- * Сервер хранит файлы, записанные upload_*, и отдаёт их чтением потоком. fail — отказ функции
- * записи по имени; readBack — свой ответ на чтение назад по записанным байтам.
+ * Сервер хранит файлы, записанные upload_*, отдаёт их чтением потоком и удаляет по адресу; адрес,
+ * называющий "stays", есть всегда. fail — отказ функции записи по имени; readBack — свой ответ на
+ * чтение назад по записанным байтам; door — отказ на входе у проверки адреса после удаления.
  */
 function fixture(
   options: {
     execute?: boolean;
     lists?: boolean;
-    refuse?: boolean;
     door?: boolean;
     fail?: (target: string) => Error | undefined;
     readBack?: (stored: Buffer) => unknown;
@@ -57,6 +59,7 @@ function fixture(
 ) {
   const stored = new Map<string, Buffer>();
   let upload = { url: "", data: Buffer.alloc(0) };
+  let deleted = false;
   const { runtime, server } = fakeRuntime(
     {
       "native.spxml2.getAppInfo": options.lists === false ? {} : { config_entries: entries },
@@ -75,9 +78,10 @@ function fixture(
             stored.set(upload.url, upload.data);
             return value("bool", "1");
           case "tools.file_url_exists_server":
-            if (options.door) throw new WsHcmApiError("http", "unauthorized", { status: 401 });
-            // Проверка существования находит только адреса, называющие "stays".
-            return value("bool", String(+values[0]!.includes("stays")));
+            if (options.door && deleted)
+              throw new WsHcmApiError("http", "unauthorized", { status: 401 });
+            // Есть записанные файлы и адреса, называющие "stays": их удаление не удаляет.
+            return value("bool", String(+(stored.has(values[0]!) || values[0]!.includes("stays"))));
           default:
             return {
               valueType: "Object",
@@ -91,10 +95,12 @@ function fixture(
         const data = stored.get(args.url) ?? Buffer.alloc(0);
         return options.readBack ? options.readBack(data) : data;
       },
-      "*": (_args, id) => {
-        if (options.refuse) throw refusal(id);
-        return id === "web.rpc.call" ? scriptAnswer(state.answer) : {};
+      "native.lds.deleteUrl": (args) => {
+        deleted = true;
+        stored.delete(args.url);
+        return {};
       },
+      "*": (_args, id) => (id === "web.rpc.call" ? scriptAnswer(state.answer) : {}),
     },
     { permissions: { write: true, execute: options.execute ?? true } },
   );
@@ -509,27 +515,55 @@ test("файл удаляется кодом в папке кода; адрес 
   await runtime.close();
 });
 
-test("удаление: папка кода без execute, wt_data и trash отклоняются до любой отправки", async () => {
+test("удаление в папке данных проверяет адрес до отправки; папка кода без execute отклоняется", async () => {
   const { runtime, state } = fixture({ execute: false });
   const refused = await runtime.call("files.delete", { url: "x-local://wt/a.txt" });
   assert.equal(refused.error?.code, "EXECUTE_DISABLED");
   assert.match(refused.error!.message, /^Папка wt на этом сервере принимает удаление только кодом/);
   assert.equal(refused.error?.mutationOutcome, "not_sent");
-  // Папки базы данных сервера не удаляются по адресу: отказ, что бы ни говорили списки.
+  const absent = await runtime.call("files.delete", { url: "x-local://share/a.txt" });
+  assert.deepEqual(
+    [absent.error?.code, absent.error?.mutationOutcome, absent.error?.message, absent.error?.hint],
+    [
+      "FILE_NOT_FOUND",
+      "not_sent",
+      "По адресу нет файла или папки.",
+      "Адрес проверяет files.exists.",
+    ],
+  );
+  // Папку в базе данных называет DB-STORE-HOOK, а не имя: без строк сервера wt_data — обычная папка.
   for (const lists of [true, false])
     for (const folder of ["wt_data", "trash"]) {
       const f = fixture({ lists });
-      const gone = await f.runtime.call("files.delete", { url: `x-local://${folder}/a/b.txt` });
-      assert.equal(gone.error?.code, "FILE_NOT_DELETABLE");
-      assert.equal(gone.error?.mutationOutcome, "not_sent");
-      assert.equal(gone.error?.message, `В папке ${folder} файлы и папки не удаляются.`);
-      assert.match(gone.error!.hint!, /Временные файлы писать в share/);
-      assert.equal(f.server.calls.length, 0);
+      const empty = await f.runtime.call("files.delete", { url: `x-local://${folder}/x` });
+      assert.equal(empty.error?.code, "FILE_NOT_FOUND");
+      assert.equal(empty.error?.mutationOutcome, "not_sent");
+      if (lists) {
+        assert.equal(empty.error?.message, "По адресу нет файла.");
+        assert.equal(
+          empty.error?.hint,
+          `Папку ${folder} сервер хранит в базе данных: вложенных папок в ней нет, файлы удаляются по одному. Список показывает files.list.`,
+        );
+      } else assert.equal(empty.error?.message, "По адресу нет файла или папки.");
+      const url = `x-local://${folder}/x/a.txt`;
+      assert.equal((await f.runtime.call("files.write", { url, text: "a" })).ok, true);
+      assert.deepEqual((await f.runtime.call("files.delete", { url })).data, {
+        deleted: true,
+        mutationOutcome: "confirmed",
+      });
+      assert.equal(unwrap(await new HcmClient(f.runtime).fileExists({ url })).exists, false);
+      assert.equal(ids(f.state).at(-1), "native.lds.deleteUrl");
       await f.runtime.close();
     }
+  // Удаление в папке в базе данных проверяется по адресу, а проверка принимает до 256 знаков.
+  const long = await runtime.call("files.delete", { url: `x-local://wt_data/${"a".repeat(240)}` });
+  assert.equal(long.error?.code, "INVALID_ARGUMENT");
+  assert.equal(
+    long.error?.message,
+    "url: в папке wt_data адрес для удаления — не длиннее 256 знаков.",
+  );
+  assert.equal(long.error?.mutationOutcome, "not_sent");
   assert.deepEqual(ids(state), []);
-  assert.equal((await runtime.call("files.delete", { url: "x-local://share/a.txt" })).ok, true);
-  assert.deepEqual(ids(state), ["native.lds.deleteUrl"]);
   await runtime.close();
 });
 
@@ -539,7 +573,18 @@ test("удаление, после которого адрес остался, �
   assert.equal(data.error?.code, "READ_BACK_MISMATCH");
   assert.equal(data.error?.mutationOutcome, "indeterminate");
   assert.deepEqual(ids(state), ["native.lds.deleteUrl"]);
-  // Слишком длинный для проверки существования адрес не проверяется.
+  // В папке в базе данных остаётся только файл с копией на диске.
+  const disk = await runtime.call("files.delete", { url: "x-local://wt_data/stays.txt" });
+  assert.deepEqual(
+    [disk.error?.code, disk.error?.mutationOutcome, disk.error?.message],
+    [
+      "FILE_NOT_DELETABLE",
+      "indeterminate",
+      "Файл остался: у него есть копия на диске сервера, а её сервер по адресу не удаляет.",
+    ],
+  );
+  assert.match(disk.error!.hint!, /^Свою копию в базе данных сервер удалил, если она была/);
+  // Слишком длинный для проверки существования адрес в обычной папке не проверяется.
   const long = `x-local://share/stays${"a".repeat(250)}`;
   assert.equal((await runtime.call("files.delete", { url: long })).ok, true);
   // В папке кода сам код смотрит на адрес: клиент больше ничего не спрашивает.
@@ -554,10 +599,59 @@ test("удаление, после которого адрес остался, �
 
 test("удаление, принятое и затем встретившее в проверке отказ на входе, имеет исход indeterminate", async () => {
   const { runtime, state } = fixture({ door: true });
+  state.stored.set("x-local://share/a.txt", Buffer.from("a"));
   const result = await runtime.call("files.delete", { url: "x-local://share/a.txt" });
   assert.deepEqual(ids(state), ["native.lds.deleteUrl"]);
   assert.equal(result.error?.mutationOutcome, "indeterminate");
   assert.match(result.error?.hint ?? "", /запрос на запись уже ушёл/);
+  await runtime.close();
+});
+
+test("адрес документа объекта files.delete и files.write отклоняют до отправки, files.read читает", async () => {
+  const { runtime, server, state } = fixture();
+  for (const url of [
+    "x-local://wt_data/objects/607999B973FFE0/44.xml",
+    "x-local://trash/objects/607999b973ffe0/4a.XML",
+    "x-local://share/objects/607999B973FFE0/44.Xml",
+    "x-local://wt/objects/607999B973FFE0/44.xml",
+  ]) {
+    const write = await runtime.call("files.write", { url, text: "<x/>" });
+    const gone = await runtime.call("files.delete", { url });
+    assert.deepEqual(
+      [write, gone].map((answer) => [answer.error?.code, answer.error?.mutationOutcome]),
+      [
+        ["FILE_IS_DOCUMENT", "not_sent"],
+        ["FILE_IS_DOCUMENT", "not_sent"],
+      ],
+      url,
+    );
+    assert.equal(write.error?.message, "Адрес — документ объекта: files.write его не записывает.");
+    assert.match(write.error!.hint!, /^Поля объекта правит objects\.patch/);
+    assert.equal(gone.error?.message, "Адрес — документ объекта: files.delete его не удаляет.");
+    assert.match(gone.error!.hint!, /^Объект удаляет objects\.delete/);
+  }
+  // Адрес проверяется раньше аргументов: файл с диска даже не открывается.
+  const local = await runtime.call("files.write", {
+    url: "x-local://wt_data/objects/607999B973FFE0/44.xml",
+    file: "relative.txt",
+  });
+  assert.equal(local.error?.code, "FILE_IS_DOCUMENT");
+  assert.equal(server.calls.length, 0);
+  state.stored.set("x-local://wt_data/objects/607999B973FFE0/44.xml", Buffer.from("<x/>"));
+  const read = await runtime.call("files.read", {
+    url: "x-local://wt_data/objects/607999B973FFE0/44.xml",
+  });
+  assert.equal((read.data as { text?: string }).text, "<x/>");
+  // Сервер разбирает только objects строчными первой частью пути и 14 и 2 цифры с .xml в конце.
+  for (const url of [
+    "x-local://wt_data/objects/1/2.xml",
+    "x-local://wt_data/OBJECTS/607999B973FFE0/44.xml",
+    "x-local://wt_data/a/objects/607999B973FFE0/44.xml",
+    "x-local://wt_data/objects/607999B973FFE0/55.xml.bak",
+  ]) {
+    assert.equal((await runtime.call("files.write", { url, text: "x" })).ok, true, url);
+    assert.equal((await runtime.call("files.delete", { url })).ok, true, url);
+  }
   await runtime.close();
 });
 
