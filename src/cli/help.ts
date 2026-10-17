@@ -1,8 +1,14 @@
+import { isSimilarName, similarHint } from "../errors.js";
 import { guideTopics } from "../guide.js";
+import { CliInputError, printableName } from "./arguments.js";
 
 interface CommandHelp {
   /** Одна строка для обзора. */
   readonly summary: string;
+  /** Вложенные команды в порядке строк usage; тест сверяет их со справкой. */
+  readonly commands?: readonly string[];
+  /** Аргументы, которыми команда без вложенной вызывает функцию. */
+  readonly call?: string;
   readonly usage: readonly string[];
   /** Только то, чего нет в строках usage; по предложению на пункт, в текстовом виде — по строке. */
   readonly notes?: readonly string[];
@@ -65,6 +71,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   object: {
     summary: "Объект: get, create, patch, delete.",
+    commands: ["get", "create", "patch", "delete"],
     usage: [
       "wtctl object get [ТИП] ID [--fields id,name]",
       "wtctl object get (--id ID | --url АДРЕС) [--type ТИП]",
@@ -90,6 +97,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   exec: {
     summary: "Выполнить код на сервере (SP-XML Script).",
     usage: [
+      "wtctl exec 'КОД' [--params-file params.json | --params …]",
       String.raw`wtctl exec --input-file script.js [--params-file params.json | --params '{\"name\":\"…\"}']`,
       "wtctl exec --stdin",
     ],
@@ -104,6 +112,8 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   rpc: {
     summary: "Функции библиотек сервера: list, describe, вызов.",
+    commands: ["list", "describe"],
+    call: "БИБЛИОТЕКА ФУНКЦИЯ",
     usage: [
       "wtctl rpc list [--query ТЕКСТ] [--library БИБЛИОТЕКА] [--method ФУНКЦИЯ] [--all] [--limit N] [--cursor N]",
       "wtctl rpc describe БИБЛИОТЕКА.ФУНКЦИЯ [--source]",
@@ -120,6 +130,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   logs: {
     summary: "Логи сервера: list, read, tail, search, follow.",
+    commands: ["list", "read", "tail", "search", "follow"],
     usage: [
       "wtctl logs list [--type xhttp] [--date ГГГГ-ММ-ДД] [--name-contains ТЕКСТ] [--start-date Д] [--end-date Д] [--offset N] [--limit N]",
       "wtctl logs read ФАЙЛ [--tail-bytes N | --full]",
@@ -140,6 +151,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   result: {
     summary: "Большой результат: read, export.",
+    commands: ["read", "export"],
     usage: [
       "wtctl result read RESULT_ID [--offset N] [--limit N] [--format auto|json|text]",
       "wtctl result export RESULT_ID --to ФАЙЛ [--format json|jsonl|text] [--overwrite]",
@@ -153,6 +165,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   file: {
     summary: "Загрузка файла в папку загрузок сервера: upload.",
+    commands: ["upload"],
     usage: [
       "wtctl file upload ИМЯ --input-file resource.bin [--content-type application/octet-stream]",
     ],
@@ -160,6 +173,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   files: {
     summary: "Файл сервера: read (текстом или на диск), exists, list, write, delete.",
+    commands: ["read", "exists", "list", "write", "delete"],
     usage: [
       "wtctl files read АДРЕС",
       "wtctl files read АДРЕС --base64",
@@ -177,6 +191,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   doc: {
     summary: "Документ как XML по адресу: get, put, delete.",
+    commands: ["get", "put", "delete"],
     usage: [
       "wtctl doc get АДРЕС",
       "wtctl doc put АДРЕС --input-file document.xml",
@@ -189,6 +204,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   api: {
     summary: "Остальные операции: list (карта по темам), describe, call.",
+    commands: ["list", "describe", "call"],
     usage: [
       "wtctl api list [--offline]",
       "wtctl api list --topic ТЕМА | --query ТЕКСТ [--effect read|write|execute|unknown] [--limit N] [--cursor N] [--offline]",
@@ -212,10 +228,12 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   server: {
     summary: "Сведения о сервере: версия, операционная система, ограничения.",
+    commands: ["info"],
     usage: ["wtctl server info [--profile native|web]"],
   },
   ws: {
     summary: "Отвечает ли служба WebSocket.",
+    commands: ["heartbeat"],
     usage: ["wtctl ws heartbeat [--timeout-ms N]"],
     notes: ["timeout-ms от 250 до 10000, по умолчанию 5000."],
   },
@@ -226,6 +244,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   },
   config: {
     summary: "Файл подключений: init, path, example.",
+    commands: ["init", "path", "example"],
     usage: [
       "wtctl config init",
       "wtctl config init --url http://localhost:8088 --username user1 --password-stdin < пароль.txt",
@@ -290,6 +309,36 @@ export function helpCommand(command: string | undefined): string {
     : "wtctl help";
 }
 
+/** Справка команды; неизвестную команду отказ называет как набрана, с похожими. */
+function topic(command: string): CommandHelp {
+  const help = known(command);
+  if (help !== undefined) return help;
+  const near = [...Object.keys(COMMANDS), "help"].filter((name) => isSimilarName(name, command));
+  throw new CliInputError(
+    printableName(command) ? `Команды wtctl ${command} нет.` : "Неизвестная команда.",
+    similarHint(near).trimEnd() || undefined,
+  );
+}
+
+/**
+ * Отказ, если команда или вложенная команда неизвестна или вложенная не указана: команда названа так,
+ * как её набрали, и рядом сказано, какие есть. Остальные аргументы проверяет сама команда.
+ */
+export function requireCommand([command = "", action, ...rest]: readonly string[]): void {
+  const { commands, call } = topic(command);
+  if (commands === undefined || (action !== undefined && commands.includes(action))) return;
+  // Одного слова после rpc мало и для вызова: rpc БИБЛИОТЕКА ФУНКЦИЯ.
+  if (call !== undefined && rest.length) return;
+  const list = `есть ${commands.join(", ")}${call === undefined ? "" : ` или вызов ${call}`}.`;
+  throw new CliInputError(
+    action === undefined
+      ? `Не указана команда после wtctl ${command}: ${list}`
+      : printableName(action)
+        ? `Команды wtctl ${command} ${action} нет: ${list}`
+        : `Неизвестная команда после wtctl ${command}: ${list}`,
+  );
+}
+
 export function cliHelp(command?: string): Record<string, unknown> {
   if (command === undefined)
     return {
@@ -300,10 +349,8 @@ export function cliHelp(command?: string): Record<string, unknown> {
       options: OPTIONS,
       notes: NOTES,
     };
-  const help = known(command);
-  return help === undefined
-    ? { command, error: "Неизвестная команда.", commands: Object.keys(COMMANDS) }
-    : { command, usage: help.usage, ...(help.notes === undefined ? {} : { notes: help.notes }) };
+  const help = topic(command);
+  return { command, usage: help.usage, ...(help.notes === undefined ? {} : { notes: help.notes }) };
 }
 
 function rows(pairs: readonly (readonly [string, string])[]): string[] {
@@ -313,21 +360,25 @@ function rows(pairs: readonly (readonly [string, string])[]): string[] {
 
 /** Та же справка, что у cliHelp, разложенная по строкам для чтения. */
 export function cliHelpText(command?: string): string {
-  const commands = [
-    "Команды:",
-    ...rows(Object.entries(COMMANDS).map(([name, help]) => [name, help.summary])),
-  ];
-  const help = command === undefined ? undefined : known(command);
+  const help = command === undefined ? undefined : topic(command);
   const lines =
-    command === undefined
-      ? [USAGE, "", ...commands, "", "Параметры:", ...rows(Object.entries(OPTIONS)), "", ...NOTES]
-      : help === undefined
-        ? [`Неизвестная команда: ${command}.`, "", ...commands]
-        : [
-            `wtctl ${command} — ${help.summary}`,
-            "",
-            ...help.usage.map((line) => `  ${line}`),
-            ...(help.notes === undefined ? [] : ["", ...help.notes]),
-          ];
+    help === undefined
+      ? [
+          USAGE,
+          "",
+          "Команды:",
+          ...rows(Object.entries(COMMANDS).map(([name, help]) => [name, help.summary])),
+          "",
+          "Параметры:",
+          ...rows(Object.entries(OPTIONS)),
+          "",
+          ...NOTES,
+        ]
+      : [
+          `wtctl ${command} — ${help.summary}`,
+          "",
+          ...help.usage.map((line) => `  ${line}`),
+          ...(help.notes === undefined ? [] : ["", ...help.notes]),
+        ];
   return `${lines.join("\n")}\n`;
 }

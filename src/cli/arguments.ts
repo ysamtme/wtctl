@@ -109,12 +109,16 @@ function distance(a: string, b: string): number {
 }
 
 /**
- * Значение флага не печатается никогда, имя — только если похоже на имя флага: слова из букв
- * через дефис. В argv может оказаться пароль или токен, а цифр в именах флагов нет.
+ * Имя из argv печатается, только если похоже на имя флага или команды: слова из букв через дефис.
+ * В argv может оказаться пароль или токен, а цифр в именах нет.
  */
+export function printableName(name: string): boolean {
+  return name.length <= 30 && /^[a-z]+(?:-[a-z]+)*$/i.test(name);
+}
+
+/** Значение флага не печатается никогда, имя — по правилу printableName. */
 function unknownOption(name: string): CliInputError {
-  if (name.length > 30 || !/^[a-z]+(?:-[a-z]+)*$/i.test(name))
-    return new CliInputError("Неизвестный флаг.");
+  if (!printableName(name)) return new CliInputError("Неизвестный флаг.");
   const lower = name.toLowerCase();
   const [near] = [...BOOLEAN_OPTIONS, ...VALUE_OPTIONS]
     .map((known) => ({ known, steps: distance(lower, known) }))

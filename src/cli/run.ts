@@ -14,7 +14,7 @@ import {
   stringOption,
   type CliArguments,
 } from "./arguments.js";
-import { cliHelp, cliHelpText, helpCommand } from "./help.js";
+import { cliHelp, cliHelpText, helpCommand, requireCommand } from "./help.js";
 import { discoverOperations, operationHelp } from "../operation-help.js";
 import {
   configExample,
@@ -310,6 +310,7 @@ async function initConnection(args: CliArguments, io: CliIo): Promise<OperationR
 /** Компилирует команду в один явный вызов реестра; без поиска методов клиента по имени. */
 export async function commandInvocation(args: CliArguments, io: CliIo): Promise<Invocation> {
   const [command, action] = args.positionals;
+  requireCommand(args.positionals);
   switch (command) {
     case "check":
     case "status":
@@ -317,7 +318,6 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       exactPositionals(args, 1);
       return { operationId: `runtime.${command}`, args: {} };
     case "server": {
-      if (action !== "info") throw new CliInputError("Неизвестная команда server.");
       allowOptions(args, ["profile"]);
       exactPositionals(args, 2);
       const profile = stringOption(args, "profile");
@@ -330,7 +330,6 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       exactPositionals(args, 1);
       return { operationId: "runtime.batch", args: await inputObject(args, io, true) };
     case "ws":
-      if (action !== "heartbeat") throw new CliInputError("Неизвестная команда ws.");
       allowOptions(args, ["timeout-ms"]);
       exactPositionals(args, 2);
       return {
@@ -338,7 +337,8 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         args: { ...optional("timeoutMs", integerOption(args, "timeout-ms", 250, 10000)) },
       };
     case "api":
-      if (action !== "call") throw new CliInputError("Неизвестная команда api.");
+      // api list и api describe runCli выполняет без вызова реестра.
+      if (action !== "call") throw new CliInputError("Команда не определена.");
       allowOptions(args, INPUT);
       exactPositionals(args, 3);
       return {
@@ -478,28 +478,24 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
           },
         };
       }
-      if (action === "delete") {
-        allowOptions(args, [...OBJECT_TARGET, "permanent", "catalog"]);
-        const target = objectTarget(args);
-        if (!args.options.permanent)
-          throw new CliInputError(
-            "object delete удаляет объект насовсем и требует --permanent.",
-            "Корзины нет: удалённый объект не вернуть.",
-          );
-        return {
-          operationId: "objects.delete",
-          args: {
-            ...target,
-            permanent: true,
-            ...optional("catalog", stringOption(args, "catalog")),
-          },
-        };
-      }
-      throw new CliInputError("Неизвестная команда object.");
+      // Осталась delete: вложенную команду проверил requireCommand.
+      allowOptions(args, [...OBJECT_TARGET, "permanent", "catalog"]);
+      const target = objectTarget(args);
+      if (!args.options.permanent)
+        throw new CliInputError(
+          "object delete удаляет объект насовсем и требует --permanent.",
+          "Корзины нет: удалённый объект не вернуть.",
+        );
+      return {
+        operationId: "objects.delete",
+        args: {
+          ...target,
+          permanent: true,
+          ...optional("catalog", stringOption(args, "catalog")),
+        },
+      };
     }
     case "files": {
-      if (!["exists", "read", "list", "write", "delete"].includes(action ?? ""))
-        throw new CliInputError("Неизвестная команда files.");
       allowOptions(
         args,
         action === "read"
@@ -547,7 +543,6 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       return { operationId: "files.exists", args: { url } };
     }
     case "file": {
-      if (action !== "upload") throw new CliInputError("Неизвестная команда file.");
       allowOptions(args, ["input-file", "stdin", "content-type"]);
       exactPositionals(args, 3);
       return {
@@ -560,8 +555,6 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       };
     }
     case "doc": {
-      if (!action || !["get", "put", "delete"].includes(action))
-        throw new CliInputError("Неизвестная команда doc.");
       allowOptions(args, action === "put" ? INPUT : []);
       exactPositionals(args, 3);
       const url = requirePositional(args, 2, "серверный URL");
@@ -647,8 +640,6 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       const exporting = action === "export";
       allowOptions(args, exporting ? ["to", "format", "overwrite"] : ["offset", "limit", "format"]);
       exactPositionals(args, 3);
-      if (action !== "read" && !exporting)
-        throw new CliInputError("Неизвестная команда result: есть read и export.");
       const format = stringOption(args, "format");
       if (!exporting && format !== undefined && !["auto", "json", "text"].includes(format))
         throw new CliInputError("--format должен быть auto, json или text.");
@@ -723,8 +714,6 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
           },
         };
       }
-      if (!action || !["read", "tail", "search", "follow"].includes(action))
-        throw new CliInputError("Неизвестная команда logs: есть list, read, tail, search, follow.");
       const options =
         action === "search"
           ? [
@@ -778,8 +767,9 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         },
       };
     }
+    // mcp, config, guide и version runCli выполняет сам.
     default:
-      throw new CliInputError("Неизвестная команда.");
+      throw new CliInputError("Команда не определена.");
   }
 }
 

@@ -89,8 +89,7 @@ test("справка CLI начинается с короткого списка
   const commands = Object.keys(top.commands as Record<string, string>);
   assert.ok(serializeResult(top).length < 3200, `top help is ${serializeResult(top).length} chars`);
   for (const command of commands) {
-    const help = cliHelp(command) as { usage: string[]; notes?: string[]; error?: string };
-    assert.equal(help.error, undefined, command);
+    const help = cliHelp(command) as { usage: string[]; notes?: string[] };
     assert.ok(help.usage.length > 0, command);
     assert.ok(serializeResult(help).length < 1500, command);
     // Текст для человека: каждая строка использования и каждая заметка — на отдельной строке.
@@ -98,7 +97,6 @@ test("справка CLI начинается с короткого списка
     for (const line of [...help.usage.map((usage) => `  ${usage}`), ...(help.notes ?? [])])
       assert.ok(lines.includes(line), `${command}: ${line}`);
   }
-  assert.equal(typeof (cliHelp("missing") as { error: string }).error, "string");
 });
 
 test("вывод CLI — одна компактная строка, если только человек не читает его в терминале", () => {

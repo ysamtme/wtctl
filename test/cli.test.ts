@@ -740,11 +740,6 @@ test("справка — текст для чтения: команды и па�
     (await offline(["help", "logs"])).stdout,
   );
 
-  for (const name of ["nothing", "constructor"]) {
-    const unknown = (await offline(["help", name])).stdout;
-    assert.ok(unknown.startsWith(`Неизвестная команда: ${name}.\n\nКоманды:\n  status `), name);
-  }
-
   // Параметры, набранные перед --help, относятся к команде; help help — это главная справка.
   assert.equal(
     (await offline(["query", "--catalog", "people", "--help"])).stdout,
@@ -774,7 +769,6 @@ test("help --json даёт ту же справку, что и обычный о
     [["--json"], undefined],
     [["help", "--json"], undefined],
     [["object", "--help", "--json"], "object"],
-    [["help", "nothing", "--json"], "nothing"],
   ] as const) {
     const result = JSON.parse((await offline([...argv])).stdout) as OperationResult;
     assert.equal(result.ok, true);
@@ -1145,15 +1139,20 @@ test("неверные команда, ввод и пределы отказыв
   assert.equal(refusal.hint, "Справка: wtctl help schema.");
 });
 
-test("ошибка разбора называет неизвестный флаг без значения, похожий настоящий и справку команды", async () => {
-  const refuse = async (argv: string[]) => {
-    const f = fixture();
-    assert.equal(await runCli(argv, f.io, f.dependencies), 2, argv.join(" "));
-    assert.doesNotMatch(f.state.stderr, /synthetic-secret/);
-    const { error } = JSON.parse(f.state.stderr) as { error: Record<string, string> };
-    assert.equal(error.code, "cli.invalid_input");
-    return error;
+/** Ошибка аргументов: код 2 до настроек, в stderr нет значений из argv. */
+async function refuse(argv: string[]) {
+  const f = fixture();
+  assert.equal(await runCli(argv, f.io, f.dependencies), 2, argv.join(" "));
+  assert.equal(f.state.loads, 0, argv.join(" "));
+  assert.doesNotMatch(f.state.stderr, /synthetic-secret/);
+  const { error } = JSON.parse(f.state.stderr) as {
+    error: { code: string; message: string; hint?: string };
   };
+  assert.equal(error.code, "cli.invalid_input");
+  return error;
+}
+
+test("ошибка разбора называет неизвестный флаг без значения, похожий настоящий и справку команды", async () => {
   const typo = await refuse(["query", "--catalog", "groups", "--feilds=synthetic-secret"]);
   assert.equal(typo.message, "Неизвестный флаг --feilds.");
   assert.equal(typo.hint, "Похожий: --fields. Справка: wtctl help query.");
@@ -1184,6 +1183,69 @@ test("ошибка разбора называет неизвестный фла
   const both = await refuse(["query", "for $e in groups return $e", "--catalog", "groups"]);
   assert.equal(both.message, "Задан и текст XQuery, и --catalog: нужно что-то одно.");
   assert.equal((await refuse(["unknown"])).hint, "Справка: wtctl help.");
+});
+
+test("пропущенная и неизвестная команда названа так, как её набрали, а вложенные перечислены, как в справке", async () => {
+  const usage = (command: string) => (cliHelp(command) as { usage: string[] }).usage;
+  // Вложенная команда — второе слово строки usage: wtctl server info.
+  const nested = Object.keys(cliHelp().commands as object).filter((command) =>
+    usage(command).some((line) => /^[a-z]+$/.test(line.split(" ")[2] ?? "")),
+  );
+  for (const command of nested) {
+    const missing = await refuse([command]);
+    const [, list, call = ""] =
+      new RegExp(`^Не указана команда после wtctl ${command}: есть (.+?)( или вызов .+)?\\.$`).exec(
+        missing.message,
+      ) ?? [];
+    assert.ok(list, missing.message);
+    // Вложенная команда проверяется раньше числа аргументов: result foo тоже о команде.
+    const unknown = await refuse([command, "foo"]);
+    assert.equal(unknown.message, `Команды wtctl ${command} foo нет: есть ${list}${call}.`);
+    for (const { hint } of [missing, unknown])
+      assert.equal(hint, `Справка: wtctl help ${command}.`);
+    // Список — вторые слова строк usage по порядку; строки с другим словом бывают только у вызова.
+    const names = list.split(", ");
+    const words = new Set(usage(command).map((line) => line.split(" ")[2]!));
+    assert.deepEqual(
+      [...words].filter((word) => names.includes(word)),
+      names,
+      command,
+    );
+    assert.equal(words.size > names.length, call !== "", command);
+    for (const name of names) {
+      const f = fixture();
+      await runCli([command, name], f.io, f.dependencies);
+      assert.doesNotMatch(f.state.stderr, /Не указана команда|Команды wtctl/, `${command} ${name}`);
+    }
+  }
+  assert.equal(
+    (await refuse(["rpc", "foo"])).message,
+    "Команды wtctl rpc foo нет: есть list, describe или вызов БИБЛИОТЕКА ФУНКЦИЯ.",
+  );
+  // То, что не похоже на имя команды, не печатается: в argv может оказаться пароль.
+  assert.equal(
+    (await refuse(["--password-stdin", "synthetic-secret-1", "status"])).message,
+    "Неизвестная команда.",
+  );
+  for (const odd of ["synthetic-secret-1", ""])
+    assert.equal(
+      (await refuse(["server", odd])).message,
+      "Неизвестная команда после wtctl server: есть info.",
+    );
+
+  // help с неизвестной командой — тот же отказ; унаследованное каждым объектом имя — не команда.
+  for (const argv of [
+    ["srever"],
+    ["help", "srever"],
+    ["srever", "--help"],
+    ["help", "srever", "--json"],
+  ]) {
+    const typo = await refuse(argv);
+    assert.equal(typo.message, "Команды wtctl srever нет.", argv.join(" "));
+    assert.equal(typo.hint, "Похожие: server. Справка: wtctl help.", argv.join(" "));
+  }
+  assert.equal((await refuse(["zzz"])).hint, "Справка: wtctl help.");
+  assert.equal((await refuse(["help", "constructor"])).message, "Команды wtctl constructor нет.");
 });
 
 test("неверный синтаксис files exists и неверные URL отказывают до ввода, пароля, настроек и runtime", async () => {
