@@ -578,17 +578,20 @@ test("удаление, после которого адрес остался, �
   assert.equal(data.error?.code, "READ_BACK_MISMATCH");
   assert.equal(data.error?.mutationOutcome, "indeterminate");
   assert.deepEqual(ids(state), ["native.lds.deleteUrl"]);
-  // В папке в базе данных остаётся только файл с копией на диске.
+  // В папке в базе данных остаётся только то, что лежит на диске: файл или пустая папка.
   const disk = await runtime.call("files.delete", { url: "x-local://wt_data/stays.txt" });
   assert.deepEqual(
     [disk.error?.code, disk.error?.mutationOutcome, disk.error?.message],
     [
       "FILE_NOT_DELETABLE",
       "indeterminate",
-      "Файл остался: у него есть копия на диске сервера, а её сервер по адресу не удаляет.",
+      "Файл или папка остались на диске сервера: с диска сервер по адресу ничего не удаляет.",
     ],
   );
-  assert.match(disk.error!.hint!, /^Свою копию в базе данных сервер удалил, если она была/);
+  assert.match(
+    disk.error!.hint!,
+    /^Папку wt_data сервер хранит в базе данных и по адресу удаляет только то, что лежит в базе\./,
+  );
   // Слишком длинный для проверки существования адрес в обычной папке не проверяется.
   const long = `x-local://share/stays${"a".repeat(250)}`;
   assert.equal((await runtime.call("files.delete", { url: long })).ok, true);
