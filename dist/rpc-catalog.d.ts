@@ -38,7 +38,7 @@ export interface RpcDescribeOptions {
 interface RpcCatalogSource {
     /** Откуда список: с сервера или из встроенной таблицы 2025.1.1171. */
     readonly source: "server" | "built-in 2025.1.1171";
-    /** Библиотеки, список функций которых сервер не отдал. */
+    /** Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. */
     readonly skipped?: readonly string[];
 }
 /** Страница функций: ответ listRpc. */

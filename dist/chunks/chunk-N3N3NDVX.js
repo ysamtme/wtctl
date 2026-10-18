@@ -3774,6 +3774,15 @@ function attachCleanupError(operationError, cleanupError) {
     value
   });
 }
+function redactCredentials(text) {
+  return text.replace(
+    /\b(proxy-authorization|authorization|set-cookie|cookie)(["']?\s*[:=]\s*)[^\r\n]*/gi,
+    "$1$2[redacted]"
+  ).replace(
+    /\b(\w*(?:password|passwd|pwd|token|sessionid))(["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+    "$1$2[redacted]"
+  ).replace(/\b(Basic|Bearer)\s+[^\s,;]+/gi, "$1 [redacted]");
+}
 
 // node_modules/fast-xml-parser/src/util.js
 var nameStartChar = ":A-Za-z_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
@@ -8782,7 +8791,21 @@ function buildXml(value) {
   assertWellFormed(source);
   return source;
 }
+var leadingDeclaration = /^\uFEFF?<\?xml(?=[\s?])[\s\S]*?\?>/i;
+function assertDeclarationFirst(source) {
+  const rest = source.replace(leadingDeclaration, "");
+  if (!/<\?xml(?=[\s?])/i.test(rest)) return;
+  for (const [, target] of rest.matchAll(
+    /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?([^\s?]+)[\s\S]*?\?>/g
+  ))
+    if (target?.toLowerCase() === "xml")
+      throw new ArgumentError("Декларация XML <?xml …?> допустима только в самом начале.");
+}
+function inlineXml(value) {
+  return value.xml.replace(leadingDeclaration, "");
+}
 function rawXml(source) {
+  assertDeclarationFirst(source);
   assertSafe(source);
   assertWellFormed(`<ws-hcm-fragment>${source}</ws-hcm-fragment>`);
   return assembledXml(source);
@@ -8791,6 +8814,7 @@ function assembledXml(source) {
   return Object.freeze({ [RAW_XML]: true, xml: source });
 }
 function rawXmlElement(source) {
+  assertDeclarationFirst(source);
   assertSafe(source);
   assertWellFormed(source);
   const value = topLevelParser.parse(source);
@@ -8849,7 +8873,7 @@ import { randomBytes, randomInt } from "node:crypto";
 function fieldXml([name, value]) {
   if (value === void 0) return "";
   if (value === null) return `<${name}></${name}>`;
-  const content = isRawXml(value) ? value.xml : escapeXml(value);
+  const content = isRawXml(value) ? inlineXml(value) : escapeXml(value);
   return `<${name}>${content}</${name}>`;
 }
 function soapEnvelope(method, fields, profile) {
@@ -8891,12 +8915,9 @@ function soapFault(document) {
   return directChild(directChild(envelope, "Body"), "Fault");
 }
 function boundedFaultText(value, fallback, maxLength = 512) {
-  const source = textOf(value)?.replace(/\s+/g, " ").trim();
+  const source = textOf(value)?.trim();
   if (!source) return fallback;
-  const redacted = source.replace(
-    /\b(password|passwd|pwd|token|sessionid|cookie|authorization)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-    "$1$2[redacted]"
-  ).replace(/\b(Basic|Bearer)\s+[^\s,;]+/gi, "$1 [redacted]");
+  const redacted = redactCredentials(source).replace(/\s+/g, " ");
   return redacted.length <= maxLength ? redacted : `${redacted.slice(0, maxLength - 3)}...`;
 }
 function parseSoapBody(method, source, status) {
@@ -9213,6 +9234,11 @@ function decimal(value, name) {
     throw new ArgumentError(`${name}: нужна строка из десятичных цифр.`);
   return value;
 }
+function decimalObjectId(value, name) {
+  if (!/^(?:\d{1,20}|0x[0-9a-fA-F]{1,16})$/.test(value) || BigInt(value) > 0xffffffffffffffffn)
+    throw new ArgumentError(`${name}: нужен ID строкой, 0x… или десятичный.`);
+  return BigInt(value).toString(10);
+}
 function tracking(value, name) {
   if (!/^(?:\d+|0x[0-9a-f]+)$/i.test(value))
     throw new ArgumentError(
@@ -9233,11 +9259,7 @@ async function soapCall(transport2, profile, path, method, fields, options = {})
       headers: { "Content-Type": soapContentType(profile) },
       body: source
     },
-    {
-      ...options.basic === void 0 ? {} : { basic: options.basic },
-      ...options.signal === void 0 ? {} : { signal: options.signal },
-      ...options.timeoutMs === void 0 ? {} : { timeoutMs: options.timeoutMs }
-    }
+    options
   );
   return readSoapResponse(response, method);
 }
@@ -9739,7 +9761,7 @@ function rpcArgs(args) {
         throw new ArgumentError(
           "Аргументу функции нужен valueType; без него передаётся только XML: {lexicalValue: {xml: …}}."
         );
-      const value = arg.valueType === void 0 ? rawXmlElement(arg.lexicalValue.xml).xml : isRawXml(arg.lexicalValue) ? arg.lexicalValue.xml : escapeXml(arg.lexicalValue);
+      const value = arg.valueType === void 0 ? inlineXml(rawXmlElement(arg.lexicalValue.xml)) : isRawXml(arg.lexicalValue) ? inlineXml(arg.lexicalValue) : escapeXml(arg.lexicalValue);
       const type = arg.valueType === void 0 ? "" : ` VALUE-TYPE="${escapeXml(arg.valueType)}"`;
       return `<arg-${index}${type}>${value}</arg-${index}>`;
     }).join("")
@@ -10258,11 +10280,11 @@ var ResourceApi = class {
   constructor(transport2) {
     this.transport = transport2;
   }
-  /** Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен. */
+  /** Прочитать потоком картинку ресурса по ID (0x… или десятичный); тип картинки необязателен. */
   async getImage(request, options) {
     const response = await this.transport.send(
       query("/lds/get_resource_image.html", {
-        resource_id: decimal(request.resourceId, "resourceId"),
+        resource_id: decimalObjectId(request.resourceId, "resourceId"),
         image_type: request.imageType
       }),
       // Сервер закрывает соединение после этой страницы, не сообщая об этом; только что запущенный —
@@ -10469,6 +10491,63 @@ function validateDbName(dbName) {
   if (!/^[A-Za-z0-9_.-]+$/.test(dbName))
     throw new ArgumentError("dbName: нужно имя базы из латинских букв, цифр и знаков . _ -");
 }
+async function createPhysicalDocument(lds, request, options) {
+  const dbName = request.dbName ?? "wt_data";
+  validateDbName(dbName);
+  const allocated = await lds.getNewObjectId({ dbName }, options);
+  const rawId = lexical(findXmlNode(allocated.data, "ObjectID"), "ObjectID", "GetNewObjectID");
+  const location = resolvePhysicalDocumentLocation(rawId, dbName);
+  const document = request.document(location);
+  if (!isRawXml(document))
+    throw new ArgumentError("document: функция должна вернуть проверенный XML (RawXml).");
+  const parsed = parseXml2(document.xml);
+  const documentId = directDocumentId(parsed);
+  if (documentId === void 0)
+    throw new ArgumentError(
+      "document: в XML нужен один корневой элемент и в нём ровно один элемент id."
+    );
+  if (documentId.toUpperCase() !== location.objectId.toUpperCase()) {
+    throw new ArgumentError("document: id в XML должен совпадать с выданным ID объекта.");
+  }
+  try {
+    const putResponse = await lds.putDoc(
+      {
+        url: location.url,
+        writeDocInfo: request.writeDocInfo ?? true,
+        ...request.skipActions !== void 0 ? { skipActions: request.skipActions } : {},
+        neverSaved: request.neverSaved ?? true,
+        data: document
+      },
+      options
+    );
+    const loadResponse = await lds.loadDoc({ url: location.url }, options);
+    const data = elementEntries(loadResponse.data).filter(([name]) => localName(name) === "Data");
+    const loadedId = data.length === 1 && !Array.isArray(data[0][1]) ? directDocumentId(data[0][1]) : void 0;
+    if (loadedId?.toUpperCase() !== location.objectId.toUpperCase()) {
+      throw new WsHcmApiError(
+        "protocol",
+        "ID загруженного документа не совпадает с выделенным objectId",
+        {
+          operation: "LoadDoc",
+          ...loadResponse.status === void 0 ? {} : { status: loadResponse.status }
+        }
+      );
+    }
+    return { ...location, putResponse, loadResponse };
+  } catch (operationError) {
+    try {
+      await lds.deleteDoc({ url: location.url, strictDelete: false });
+    } catch (cause) {
+      const cleanupError = new WsHcmApiError("cleanup", "Не удалось удалить созданный документ", {
+        operation: "DeleteDoc",
+        ...cause instanceof WsHcmApiError && cause.status !== void 0 ? { status: cause.status } : {},
+        cause
+      });
+      attachCleanupError(operationError, cleanupError);
+    }
+    throw operationError;
+  }
+}
 var NativePhysicalDocumentsApi = class {
   constructor(lds) {
     this.lds = lds;
@@ -10480,70 +10559,8 @@ var NativePhysicalDocumentsApi = class {
    *
    * @mutating
    */
-  async createFromXml(request, options) {
-    const dbName = request.dbName ?? "wt_data";
-    validateDbName(dbName);
-    const allocated = await this.lds.getNewObjectId({ dbName }, options);
-    const rawId = lexical(findXmlNode(allocated.data, "ObjectID"), "ObjectID", "GetNewObjectID");
-    const location = resolvePhysicalDocumentLocation(rawId, dbName);
-    const document = request.document(location);
-    if (!isRawXml(document))
-      throw new ArgumentError("document: функция должна вернуть проверенный XML (RawXml).");
-    const parsed = parseXml2(document.xml);
-    const documentId = directDocumentId(parsed);
-    if (documentId === void 0)
-      throw new ArgumentError(
-        "document: в XML нужен один корневой элемент и в нём ровно один элемент id."
-      );
-    if (documentId.toUpperCase() !== location.objectId.toUpperCase()) {
-      throw new ArgumentError("document: id в XML должен совпадать с выданным ID объекта.");
-    }
-    let putStarted = false;
-    try {
-      putStarted = true;
-      const putResponse = await this.lds.putDoc(
-        {
-          url: location.url,
-          writeDocInfo: request.writeDocInfo ?? true,
-          ...request.skipActions !== void 0 ? { skipActions: request.skipActions } : {},
-          neverSaved: request.neverSaved ?? true,
-          data: document
-        },
-        options
-      );
-      const loadResponse = await this.lds.loadDoc({ url: location.url }, options);
-      const data = elementEntries(loadResponse.data).filter(([name]) => localName(name) === "Data");
-      const loadedId = data.length === 1 && !Array.isArray(data[0][1]) ? directDocumentId(data[0][1]) : void 0;
-      if (loadedId?.toUpperCase() !== location.objectId.toUpperCase()) {
-        throw new WsHcmApiError(
-          "protocol",
-          "ID загруженного документа не совпадает с выделенным objectId",
-          {
-            operation: "LoadDoc",
-            status: loadResponse.status
-          }
-        );
-      }
-      return { ...location, putResponse, loadResponse };
-    } catch (operationError) {
-      if (putStarted) {
-        try {
-          await this.lds.deleteDoc({ url: location.url, strictDelete: false });
-        } catch (cause) {
-          const cleanupError = new WsHcmApiError(
-            "cleanup",
-            "Не удалось удалить созданный документ",
-            {
-              operation: "DeleteDoc",
-              ...cause instanceof WsHcmApiError && cause.status !== void 0 ? { status: cause.status } : {},
-              cause
-            }
-          );
-          attachCleanupError(operationError, cleanupError);
-        }
-      }
-      throw operationError;
-    }
+  createFromXml(request, options) {
+    return createPhysicalDocument(this.lds, request, options);
   }
 };
 
@@ -11122,8 +11139,7 @@ var WebLifecycleApi = class {
       "/admin",
       {},
       {
-        ...options?.signal === void 0 ? {} : { signal: options.signal },
-        ...options?.timeoutMs === void 0 ? {} : { timeoutMs: options.timeoutMs },
+        ...options,
         redirect: "manual",
         allowStatuses: [301]
       }
@@ -11156,8 +11172,7 @@ var WebLifecycleApi = class {
         "/spxml_web/logout.htm",
         {},
         {
-          ...options?.signal === void 0 ? {} : { signal: options.signal },
-          ...options?.timeoutMs === void 0 ? {} : { timeoutMs: options.timeoutMs },
+          ...options,
           redirect: "manual",
           allowStatuses: [200, 302, 401]
         }
@@ -11181,8 +11196,7 @@ var WebLifecycleApi = class {
       "/spxml_web/logout2.htm",
       {},
       {
-        ...options?.signal === void 0 ? {} : { signal: options.signal },
-        ...options?.timeoutMs === void 0 ? {} : { timeoutMs: options.timeoutMs },
+        ...options,
         redirect: "manual",
         allowStatuses: [200, 302, 401]
       }
@@ -11355,6 +11369,7 @@ export {
   ArgumentError,
   isTransportFailure,
   attachCleanupError,
+  redactCredentials,
   assertXmlCharacters,
   createPlatformXmlParser,
   createPlatformXmlBuilder,
@@ -11370,6 +11385,7 @@ export {
   rpc,
   resolvePhysicalDocumentLocation,
   parsePhysicalDocumentId,
+  createPhysicalDocument,
   NativePhysicalDocumentsApi,
   WebSocketHeartbeatError,
   NativeSession,

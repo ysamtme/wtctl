@@ -36,3 +36,10 @@ export declare class ArgumentError extends TypeError {
 export declare function isTransportFailure(error: unknown): boolean;
 /** Сохраняет и собирает сбои очистки, не заменяя основную ошибку операции. */
 export declare function attachCleanupError(operationError: unknown, cleanupError: unknown): void;
+/**
+ * Закрывает учётные данные в тексте ошибки сервера. Значение заголовка уходит до конца строки:
+ * у Authorization за схемой идёт токен, у Cookie — пары через «;». Имя бывает в кавычках, как
+ * в JSON, и с приставкой: JSESSIONID, access_token. Значение, перенесённое на следующую строку,
+ * тоже закрывается: лишнее закрытое слово дешевле открытого секрета.
+ */
+export declare function redactCredentials(text: string): string;

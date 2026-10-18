@@ -23,8 +23,11 @@ export declare class XmlDocument {
     private constructor();
     static parse(source: string): XmlDocument;
     static create(type: string, data: Record<string, unknown>, formUrl?: string): XmlDocument;
+    /** Тип и адрес формы — без сборки XML, которую делает snapshot. */
+    form(): Pick<DocumentSnapshot, "type" | "formUrl">;
     snapshot(): DocumentSnapshot;
-    patch(input: unknown): {
+    /** types — TYPE полей формы по пути, как DataShape.types; без него ID узнаётся по виду. */
+    patch(input: unknown, types?: ReadonlyMap<string, string>): {
         before: DocumentSnapshot;
         after: DocumentSnapshot;
         changes: PatchChange[];

@@ -56,7 +56,7 @@
 | `READ_BACK_MISMATCH` | документ сохранён, но поля из `details.fields` не приняли значение; что не совпало — в `details.differences`. У `files.write` — файл на сервере после записи отличается от отправленного | проверить поля в `hcm_schema`, прочитать объект; заново не создавать. При удалении — объект остался в каталоге, см. [objects.md](objects.md). При записи файла — см. `hint` |
 | `IMMUTABLE_ID` | попытка изменить `id` | ID не меняется |
 | `TYPE_MISMATCH` | объект другого типа, чем указан | настоящий тип — в `details.actualType`; проверить `type` и ID |
-| `TARGET_MISMATCH` | `id` и `url` указывают на разные объекты | передать `id` и `url` одного объекта или что-то одно |
+| `TARGET_MISMATCH` | `id` и `url` — разных объектов, или сверить их нечем: в документе нет ID, и адрес его не называет | передать `id` и `url` одного объекта или что-то одно |
 | `DELETE_MODE_REQUIRED` | удаление без `permanent:true`; в MCP это `mcp.invalid_arguments` с `permanent` в `details.validation` | добавить `permanent:true`: корзины нет |
 | `BATCH_FAILED` | шаг пакета не выполнен | номера и коды отказавших шагов — в `error.details.failed`, ответы всех шагов — в `data.results` (большой ответ сохранён, его читает `hcm_result_read`); выполненные шаги не откатываются |
 

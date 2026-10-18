@@ -9,7 +9,7 @@ import {
   nativeEffect,
   prepare,
   validate
-} from "./chunks/chunk-537E3SUJ.js";
+} from "./chunks/chunk-XFSHKQ75.js";
 import {
   ArgumentError,
   WebSocketHeartbeatError,
@@ -17,6 +17,7 @@ import {
   assertXmlCharacters,
   attachCleanupError,
   buildXml,
+  createPhysicalDocument,
   createPlatformXmlBuilder,
   createPlatformXmlParser,
   escapeXml,
@@ -25,9 +26,11 @@ import {
   localName,
   parsePhysicalDocumentId,
   parseXml,
+  rawXml,
+  redactCredentials,
   resolvePhysicalDocumentLocation,
   validatePlatformXmlSource
-} from "./chunks/chunk-O7P4SP3L.js";
+} from "./chunks/chunk-N3N3NDVX.js";
 
 // src/errors.ts
 var HcmError = class extends Error {
@@ -231,6 +234,48 @@ function rpcValue(response) {
   }
 }
 
+// src/write-outcome.ts
+function refusedAtDoor(error) {
+  return error instanceof WsHcmApiError && error.status === 401 || loginFailed(error);
+}
+var WriteOutcome = class {
+  marks = 0;
+  ids = {};
+  /** Перед запросом, способным изменить сервер; возвращает снятие этой отметки. */
+  sending() {
+    this.marks++;
+    let withdrawn = false;
+    return () => {
+      if (!withdrawn) this.marks--;
+      withdrawn = true;
+    };
+  }
+  /** Значение undefined ничего не стирает. */
+  note(ids) {
+    for (const [key, value] of Object.entries(ids))
+      if (value !== void 0) this.ids[key] = value;
+  }
+  /**
+   * Первая подходящая строка: нет ошибки или чтение — исхода нет; отказ на входе, неснятая
+   * отметка; иначе not_sent.
+   */
+  verdict(effect, error) {
+    const { mutationId, objectId, executionId } = this.ids;
+    const exactIds = {
+      ...mutationId !== void 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId) ? { mutationId } : {},
+      ...objectId !== void 0 && /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(objectId) && BigInt(objectId) <= 0xffffffffffffffffn ? { objectId } : {},
+      ...executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(executionId) ? { executionId } : {}
+    };
+    const sent = effect !== "read" && this.marks > 0;
+    const verdict = { sent, ids: { ...this.ids }, exactIds };
+    if (error === void 0 || effect === "read") return verdict;
+    const turnedAway = error instanceof HcmError && (error.code === "RPC_SERVER_ONLY" || error.code === "UNKNOWN_RPC_TARGET");
+    const mutationOutcome = sent && !turnedAway ? "indeterminate" : "not_sent";
+    const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error);
+    return { ...verdict, mutationOutcome, ...refusedAfterSend && { refusedAfterSend } };
+  }
+};
+
 // src/operations/native.ts
 function withoutXmlFormatting(value) {
   if (Array.isArray(value)) return value.map(withoutXmlFormatting);
@@ -288,6 +333,55 @@ function asyncStatus(answer) {
     }
   return answer;
 }
+var createFromXml = async ({ server }, args, { outcome }) => {
+  const aside = new WriteOutcome();
+  const created = await createPhysicalDocument(
+    {
+      getNewObjectId: async (request) => ({
+        data: await server.call("native.lds.getNewObjectId", request, aside)
+      }),
+      putDoc: async ({ data: data2, ...request }) => {
+        outcome.note({ url: request.url, objectId: parsePhysicalDocumentId(request.url) });
+        return {
+          data: await server.call("native.lds.putDoc", { ...request, data: data2.xml }, outcome)
+        };
+      },
+      loadDoc: async (request) => ({ data: await server.call("native.lds.loadDoc", request) }),
+      deleteDoc: (request) => server.call("native.lds.deleteDoc", request, aside)
+    },
+    {
+      ...args.dbName === void 0 ? {} : { dbName: args.dbName },
+      ...args.writeDocInfo === void 0 ? {} : { writeDocInfo: args.writeDocInfo },
+      ...args.skipActions === void 0 ? {} : { skipActions: args.skipActions },
+      ...args.neverSaved === void 0 ? {} : { neverSaved: args.neverSaved },
+      document: ({ objectId }) => rawXml(args.documentXmlTemplate.replaceAll("{{objectId}}", objectId))
+    }
+  );
+  return { objectId: created.objectId, url: created.url, document: created.loadResponse.data };
+};
+var inRuntime = [
+  {
+    id: "native.physicalDocuments.createFromXml",
+    profile: "native",
+    group: "physicalDocuments",
+    method: "createFromXml",
+    title: "Создать документ из XML",
+    description: "Выделить ID, подставить его вместо {{objectId}} в documentXmlTemplate, сохранить через PutDoc и сверить ID корня через LoadDoc. Обработка XMD, как в клиенте администратора, не воспроизводится.",
+    effect: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentXmlTemplate: { type: "string" },
+        dbName: { type: "string" },
+        writeDocInfo: { type: "boolean" },
+        skipActions: { type: "boolean" },
+        neverSaved: { type: "boolean" }
+      },
+      required: ["documentXmlTemplate"],
+      additionalProperties: false
+    }
+  }
+];
 var FACES = {
   // Тема tasks.
   "web.spxml.callMethodAsync": {
@@ -342,6 +436,7 @@ var FACES = {
     details: "ObjectID — новый ID десятичной записью; остальные операции принимают его и так, и в записи 0x…."
   },
   "native.physicalDocuments.createFromXml": {
+    run: createFromXml,
     summary: "Создать документ из готового XML; новый ID подставляется вместо {{objectId}}.",
     details: "documentXmlTemplate — текст XML документа с {{objectId}} на месте ID. После записи документ перечитывается, и его ID сверяется. Обработчики, которые админка выполняет при создании, не запускаются."
   },
@@ -388,26 +483,32 @@ var FACES = {
     details: "Источник — url (адрес HTML-файла, x-local или x-app) либо docUrl и elemPath (строковое поле документа). elemPath начинается с имени корневого элемента документа: presence_state.name."
   }
 };
-var nativeOperations = getNativeOperations().map((native) => {
-  const { answer, failure, ...texts } = FACES[native.id] ?? {};
-  return operation({
-    id: native.id,
-    effect: native.effect,
-    effectFor: (args) => getEffectiveNativeEffect(native, args),
-    description: native.description,
-    ...texts,
-    inputSchema: native.inputSchema,
-    native,
-    run: async (context, args, call) => {
-      const raw = withoutXmlFormatting(
-        await context.server.call(native.id, args, call.effect === "read" ? void 0 : call.outcome).catch((error) => {
-          throw failure ? failure(error) : error;
-        })
-      );
-      return answer ? answer(raw) : raw;
-    }
-  });
-});
+var nativeOperations = [...getNativeOperations(), ...inRuntime].map(
+  (native) => {
+    const { answer, failure, run, ...texts } = FACES[native.id] ?? {};
+    return operation({
+      id: native.id,
+      effect: native.effect,
+      effectFor: (args) => getEffectiveNativeEffect(native, args),
+      description: native.description,
+      ...texts,
+      inputSchema: native.inputSchema,
+      native,
+      run: async (context, args, call) => {
+        const raw = withoutXmlFormatting(
+          await (run ? run(context, args, call) : context.server.call(
+            native.id,
+            args,
+            call.effect === "read" ? void 0 : call.outcome
+          )).catch((error) => {
+            throw failure ? failure(error) : error;
+          })
+        );
+        return answer ? answer(raw) : raw;
+      }
+    });
+  }
+);
 for (const id of Object.keys(FACES))
   if (!nativeOperations.some((item) => item.id === id))
     throw new Error(`Строка таблицы для неизвестной низкоуровневой операции: ${id}`);
@@ -433,15 +534,18 @@ function looksLikeDate(value) {
 function looksLikeDecimalId(value) {
   return typeof value === "string" && /^[1-9]\d{0,18}$/.test(value);
 }
-function literal(value, date2 = false, integer3 = false) {
-  if (integer3 && looksLikeDecimalId(value)) return value;
-  if (date2 && looksLikeDate(value) && value.length <= 40 && !value.includes("'"))
+function looksLikeHexId(value) {
+  return typeof value === "string" && /^0x[0-9a-fA-F]{1,16}$/.test(value);
+}
+function literal(value, type) {
+  if (type === "integer" && looksLikeDecimalId(value)) return value;
+  if (type === "date" && looksLikeDate(value) && value.length <= 40 && !value.includes("'"))
     return `date('${value}')`;
   if (value === null) return "null()";
   if (typeof value === "boolean") return value ? "true()" : "false()";
   if (typeof value === "number" && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value)))
     return decimalLiteral(value);
-  if (typeof value === "string" && /^0x[0-9a-fA-F]{1,16}$/.test(value)) {
+  if ((type === void 0 || type === "integer") && looksLikeHexId(value)) {
     const id = BigInt(value);
     return id < 1n << 63n ? id.toString(10) : value;
   }
@@ -465,14 +569,13 @@ function decimalLiteral(value) {
   return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
 }
 var OPERATOR_HINT = 'Условие пишется как {поле: {оператор: значение}}, например {fullname: {contains: "Иван"}}; равенство — {поле: значение}.';
-function catalogQuery(catalog, where = {}, dates = /* @__PURE__ */ new Set(), order, integers = /* @__PURE__ */ new Set()) {
+function catalogQuery(catalog, where = {}, order, types) {
   const name3 = identifier(catalog, "catalog");
   const conditions = [];
   for (const [field, condition] of Object.entries(inputObject(where, "where"))) {
     const path = `$elem/${identifier(field, "поле условия")}`;
-    const date2 = dates.has(field);
-    const integer3 = integers.has(field);
-    const equals = (value) => value === "" || value === null ? `(${path} = '' or IsEmpty(${path}) = true())` : `${path} = ${literal(value, date2, integer3)}`;
+    const type = types?.get(field);
+    const equals = (value) => value === "" || value === null ? `(${path} = '' or IsEmpty(${path}) = true())` : `${path} = ${literal(value, type)}`;
     if (condition !== null && typeof condition === "object") {
       const operators = Object.entries(inputObject(condition, "условие"));
       if (operators.length === 0)
@@ -488,9 +591,9 @@ function catalogQuery(catalog, where = {}, dates = /* @__PURE__ */ new Set(), or
           if (operation2 === "eq") conditions.push(equals(value));
           else if (operation2 === "ne" && (value === "" || value === null))
             conditions.push(`IsEmpty(${path}) = false()`);
-          else conditions.push(`${path} ${operator} ${literal(value, date2, integer3)}`);
+          else conditions.push(`${path} ${operator} ${literal(value, type)}`);
         } else if (operation2 === "contains")
-          conditions.push(`contains(${path}, ${literal(value)})`);
+          conditions.push(`contains(${path}, ${literal(value, "string")})`);
         else if (operation2 === "in" && Array.isArray(value) && value.length > 0 && value.length <= 100)
           conditions.push(`(${value.map(equals).join(" or ")})`);
         else
@@ -701,49 +804,8 @@ function hasStructure(data2) {
   return Object.values(data2).some((value) => value !== null && typeof value === "object");
 }
 
-// src/write-outcome.ts
-function refusedAtDoor(error) {
-  return error instanceof WsHcmApiError && error.status === 401 || loginFailed(error);
-}
-var WriteOutcome = class {
-  marks = 0;
-  ids = {};
-  /** Перед запросом, способным изменить сервер; возвращает снятие этой отметки. */
-  sending() {
-    this.marks++;
-    let withdrawn = false;
-    return () => {
-      if (!withdrawn) this.marks--;
-      withdrawn = true;
-    };
-  }
-  note(ids) {
-    for (const [key, value] of Object.entries(ids))
-      if (value !== void 0) this.ids[key] = value;
-  }
-  /**
-   * Первая подходящая строка: нет ошибки или чтение — исхода нет; отказ на входе, неснятая
-   * отметка; иначе not_sent.
-   */
-  verdict(effect, error) {
-    const { mutationId, objectId, executionId } = this.ids;
-    const exactIds = {
-      ...mutationId !== void 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId) ? { mutationId } : {},
-      ...objectId !== void 0 && /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(objectId) && BigInt(objectId) <= 0xffffffffffffffffn ? { objectId } : {},
-      ...executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(executionId) ? { executionId } : {}
-    };
-    const sent = effect !== "read" && this.marks > 0;
-    const verdict = { sent, ids: { ...this.ids }, exactIds };
-    if (error === void 0 || effect === "read") return verdict;
-    const turnedAway = error instanceof HcmError && (error.code === "RPC_SERVER_ONLY" || error.code === "UNKNOWN_RPC_TARGET");
-    const mutationOutcome = sent && !turnedAway ? "indeterminate" : "not_sent";
-    const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error);
-    return { ...verdict, mutationOutcome, ...refusedAfterSend && { refusedAfterSend } };
-  }
-};
-
 // src/operations/batch.ts
-var batchEffect = (args, effectOf) => {
+var batchEffect = (args, effectOf2) => {
   const steps = args.steps;
   if (!Array.isArray(steps)) return "unknown";
   const effects = steps.map((raw) => {
@@ -751,7 +813,7 @@ var batchEffect = (args, effectOf) => {
     const id = requiredString(step.id, "step.id");
     if (id === "runtime.batch")
       throw new HcmError("NESTED_BATCH", "Пакет внутри пакета не поддерживается.");
-    return effectOf(id)(step.args === void 0 ? {} : inputObject(step.args));
+    return effectOf2(id)(step.args === void 0 ? {} : inputObject(step.args));
   });
   if (effects.includes("unknown") || effects.includes("write") && effects.includes("execute"))
     return "unknown";
@@ -791,7 +853,7 @@ var batchOperations = [
     id: "runtime.batch",
     effect: "unknown",
     effectFor: batchEffect,
-    reply: { failed: batchFailed, preview: { results: stepSummary } },
+    reply: { failed: batchFailed, list: { key: "results", summary: stepSummary } },
     description: "Несколько операций одним вызовом: steps — список {id, args, as}. Значение из прошлого шага: {$ref:'имя.data.items.0.id'}, где имя — as того шага, дальше путь по его ответу. Класс вызова — по самому сильному шагу: все шаги читают — чтение, есть запись — запись, есть выполнение кода — выполнение. Права проверяются для каждого шага. Это не транзакция: выполненные шаги не откатываются; первый сбой останавливает остальные, если не задано stopOnError:false.",
     inputSchema: schema(
       {
@@ -1369,14 +1431,14 @@ function encodeValue(key, value, depth = 0) {
   return { [key]: nested };
 }
 var ID_TEXT = /^(?:0x[0-9a-f]{1,16}|[1-9]\d{0,19})$/i;
-function sameKey(stored, key) {
+function sameKey(stored, key, type) {
   const text3 = String(stored);
-  return text3 === key || ID_TEXT.test(text3) && ID_TEXT.test(key) && BigInt(text3) === BigInt(key);
+  return text3 === key || (type === void 0 || type === "integer") && ID_TEXT.test(text3) && ID_TEXT.test(key) && BigInt(text3) === BigInt(key);
 }
-function sameValue(stored, value, replacement) {
+function sameValue(stored, value, replacement, type) {
   if (typeof value === "boolean") return stored === String(value) || stored === (value ? "1" : "0");
   if (typeof value === "string" || typeof value === "number")
-    return typeof stored === "string" && sameKey(stored, String(withoutFalseOffset(String(value))));
+    return typeof stored === "string" && sameKey(stored, String(withoutFalseOffset(String(value))), type);
   return replacement.length === 1 && JSON.stringify(withoutFalseOffset(compact(children(replacement[0])))) === JSON.stringify(stored);
 }
 function brief(value, nested = false) {
@@ -1436,22 +1498,24 @@ var XmlDocument = class _XmlDocument {
     }
     return new _XmlDocument(root);
   }
+  /** Тип и адрес формы — без сборки XML, которую делает snapshot. */
+  form() {
+    const formUrl = this.root[":@"]?.["@_SPXML-FORM"];
+    return { type: local(name(this.root)), ...typeof formUrl === "string" ? { formUrl } : {} };
+  }
   snapshot() {
-    const type = local(name(this.root));
     const xml = builder.build(withoutIndentation([this.root]));
     assertXml(xml);
     const data2 = inputObject(compact(children(this.root)), "содержимое документа");
-    const attributes = this.root[":@"];
-    const formUrl = attributes?.["@_SPXML-FORM"];
     return {
-      type,
+      ...this.form(),
       xml,
       data: data2,
-      fingerprint: createHash("sha256").update(JSON.stringify(semantic([this.root]))).digest("hex"),
-      ...typeof formUrl === "string" ? { formUrl } : {}
+      fingerprint: createHash("sha256").update(JSON.stringify(semantic([this.root]))).digest("hex")
     };
   }
-  patch(input2) {
+  /** types — TYPE полей формы по пути, как DataShape.types; без него ID узнаётся по виду. */
+  patch(input2, types) {
     const before = this.snapshot();
     const workingRoot = structuredClone(this.root);
     const operations2 = Array.isArray(input2) ? input2 : Object.entries(inputObject(input2, "patch")).map(([path, value]) => ({
@@ -1467,6 +1531,12 @@ var XmlDocument = class _XmlDocument {
       const path = requiredString(operation2.path, "path");
       const segments = patchSegments(path);
       const upTo = (count) => segments.slice(0, count).map((part) => part[0]).join(".");
+      const typeOf = (count, child) => types?.get(
+        [
+          ...segments.slice(0, count).map((part) => part[1]),
+          ...child === void 0 ? [] : [child]
+        ].join(".")
+      );
       let createdKeyedElement = false;
       let created = false;
       if (operation2.op !== "set" && operation2.op !== "remove")
@@ -1488,7 +1558,7 @@ var XmlDocument = class _XmlDocument {
           throw new HcmError("IMMUTABLE_ID", "ID объекта изменить нельзя.");
         const matches2 = parent.map((node, i) => ({ node, i })).filter(
           (item) => name(item.node) === field && (key === void 0 || children(item.node).some(
-            (child) => name(child) === key && sameKey(compact(children(child)), keyValue)
+            (child) => name(child) === key && sameKey(compact(children(child)), keyValue, typeOf(index + 1, key))
           ))
         );
         if (position === void 0 && matches2.length > 1)
@@ -1536,7 +1606,7 @@ var XmlDocument = class _XmlDocument {
             throw new HcmError("INVALID_PATCH", "Для set нужно value.", void 0, { path });
           if (key !== void 0) inputObject(operation2.value, "значение элемента с ключом");
           const made = segments[index - 1];
-          if (created && made?.[3] === field && !sameKey(operation2.value, made[4]))
+          if (created && made?.[3] === field && !sameKey(operation2.value, made[4], typeOf(index + 1)))
             throw new HcmError(
               "INVALID_PATCH",
               "Ключ в значении не совпадает с ключом в пути.",
@@ -1546,7 +1616,8 @@ var XmlDocument = class _XmlDocument {
           const replacement = Array.isArray(operation2.value) ? operation2.value.map((value) => encodeValue(field, value)) : [encodeValue(field, operation2.value)];
           if (key !== void 0 && !sameKey(
             inputObject(compact(children(replacement[0])), "значение элемента с ключом")[key],
-            keyValue
+            keyValue,
+            typeOf(index + 1, key)
           ))
             throw new HcmError(
               "INVALID_PATCH",
@@ -1556,7 +1627,8 @@ var XmlDocument = class _XmlDocument {
                 path
               }
             );
-          if (stored !== void 0 && sameValue(stored, operation2.value, replacement)) continue;
+          if (stored !== void 0 && sameValue(stored, operation2.value, replacement, typeOf(index + 1)))
+            continue;
           if (chosen) {
             if (chosen.node[":@"] !== void 0 && replacement.length === 1)
               replacement[0][":@"] = chosen.node[":@"];
@@ -1606,11 +1678,19 @@ function normalizeFormParams(source, library = false) {
     }
   );
 }
+function decodeLibrary(bytes) {
+  const [first, second, third] = bytes;
+  const encoding = first === 239 && second === 187 && third === 191 ? "utf-8" : first === 255 && second === 254 ? "utf-16le" : first === 254 && second === 255 ? "utf-16be" : /^\s*<\?xml\s[^>]*?\bencoding\s*=\s*["']([^"']+)["']/.exec(
+    bytes.subarray(0, 256).toString("latin1")
+  )?.[1] ?? "utf-8";
+  return new TextDecoder(encoding, { fatal: true }).decode(bytes);
+}
 var LibraryReader = class {
   constructor(applicationInfo, readFile2) {
     this.applicationInfo = applicationInfo;
     this.readFile = readFile2;
   }
+  /** Общие документы сервера: библиотеки, которые клиент читает, и ID остальных. */
   shared;
   files = /* @__PURE__ */ new Map();
   file({ url }) {
@@ -1622,9 +1702,7 @@ var LibraryReader = class {
       }).then((response) => {
         const encoded = findXmlNode(response, "Data");
         if (typeof encoded !== "string") throw new Error();
-        const source = new TextDecoder("utf-8", { fatal: true }).decode(
-          Buffer.from(encoded, "base64")
-        );
+        const source = decodeLibrary(Buffer.from(encoded, "base64"));
         const root = findXmlNode(
           parseXml(normalizeFormParams(source, true)),
           "SPXML-INLINE-FORM"
@@ -1654,25 +1732,35 @@ var LibraryReader = class {
     }
     return cached;
   }
+  /**
+   * Функции библиотек. skipped — библиотеки, файл которых не прочитан; excluded — общие документы
+   * с этим ID, которые клиент как библиотеки не читает: они лежат в базе данных.
+   */
   async read(library) {
     this.shared ??= this.applicationInfo().then((info) => {
       if (!Array.isArray(info.shared_docs)) throw new Error();
-      return info.shared_docs.filter((file) => {
-        if (!file || typeof file.id !== "string" || typeof file.url !== "string") return false;
+      const files2 = [];
+      const excluded = /* @__PURE__ */ new Set();
+      for (const file of info.shared_docs) {
+        if (!file || typeof file.id !== "string" || typeof file.url !== "string") continue;
+        let read = true;
         try {
           const url = new URL(file.url);
-          return url.hostname.toLowerCase() !== String(info.default_db_name).toLowerCase() && !(url.protocol === "x-local:" && url.hostname === "data_local");
+          read = url.hostname.toLowerCase() !== String(info.default_db_name).toLowerCase() && !(url.protocol === "x-local:" && url.hostname === "data_local");
         } catch {
-          return true;
         }
-      });
+        if (read) files2.push(file);
+        else excluded.add(file.id);
+      }
+      return { files: files2, excluded };
     }).catch(() => {
       this.shared = void 0;
       return void 0;
     });
     const shared = await this.shared;
     if (!shared) return void 0;
-    const files = shared.filter((file) => library === void 0 || file.id === library);
+    const wanted = (id) => library === void 0 || id === library;
+    const files = shared.files.filter((file) => wanted(file.id));
     const targets2 = /* @__PURE__ */ new Map();
     const skipped = /* @__PURE__ */ new Set();
     for (let offset = 0; offset < files.length; offset += 4) {
@@ -1689,7 +1777,8 @@ var LibraryReader = class {
     }
     return {
       targets: [...targets2.values()].sort((a, b) => a.id.localeCompare(b.id)),
-      skipped: [...skipped]
+      skipped: [...skipped],
+      excluded: [...shared.excluded].filter(wanted)
     };
   }
 };
@@ -1759,6 +1848,18 @@ var matches = (search, values) => {
 };
 var nothingFound = (where, examples, search = "", one = "поле") => `Ничего не найдено: search ищет слова ${where}.${/\S\s+\S/.test(search) ? ` Все слова должны быть в одном ${one}: искать нужно по одному слову.` : ""} Можно попробовать слово из заголовка на языке сервера, часть имени латиницей (${examples}) или вызов без search.`;
 var pageSize = (value) => Buffer.byteLength(JSON.stringify(value));
+var usualFormUrl = (type) => `x-local://wtv/wtv_${type}.xmd`;
+var customUnreadable = "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет.";
+function remembered(cache, key, read) {
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const reading2 = read();
+  cache.set(key, reading2);
+  reading2.catch(() => {
+    if (cache.get(key) === reading2) cache.delete(key);
+  });
+  return reading2;
+}
 var SchemaReader = class {
   constructor(applicationInfo, readForm, readDocument) {
     this.applicationInfo = applicationInfo;
@@ -1768,12 +1869,15 @@ var SchemaReader = class {
   forms = /* @__PURE__ */ new Map();
   shapes = /* @__PURE__ */ new Map();
   dictionaries = /* @__PURE__ */ new Map();
-  common;
-  custom;
+  documents = /* @__PURE__ */ new Map();
+  customExpires = 0;
+  /** Найденный адрес формы по имени типа или каталога; ненайденный следующий вызов ищет заново. */
+  formUrls = /* @__PURE__ */ new Map();
   form(url) {
-    let cached = this.forms.get(url);
-    if (!cached) {
-      cached = this.readForm(url).then((source) => {
+    return remembered(
+      this.forms,
+      url,
+      () => this.readForm(url).then((source) => {
         const normalized = normalizeFormParams(source);
         try {
           validatePlatformXmlSource(normalized);
@@ -1783,10 +1887,8 @@ var SchemaReader = class {
           throw new HcmError("FORM_RESPONSE", "Сервер вернул форму с ошибкой в XML.");
         }
         throw new HcmError("FORM_RESPONSE", "В ответе сервера нет формы (SPXML-FORM).");
-      });
-      this.forms.set(url, cached);
-    }
-    return cached;
+      })
+    );
   }
   /**
    * Типы полей для проверки после записи. Базовый тип отдаёт свои поля тому месту, которое его
@@ -1826,13 +1928,7 @@ var SchemaReader = class {
     return id === "common" ? this.readForm(url).then((source) => XmlDocument.parse(source).snapshot().data) : this.readDocument(url);
   }
   commonData(info) {
-    if (!this.common) {
-      const reading2 = this.common = this.shared(info, "common");
-      reading2.catch(() => {
-        if (this.common === reading2) this.common = void 0;
-      });
-    }
-    return this.common;
+    return remembered(this.documents, "common", () => this.shared(info, "common"));
   }
   /** Типы объектов, которые объявляет сервер; пустой список, если объявление не читается. */
   async declaredTypes(info) {
@@ -1840,25 +1936,24 @@ var SchemaReader = class {
     return list(data(common.exchange_object_types).exchange_object_type);
   }
   customData(info) {
-    if (!this.custom || this.custom.expires <= Date.now())
-      this.custom = { expires: Date.now() + 6e4, value: this.shared(info, "custom_templates") };
-    return this.custom.value;
+    if (this.customExpires <= Date.now()) {
+      this.documents.delete("custom_templates");
+      this.customExpires = Date.now() + 6e4;
+    }
+    return remembered(
+      this.documents,
+      "custom_templates",
+      () => this.shared(info, "custom_templates")
+    );
   }
   language(info, language) {
-    const folder2 = languageFileUrl(info.ui_lang_id, language);
-    let cached = this.dictionaries.get(folder2);
-    if (!cached) {
-      cached = this.readDocument(folder2).then(
-        (value) => new Map(
-          list(data(value.items).item ?? value.item).map((item) => [
-            text(item.id),
-            text(item.val)
-          ])
-        )
+    const url = languageFileUrl(info.ui_lang_id, language);
+    return remembered(this.dictionaries, url, async () => {
+      const value = await this.readDocument(url);
+      return new Map(
+        list(data(value.items).item ?? value.item).map((item) => [text(item.id), text(item.val)])
       );
-      this.dictionaries.set(folder2, cached);
-    }
-    return cached;
+    });
   }
   unknownType(info, type, declared = []) {
     const catalogs = this.catalogs(info);
@@ -1953,37 +2048,36 @@ var SchemaReader = class {
   async context(language) {
     const info = await this.applicationInfo();
     const notes = [];
+    let unreadLanguage;
     const dictionary = await this.language(info, language).catch(() => {
-      notes.push(
-        `Файл языка ${languageFileUrl(info.ui_lang_id, language)} прочитать не удалось: заголовки, которые берутся из него, показаны как есть.`
-      );
+      unreadLanguage = `Файл языка ${languageFileUrl(info.ui_lang_id, language)} прочитать не удалось: заголовков из него в ответе нет.`;
+      notes.push(unreadLanguage);
       return /* @__PURE__ */ new Map();
     });
     const custom = await this.customData(info).catch(() => {
-      notes.push(
-        "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет."
-      );
-      return {};
+      notes.push(customUnreadable);
+      return void 0;
     });
-    return { info, dictionary, custom, notes };
+    return {
+      info,
+      dictionary,
+      ...custom ? { custom } : {},
+      ...unreadLanguage ? { unreadLanguage } : {},
+      notes
+    };
   }
   title(value, dictionary) {
-    if (value.startsWith("const="))
-      return dictionary.get(value.slice(6)) ?? (dictionary.size ? "" : value);
+    if (value.startsWith("const=")) return dictionary.get(value.slice(6)) ?? "";
     return /^##(['"])([\s\S]*)\1##$/.exec(value)?.[2] ?? value;
   }
   typeTranslations(info) {
     const url = `x-local://i18n/common/${identifier(info.ui_lang_id ?? "ru", "ui_lang_id")}/const.json`;
-    let cached = this.dictionaries.get(url);
-    if (!cached) {
-      cached = this.readForm(url).then(
-        (source) => new Map(
-          Object.entries(data(JSON.parse(source))).map(([key, value]) => [key, text(value)])
-        )
-      ).catch(() => /* @__PURE__ */ new Map());
-      this.dictionaries.set(url, cached);
-    }
-    return cached;
+    return remembered(this.dictionaries, url, async () => {
+      const source = await this.readForm(url);
+      return new Map(
+        Object.entries(data(JSON.parse(source))).map(([key, value]) => [key, text(value)])
+      );
+    }).catch(() => /* @__PURE__ */ new Map());
   }
   typeTitle(definition, dictionary, translations) {
     const expression = text(definition.title).trim();
@@ -2041,9 +2135,31 @@ var SchemaReader = class {
     if (record3) collect2(children2(record3));
     return query;
   }
+  /**
+   * Адрес формы документа типа: обычный, а если такой формы нет — тот, что сервер объявляет для
+   * типа в common. Формы типов тестирования (assessment и др.) лежат вне x-local://wtv. Если не
+   * нашлась ни та, ни другая, отказ — тот, что дало чтение обычной формы.
+   */
+  async typeFormUrl(type) {
+    const known = this.formUrls.get(type);
+    if (known) return known;
+    const usual = usualFormUrl(type);
+    let url = usual;
+    try {
+      await this.form(usual);
+    } catch (error) {
+      const info = await this.applicationInfo().catch(() => void 0);
+      const declared = info ? await this.declaredTypes(info) : [];
+      url = text(declared.find((item) => item.name === type)?.form_url);
+      if (!url) throw error;
+    }
+    this.formUrls.set(type, url);
+    return url;
+  }
   /** Структура документа одного типа с унаследованными полями; читается один раз на форму. */
-  documentShape(type, formUrl = `x-local://wtv/wtv_${type}.xmd`) {
-    return this.shape(`${formUrl}#${type}`, async () => {
+  async documentShape(type, url) {
+    const formUrl = url ?? await this.typeFormUrl(type);
+    return remembered(this.shapes, `${formUrl}#${type}`, async () => {
       const samples = /* @__PURE__ */ new Map();
       const roots = await this.samples(formUrl, samples);
       const root = roots.find((node) => name2(node) === type && attr(node, "SAMPLE") !== "1");
@@ -2053,7 +2169,7 @@ var SchemaReader = class {
       const shape = {
         fields: /* @__PURE__ */ new Set(),
         repeated: /* @__PURE__ */ new Set(),
-        dates: /* @__PURE__ */ new Set(),
+        types: /* @__PURE__ */ new Map(),
         computed,
         serverFilled
       };
@@ -2072,7 +2188,7 @@ var SchemaReader = class {
           const path = prefix ? `${prefix}.${key}` : key;
           if (!prefix) shape.fields.add(key);
           if (!prefix) (attr(node, "PROPERTY") === "1" ? computed : stored).add(key);
-          if (!prefix && base === "date") shape.dates.add(key);
+          shape.types.set(path, base);
           if (attr(node, "MULTIPLE") === "1") shape.repeated.add(path);
           if (sample) collect2(children2(sample), path, [...stack, base]);
           collect2(children2(node), path, stack);
@@ -2094,32 +2210,20 @@ var SchemaReader = class {
     const catalogs = selector.catalog === void 0 ? await this.catalogsOf(info, selector.type ?? "") : [this.catalog(info, selector.catalog)].filter((item) => item !== void 0);
     if (catalogs.length !== 1) return void 0;
     const catalog = catalogs[0];
-    return this.shape(`catalog#${text(catalog.id)}`, async () => {
+    return remembered(this.shapes, `catalog#${text(catalog.id)}`, async () => {
       const known = await this.catalogFields(catalog, await this.rowType(catalog), /* @__PURE__ */ new Map());
-      const integers = /* @__PURE__ */ new Set();
       const shape = {
         fields: /* @__PURE__ */ new Set(),
         repeated: /* @__PURE__ */ new Set(),
-        dates: /* @__PURE__ */ new Set(),
-        integers
+        types: /* @__PURE__ */ new Map()
       };
       for (const [path, node] of known) {
         if (!path.includes(".")) shape.fields.add(path);
-        if (!path.includes(".") && attr(node, "TYPE") === "date") shape.dates.add(path);
-        if (!path.includes(".") && attr(node, "TYPE") === "integer") integers.add(path);
+        shape.types.set(path, attr(node, "TYPE"));
         if (attr(node, "MULTIPLE") === "1") shape.repeated.add(path);
       }
       return shape;
     });
-  }
-  shape(key, read) {
-    let cached = this.shapes.get(key);
-    if (!cached) {
-      cached = read();
-      this.shapes.set(key, cached);
-      cached.catch(() => this.shapes.delete(key));
-    }
-    return cached;
   }
   /**
    * Сервер отвечает на отклонённый запрос к каталогу голым HTTP 500. После такого отказа здесь
@@ -2159,19 +2263,22 @@ var SchemaReader = class {
     const limit = boundedInteger(input2.limit, 80, 1e3, "limit");
     const cursor = boundedInteger(input2.cursor, 0, Number.MAX_SAFE_INTEGER, "cursor");
     const requestedType = input2.type === void 0 ? void 0 : identifier(input2.type, "type");
-    let formUrl = input2.url === void 0 ? `x-local://wtv/wtv_${requiredString(requestedType, "type")}.xmd` : requiredString(input2.url, "url");
+    const byType = input2.url === void 0 ? requiredString(requestedType, "type") : void 0;
+    let formUrl = byType === void 0 ? requiredString(input2.url, "url") : usualFormUrl(byType);
     const { info, custom, dictionary, notes } = await this.context(input2.language);
     try {
+      if (byType !== void 0) formUrl = await this.typeFormUrl(byType);
       await this.form(formUrl);
     } catch (error) {
-      if (input2.url !== void 0 || requestedType === void 0) throw error;
+      if (byType === void 0) throw error;
       const declared = await this.declaredTypes(info);
-      const alternative = text(declared.find((item) => item.name === requestedType)?.form_url) || text(this.catalog(info, requestedType)?.form_url);
+      const alternative = text(this.catalog(info, byType)?.form_url);
       if (!alternative || alternative === formUrl) {
-        throw this.unknownType(info, requestedType, declared) ?? error;
+        throw this.unknownType(info, byType, declared) ?? error;
       }
       formUrl = alternative;
       await this.form(formUrl);
+      if (this.unknownType(info, byType, declared)) this.formUrls.set(byType, formUrl);
     }
     const samples = /* @__PURE__ */ new Map();
     const roots = await this.samples(formUrl, samples);
@@ -2287,7 +2394,7 @@ var SchemaReader = class {
       ).length;
       if (count) field.children = count;
     }
-    const template = data(custom[type]);
+    const template = data(custom?.[type]);
     const templateField = text(template.template_field);
     const templates = [template];
     if (templateField) {
@@ -2296,7 +2403,7 @@ var SchemaReader = class {
           `Вид объекта хранится в поле ${templateField}_id: его значение передаётся в kind, чтобы увидеть настраиваемые поля этого вида.`
         );
       else {
-        const kind = list(data(data(custom[templateField]).items).item).find(
+        const kind = list(data(data(custom?.[templateField]).items).item).find(
           (item) => text(item.id) === input2.kind
         );
         if (kind) templates.push(kind);
@@ -2324,7 +2431,8 @@ var SchemaReader = class {
           field.required = true;
         if (text(item.catalog)) field.references = text(item.catalog);
         if (values.length) field.values = values;
-        if (sheet) field.sheet = this.title(sheet, dictionary);
+        const sheetTitle = sheet && this.title(sheet, dictionary);
+        if (sheetTitle) field.sheet = sheetTitle;
         fields3.set(field.path, field);
       }
     }
@@ -2380,7 +2488,7 @@ var SchemaReader = class {
   async types(input2 = {}) {
     const limit = boundedInteger(input2.limit, 50, 1e3, "limit");
     const cursor = boundedInteger(input2.cursor, 0, Number.MAX_SAFE_INTEGER, "cursor");
-    const { info, custom, dictionary } = await this.context();
+    const { info, custom, dictionary, unreadLanguage, notes: unread } = await this.context();
     const translations = await this.typeTranslations(info);
     const common = await this.commonData(info);
     const definitions = list(data(common.exchange_object_types).exchange_object_type);
@@ -2395,12 +2503,14 @@ var SchemaReader = class {
       const type = text(catalog.object_type);
       const definition = definitions.find((item) => item.name === type);
       const title = this.typeTitle(definition ?? {}, dictionary, translations);
-      const template = data(custom[type]);
+      const template = data(custom?.[type]);
       return {
         type,
         ...text(catalog.id) ? { catalog: text(catalog.id) } : {},
         ...title ? { title } : {},
-        customFields: text(template.template_field) ? "by kind" : list(data(template.fields).field).length
+        ...custom && {
+          customFields: text(template.template_field) ? "by kind" : list(data(template.fields).field).length
+        }
       };
     });
     const types = all.filter(
@@ -2412,7 +2522,9 @@ var SchemaReader = class {
     );
     const rows = [...types, ...untyped.map((catalog) => ({ catalog }))];
     const page = rows.slice(cursor, cursor + limit);
+    const searchNote = input2.search !== void 0 && !types.length ? unreadLanguage : void 0;
     const notes = [
+      ...page.some((item) => "type" in item) ? unread : searchNote ? [searchNote] : [],
       ...page.some((item) => !("type" in item)) ? [
         "Строка без type — каталог без своего типа объекта: документов у его строк нет, искать в нём можно, поля строки показывает схема по имени каталога."
       ] : [],
@@ -2486,7 +2598,7 @@ function network(reason, address2, host) {
       };
   }
 }
-function platformFailure(error, baseUrl, usualCause) {
+function platformFailure(error, baseUrl, usualCause, indeterminate = false) {
   let address2 = baseUrl.replace(/\/+$/, "");
   let host = address2;
   try {
@@ -2497,13 +2609,15 @@ function platformFailure(error, baseUrl, usualCause) {
   }
   const status = error.status;
   if (status === void 0) {
-    const reason = error.details?.network;
-    if (error.kind === "http")
-      return network(
-        typeof reason === "string" ? reason : "reset",
-        address2,
-        host
-      );
+    if (error.kind === "http") {
+      const reason = typeof error.details?.network === "string" ? error.details.network : "reset";
+      const text3 = network(reason, address2, host);
+      if (!indeterminate) return text3;
+      return {
+        message: text3.message,
+        hint: `Запрос на запись ушёл, а ответа нет: проверить, прошла ли запись, прежде чем повторять.${reason === "timeout" ? " Для долгих операций — увеличить timeoutMs подключения." : ""}`
+      };
+    }
     if (error.kind === "auth")
       return {
         message: "Не заданы имя пользователя и пароль подключения.",
@@ -2545,6 +2659,8 @@ function platformFailure(error, baseUrl, usualCause) {
 }
 
 // src/self-check.ts
+var CheckFailure = class extends Error {
+};
 async function checkServer(config, invoke) {
   const report = {
     permissions: config.permissions,
@@ -2582,7 +2698,7 @@ async function checkServer(config, invoke) {
     } catch (error) {
       const status = error instanceof WsHcmApiError ? error.status : void 0;
       const explained = error instanceof WsHcmApiError && (name3 === "login" || status === void 0) ? platformFailure(error, config.baseUrl) : void 0;
-      const reason = late ? "превышено время проверки" : status === 500 && name3 === "portal" ? "HTTP 500: проверить порт в объекте «хост» и адрес подключения" : explained ? [explained.message, explained.hint].filter(Boolean).join(" ") : status !== void 0 ? `HTTP ${status}` : error instanceof HcmError ? `проверка не пройдена: ${error.code}` : "проверка не пройдена";
+      const reason = late ? "превышено время проверки" : error instanceof CheckFailure ? error.message : status === 500 && name3 === "portal" ? "HTTP 500: проверить порт в объекте «хост» и адрес подключения" : explained ? [explained.message, explained.hint].filter(Boolean).join(" ") : status !== void 0 ? `HTTP ${status}` : error instanceof HcmError ? `проверка не пройдена: ${error.code}` : "проверка не пройдена";
       report.checks.push({ name: name3, result: "failed", reason });
     } finally {
       clearTimeout(timer);
@@ -2600,7 +2716,15 @@ async function checkServer(config, invoke) {
     const database2 = serverDatabases(info).find((db) => db.id === text3(info.default_db_name));
     if (!database2?.catalogs.length) throw new Error();
   });
-  await probe("query", "runtime.query", { catalog: "collaborators", limit: 1, fields: ["id"] });
+  await probe(
+    "query",
+    "runtime.query",
+    { catalog: "collaborators", limit: 1, fields: ["id"] },
+    (v) => {
+      if (inputObject(v).incomplete === true)
+        throw new CheckFailure("база данных отвергла запрос; причина — в логе spxml_unibridge");
+    }
+  );
   await probe("document", "objects.get", {
     url: rows(info.shared_docs).find((doc) => doc.id === "custom_templates")?.url
   });
@@ -2877,8 +3001,10 @@ function textOf(data2) {
   const text3 = data2.text;
   return typeof text3 === "string" ? text3 : void 0;
 }
-function listOf(data2) {
+function listOf(data2, named) {
   if (data2 === null || typeof data2 !== "object" || Array.isArray(data2)) return void 0;
+  const own = named === void 0 ? void 0 : data2[named];
+  if (Array.isArray(own)) return { key: named, items: own };
   if (textOf(data2) !== void 0) return void 0;
   let found;
   for (const [key, value] of Object.entries(data2)) {
@@ -3071,9 +3197,12 @@ ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
       return void 0;
     }
   }
-  /** Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. */
-  async put(data2) {
-    const saved = await this.write(data2);
+  /**
+   * Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. list — поле,
+   * которое операция называет своим списком; без него список угадывается по ответу.
+   */
+  async put(data2, list2) {
+    const saved = await this.write(data2, list2);
     await this.prune().catch(() => {
     });
     return saved;
@@ -3116,7 +3245,7 @@ ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
       }
     }
   }
-  async write(data2) {
+  async write(data2, named) {
     const id = randomUUID();
     const created = [];
     const files = [];
@@ -3139,7 +3268,7 @@ ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
         jsonChars: 0,
         checkpoints: 0
       };
-      const list2 = listOf(data2);
+      const list2 = listOf(data2, named);
       const elements = Array.isArray(data2) ? data2 : list2?.items;
       if (elements) {
         const rows = await create(this.payload(id, "rows.idx"));
@@ -3289,7 +3418,8 @@ ${config.username ?? "anonymous"}`).digest("hex").slice(0, 24);
                 items,
                 total: count,
                 blockedItem: { index: offset, bytes },
-                hint: "Элемент blockedItem не помещается в ответ и не пропущен. Читать результат с format:json — текстом JSON по частям."
+                hint: "Элемент blockedItem не помещается в ответ и не пропущен. Читать результат с format:json — текстом JSON по частям.",
+                ...metadata.list === void 0 ? {} : { list: metadata.list }
               };
             break;
           }
@@ -3612,13 +3742,20 @@ function fileExistsUrl(value) {
 function fileFolders(info) {
   const data2 = /* @__PURE__ */ new Set();
   const design = /* @__PURE__ */ new Set();
+  const database2 = /* @__PURE__ */ new Set();
   const entries = Array.isArray(info?.config_entries) ? info.config_entries : [];
   for (const entry2 of entries) {
-    const list2 = entry2?.name === "DATA-DB" ? data2 : entry2?.name === "DESIGN-DB" ? design : void 0;
-    if (list2 && typeof entry2.value === "string" && entry2.value) list2.add(entry2.value);
+    if (typeof entry2?.value !== "string" || !entry2.value) continue;
+    if (entry2.name === "DATA-DB") data2.add(entry2.value);
+    else if (entry2.name === "DESIGN-DB") design.add(entry2.value);
+    else if (entry2.name === "DB-STORE-HOOK") database2.add(entry2.value.trim().split(/\s/, 1)[0]);
   }
   if (!data2.size && !design.size) return void 0;
-  return { data: [...data2], code: [...design].filter((name3) => !data2.has(name3)) };
+  return {
+    data: [...data2],
+    code: [...design].filter((name3) => !data2.has(name3)),
+    database: [...database2]
+  };
 }
 function fileTarget(value, listing = false) {
   const text3 = listing && typeof value === "string" ? value.replace(/\/$/, "") : value;
@@ -3632,13 +3769,19 @@ function fileTarget(value, listing = false) {
     );
   return { url: text3, folder: folder2 };
 }
-function assertFileDeletable(folder2) {
-  if (folder2 === "wt_data" || folder2 === "trash")
-    throw new HcmError(
-      "FILE_NOT_DELETABLE",
-      `В папке ${folder2} файлы и папки не удаляются.`,
-      "Это папка базы сервера: файл на диске сервер по адресу не удаляет, а отличить его клиент не может. Документ объекта удаляет objects.delete. Временные файлы писать в share: там files.delete удаляет."
-    );
+var DOCUMENT_URL = /^x-local:\/\/[^/]+\/objects\/[\da-fA-F]{14}\/[\da-fA-F]{2}\.[xX][mM][lL]$/;
+var DOCUMENT_REFUSALS = {
+  delete: [
+    "Адрес — документ объекта: files.delete его не удаляет.",
+    "Объект удаляет objects.delete: он сверяет каталог. Удаление по адресу положило бы объект в корзину сервера в обход этой проверки."
+  ],
+  write: [
+    "Адрес — документ объекта: files.write его не записывает.",
+    "Поля объекта правит objects.patch, документ целиком — native.lds.putDoc. Запись по адресу меняет документ, но не строку каталога."
+  ]
+};
+function assertNotDocument(url, action) {
+  if (DOCUMENT_URL.test(url)) throw new HcmError("FILE_IS_DOCUMENT", ...DOCUMENT_REFUSALS[action]);
 }
 function folderKind(folders, folder2) {
   if (!folders) return void 0;
@@ -3774,16 +3917,38 @@ function codeDeleteRefusal(data2) {
     return new HcmError("FILE_NOT_FOUND", "По адресу нет файла.", "Адрес проверяет files.exists.");
   return void 0;
 }
-function codeList(url) {
+function codeList(url, db) {
   return prepareScript(
     `var rows = [];
 var item = '';
 var folder = false;
 var dir = false;
+var prefix = PARAMS.url + '/';
+var cut = StrOptSubStrPos(prefix, '[');
+var provider = undefined;
+var urls = undefined;
+var name = '';
+var slash = undefined;
+var seen = {};
 try { dir = IsDirectory(PARAMS.url); } catch (e) { dir = false; }
+if (PARAMS.db) {
+  provider = tools.spxml_unibridge.Object.provider;
+  urls = provider.GetUrlsByPattern(cut == undefined ? prefix : StrLeftRange(prefix, cut));
+  while (urls.GetNext()) {
+    item = urls.GetValue();
+    if (!StrBegins(item, prefix, true)) { continue; }
+    name = StrRightRangePos(item, StrLen(prefix));
+    slash = StrOptSubStrPos(name, '/');
+    folder = slash != undefined;
+    if (folder) { name = StrLeftRange(name, slash); }
+    if ((name == '') || seen.HasProperty('/' + name)) { continue; }
+    seen.SetProperty('/' + name, true);
+    rows.push({ u: prefix + name, f: folder, b: (folder ? 0 : provider.FetchUrlAttribute(item, 'Length')) });
+  }
+}
 if (dir) { for (item in ReadDirectory(PARAMS.url)) { folder = IsDirectory(item); rows.push({ u: item, f: folder, b: folder ? 0 : UrlFileSize(item) }); } }
-RESULT = dir ? rows : ['none'];`,
-    { url }
+RESULT = (dir || (ArrayCount(rows) > 0)) ? rows : ['none'];`,
+    { url, db }
   );
 }
 function fileList(data2, folder2, search = "") {
@@ -3793,15 +3958,16 @@ function fileList(data2, folder2, search = "") {
       "По адресу нет папки.",
       "Список показывает только папку; файл читает files.read, адрес проверяет files.exists."
     );
-  const rows = data2.result.map((row) => {
+  const rows = /* @__PURE__ */ new Map();
+  for (const row of data2.result) {
     const name3 = typeof row?.u === "string" && row.u.startsWith(`${folder2}/`) ? row.u.slice(folder2.length + 1).replace(/\/$/, "") : "";
     const bytes = Number(row?.b);
     if (!name3 || /[/\\]/.test(name3) || row.f !== "1" && !Number.isFinite(bytes))
       throw new HcmError("SCRIPT_RESPONSE", "Сервер вернул список папки в неожиданном виде.");
-    return row.f === "1" ? { name: name3, folder: true } : { name: name3, bytes };
-  });
+    if (!rows.has(name3)) rows.set(name3, row.f === "1" ? { name: name3, folder: true } : { name: name3, bytes });
+  }
   const part = search.toLowerCase();
-  const items = rows.filter((item) => item.name.toLowerCase().includes(part));
+  const items = [...rows.values()].filter((item) => item.name.toLowerCase().includes(part));
   items.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   return { items, total: items.length };
 }
@@ -3868,14 +4034,15 @@ var ServerFiles = class {
     return this.server.stream("native.lds.loadUrl", { url, useBinaryResponse: true }, read);
   }
   async list(args, call) {
-    const folder2 = fileTarget(args.url, true).url;
+    const target = fileTarget(args.url, true);
     const search = args.search === void 0 ? "" : requiredString(args.search, "search");
+    const database2 = (await this.folders())?.database.includes(target.folder) === true;
     const data2 = await this.server.runCode(
-      codeList(folder2),
+      codeList(target.url, database2),
       call.outcome,
       (answer) => answer.result[0] === "none"
     );
-    return fileList(data2, folder2, search);
+    return fileList(data2, target.url, search);
   }
   /**
    * Путь настольной админки, одинаковый для всех папок: начало записи делает файл пустым, блоки
@@ -3883,6 +4050,7 @@ var ServerFiles = class {
    */
   async write(args, call) {
     const target = fileTarget(args.url);
+    assertNotDocument(target.url, "write");
     const source = await writeSource(args);
     try {
       const kind = folderKind(await this.folders(), target.folder);
@@ -3936,8 +4104,9 @@ var ServerFiles = class {
   }
   async delete(args, call) {
     const target = fileTarget(args.url);
-    assertFileDeletable(target.folder);
-    if (folderKind(await this.folders(), target.folder) === "code") {
+    assertNotDocument(target.url, "delete");
+    const folders = await this.folders();
+    if (folderKind(folders, target.folder) === "code") {
       if (!this.config.permissions.execute)
         throw new HcmError(
           "EXECUTE_DISABLED",
@@ -3954,10 +4123,28 @@ var ServerFiles = class {
       if (data2.result[0] === "remains") throw fileRemains();
       return { deleted: true, mutationOutcome: "confirmed" };
     }
+    const database2 = folders?.database.includes(target.folder) === true;
+    const checkable = target.url.length <= FILE_EXISTS_URL_MAX_LENGTH;
+    if (database2 && !checkable)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        `url: в папке ${target.folder} адрес для удаления — не длиннее 256 знаков.`,
+        "Удаление в папке, которую сервер хранит в базе данных, проверяется по адресу, а проверка принимает до 256 знаков."
+      );
+    const present = async () => (await this.exists({ url: target.url })).exists;
+    if (checkable && !await present())
+      throw new HcmError(
+        "FILE_NOT_FOUND",
+        database2 ? "По адресу нет файла." : "По адресу нет файла или папки.",
+        database2 ? `Папку ${target.folder} сервер хранит в базе данных: вложенных папок в ней нет, файлы удаляются по одному. Список показывает files.list.` : "Адрес проверяет files.exists."
+      );
     await this.server.call("native.lds.deleteUrl", { url: target.url }, call.outcome);
-    if (target.url.length <= FILE_EXISTS_URL_MAX_LENGTH) {
-      if ((await this.exists({ url: target.url })).exists) throw fileRemains();
-    }
+    if (checkable && await present())
+      throw database2 ? new HcmError(
+        "FILE_NOT_DELETABLE",
+        "Файл или папка остались на диске сервера: с диска сервер по адресу ничего не удаляет.",
+        `Папку ${target.folder} сервер хранит в базе данных и по адресу удаляет только то, что лежит в базе. Если у файла была копия в базе, теперь сервер отдаёт файл с диска: содержимое могло стать прежним, проверить через files.read. С диска файлы и папки удаляют на самом сервере.`
+      ) : fileRemains();
     return { deleted: true, mutationOutcome: "confirmed" };
   }
   /** Сбой чтения сведений о приложении означает, что сервер не дал списков папок. */
@@ -4027,7 +4214,7 @@ var fileOperations = [
     description: "Удалить файл по адресу x-local://…. В папке данных так же удаляется пустая папка; в папке кода — только файл, и нужно ещё право execute.",
     inputSchema: schema({ url: string }, ["url"]),
     summary: "Удалить файл (в папке данных — и пустую папку).",
-    usualCause: "по адресу нет файла или в папке есть файлы; если сервер не сообщил, какие папки принимают запись, это может быть папка кода, где файл удаляет код на сервере",
+    usualCause: "в папке есть файлы; если сервер не сообщил, какие папки принимают запись, это может быть папка кода, где файл удаляет код на сервере",
     run: (context, args, call) => context.files.delete(args, call)
   })
 ];
@@ -4255,15 +4442,17 @@ var queryEffect = (args) => {
   const deferredArguments = Object.keys(args).length === 1 && typeof args.$ref === "string";
   return deferredArguments || args.query !== void 0 ? "execute" : "read";
 };
-async function typedFields(schemaReader, catalog, where) {
-  const none = { dates: /* @__PURE__ */ new Set(), integers: /* @__PURE__ */ new Set() };
-  if (typeof catalog !== "string" || !where || typeof where !== "object") return none;
+async function fieldTypes(catalogShape, catalog, where) {
+  if (typeof catalog !== "string" || !where || typeof where !== "object") return void 0;
   const values = Object.values(where).flatMap(
     (condition) => condition && typeof condition === "object" ? Object.values(condition).flat() : [condition]
   );
-  if (!values.some((value) => looksLikeDate(value) || looksLikeDecimalId(value))) return none;
-  const shape = await schemaReader.catalogShape({ catalog }).catch(() => void 0);
-  return { dates: shape?.dates ?? none.dates, integers: shape?.integers ?? none.integers };
+  if (!values.some(
+    (value) => looksLikeDate(value) || looksLikeDecimalId(value) || looksLikeHexId(value)
+  ))
+    return void 0;
+  const shape = await catalogShape();
+  return shape?.types.size ? shape.types : void 0;
 }
 var queryOperations = [
   operation({
@@ -4296,10 +4485,16 @@ var queryOperations = [
           `${args.catalog} — общий список сервера, а не каталог.`,
           `Его элементы читает запрос XQuery: for $e in ${args.catalog} return $e.`
         );
-      const typed = args.query === void 0 ? await typedFields(context.schema, args.catalog, args.where) : void 0;
-      const query = typed ? catalogQuery(args.catalog, args.where, typed.dates, args.order, typed.integers) : requiredString(args.query, "query");
+      let reading2;
+      const catalogShape = () => reading2 ??= context.schema.catalogShape({ catalog: requiredString(args.catalog, "catalog") }).catch(() => void 0);
+      const query = args.query === void 0 ? catalogQuery(
+        args.catalog,
+        args.where,
+        args.order,
+        await fieldTypes(catalogShape, args.catalog, args.where)
+      ) : requiredString(args.query, "query");
       if (args.query === void 0 && args.order !== void 0) {
-        const shape2 = await context.schema.catalogShape({ catalog: requiredString(args.catalog, "catalog") }).catch(() => void 0);
+        const shape2 = await catalogShape();
         const repeated = orderFields(args.order).map((item) => item.field).filter((field) => shape2?.repeated.has(field));
         if (repeated.length)
           throw new HcmError(
@@ -4356,9 +4551,7 @@ var queryOperations = [
         (item) => requested.some((field) => !Object.hasOwn(item, field))
       );
       if (!absent.length && !lacking && !page.items.some(hasStructure)) return page;
-      const shape = await context.schema.catalogShape(
-        args.query === void 0 ? { catalog: requiredString(args.catalog, "catalog") } : { type: rowTag(response) ?? "" }
-      ).catch(() => void 0);
+      const shape = args.query === void 0 ? await catalogShape() : await context.schema.catalogShape({ type: rowTag(response) ?? "" }).catch(() => void 0);
       if (!shape) return page;
       const unknownFields = shape.fields.size ? absent.filter((field) => !shape.fields.has(field)) : [];
       const asked = requested.filter(
@@ -4782,6 +4975,14 @@ function describeHcmOperation(id) {
       operationId: id
     });
   return operation2;
+}
+function operationEffect(id, args = {}) {
+  return effectOf(id)(args);
+}
+function effectOf(id) {
+  describeHcmOperation(id);
+  const operation2 = operationSpec(id);
+  return (args) => operation2.effectFor?.(args, effectOf) ?? operation2.effect;
 }
 function unknownOperationHint(id, name3 = (known) => known) {
   if (name3(id) !== id) return `${id} вызывается как ${name3(id)}, а не по ID операции.`;
@@ -5826,14 +6027,21 @@ function input(id, value) {
     );
   }
 }
-function unknownTarget(targetId, available, source) {
+function unknownTarget(targetId, available, { source, skipped }) {
   const [library, method] = targetId.split(".");
   const inLibrary = available.filter((item) => item.id.startsWith(`${library}.`));
   const near = inLibrary.map((item) => item.id.slice(library.length + 1)).filter((name3) => name3.toLowerCase().includes(method.toLowerCase())).slice(0, 5);
+  const similar = near.length ? `Похожие: ${near.join(", ")}. ` : "";
+  if (skipped?.includes(library))
+    return new HcmError(
+      "UNKNOWN_RPC_TARGET",
+      `Библиотеку ${library} прочитать не удалось, описания функции ${method} нет.`,
+      `${similar}rpc.call вызывает функцию и без описания; есть ли она, проверит сервер.`
+    );
   return new HcmError(
     "UNKNOWN_RPC_TARGET",
     source !== "server" ? `Функции ${targetId} нет во встроенной таблице.` : inLibrary.length ? `В библиотеке ${library} нет функции ${method}.` : `Среди библиотек сервера нет библиотеки ${library} или в ней нет функций.`,
-    `${near.length ? `Похожие: ${near.join(", ")}. ` : ""}Имена ищет rpc.list: query — часть имени, all:true — вместе с функциями, которые вызываются только из кода на сервере.`
+    `${similar}Имена ищет rpc.list: query — часть имени, all:true — вместе с функциями, которые вызываются только из кода на сервере.`
   );
 }
 var RpcCatalog = class {
@@ -5851,10 +6059,11 @@ var RpcCatalog = class {
   }
   /** Почему сервер отказал в вызове, если это объясняет его собственный список функций. */
   async refusal(targetId) {
-    const { targets: available, source } = await this.catalog(false, targetId.split(".")[0]);
-    if (source !== "server") return void 0;
-    const target = available.find((item) => item.id === targetId);
-    if (!target) return unknownTarget(targetId, available, source);
+    const server = await this.reader?.read(targetId.split(".")[0]);
+    if (!server) return void 0;
+    const target = server.targets.find((item) => item.id === targetId);
+    if (!target)
+      return server.skipped.length || server.excluded.length ? void 0 : unknownTarget(targetId, server.targets, { source: "server" });
     if (target.allowed !== false) return void 0;
     const [library, method] = targetId.split(".");
     return new HcmError(
@@ -5920,7 +6129,7 @@ var RpcCatalog = class {
       targetId.split(".")[0]
     );
     const target = available.find((item) => item.id === targetId);
-    if (!target) throw unknownTarget(targetId, available, metadata.source);
+    if (!target) throw unknownTarget(targetId, available, metadata);
     const { id, parameters, allowed, serverOnly } = target;
     let code = {};
     if (options.source === true && metadata.source === "server") {
@@ -6130,7 +6339,8 @@ var ServerObjects = class {
     };
   }
   async load(args) {
-    const url = args.url === void 0 ? resolvePhysicalDocumentLocation(requiredString(args.id, "id")).url : requiredString(args.url, "url");
+    const requested = args.id === void 0 && args.url !== void 0 ? void 0 : resolvePhysicalDocumentLocation(requiredString(args.id, "id"));
+    const url = args.url === void 0 ? requested.url : requiredString(args.url, "url");
     const response = await this.server.call("native.lds.loadDoc", {
       url,
       useBinaryResponse: true
@@ -6150,13 +6360,21 @@ var ServerObjects = class {
     }
     const snapshot = document.snapshot();
     const documentId = typeof snapshot.data.id === "string" && snapshot.data.id !== "" ? snapshot.data.id : void 0;
-    const requested = args.id === void 0 ? void 0 : resolvePhysicalDocumentLocation(requiredString(args.id, "id")).objectId;
-    if (requested !== void 0 && documentId !== void 0 && BigInt(resolvePhysicalDocumentLocation(documentId).objectId) !== BigInt(requested))
-      throw new HcmError(
-        "TARGET_MISMATCH",
-        "ID в прочитанном документе не совпадает с запрошенным.",
-        "Нужно передать id и url одного объекта или что-то одно."
-      );
+    const id = documentId ?? parsePhysicalDocumentId(url);
+    if (requested) {
+      if (id === void 0)
+        throw new HcmError(
+          "TARGET_MISMATCH",
+          "В документе нет ID, и адрес его не называет: сверить его с id нечем.",
+          "Нужно передать что-то одно: id или url."
+        );
+      if (BigInt(resolvePhysicalDocumentLocation(id).objectId) !== BigInt(requested.objectId))
+        throw new HcmError(
+          "TARGET_MISMATCH",
+          `${documentId === void 0 ? "Адрес документа" : "Прочитанный документ"} — объекта ${id}, а не того, что в id.`,
+          args.url === void 0 ? void 0 : "Нужно передать id и url одного объекта или что-то одно."
+        );
+    }
     if (args.type !== void 0 && snapshot.type !== identifier(args.type, "type"))
       throw new HcmError(
         "TYPE_MISMATCH",
@@ -6164,7 +6382,7 @@ var ServerObjects = class {
         void 0,
         { actualType: snapshot.type }
       );
-    return { document, url, id: documentId ?? requested ?? parsePhysicalDocumentId(url) };
+    return { document, url, id };
   }
   async journal(entry2) {
     const { directory, maxBytes } = this.journalFile;
@@ -6266,7 +6484,7 @@ var ServerObjects = class {
       );
     const wrong = written.filter((name3) => {
       const value = data2[name3];
-      return shape.dates.has(name3) && typeof value === "string" && value && !isServerDate(value);
+      return shape.types.get(name3) === "date" && typeof value === "string" && value && !isServerDate(value);
     });
     if (wrong.length)
       throw new HcmError(
@@ -6298,7 +6516,7 @@ var ServerObjects = class {
       );
     XmlDocument.create(type, data2).snapshot();
     if (args.formUrl === void 0) await this.schema.requireType(type);
-    const formUrl = args.formUrl === void 0 ? `x-local://wtv/wtv_${type}.xmd` : requiredString(args.formUrl, "formUrl");
+    const formUrl = args.formUrl === void 0 ? await this.schema.typeFormUrl(type) : requiredString(args.formUrl, "formUrl");
     const form = await this.schema.documentForm(formUrl);
     if (!Array.isArray(form.roots) || !form.roots.includes(type))
       throw new HcmError("FORM_TYPE_MISMATCH", "В форме нет запрошенного типа объекта.");
@@ -6364,8 +6582,15 @@ var ServerObjects = class {
   }
   async patch(args, out) {
     const loaded = await this.load(args);
+    const { type, formUrl } = loaded.document.form();
+    let unread;
+    const shape = await this.schema.documentShape(type, formUrl).catch((error) => {
+      unread = error;
+      return void 0;
+    });
     const changes = loaded.document.patch(
-      patchInput(args.patch, args.remove, args.resave === true)
+      patchInput(args.patch, args.remove, args.resave === true),
+      shape?.types.size ? shape.types : void 0
     );
     if (args.expectedFingerprint !== void 0 && args.expectedFingerprint !== changes.before.fingerprint)
       throw new HcmError(
@@ -6391,8 +6616,9 @@ var ServerObjects = class {
     const current = await this.load(args);
     if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
       throw new HcmError("CONFLICT", "Объект изменился, пока готовилась запись.");
+    if (unread !== void 0) throw unread;
     const form = await this.schema.documentForm(
-      changes.before.formUrl ?? `x-local://wtv/wtv_${changes.before.type}.xmd`
+      changes.before.formUrl ?? await this.schema.typeFormUrl(changes.before.type)
     );
     const branches = changes.changes.map((change) => patchSegments(change.path)[0][1]);
     const mutationId = randomUUID3();
@@ -6576,6 +6802,7 @@ function jsonSafe(value) {
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
   return value;
 }
+var jsonBytes = (value) => Buffer.byteLength(JSON.stringify(value) ?? "null");
 function longerThan(data2, limit) {
   let chars = 0;
   const count = (value) => {
@@ -6585,26 +6812,26 @@ function longerThan(data2, limit) {
     }
   };
   count(data2);
-  return chars > limit || Buffer.byteLength(JSON.stringify(data2) ?? "null") > limit;
+  return chars > limit || jsonBytes(data2) > limit;
 }
-function beginning(data2, budget, summarised = {}) {
+function beginning(data2, budget, summarised) {
   const whole = data2 === null || typeof data2 !== "object" || Array.isArray(data2);
   const entries = whole ? [["", data2]] : Object.entries(data2);
   const shown2 = entries.map(
     ([, value]) => Array.isArray(value) ? [] : typeof value === "string" ? value.slice(0, 1e3) : value
   );
   const preview = () => whole ? shown2[0] : Object.fromEntries(entries.map(([key], index) => [key, shown2[index]]));
-  let used = Buffer.byteLength(JSON.stringify(preview()) ?? "null");
+  let used = jsonBytes(preview());
   for (const [index, [key, value]] of entries.entries()) {
     if (!Array.isArray(value)) continue;
     const items = shown2[index];
     for (const item of value) {
-      const bytes = Buffer.byteLength(JSON.stringify(item) ?? "null") + (items.length ? 1 : 0);
+      const bytes = jsonBytes(item) + (items.length ? 1 : 0);
       if (used + bytes > budget) break;
       used += bytes;
       items.push(item);
     }
-    if (value.length && (!items.length || Object.hasOwn(summarised, key) && items.length < value.length))
+    if (value.length && (!items.length || key === summarised && items.length < value.length))
       return void 0;
   }
   return preview();
@@ -6627,27 +6854,29 @@ var ReplyPacker = class {
       return error ? { ok: false, error } : { ok: true };
     };
     if (bound && longerThan(data2, this.config.outputLimitBytes) && rules?.store !== "never") {
-      const stored = await this.results.put(data2);
+      const own = rules?.list;
+      const stored = await this.results.put(data2, own?.key);
       const budget = this.config.outputLimitBytes / 2;
-      const fitted = beginning(data2, budget, rules?.preview);
-      const preview = fitted !== void 0 && Buffer.byteLength(JSON.stringify(fitted)) <= budget ? fitted : {
+      const fitted = beginning(data2, budget, own?.key);
+      const preview = fitted !== void 0 && jsonBytes(fitted) <= budget ? fitted : {
         kind: "stored-result",
         ...data2 !== null && typeof data2 === "object" && !Array.isArray(data2) ? Object.fromEntries(
           Object.entries(data2).slice(0, 40).map(([key, value2]) => [
             key,
-            Array.isArray(value2) ? rules?.preview && Object.hasOwn(rules.preview, key) ? value2.map(rules.preview[key]) : `[список: ${value2.length}]` : value2 !== null && typeof value2 === "object" ? "{структура}" : typeof value2 === "string" && value2.length > 120 ? `${value2.slice(0, 120)}…` : value2
+            Array.isArray(value2) ? key === own?.key ? [] : `[список: ${value2.length}]` : value2 !== null && typeof value2 === "object" ? "{структура}" : typeof value2 === "string" && value2.length > 120 ? `${value2.slice(0, 120)}…` : value2
           ])
         ) : {}
       };
       const { list: list2 } = stored;
-      const shown2 = list2 === void 0 || preview !== fitted ? void 0 : fitted[list2];
-      const reads = list2 === void 0 ? "его частями" : `список ${list2} по элементам${Array.isArray(shown2) ? ` (в preview первые ${shown2.length} из ${data2[list2].length})` : ""}`;
-      return {
-        ...outcome(true),
+      const whole = list2 === void 0 ? [] : data2[list2];
+      const shown2 = list2 === void 0 ? void 0 : preview[list2];
+      const result = outcome(true);
+      const reply = () => ({
+        ...result,
         data: {
           preview,
           resultId: stored.resultId,
-          hint: `Ответ не поместился и сохранён целиком: results.read читает ${reads}, results.export сохраняет в файл.`
+          hint: `Ответ не поместился и сохранён целиком: results.read читает ${list2 === void 0 ? "его частями" : `список ${list2} по элементам${Array.isArray(shown2) && shown2.length < whole.length ? ` (в preview первые ${shown2.length} из ${whole.length})` : ""}`}, results.export сохраняет в файл.`
         },
         meta: {
           operationId: id,
@@ -6657,9 +6886,18 @@ var ReplyPacker = class {
           resultId: stored.resultId,
           resultBytes: stored.bytes
         }
-      };
+      });
+      if (own && preview !== fitted && Array.isArray(shown2))
+        for (const item of whole) {
+          shown2.push(own.summary(item));
+          if (jsonBytes(preview) > budget || jsonBytes(reply()) > this.config.outputLimitBytes) {
+            shown2.pop();
+            break;
+          }
+        }
+      return reply();
     }
-    const kept = bound && (typeof rules?.store === "function" ? rules.store(data2) : rules?.store === "always") ? await this.results.put(data2).catch(() => void 0) : void 0;
+    const kept = bound && (typeof rules?.store === "function" ? rules.store(data2) : rules?.store === "always") ? await this.results.put(data2, rules?.list?.key).catch(() => void 0) : void 0;
     return {
       ...outcome(false),
       data: data2,
@@ -6695,7 +6933,7 @@ var ReplyPacker = class {
       if (typeof compact2.url === "string" && compact2.url.length > 256) delete compact2.url;
       receipts.push(compact2);
       data2.omittedReceipts = recovery.receipts.length - receipts.length;
-      if (Buffer.byteLength(JSON.stringify(data2)) > budget) {
+      if (jsonBytes(data2) > budget) {
         receipts.pop();
         data2.omittedReceipts = recovery.receipts.length - receipts.length;
         break;
@@ -6704,6 +6942,7 @@ var ReplyPacker = class {
     return data2;
   }
   pack(id, start, error, verdict, afterSend) {
+    const bound = (text3, limit) => text3.length > limit ? `${text3.slice(0, limit - 1)}…` : text3;
     const redact = (message, limit = 500) => {
       let safe = message;
       for (const secret of [
@@ -6711,8 +6950,8 @@ var ReplyPacker = class {
         this.config.username && this.config.password ? Buffer.from(`${this.config.username}:${this.config.password}`).toString("base64") : void 0
       ])
         if (secret) safe = safe.replaceAll(secret, "[redacted]");
-      safe = safe.replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]").replace(/(?:SessionID|Authorization|Cookie)\s*[:=]\s*[^\s,;]+/gi, "[redacted]");
-      return safe.length > limit ? `${safe.slice(0, limit - 1)}…` : safe;
+      safe = redactCredentials(safe.replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]"));
+      return bound(safe, limit);
     };
     const { mutationOutcome, refusedAfterSend, ids, exactIds } = verdict;
     const { mutationOutcome: _own, ...normal } = error instanceof HcmError ? error.toJSON() : error instanceof WebSocketHeartbeatError ? {
@@ -6722,7 +6961,13 @@ var ReplyPacker = class {
       retryable: false
     } : error instanceof WsHcmApiError ? {
       code: `PLATFORM_${error.kind.toUpperCase()}`,
-      ...platformFailure(error, this.config.baseUrl, operationSpec(id)?.usualCause),
+      ...platformFailure(
+        error,
+        this.config.baseUrl,
+        operationSpec(id)?.usualCause,
+        // Своё сообщение после отправки операция даёт сама (afterSend).
+        mutationOutcome === "indeterminate" && !afterSend
+      ),
       retryable: false,
       ...error.status === void 0 ? {} : { details: { status: error.status } }
     } : error instanceof ArgumentError ? {
@@ -6765,27 +7010,29 @@ var ReplyPacker = class {
       }),
       ...exactIds
     };
-    if (Buffer.byteLength(JSON.stringify(details)) > this.config.outputLimitBytes / 4)
+    if (jsonBytes(details) > this.config.outputLimitBytes / 4)
       details = {
         omitted: true,
         ...exactIds
       };
     const omitOversizedConnection = (value) => {
-      const bytes = Buffer.byteLength(JSON.stringify(value));
+      const bytes = jsonBytes(value);
       if (bytes <= this.config.outputLimitBytes) return value;
       const omitted = {
         ...value,
         meta: { ...value.meta, connection: "[omitted]", connectionOmitted: true }
       };
-      return Buffer.byteLength(JSON.stringify(omitted)) < bytes ? omitted : value;
+      return jsonBytes(omitted) < bytes ? omitted : value;
     };
     const result = omitOversizedConnection({
       ok: false,
       error: {
         ...normal,
-        // Отказ платформы формулируется здесь из фиксированного текста и настроенного адреса;
-        // пароль, случайно ставший частью слова, не должен вырезать в нём дыры.
-        ...error instanceof WsHcmApiError ? {} : {
+        // Отказ платформы формулируется здесь из фиксированного текста и настроенного адреса,
+        // отказ по аргументу — из текста клиента и имени аргумента: пароль, случайно ставший
+        // частью слова, и имя аргумента password не должны вырезать в них дыры. Имя аргумента
+        // задаёт вызывающий, поэтому длина сообщения всё равно ограничена.
+        ...error instanceof WsHcmApiError ? {} : error instanceof ArgumentError ? { message: bound(normal.message, 500) } : {
           message: redact(normal.message),
           // Подсказка бывает длиннее сообщения: она называет имена, из которых выбирать.
           ...normal.hint === void 0 ? {} : { hint: redact(normal.hint, 1e3) }
@@ -6807,8 +7054,7 @@ var ReplyPacker = class {
           details: { ...result.error?.details, heartbeatReceipt: error.receipt }
         }
       });
-      if (Buffer.byteLength(JSON.stringify(contextual)) <= this.config.outputLimitBytes)
-        return contextual;
+      if (jsonBytes(contextual) <= this.config.outputLimitBytes) return contextual;
       const receipt = error.receipt;
       return {
         ...contextual,
@@ -6875,7 +7121,7 @@ var HcmRuntime = class {
       operationCount: operations.length,
       pipeline: {
         describe: (id) => this.describe(id),
-        failure: (id, error) => this.failure(id, performance.now(), error),
+        failure: (id, error) => this.failure(id, performance.now(), error, this.unsent(id)),
         step: (id, args, call) => this.perform(id, args, performance.now(), false, call),
         // async: и отказ до первого запроса приходит отклонённым промисом, а не исключением.
         invoke: async (id, args) => this.operation(id).run(this.context, args, {
@@ -6909,7 +7155,7 @@ var HcmRuntime = class {
    * до маршрутизации.
    */
   getOperationEffect(id, args = {}) {
-    return this.effect(this.operation(id), args);
+    return operationEffect(id, args);
   }
   /** Определение операции; отказ для неверного или неизвестного ID формулирует describe. */
   operation(id) {
@@ -6918,10 +7164,7 @@ var HcmRuntime = class {
   }
   call(id, args = {}) {
     const start = performance.now();
-    const unsent = {
-      outcome: new WriteOutcome(),
-      effect: operationDefinition(id)?.effect ?? "unknown"
-    };
+    const unsent = this.unsent(id);
     if (this.closed)
       return Promise.resolve(
         this.failure(id, start, new HcmError("RUNTIME_CLOSED", "Подключение уже закрыто."), unsent)
@@ -6947,11 +7190,9 @@ var HcmRuntime = class {
     this.queue = run.catch(() => void 0);
     return run;
   }
-  effect(operation2, args) {
-    return operation2.effectFor?.(args, (id) => {
-      const other = this.operation(id);
-      return (otherArgs) => this.effect(other, otherArgs);
-    }) ?? operation2.effect;
+  /** Вызов, отклонённый до первого запроса: исход not_sent несут только запись и выполнение кода. */
+  unsent(id) {
+    return { outcome: new WriteOutcome(), effect: operationDefinition(id)?.effect ?? "unknown" };
   }
   authorize(effect) {
     if ((effect === "write" || effect === "unknown") && !this.config.permissions.write)
@@ -6972,7 +7213,7 @@ var HcmRuntime = class {
       const operation2 = this.operation(id);
       state.effect = operation2.effect;
       validate(args, operation2.inputSchema);
-      state.effect = this.effect(operation2, args);
+      state.effect = operationEffect(id, args);
       this.authorize(state.effect);
       const value = await operation2.run(this.context, args, state);
       return await this.replies.success(id, start, value, boundOutput);

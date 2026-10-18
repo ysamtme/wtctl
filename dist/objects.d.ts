@@ -68,7 +68,7 @@ export declare class ServerObjects {
     private readonly schema;
     /** Журнал записей: папка с mutations.jsonl и его предел в байтах, 0 — без предела. */
     private readonly journalFile;
-    constructor(server: Pick<HcmServer, "call" | "read" | "applicationInfo">, schema: Pick<SchemaReader, "documentShape" | "catalogShape" | "requireType" | "documentForm">, 
+    constructor(server: Pick<HcmServer, "call" | "read" | "applicationInfo">, schema: Pick<SchemaReader, "documentShape" | "catalogShape" | "requireType" | "documentForm" | "typeFormUrl">, 
     /** Журнал записей: папка с mutations.jsonl и его предел в байтах, 0 — без предела. */
     journalFile: {
         readonly directory: string;

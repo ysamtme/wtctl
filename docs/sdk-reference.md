@@ -741,7 +741,7 @@ CreateInput<T extends object = HcmData>
 | `type` | `string` | Тип объекта: collaborator, group… |
 | `data` | `T` | Поля нового объекта; id выдаёт сервер. |
 | `dbName?` | `string` | База сервера для объекта; по умолчанию wt_data. |
-| `formUrl?` | `string` | Адрес формы типа; по умолчанию x-local://wtv/wtv_&lt;type>.xmd. |
+| `formUrl?` | `string` | Адрес формы типа; по умолчанию — та, что сервер объявляет для типа, как в schema.get. |
 
 ### DeletedObjectData
 
@@ -1508,7 +1508,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `hint?` | `string` | Есть при serverOnlyHidden: как их показать. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
 | `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
-| `skipped?` | `readonly string[]` | Библиотеки, список функций которых сервер не отдал. |
+| `skipped?` | `readonly string[]` | Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. |
 
 ### RpcDescribeOptions
 
@@ -1555,7 +1555,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `allowed` | `boolean \| null` | Разрешён ли вызов с клиента; null — не установлено. |
 | `serverOnly?` | `true` | Функция не допускает вызова с клиента: её зовёт только код сервера. |
 | `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
-| `skipped?` | `readonly string[]` | Библиотеки, список функций которых сервер не отдал. |
+| `skipped?` | `readonly string[]` | Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. |
 
 ### RpcTypedArgument
 
@@ -1664,7 +1664,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `types[].type?` | `string` | Тип объекта; нет — строка каталога без своего типа объекта: документов у его строк нет. |
 | `types[].catalog?` | `string` | Каталог; у части типов каталога нет. |
 | `types[].title?` | `string` | Заголовок на языке сервера. |
-| `types[].customFields?` | `number \| "by kind"` | Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). |
+| `types[].customFields?` | `number \| "by kind"` | Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). У типа без него документ с настраиваемыми полями не прочитан: об этом сказано в notes. |
 | `total` | `number` | Сколько строк подходит всего. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
 | `notes?` | `string[]` | Пояснения к списку. |

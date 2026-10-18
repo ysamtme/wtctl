@@ -102,7 +102,7 @@ export interface SchemaTypesResult {
         catalog?: string;
         /** Заголовок на языке сервера. */
         title?: string;
-        /** Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). */
+        /** Сколько настраиваемых полей у типа; "by kind" — они зависят от вида объекта (kind у schema). У типа без него документ с настраиваемыми полями не прочитан: об этом сказано в notes. */
         customFields?: number | "by kind";
     }[];
     /** Сколько строк подходит всего. */
@@ -117,10 +117,8 @@ export interface DataShape {
     readonly fields: Set<string>;
     /** Пути элементов, объявленных формой повторяющимися, например collaborators.collaborator. */
     readonly repeated: Set<string>;
-    /** Поля верхнего уровня, которые форма объявляет датами. */
-    readonly dates: Set<string>;
-    /** Поля верхнего уровня строки каталога, которые форма объявляет целыми: ID и счётчики. */
-    readonly integers?: Set<string>;
+    /** TYPE полей формы по пути, на любой глубине; у поля без TYPE — пустая строка. */
+    readonly types: Map<string, string>;
     /** Поля верхнего уровня, которые вычисляет сервер: записанное в них значение не сохраняется. */
     readonly computed?: Set<string>;
     /**
@@ -148,8 +146,10 @@ export declare class SchemaReader {
     private forms;
     private shapes;
     private dictionaries;
-    private common;
-    private custom;
+    private documents;
+    private customExpires;
+    /** Найденный адрес формы по имени типа или каталога; ненайденный следующий вызов ищет заново. */
+    private formUrls;
     constructor(applicationInfo: () => Promise<Data>, readForm: (url: string) => Promise<string>, readDocument: (url: string) => Promise<Data>);
     private form;
     /**
@@ -201,14 +201,19 @@ export declare class SchemaReader {
     private samples;
     /** Поля одной строки каталога по пути, прочитанные из формы каталога. */
     private catalogFields;
+    /**
+     * Адрес формы документа типа: обычный, а если такой формы нет — тот, что сервер объявляет для
+     * типа в common. Формы типов тестирования (assessment и др.) лежат вне x-local://wtv. Если не
+     * нашлась ни та, ни другая, отказ — тот, что дало чтение обычной формы.
+     */
+    typeFormUrl(type: string): Promise<string>;
     /** Структура документа одного типа с унаследованными полями; читается один раз на форму. */
-    documentShape(type: string, formUrl?: string): Promise<DataShape>;
+    documentShape(type: string, url?: string): Promise<DataShape>;
     /** Структура одной строки каталога; каталог назван или находится по типу объекта его строк. */
     catalogShape(selector: {
         catalog?: string;
         type?: string;
     }): Promise<DataShape | undefined>;
-    private shape;
     /**
      * Сервер отвечает на отклонённый запрос к каталогу голым HTTP 500. После такого отказа здесь
      * называется обычная причина: каталога не существует или поля нет в каталоге.

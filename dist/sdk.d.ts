@@ -93,7 +93,7 @@ export interface CreateInput<T extends object = HcmData> {
     readonly data: T;
     /** База сервера для объекта; по умолчанию wt_data. */
     readonly dbName?: string;
-    /** Адрес формы типа; по умолчанию x-local://wtv/wtv_<type>.xmd. */
+    /** Адрес формы типа; по умолчанию — та, что сервер объявляет для типа, как в schema.get. */
     readonly formUrl?: string;
 }
 /** Одна операция правки: set записывает value по path, remove удаляет path. */

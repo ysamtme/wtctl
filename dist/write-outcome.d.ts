@@ -26,7 +26,10 @@ export declare class WriteOutcome {
     private readonly ids;
     /** Перед запросом, способным изменить сервер; возвращает снятие этой отметки. */
     sending(): () => void;
-    note(ids: WriteIds): void;
+    /** Значение undefined ничего не стирает. */
+    note(ids: {
+        readonly [K in keyof WriteIds]?: string | undefined;
+    }): void;
     /**
      * Первая подходящая строка: нет ошибки или чтение — исхода нет; отказ на входе, неснятая
      * отметка; иначе not_sent.

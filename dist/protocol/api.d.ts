@@ -1,6 +1,6 @@
 import { type SoapField, type SoapProfile } from "./protocol.js";
 import { HttpTransport } from "./transport.js";
-import { WsHcmBinaryResponse, type DecimalId, type RequestOptions, type TrackingId, type WsHcmResponse } from "./types.js";
+import { WsHcmBinaryResponse, type DecimalId, type ObjectId, type RequestOptions, type TrackingId, type WsHcmResponse } from "./types.js";
 import { type RawXml, type XmlObject } from "./xml.js";
 /** Буферизованный разобранный результат SOAP с точными байтами ответа. */
 export type SoapResult = WsHcmResponse<XmlObject>;
@@ -446,9 +446,9 @@ export type CompoundResourceRequest = {
 export declare class ResourceApi {
     private readonly transport;
     constructor(transport: HttpTransport);
-    /** Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен. */
+    /** Прочитать потоком картинку ресурса по ID (0x… или десятичный); тип картинки необязателен. */
     getImage(request: {
-        resourceId: DecimalId;
+        resourceId: ObjectId;
         imageType?: string;
     }, options?: RequestOptions): Promise<WsHcmBinaryResponse>;
     /**

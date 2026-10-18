@@ -95,6 +95,8 @@ export interface WebSocketHeartbeatData extends WebSocketHeartbeatReceipt {
 export type DecimalId = string;
 /** ID асинхронной задачи без потерь. Сервер 1171 может отдать его десятичным или как `0x`. */
 export type TrackingId = string;
+/** ID объекта строкой: `0x…` или десятичная запись. */
+export type ObjectId = string;
 /** Учётные данные Basic-auth. Значения не попадают в нормализованные сообщения ошибок. */
 export interface Credentials {
     username: string;

@@ -34,6 +34,37 @@ export interface CreatedPhysicalDocument extends PhysicalDocumentLocation {
  */
 export declare function resolvePhysicalDocumentLocation(idLexeme: string, dbName?: string): PhysicalDocumentLocation;
 export declare function parsePhysicalDocumentId(url: string): string | undefined;
+/** Запросы LDS, из которых складывается создание документа; ответ несёт разобранные данные. */
+export interface PhysicalDocumentRequests<R extends {
+    readonly data: unknown;
+    readonly status?: number;
+}> {
+    getNewObjectId(request: {
+        dbName: string;
+    }, options?: RequestOptions): Promise<R>;
+    putDoc(request: {
+        url: string;
+        writeDocInfo: boolean;
+        skipActions?: boolean;
+        neverSaved: boolean;
+        data: RawXml;
+    }, options?: RequestOptions): Promise<R>;
+    loadDoc(request: {
+        url: string;
+    }, options?: RequestOptions): Promise<R>;
+    deleteDoc(request: {
+        url: string;
+        strictDelete: boolean;
+    }): Promise<unknown>;
+}
+/** Создание документа по запросам `lds`: выделение ID, PutDoc, проверка LoadDoc, очистка при сбое. */
+export declare function createPhysicalDocument<R extends {
+    readonly data: unknown;
+    readonly status?: number;
+}>(lds: PhysicalDocumentRequests<R>, request: CreatePhysicalDocumentRequest, options?: RequestOptions): Promise<PhysicalDocumentLocation & {
+    putResponse: R;
+    loadResponse: R;
+}>;
 /**
  * Собирает примитивы физического сохранения native без клиентского XMD и регистрации типа объекта.
  * LDS native выполняет серверную обработку перед сохранением, если не задан `skipActions`.

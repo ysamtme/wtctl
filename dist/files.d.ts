@@ -80,10 +80,14 @@ export type FileDeleteData = {
     /** Исход записи: подтверждена. */
     readonly mutationOutcome: "confirmed";
 };
-/** Папки сервера: папка кода хранит код сервера, поэтому запись в неё требует ещё права execute. */
+/**
+ * Папки сервера: папка кода хранит код сервера, поэтому запись в неё требует ещё права execute.
+ * database — папки данных, которые сервер хранит в базе данных, а не на диске.
+ */
 export type FileFolders = {
     readonly data: readonly string[];
     readonly code: readonly string[];
+    readonly database: readonly string[];
 };
 /** Столько байт за раз шлёт штатная настольная админка. */
 export declare const UPLOAD_BLOCK_BYTES = 10000000;

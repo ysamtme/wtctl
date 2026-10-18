@@ -43,8 +43,11 @@ export declare class ResultStore {
     private payload;
     export(input: ResultExportInput, envelope?: OperationResult): Promise<ResultExportData>;
     private listName;
-    /** Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. */
-    put(data: unknown): Promise<{
+    /**
+     * Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. list — поле,
+     * которое операция называет своим списком; без него список угадывается по ответу.
+     */
+    put(data: unknown, list?: string): Promise<{
         resultId: string;
         bytes: number;
         list?: string;

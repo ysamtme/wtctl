@@ -9,7 +9,7 @@ import {
   isTransportFailure,
   rawXml,
   rawXmlElement
-} from "./chunk-O7P4SP3L.js";
+} from "./chunk-N3N3NDVX.js";
 
 // src/native/metadata.ts
 var compatibilityDescriptions = {
@@ -146,9 +146,9 @@ var NATIVE_ENTRIES = [
   { operation: decorateOperation({ "id": "web.pages.uploadFile", "profile": "web", "group": "pages", "method": "uploadFile", "title": "web pages uploadFile", "description": "Загрузить один файл штатным способом: multipart с полями f и session_token.\nТекущий токен страницы подставляет сессия web, которой принадлежит вызов. Размер ограничивает\nполитика загрузки сервера; части и старый вариант с base64 не используются. Успешный ответ\nсодержит Url.", "inputSchema": { "type": "object", "properties": { "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["filename", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.uploadFile(args) },
   { operation: decorateOperation({ "id": "web.pages.uploadChunk", "profile": "web", "group": "pages", "method": "uploadChunk", "title": "web pages uploadChunk", "description": "Отправить один штатный POST upload_chunk с байтами данных как есть и явным Content-Range.\nВызывающий задаёт известный fileId из 32 шестнадцатеричных цифр и следит за порядком частей; последняя часть собирает файл.\nОтветы сами по себе не доказывают, что часть сохранена и что байты итогового файла верны.\nПеред последней частью загруженное нужно проверить чтением, подходящим для хранилища.\nПосле ошибки на последней части URL результата может остаться неизвестным: не повторять и не угадывать, что удалять.\nНужна установленная ветка WebSoft/libMain и её действующие правила для пользователя и загрузки.", "inputSchema": { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?!\\.\\.)(?!.*\\.\\.$)(?!\\.$)[^\\\\/\\x00-\\x1F\\x7F]+$" }, "index": { "type": "integer", "minimum": 0, "maximum": 99999 }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 }, "totalBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }, "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, "data": { "anyOf": [{ "anyOf": [{ "type": "string", "x-normalization": "xml" }, { "type": "object", "properties": { "xml": { "type": "string" } }, "required": ["xml"], "additionalProperties": false, "x-normalization": "xml-box" }] }, { "type": "string" }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }, { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] }] }, "contentType": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7E]+$" } }, "required": ["fileId", "filename", "index", "chunksTotal", "totalBytes", "offset", "data"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.uploadChunk(args) },
   { operation: decorateOperation({ "id": "web.pages.clearUploadChunks", "profile": "web", "group": "pages", "method": "clearUploadChunks", "title": "web pages clearUploadChunks", "description": "Запросить удаление частей [0, chunksTotal) для известного fileId из 32 шестнадцатеричных цифр, выбранного вызывающим.\nПространство ID общее: сервер не проверяет, кто создал этот ID.\nПустой ответ не доказывает, что части, папка, итоговый файл и временные данные удалены.", "inputSchema": { "type": "object", "properties": { "fileId": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-fA-F]{32}$" }, "chunksTotal": { "type": "integer", "minimum": 1, "maximum": 1e5 } }, "required": ["fileId", "chunksTotal"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).pages.clearUploadChunks(args) },
-  { operation: decorateOperation({ "id": "native.resources.getImage", "profile": "native", "group": "resources", "method": "getImage", "title": "native resources getImage", "description": "Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен.", "inputSchema": { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).resources.getImage(args) },
+  { operation: decorateOperation({ "id": "native.resources.getImage", "profile": "native", "group": "resources", "method": "getImage", "title": "native resources getImage", "description": "Прочитать потоком картинку ресурса по ID (0x… или десятичный); тип картинки необязателен.", "inputSchema": { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^(?:\\d{1,20}|0x[0-9a-fA-F]{1,16})$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.native()).resources.getImage(args) },
   { operation: decorateOperation({ "id": "native.resources.getCompoundResource", "profile": "native", "group": "resources", "method": "getCompoundResource", "title": "native resources getCompoundResource", "description": "Прочитать потоком именованное вложение compound-attc через GET /xhttp_res.\nИсточник — url для HTML с адресом x-local или x-app либо docUrl вместе с elemPath\nдля строкового поля документа (подходит и зарегистрированный документ x-db-obj).\nelemPath начинается с имени корневого элемента документа, например presence_state.name;\nего берут из самого документа, а не угадывают корень и структуру.\nСервер декодирует данные найденного вложения и выбирает тип содержимого\nпо resId. Штатный сервер 2025.1.1171 требует ещё, чтобы источник url лежал в настроенном courses_path:\nодной разрешённой локальной схемы для этого мало.\nЭтим маршрутом пользуется штатный клиент администратора; варианты native и web —\nодин маршрут сервера, различается только сессия HTTP. Тело ответа нужно дочитать или отменить.", "inputSchema": { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] } }), invoke: async (gateway, args) => (await gateway.native()).resources.getCompoundResource(args) },
-  { operation: decorateOperation({ "id": "web.resources.getImage", "profile": "web", "group": "resources", "method": "getImage", "title": "web resources getImage", "description": "Прочитать потоком картинку ресурса по десятичному ID; тип картинки необязателен.", "inputSchema": { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^\\d+$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).resources.getImage(args) },
+  { operation: decorateOperation({ "id": "web.resources.getImage", "profile": "web", "group": "resources", "method": "getImage", "title": "web resources getImage", "description": "Прочитать потоком картинку ресурса по ID (0x… или десятичный); тип картинки необязателен.", "inputSchema": { "type": "object", "properties": { "resourceId": { "type": "string", "pattern": "^(?:\\d{1,20}|0x[0-9a-fA-F]{1,16})$" }, "imageType": { "type": "string" } }, "required": ["resourceId"], "additionalProperties": false } }), invoke: async (gateway, args) => (await gateway.web()).resources.getImage(args) },
   { operation: decorateOperation({ "id": "web.resources.getCompoundResource", "profile": "web", "group": "resources", "method": "getCompoundResource", "title": "web resources getCompoundResource", "description": "Прочитать потоком именованное вложение compound-attc через GET /xhttp_res.\nИсточник — url для HTML с адресом x-local или x-app либо docUrl вместе с elemPath\nдля строкового поля документа (подходит и зарегистрированный документ x-db-obj).\nelemPath начинается с имени корневого элемента документа, например presence_state.name;\nего берут из самого документа, а не угадывают корень и структуру.\nСервер декодирует данные найденного вложения и выбирает тип содержимого\nпо resId. Штатный сервер 2025.1.1171 требует ещё, чтобы источник url лежал в настроенном courses_path:\nодной разрешённой локальной схемы для этого мало.\nЭтим маршрутом пользуется штатный клиент администратора; варианты native и web —\nодин маршрут сервера, различается только сессия HTTP. Тело ответа нужно дочитать или отменить.", "inputSchema": { "anyOf": [{ "type": "object", "properties": { "url": { "type": "string" }, "resId": { "type": "string" } }, "required": ["url", "resId"], "additionalProperties": false }, { "type": "object", "properties": { "docUrl": { "type": "string" }, "elemPath": { "type": "string" }, "resId": { "type": "string" } }, "required": ["docUrl", "elemPath", "resId"], "additionalProperties": false }] } }), invoke: async (gateway, args) => (await gateway.web()).resources.getCompoundResource(args) },
   { operation: decorateOperation({ "id": "anonymous.diagnostics.xhttpInfo", "profile": "anonymous", "group": "diagnostics", "method": "xhttpInfo", "title": "anonymous diagnostics xhttpInfo", "description": "Прочитать `/xhttp_info`; авторизация Basic применяется, только если клиенту заданы учётные данные.", "inputSchema": { "type": "object", "properties": {}, "required": [], "additionalProperties": false } }), invoke: async (gateway, args) => gateway.client.diagnostics.xhttpInfo() },
   { operation: decorateOperation({ "id": "anonymous.experimental.rawRequest", "profile": "anonymous", "group": "experimental", "method": "rawRequest", "title": "anonymous experimental rawRequest", "description": "Отправить свой запрос на тот же origin и вернуть тело ответа потоком.\n`unsafe: true` обязателен. Сериализация обычных операций, разбор ошибок сервера и гарантии об исходе записи не действуют;\nнастроенные авторизация и cookie применяются, а метод, заголовки, тело и закрытие потока — на вызывающем.", "inputSchema": { "type": "object", "properties": { "unsafe": { "const": true, "type": "boolean" }, "path": { "type": "string" }, "method": { "type": "string" }, "headers": { "type": "object", "additionalProperties": { "type": "string" } }, "body": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "base64": { "type": "string" } }, "required": ["base64"], "additionalProperties": false, "x-normalization": "binary" }] } }, "required": ["unsafe", "path"], "additionalProperties": false } }), invoke: async (gateway, args) => gateway.client.experimental.rawRequest(args) },
@@ -365,39 +365,6 @@ for (const profile of ["native", "web"]) {
     });
   }
 }
-managed.push({
-  operation: {
-    id: "native.physicalDocuments.createFromXml",
-    profile: "native",
-    group: "physicalDocuments",
-    method: "createFromXml",
-    title: "Create a physical XML document",
-    description: "Выделить ID, подставить его вместо {{objectId}} в documentXmlTemplate, сохранить через PutDoc и сверить ID корня через LoadDoc. Обработка XMD, как в клиенте администратора, не воспроизводится.",
-    effect: "write",
-    inputSchema: {
-      type: "object",
-      properties: {
-        documentXmlTemplate: { type: "string" },
-        dbName: { type: "string" },
-        writeDocInfo: { type: "boolean" },
-        skipActions: { type: "boolean" },
-        neverSaved: { type: "boolean" }
-      },
-      required: ["documentXmlTemplate"],
-      additionalProperties: false
-    }
-  },
-  invoke: async (gateway, args) => {
-    const session = await gateway.native();
-    return session.physicalDocuments.createFromXml({
-      ...args.dbName === void 0 ? {} : { dbName: args.dbName },
-      ...args.writeDocInfo === void 0 ? {} : { writeDocInfo: args.writeDocInfo },
-      ...args.skipActions === void 0 ? {} : { skipActions: args.skipActions },
-      ...args.neverSaved === void 0 ? {} : { neverSaved: args.neverSaved },
-      document: ({ objectId }) => rawXml(args.documentXmlTemplate.replaceAll("{{objectId}}", objectId))
-    });
-  }
-});
 var streams = {
   "native.lds.loadUrl": async (gateway, args) => (await gateway.native()).lds.loadUrl(
     { url: args.url, useBinaryResponse: true },
@@ -537,8 +504,9 @@ var NativeGateway = class {
    * Сервер сбрасывает сессию, простоявшую без дела (на стендах — в пределах двадцати минут),
    * или закрытую с его стороны; каждый следующий запрос получает HTTP 401. Долгоживущий владелец
    * остался бы без доступа, поэтому сброшенная сессия заменяется новым входом, и запрос
-   * отправляется ещё раз. Сервер отклоняет такой запрос до обработки, поэтому повтор не может
-   * выполнить что-либо дважды.
+   * отправляется ещё раз. Операция шлюза — один запрос, и сервер отклоняет его до обработки,
+   * поэтому повтор не может выполнить что-либо дважды. Операции из нескольких запросов
+   * собираются выше, в runtime: так повторяется только отклонённый запрос.
    */
   async invoke(entry, args) {
     const profile = entry.operation.profile;
@@ -568,10 +536,6 @@ var NativeGateway = class {
     }
     if (result && typeof result === "object" && "data" in result && "rawBody" in result)
       return result.data;
-    if (result && typeof result === "object" && "putResponse" in result) {
-      const created = result;
-      return { objectId: created.objectId, url: created.url, document: created.loadResponse.data };
-    }
     return result;
   }
   close() {
