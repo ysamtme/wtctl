@@ -93,10 +93,33 @@ function exactPositionals(args: CliArguments, minimum: number, maximum = minimum
   }
 }
 
+/** Файл с этого компьютера из флага: если он не открылся, это ошибка аргументов с путём к нему. */
+async function readLocal<T>(
+  flag: string,
+  path: string,
+  read: (path: string) => Promise<T>,
+): Promise<T> {
+  try {
+    return await read(path);
+  } catch (error) {
+    const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException;
+    // Размер и кодировку проверяет само чтение, здесь — только отказ файловой системы.
+    if (syscall === undefined) throw error;
+    const where = resolve(path);
+    throw new CliInputError(
+      code === "ENOENT"
+        ? `Файл из --${flag} не найден: ${where}.`
+        : code === "EISDIR"
+          ? `В --${flag} указана папка, а нужен файл: ${where}.`
+          : `Файл из --${flag} не открывается для чтения: ${where}.`,
+    );
+  }
+}
+
 async function inputText(args: CliArguments, io: CliIo): Promise<string | undefined> {
   const file = stringOption(args, "input-file");
   return file
-    ? await io.readFile(file)
+    ? await readLocal("input-file", file, (path) => io.readFile(path))
     : args.options.stdin
       ? await io.readStdin()
       : stringOption(args, "args");
@@ -141,7 +164,8 @@ async function putData(
   }
   const file = stringOption(args, "input-file");
   let bytes: Uint8Array;
-  if (file && io.readBinaryFile) bytes = await io.readBinaryFile(file);
+  if (file && io.readBinaryFile)
+    bytes = await readLocal("input-file", file, (path) => io.readBinaryFile!(path));
   else if (args.options.stdin && io.readBinaryStdin) bytes = await io.readBinaryStdin();
   else throw new CliInputError("Нужен файл через --input-file или двоичный ввод через --stdin.");
   try {
@@ -273,7 +297,12 @@ async function initConnection(args: CliArguments, io: CliIo): Promise<OperationR
   try {
     document = parseConfiguration(await io.readFile(path, 1024 * 1024), path);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException;
+    // Файла ещё нет — init его создаст; другой отказ файловой системы называет файл.
+    if (code !== "ENOENT")
+      throw syscall === undefined
+        ? error
+        : new CliInputError(`Файл подключений не открывается для чтения: ${resolve(path)}.`);
   }
   const name = stringOption(args, "name") ?? "default";
   const write = args.options["allow-write"] === true;
@@ -630,7 +659,9 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       const file = stringOption(args, "params-file");
       if (inline !== undefined && file !== undefined)
         throw new CliInputError("Параметры кода заданы и в --params, и в --params-file.");
-      const params = file ? await io.readFile(file) : inline;
+      const params = file
+        ? await readLocal("params-file", file, (path) => io.readFile(path))
+        : inline;
       return {
         operationId: "execute.script",
         args: { code, ...(params === undefined ? {} : { params: jsonObject(params) }) },
@@ -672,7 +703,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         operationId: command === "schema" ? "schema.get" : "schema.types",
         args: {
           ...optional("search", stringOption(args, "search")),
-          ...optional("limit", integerOption(args, "limit", 1, Number.MAX_SAFE_INTEGER)),
+          ...optional("limit", integerOption(args, "limit", 1, 1000)),
           ...optional("cursor", integerOption(args, "cursor", 0, Number.MAX_SAFE_INTEGER)),
           ...(command === "schema"
             ? {
@@ -996,8 +1027,9 @@ export async function runCli(
       let exists = true;
       try {
         await io.readFile(path, 1024 * 1024);
-      } catch {
-        exists = false;
+      } catch (error) {
+        // Файл без доступа или больше предела тоже есть.
+        exists = (error as NodeJS.ErrnoException).code !== "ENOENT";
       }
       return await emit(
         frontendResult("cli.config.path", "unselected", { path, exists }),

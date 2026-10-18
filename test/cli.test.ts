@@ -12,7 +12,7 @@ import { cliHelp } from "../src/cli/help.js";
 import { ResultStore } from "../src/results.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { scratchRuntimeDir } from "./fake-server.js";
 
 const config: ConnectionConfig = {
@@ -1086,6 +1086,8 @@ test("неверные команда, ввод и пределы отказыв
     ["query", "(1)", "--catalog", "c"],
     ["query", "(1)", "--where", "{}"],
     ["types", "--deep"],
+    ["types", "--limit", "1001"],
+    ["schema", "collaborator", "--limit", "1001"],
     ["object", "create", "education_mode", "--stdin"],
     ["object", "patch", "education_mode", "1"],
     ["object", "delete", "education_mode", "1", "--stdin"],
@@ -1138,6 +1140,78 @@ test("неверные команда, ввод и пределы отказыв
   const refusal = JSON.parse(named.state.stderr).error;
   assert.equal(refusal.message, "Команда schema не принимает: --type.");
   assert.equal(refusal.hint, "Справка: wtctl help schema.");
+});
+
+/** Отказ файловой системы, как его бросает чтение файла в Node.js. */
+const failure = (code: string, syscall: string) =>
+  Object.assign(new Error(code), { code, syscall });
+
+/** io, у которого чтение любого файла бросает error. */
+function failingReads(f: ReturnType<typeof fixture>, error: unknown): CliIo {
+  const reject = async (): Promise<never> => {
+    throw error;
+  };
+  return { ...f.io, readFile: reject, readBinaryFile: reject };
+}
+
+test("файл ввода, который не открылся, — ошибка аргументов с путём к нему", async () => {
+  const cases = [
+    [
+      ["exec", "--input-file", "absent.js"],
+      failure("ENOENT", "open"),
+      "Файл из --input-file не найден",
+    ],
+    [
+      ["exec", "RESULT = [1]", "--params-file", "absent.json"],
+      failure("ENOENT", "open"),
+      "Файл из --params-file не найден",
+    ],
+    [
+      ["file", "upload", "a.bin", "--input-file", "folder"],
+      failure("EISDIR", "read"),
+      "В --input-file указана папка, а нужен файл",
+    ],
+    [
+      ["object", "create", "group", "--input-file", "locked.json"],
+      failure("EACCES", "open"),
+      "Файл из --input-file не открывается для чтения",
+    ],
+  ] as const;
+  for (const [argv, error, message] of cases) {
+    const f = fixture();
+    assert.equal(await runCli(argv, failingReads(f, error), f.dependencies), 2, argv.join(" "));
+    assert.equal(f.state.loads, 0);
+    const refusal = JSON.parse(f.state.stderr).error;
+    assert.equal(refusal.code, "cli.invalid_input");
+    assert.equal(refusal.message, `${message}: ${resolve(argv.at(-1)!)}.`);
+  }
+  // Отказ самого чтения, не файловой системы, приходит как есть.
+  const text = fixture();
+  const io = failingReads(text, new CliInputError("Ввод должен быть текстом UTF-8."));
+  assert.equal(await runCli(["exec", "--input-file", "cp1251.js"], io, text.dependencies), 2);
+  assert.equal(JSON.parse(text.state.stderr).error.message, "Ввод должен быть текстом UTF-8.");
+});
+
+test("config init и config path отличают файл, которого нет, от файла, который не читается", async () => {
+  const init = fixture();
+  const argv = ["config", "init", "--config", "folder", "--url", "http://localhost:8088"];
+  argv.push("--username", "admin", "--password-env", "SYNTHETIC_PASSWORD");
+  const io = failingReads(init, failure("EISDIR", "read"));
+  assert.equal(await runCli(argv, io, init.dependencies), 2);
+  assert.equal(
+    JSON.parse(init.state.stderr).error.message,
+    `Файл подключений не открывается для чтения: ${resolve("folder")}.`,
+  );
+  assert.equal(init.state.files.size, 0);
+  for (const [code, exists] of [
+    ["ENOENT", false],
+    ["EACCES", true],
+  ] as const) {
+    const f = fixture();
+    const reads = failingReads(f, failure(code, "open"));
+    assert.equal(await runCli(["config", "path", "--config", "c.json"], reads, f.dependencies), 0);
+    assert.equal(JSON.parse(f.state.stdout).data.exists, exists, code);
+  }
 });
 
 /** Ошибка аргументов: код 2 до настроек, в stderr нет значений из argv. */
