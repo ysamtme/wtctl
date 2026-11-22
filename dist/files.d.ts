@@ -1,6 +1,3 @@
-import type { ConnectionConfig } from "./contracts.js";
-import type { HcmServer } from "./hcm-server.js";
-import type { WriteOutcome } from "./write-outcome.js";
 /** Аргументы fileExists. */
 export interface FileExistsInput {
     /** Адрес на сервере: x-local://…, до 256 знаков. */
@@ -45,11 +42,6 @@ export interface FileSaveData {
     /** Полный путь к сохранённому файлу. */
     readonly file: string;
 }
-/** Файл целиком: текст, если это текст в UTF-8, иначе base64. */
-export declare function fileContent(content: Buffer, encoding?: "base64"): FileReadData;
-export declare const FILE_EXISTS_URL_MAX_LENGTH = 256;
-/** Проверяет, не нормализуя URL, который передаётся штатному предикату. */
-export declare function fileExistsUrl(value: unknown): string;
 /** Ровно одно из text, base64 и file. */
 export type FileWriteInput = {
     /** Адрес файла на сервере: x-local://…; файл заменяется целиком. */
@@ -80,17 +72,6 @@ export type FileDeleteData = {
     /** Исход записи: подтверждена. */
     readonly mutationOutcome: "confirmed";
 };
-/**
- * Папки сервера: папка кода хранит код сервера, поэтому запись в неё требует ещё права execute.
- * database — папки данных, которые сервер хранит в базе данных, а не на диске.
- */
-export type FileFolders = {
-    readonly data: readonly string[];
-    readonly code: readonly string[];
-    readonly database: readonly string[];
-};
-/** Столько байт за раз шлёт штатная настольная админка. */
-export declare const UPLOAD_BLOCK_BYTES = 10000000;
 /** Аргументы listFiles. */
 export interface FileListInput {
     /** Папка на сервере: x-local://папка или x-local://папка/путь. */
@@ -114,39 +95,4 @@ export interface FileListData {
     })[];
     /** Сколько элементов в списке. */
     readonly total: number;
-}
-/** Разбирает только прямой булев ResultData/Result фиксированного штатного предиката. */
-export declare function parseFileExists(response: unknown): FileExistsData;
-/**
- * Что операция сообщает runtime об одном вызове: из этого строятся исход и сообщение при сбое.
- * Часть OperationCall, своим типом: объявления пакета не тянут за собой устройство runtime.
- */
-export interface FileCall {
-    outcome: WriteOutcome;
-    afterSend?: {
-        message: string;
-        hint?: string;
-    };
-}
-/** Файловые операции: метод — вся цепочка одной, от проверки адреса до проверки после ответа. */
-export declare class ServerFiles {
-    private readonly server;
-    private readonly config;
-    constructor(server: Pick<HcmServer, "call" | "read" | "stream" | "runCode" | "applicationInfo">, config: ConnectionConfig);
-    exists(args: Record<string, unknown>): Promise<FileExistsData>;
-    /** Без file файл собирается в память в пределах maxResponseBytes; с file идёт на диск без предела. */
-    read(args: Record<string, unknown>): Promise<FileReadData | FileSaveData>;
-    /** Файл сервера потоком байт: read читает тело ответа, пока запрос занимает подключение. */
-    private load;
-    list(args: Record<string, unknown>, call: FileCall): Promise<FileListData>;
-    /**
-     * Путь настольной админки, одинаковый для всех папок: начало записи делает файл пустым, блоки
-     * ложатся по месту, затем файл читается назад и сверяется по размеру и SHA256.
-     */
-    write(args: Record<string, unknown>, call: FileCall): Promise<FileWriteData>;
-    /** Размер и SHA256 файла на сервере: файл читается потоком и в памяти не собирается. */
-    private readBack;
-    delete(args: Record<string, unknown>, call: FileCall): Promise<FileDeleteData>;
-    /** Сбой чтения сведений о приложении означает, что сервер не дал списков папок. */
-    folders(): Promise<FileFolders | undefined>;
 }

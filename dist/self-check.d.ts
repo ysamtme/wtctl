@@ -9,7 +9,7 @@ export interface CheckData {
     permissions: ConnectionConfig["permissions"];
     /** Шаги проверки по порядку. */
     checks: {
-        /** Шаг: login, version, query, document, schema, titles, libraries, logs, portal, execute. */
+        /** Шаг: login, version, appInfo, query, document, schema, titles, libraries, logs, portal, execute. */
         name: string;
         /** ok — прошёл, failed — не прошёл, skipped — не выполнялся. */
         result: "ok" | "failed" | "skipped";
@@ -26,7 +26,3 @@ export interface CheckData {
         skipped: number;
     };
 }
-type Invoke = (id: string, args: Record<string, unknown>) => Promise<unknown>;
-/** Фиксированные пробы не сохраняют в отчёте ни payload сервера, ни тексты ошибок. */
-export declare function checkServer(config: ConnectionConfig, invoke: Invoke): Promise<CheckData>;
-export {};

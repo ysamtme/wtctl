@@ -34,6 +34,7 @@ export interface CreatedPhysicalDocument extends PhysicalDocumentLocation {
  */
 export declare function resolvePhysicalDocumentLocation(idLexeme: string, dbName?: string): PhysicalDocumentLocation;
 export declare function parsePhysicalDocumentId(url: string): string | undefined;
+export declare function validateDbName(dbName: string, label?: string): string;
 /** Запросы LDS, из которых складывается создание документа; ответ несёт разобранные данные. */
 export interface PhysicalDocumentRequests<R extends {
     readonly data: unknown;

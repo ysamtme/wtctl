@@ -141,7 +141,7 @@ client.getMany<T extends object = HcmData>(input: GetManyInput): Promise<HcmResu
 client.status(): Promise<HcmResult<StatusData>>
 ```
 
-Связь с сервером: версия сервера и права подключения. Ничего не меняет.
+Связь с сервером: версия сервера, база данных (database), userId и права подключения. Ничего не меняет.
 
 Типы: [StatusData](#statusdata).
 
@@ -252,8 +252,9 @@ client.queryRows<T = HcmData>(input: QueryInput): AsyncGenerator<T, void, undefi
 ```
 
 Строки каталога или запроса XQuery со всех страниц по порядку; страницы листает сам.
-Аргументы те же, что у query. Неполная страница (incomplete) — ошибка QUERY_INCOMPLETE
-после её строк, большой ответ — HcmStoredResultError, как в unwrap.
+Аргументы те же, что у query. Страницу, которая не поместилась в outputLimitBytes и
+сохранилась локально, дочитывает через readResult. Неполная страница (incomplete) —
+ошибка QUERY_INCOMPLETE после её строк.
 
 Типы: [QueryInput](#queryinput).
 
@@ -322,12 +323,36 @@ client.types(input?: SchemaTypesInput): Promise<HcmResult<SchemaTypesResult>>
 #### client.rpc
 
 ```ts
-client.rpc<T = unknown>(input: RpcInput): Promise<HcmResult<T>>
+client.rpc(input: RpcInput & { readonly async: true; }): Promise<HcmResult<RpcAsyncData>>
 ```
 
-Вызывает функцию библиотеки сервера. Нужно право execute; функция может менять данные.
+Запускает функцию библиотеки сервера фоновой задачей; в ответе TrackingID. Нужно право execute.
 
-Типы: [RpcInput](#rpcinput).
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `input.async` | `true` | Запустить фоновой задачей. |
+
+Типы: [RpcInput](#rpcinput), [RpcAsyncData](#rpcasyncdata).
+
+```ts
+client.rpc<T = unknown>(input: RpcInput & { readonly async?: false; }): Promise<HcmResult<RpcValueData<T>>>
+```
+
+Вызывает функцию библиотеки сервера синхронно; типизированное значение приходит в data.value (нетипизированный XML — сырым ответом сервера). Нужно право execute; функция может менять данные.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `input.async?` | `false` | Выполнить синхронно (по умолчанию false). |
+
+Типы: [RpcInput](#rpcinput), [RpcValueData](#rpcvaluedata).
+
+```ts
+client.rpc<T = unknown>(input: RpcInput): Promise<HcmResult<RpcAsyncData | RpcValueData<T>>>
+```
+
+Вызывает функцию библиотеки сервера синхронно или фоновой задачей по полю async. Нужно право execute.
+
+Типы: [RpcInput](#rpcinput), [RpcAsyncData](#rpcasyncdata), [RpcValueData](#rpcvaluedata).
 
 #### client.listRpc
 
@@ -634,7 +659,7 @@ error ответа, как его вернула операция.
 | `language?` | `string` | Язык интерфейса сервера: ru, en… |
 | `permissions` | `ConnectionConfig["permissions"]` | Права подключения. |
 | `checks` | `{…}[]` | Шаги проверки по порядку. |
-| `checks[].name` | `string` | Шаг: login, version, query, document, schema, titles, libraries, logs, portal, execute. |
+| `checks[].name` | `string` | Шаг: login, version, appInfo, query, document, schema, titles, libraries, logs, portal, execute. |
 | `checks[].result` | `"ok" \| "failed" \| "skipped"` | ok — прошёл, failed — не прошёл, skipped — не выполнялся. |
 | `checks[].reason?` | `string` | Почему шаг не прошёл или пропущен. |
 | `summary` | `{…}` | Сколько шагов в каждом исходе. |
@@ -740,7 +765,7 @@ CreateInput<T extends object = HcmData>
 | --- | --- | --- |
 | `type` | `string` | Тип объекта: collaborator, group… |
 | `data` | `T` | Поля нового объекта; id выдаёт сервер. |
-| `dbName?` | `string` | База сервера для объекта; по умолчанию wt_data. |
+| `dbName?` | `string` | База сервера для объекта; по умолчанию основная база сервера (обычно wt_data). |
 | `formUrl?` | `string` | Адрес формы типа; по умолчанию — та, что сервер объявляет для типа, как в schema.get. |
 
 ### DeletedObjectData
@@ -762,7 +787,7 @@ CreateInput<T extends object = HcmData>
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `permanent` | `true` | Обязателен: удаление безвозвратное, корзины нет. |
-| `catalog?` | `string` | Каталог объекта: проверить, что объект был в нём и после удаления исчез. |
+| `catalog?` | `string` | Каталог объекта для проверки наличия и исчезновения; без него клиент выбирает каталог сам, если он у типа один (иначе verification:"server"). |
 
 ### FileDeleteData
 
@@ -914,7 +939,7 @@ GetManyData<T extends object = HcmData>
 | `items` | `(ObjectData<T> \| {…} )[]` | Объекты в порядке ids; непрочитанный — {id, error}. |
 | `items[].id` | `string` | ID непрочитанного объекта. |
 | `items[].error` | `{…}` | Почему объект не прочитан. |
-| `items[].error.code` | `string` | Код ошибки: NOT_FOUND, TYPE_MISMATCH… |
+| `items[].error.code` | `string` | Код ошибки: PLATFORM_SOAP-FAULT, TYPE_MISMATCH… |
 | `items[].error.message` | `string` | Что случилось. |
 | `total` | `number` | Сколько объектов запрошено. |
 | `failed?` | `number` | Сколько объектов не прочитано. |
@@ -928,6 +953,7 @@ GetManyData<T extends object = HcmData>
 | --- | --- | --- |
 | `ids` | `readonly string[]` | ID объектов, до 100. |
 | `type?` | `string` | Ожидаемый тип объектов. |
+| `dbName?` | `string` | База сервера, если объекты лежат не в основной базе. |
 | `fields?` | `readonly string[]` | Поля верхнего уровня; без fields — документы целиком. |
 
 ### GetOptions
@@ -1031,9 +1057,9 @@ type JsonSchema = Readonly<Record<string, unknown>>
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `cursor?` | `string` | cursor прошлого ответа; без него — события в прочитанной части файла. |
+| `cursor?` | `string` | cursor прошлого ответа; без него — последние 10 событий и новый cursor. |
 | `file` | `string` | Имя файла лога из listLogs. |
-| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию 512 КБ. Вместе с full не задаётся. |
+| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию: у readLog — сколько помещается в ответ, у searchLogs и followLog — до 512 КБ. Вместе с full не задаётся. |
 | `full?` | `boolean` | Читать весь файл, а не конец. |
 
 ### LogLevel
@@ -1094,7 +1120,7 @@ type LogLevel = "normal" | "debug" | "info" | "warning" | "error" | "critical"
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `file` | `string` | Имя файла лога из listLogs. |
-| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию 512 КБ. Вместе с full не задаётся. |
+| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию: у readLog — сколько помещается в ответ, у searchLogs и followLog — до 512 КБ. Вместе с full не задаётся. |
 | `full?` | `boolean` | Читать весь файл, а не конец. |
 
 ### LogResetReason
@@ -1120,7 +1146,7 @@ type LogResetReason = "overlap-not-found" | "file-size-decreased" | "ambiguous-o
 | `newestFirst?` | `boolean` | Сначала новейшие совпадения; offset тогда считается с конца файла. |
 | `expectedFingerprint?` | `string` | fingerprint прошлой страницы: если файл изменился, ошибка LOG_CHANGED. |
 | `file` | `string` | Имя файла лога из listLogs. |
-| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию 512 КБ. Вместе с full не задаётся. |
+| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию: у readLog — сколько помещается в ответ, у searchLogs и followLog — до 512 КБ. Вместе с full не задаётся. |
 | `full?` | `boolean` | Читать весь файл, а не конец. |
 
 ### LogText
@@ -1192,7 +1218,7 @@ ObjectData<T extends object = HcmData>
 | --- | --- | --- |
 | `id` | `string` | ID объекта, строкой: 0x… или десятичная запись. |
 | `type?` | `string` | Ожидаемый тип объекта. |
-| `url?` | `string` | Адрес документа: url из ответа get. |
+| `dbName?` | `string` | База сервера, если объект лежит не в основной базе. |
 
 ### OperationDefinition
 
@@ -1212,8 +1238,8 @@ ObjectData<T extends object = HcmData>
 ### OperationEffect
 
 Что операция делает с сервером: read — читает, write — записывает, execute — выполняет код
-на сервере. unknown — эффект зависит от аргументов (HTTP-запрос с любым методом): права
-проверяются по самим аргументам.
+на сервере. unknown — эффект зависит от аргументов (запрос к каталогу или XQuery, пакет
+операций): права проверяются по самим аргументам.
 
 ```ts
 type OperationEffect = "read" | "write" | "execute" | "unknown"
@@ -1225,7 +1251,7 @@ type OperationEffect = "read" | "write" | "execute" | "unknown"
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `code` | `string` | Код ошибки: WRITE_DISABLED, NOT_FOUND… Программа сравнивает его, а не текст. |
+| `code` | `string` | Код ошибки: WRITE_DISABLED, UNKNOWN_CATALOG, FILE_NOT_FOUND… Программа сравнивает его, а не текст. |
 | `message` | `string` | Что случилось. |
 | `hint?` | `string` | Что сделать дальше. |
 | `retryable?` | `boolean` | Можно ли повторить вызов без изменений. |
@@ -1238,7 +1264,7 @@ type OperationEffect = "read" | "write" | "execute" | "unknown"
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `query?` | `string` | Слова в ID, названии и описании; read, write, execute или unknown целиком — операции с этим эффектом. |
+| `query?` | `string` | Точная подстрока в ID, названии или описании (ищется целиком, без разбивки на слова); read, write, execute или unknown целиком — операции с этим эффектом. |
 | `topic?` | `string` | Тема обзора: functions, tasks, agents, files, documents… Неизвестная тема — UNKNOWN_TOPIC. |
 | `group?` | `string` | Группа операций: objects, lds, files… |
 | `effect?` | `OperationEffect` | Только операции с этим эффектом. |
@@ -1327,7 +1353,7 @@ type OperationEffect = "read" | "write" | "execute" | "unknown"
 | `remove?` | `readonly string[]` | Пути, которые удалить из документа. |
 | `expectedFingerprint?` | `string` | fingerprint из чтения: если объект с тех пор изменился, запись отклоняется с CONFLICT. |
 | `preview?` | `boolean` | Только показать изменения, ничего не записывая. |
-| `resave?` | `boolean` | Сохранить документ, даже если правка ничего не меняет: сервер заново заполняет вычисляемое. |
+| `resave?` | `boolean` | Сохранить документ, даже если правка ничего не меняет: сервер заново заполняет поля-копии из связанных объектов. |
 
 ### PatchPreviewData
 
@@ -1361,7 +1387,7 @@ QueryData<T = HcmData>
 ### QueryInput
 
 Поиск в каталоге (catalog, where, order) или запрос XQuery целиком (query, нужно право execute).
-Запрос XQuery возвращает элементы каталога и заканчивается на return $elem; отдельные значения
+Запрос XQuery возвращает строки каталога целиком (например return $e); отдельные значения
 возвращает низкоуровневая операция native.lds.xQuery.
 
 Вариант 1:
@@ -1382,7 +1408,7 @@ QueryData<T = HcmData>
 | `fields?` | `readonly string[]` | Поля строки, в этом порядке; без fields — все поля каталога. |
 | `limit?` | `number` | Строк на странице, 1–1000; по умолчанию 20. |
 | `startPosition?` | `number` | С какой строки читать: nextStartPosition прошлой страницы; до 1000000. |
-| `query` | `string` | Запрос XQuery: for $elem in collaborators where … return $elem. |
+| `query` | `string` | Запрос XQuery: for $e in collaborators where … return $e. |
 
 ### QueryOptions
 
@@ -1469,7 +1495,7 @@ ResultPage<T = unknown>
 | --- | --- | --- |
 | `resultId` | `string` | ID сохранённого результата: meta.resultId ответа. |
 | `offset?` | `number` | С какого элемента списка или символа текста читать: nextOffset прошлой страницы. |
-| `limit?` | `number` | Элементов на странице (по умолчанию 100, до 1000) или символов (по умолчанию 12000). |
+| `limit?` | `number` | Элементов на странице (по умолчанию 100, до 1000) или символов (по умолчанию 12000, до 65536). |
 | `format?` | `"auto" \| "json" \| "text"` | auto — список по элементам, текст по символам (по умолчанию); json — любой результат как текст JSON по частям; text — только сохранённый текст. |
 
 ### RpcArgument
@@ -1482,6 +1508,14 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 
 Типы: [RpcTypedArgument](#rpctypedargument), [RpcXmlArgument](#rpcxmlargument).
 
+### RpcAsyncData
+
+Ответ асинхронного вызова функции библиотеки (rpc с async:true).
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `TrackingID` | `string` | ID фоновой задачи на сервере для проверки статуса и получения результата. |
+
 ### RpcCatalogFilter
 
 Аргументы listRpc.
@@ -1491,7 +1525,6 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `query?` | `string` | Часть имени функции или параметра. |
 | `library?` | `string` | Библиотека: tools, ms_tools… |
 | `method?` | `string` | Имя функции целиком. |
-| `builtIn?` | `boolean` | Встроенная таблица функций сервера 2025.1.1171, без обращения к серверу. |
 | `all?` | `boolean` | Включить функции, которые может вызывать только код сервера. |
 | `cursor?` | `number` | Сколько функций пропустить: nextCursor прошлой страницы. |
 | `limit?` | `number` | Функций на странице, 1–100; по умолчанию 30. |
@@ -1507,7 +1540,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `serverOnlyHidden?` | `number` | Подходящие функции, пропущенные из-за того, что клиент их не вызовет; all:true выводит их. |
 | `hint?` | `string` | Есть при serverOnlyHidden: как их показать. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
-| `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
+| `source` | `"server"` | Источник списка функций — подключённый сервер. |
 | `skipped?` | `readonly string[]` | Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. |
 
 ### RpcDescribeOptions
@@ -1516,7 +1549,6 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `builtIn?` | `boolean` | Встроенная таблица функций сервера 2025.1.1171, без обращения к серверу. |
 | `source?` | `boolean` | Добавить код функции, до 8 КБ. |
 
 ### RpcInput
@@ -1554,7 +1586,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `parameters` | `readonly string[]` | Имена параметров по порядку; типов сервер не объявляет. |
 | `allowed` | `boolean \| null` | Разрешён ли вызов с клиента; null — не установлено. |
 | `serverOnly?` | `true` | Функция не допускает вызова с клиента: её зовёт только код сервера. |
-| `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
+| `source` | `"server"` | Источник списка функций — подключённый сервер. |
 | `skipped?` | `readonly string[]` | Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. |
 
 ### RpcTypedArgument
@@ -1566,6 +1598,20 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `valueType` | `string` | Тип значения сервера: date, integer, real, string, bool… |
 | `lexicalValue` | `string \| {…}` | Значение в записи сервера: "2026-10-01T00:00:00", "6148914691236517121"; XML — {xml}. |
 | `lexicalValue.xml` | `string` | Текст XML. |
+
+### RpcValueData
+
+Ответ синхронного вызова функции библиотеки (rpc без async:true). Если функция вернула
+нетипизированный XML (документ или элемент формы), в ответе приходит сырой разобранный объект
+сервера без поля value.
+
+```ts
+RpcValueData<T = unknown>
+```
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `value` | `T` | Значение, которое вернула функция (простое значение, массив, объект или null). |
 
 ### RpcXmlArgument
 
@@ -1614,7 +1660,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `type?` | `string` | Тип объекта: collaborator, group…; вместо него можно url. |
-| `url?` | `string` | Адрес документа: поля типа этого объекта. |
+| `url?` | `string` | Адрес формы вместо типа: x-local://…. |
 | `search?` | `string` | Слова в пути, заголовке или каталоге ссылки, на любой глубине; все слова — в одном поле. |
 | `path?` | `string` | Структура, чьи поля показать: access, custom_elems. |
 | `deep?` | `boolean` | Вложенные поля всех глубин одним списком, а не по уровню за вызов. |
@@ -1679,7 +1725,7 @@ ScriptData<T = unknown>
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `result` | `readonly T[]` | Массив RESULT из кода; числа, даты и логические значения — строками. |
+| `result` | `readonly T[]` | Массив RESULT из кода; числа и логические значения приходят строками. Дату нужно приводить к строке в самом коде (StrDate, StrXmlDate): на части версий сервера она в ответ не попадает. |
 | `columns?` | `readonly unknown[]` | Описания столбцов, если сервер их вернул. |
 | `data?` | `Readonly<Record<string, unknown>>` | Дополнительные данные коллекции, если сервер их вернул. |
 | `executionId` | `string` | Имя несохранённой коллекции, несшей код; оно попадает в строки лога сервера. |
@@ -1805,33 +1851,16 @@ data ответа, который больше outputLimitBytes и сохран�
 
 ### WebSocketHeartbeatData
 
-Проверка прошла: подключение принято, $ok получен.
+Ответ проверки WebSocket: подключение принято, получен ответ $ok.
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `handshakeValidated` | `true` | Всегда true. |
-| `heartbeatObserved` | `true` | Всегда true. |
-| `route` | `"/services/main_ws_service"` | Адрес WebSocket на сервере. |
-| `phase` | `"preflight" \| "connecting" \| "heartbeat" \| "closing" \| "disposed"` | До какой фазы дошла проверка. |
-| `httpStatus?` | `number` | Статус HTTP при повышении протокола или отказе, если был; без него ответа не наблюдали. |
-| `heartbeatWritten` | `boolean` | Сообщение $hbt отправлено. |
-| `closeRequested` | `boolean` | Клиент запросил закрытие. |
-| `peerCloseObserved` | `boolean` | Сервер прислал кадр закрытия. |
-| `peerEofObserved` | `boolean` | Сервер закрыл соединение. |
-| `libraryCloseCode?` | `number` | Код закрытия WebSocket, если был. |
-| `closeWriteVerified` | `false` | Всегда false: что кадр закрытия дошёл до сервера, не проверить. |
-| `localSocketDisposed` | `boolean` | Соединение на стороне клиента закрыто. |
-| `forcedLocalTermination` | `boolean` | Клиент оборвал соединение сам: истёк срок или превышен предел. |
-| `warning?` | `"PEER_CLOSE_ACK_NOT_OBSERVED"` | Ответа сервера на закрытие не было; $ok при этом получен. |
+| `route` | `"/services/main_ws_service"` | Адрес службы WebSocket на сервере. |
+| `handshakeValidated` | `true` | Сервер принял подключение WebSocket. |
+| `heartbeatObserved` | `true` | Получен ответ $ok. |
 | `durationMs` | `number` | Время проверки, мс. |
-| `limits` | `{…}` | Пределы проверки. |
-| `limits.timeoutMs` | `number` | Срок проверки, мс. |
-| `limits.maxMessageBytes` | `number` | Предел одного сообщения в байтах. |
-| `limits.maxMessages` | `number` | Предел числа сообщений. |
-| `limits.maxTotalBytes` | `number` | Предел всех полученных байт. |
-| `counts` | `{…}` | Сколько получено. |
-| `counts.messages` | `number` | Сообщений. |
-| `counts.receivedBytes` | `number` | Байт. |
+| `closeCode?` | `number` | Код закрытия WebSocket, если сервер прислал кадр закрытия. |
+| `warning?` | `"PEER_CLOSE_ACK_NOT_OBSERVED"` | Ответа сервера на закрытие не было; $ok при этом получен. |
 
 ### WebSocketHeartbeatInput
 

@@ -1,7 +1,7 @@
 /**
  * Что операция делает с сервером: read — читает, write — записывает, execute — выполняет код
- * на сервере. unknown — эффект зависит от аргументов (HTTP-запрос с любым методом): права
- * проверяются по самим аргументам.
+ * на сервере. unknown — эффект зависит от аргументов (запрос к каталогу или XQuery, пакет
+ * операций): права проверяются по самим аргументам.
  */
 export type OperationEffect = "read" | "write" | "execute" | "unknown";
 /** Профиль протокола, которым идёт низкоуровневая операция; anonymous — без входа. */
@@ -80,7 +80,7 @@ export interface NativeOperation extends OperationDefinition {
 export type MutationOutcome = "not_sent" | "confirmed" | "indeterminate";
 /** Ошибка операции в ответе с ok:false. */
 export interface OperationError {
-    /** Код ошибки: WRITE_DISABLED, NOT_FOUND… Программа сравнивает его, а не текст. */
+    /** Код ошибки: WRITE_DISABLED, UNKNOWN_CATALOG, FILE_NOT_FOUND… Программа сравнивает его, а не текст. */
     readonly code: string;
     /** Что случилось. */
     readonly message: string;
@@ -120,7 +120,7 @@ export interface OperationResult {
 }
 /** Отбор операций для listOperations и listHcmOperations. */
 export interface OperationFilter {
-    /** Слова в ID, названии и описании; read, write, execute или unknown целиком — операции с этим эффектом. */
+    /** Точная подстрока в ID, названии или описании (ищется целиком, без разбивки на слова); read, write, execute или unknown целиком — операции с этим эффектом. */
     readonly query?: string;
     /** Тема обзора: functions, tasks, agents, files, documents… Неизвестная тема — UNKNOWN_TOPIC. */
     readonly topic?: string;

@@ -10,7 +10,7 @@
 | --- | --- |
 | Есть ли файл или папка | `hcm_api_read {operationId:"files.exists", args:{url:"x-local://wt/web/default.html"}}` → `{"exists":true}` |
 | Прочитать | `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"…","bytes":48}`; если файл не текст в UTF-8 или в нём есть управляющие байты — `{"base64":"…","bytes":6}`. С `encoding:"base64"` в ответе всегда `base64` |
-| Сохранить файл на диск | то же с `file:"…"` — полный путь на компьютере, где запущен MCP-сервер → `{"bytes":965120,"file":"…"}`. Существующий файл заменяет `overwrite:true`, без него — `FILE_EXISTS` |
+| Сохранить файл на диск | `hcm_api_write {operationId:"files.read", args:{url:"…", file:"…"}}` — полный путь на компьютере, где запущен MCP-сервер → `{"bytes":965120,"file":"…"}` (право `write` сервера не нужно). Существующий файл заменяет `overwrite:true`, без него — `FILE_EXISTS` |
 | Список папки | `hcm_api_execute {operationId:"files.list", args:{url:"x-local://wt/web"}}` → `{"items":[{"name":"default.html","bytes":48},{"name":"img","folder":true}],"total":2}`. С `search:"default"` в ответе только имена с этой частью: так узнаётся и размер одного файла |
 | Записать текст | `hcm_api_write {operationId:"files.write", args:{url:"…", text:"текст файла"}}` → `{"bytes":21,"mutationOutcome":"confirmed"}` |
 | Записать двоичные данные | то же с `base64:"AAECAwT/"` вместо `text` |
@@ -43,7 +43,7 @@
 
 Загрузка принимает только имена, которые разрешает политика загрузки сервера; её задаёт и может менять администратор. Файл с другим именем сервер отклоняет: `UPLOAD_REFUSED`. Файл по своему адресу и с любым именем записывает `files.write`: политика загрузки на него не действует.
 
-`data` — текст файла или `{base64:"…"}`. Двоичный или большой файл с диска этого компьютера загружает команда: `wtctl file upload report.pdf --input-file ./report.pdf`.
+`data` — текст файла или `{base64:"…"}`. Двоичный или большой файл с диска этого компьютера загружает команда: `wtctl files upload report.pdf --input-file ./report.pdf`.
 
 ## Документ как XML
 
@@ -52,5 +52,5 @@
 - Адрес документа — поле `url` в ответе `hcm_object_get`, например `x-local://wt_data/objects/607999B973FFE0/44.xml`. Адрес существующего документа бери оттуда; как составить адрес для нового ID, см. [objects.md](objects.md), раздел «Создание».
 - Прочитать текст XML: `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"<group SPXML-FORM=\"x-local://wtv/wtv_group.xmd\"><id>…</id>…</group>"}`. Как записаны значения в тексте, зависит от базы данных сервера: логическое поле бывает `false` и `0`, отступы и заголовок `<?xml …?>` есть не везде.
 - Прочитать разобранным в JSON: `hcm_api_read {operationId:"native.lds.loadDoc", args:{url:"…"}}`. Документ приходит в `data.Data.<тип>`. Повторяемый элемент из одного элемента здесь объект, а не список. Даты здесь и в тексте XML записаны со смещением `+00:00`: это местное время сервера.
-- Сохранить: `hcm_api_write {operationId:"native.lds.putDoc", args:{url:"…", data:"<group>…</group>"}}`. `data` — текст XML всего документа: он заменяет документ целиком. `neverSaved:true` — документ записывается впервые. С `writeDocInfo:true` сервер обновляет дату и автора изменения; без него они остаются как в тексте, и поиск по `modification_date` правку не видит. Чужую правку операция не замечает: `fingerprint` из `hcm_object_get` сверяй до записи сами. Чтобы изменить несколько полей, используй `hcm_object_patch`.
+- Сохранить: `hcm_api_write {operationId:"native.lds.putDoc", args:{url:"…", data:"<group>…</group>"}}`. `data` — текст XML всего документа: он заменяет документ целиком. `neverSaved:true` — документ записывается впервые. С `writeDocInfo:true` сервер обновляет дату и автора изменения; без него они остаются как в тексте, и поиск по `modification_date` правку не видит. Чужую правку операция не замечает: `fingerprint` из `hcm_object_get` сверяй до записи сам. Чтобы изменить несколько полей, используй `hcm_object_patch`.
 - Создать из готового XML: `native.physicalDocuments.createFromXml`. Удалить: `native.lds.deleteDoc`.

@@ -1,4 +1,3 @@
-import type { HcmServer } from "./hcm-server.js";
 /** Профиль протокола, которым читаются сведения. */
 export type ServerInfoProfile = "native" | "web";
 /** Аргументы serverInfo. */
@@ -34,10 +33,3 @@ export interface ServerInfoData {
     /** Профиль native: папки кода, куда writeFile пишет только с правом execute. */
     readonly codeFolders?: readonly string[];
 }
-/**
- * Разбирает только фиксированный штатный RPC метаданных; XML не вычисляется
- * и не декодируется дважды.
- */
-export declare function parseServerInfo(response: unknown, profile?: ServerInfoProfile): ServerInfoData;
-/** Сведения о сервере — тем же вызовом, которым их читает админка при запуске. */
-export declare function readServerInfo(server: Pick<HcmServer, "read">, profile?: ServerInfoProfile): Promise<ServerInfoData>;

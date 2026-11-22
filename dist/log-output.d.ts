@@ -1,4 +1,4 @@
-import type { LogFollowData, LogLevel, LogListData, LogReadData, LogResetReason, LogSearchData } from "./logs.js";
+import type { LogLevel, LogResetReason } from "./logs.js";
 /** Файл лога. */
 export interface LogFileSummary {
     /** Имя файла: его принимают readLog, searchLogs и followLog. */
@@ -85,8 +85,3 @@ export interface LogNews {
     /** Почему чтение началось заново. */
     readonly resetReason?: LogResetReason;
 }
-export declare function logFiles(data: LogListData): LogFiles;
-export declare function logText(data: LogReadData): LogText;
-export declare function logMatches(data: LogSearchData, budgetBytes: number): LogMatches;
-/** first: вызов, который только берёт позицию; прежние события — не новости, часть показывается. */
-export declare function logNews(data: LogFollowData, first: boolean, budgetBytes: number): LogNews;

@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 
 # wtctl печатает в UTF-8; в консоли с кодовой страницей 866 кириллица иначе испортится.
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
-# Предел ответа — наибольший, 1 МБ: 500 строк в 24 КБ по умолчанию не помещаются.
+# Предел ответа — наибольший, 1 МиБ: 500 строк в 24 КиБ по умолчанию не помещаются.
 # Скрипт идёт в процессе оболочки, которая его вызвала: прежний предел возвращается в конце.
 $limit = $env:WTCTL_OUTPUT_LIMIT_BYTES
 $env:WTCTL_OUTPUT_LIMIT_BYTES = 1048576
@@ -19,14 +19,14 @@ $rows = @()
 $start = 0
 try {
   while ($null -ne $start) {
-    $out = wtctl query --catalog collaborators --where '{\"is_dismiss\":false}' --fields $Fields --order id --limit 500 --start-position $start
+    $out = wtctl query --catalog collaborators --where '{\"is_dismiss\":false}' --fields $Fields --order id --limit 500 --start-position $start --json
     # Код 3: страница не поместилась, в ответе только её начало.
     if ($LASTEXITCODE -eq 3) { throw 'Страница не поместилась в ответ: уменьшить --limit.' }
     if ($LASTEXITCODE -ne 0) { throw "wtctl завершился с кодом ${LASTEXITCODE}: $out" }
     $page = ($out | ConvertFrom-Json).data
     # incomplete — страница, которую отвергла база данных, а не конец строк.
     if ($page.incomplete) { throw "База данных отвергла запрос: $($page.hint)" }
-    # PowerShell 7 делает из даты DateTime, а Export-Csv пишет его в формате культуры: возвращаем запись сервера.
+    # PowerShell 7 делает из даты DateTime, а Export-Csv пишет его в формате региональных настроек: возвращаем запись сервера.
     foreach ($row in $page.items) {
       foreach ($field in $row.PSObject.Properties) { if ($field.Value -is [datetime]) { $field.Value = $field.Value.ToString('s') } }
     }

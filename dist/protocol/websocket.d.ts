@@ -1,8 +1,8 @@
 import { WsHcmApiError } from "./error.js";
 import { HttpTransport } from "./transport.js";
-import type { WebSocketFactory, WebSocketHeartbeatData, WebSocketHeartbeatInput, WebSocketHeartbeatReceipt } from "./types.js";
+import type { WebSocketFactory, WebSocketHeartbeatData, WebSocketHeartbeatInput } from "./types.js";
 declare const ERROR_MESSAGES: {
-    readonly WS_UNAVAILABLE: "Соединение WebSocket недоступно: нет webSocketFactory или собственной веб-сессии.";
+    readonly WS_UNAVAILABLE: "Соединение WebSocket недоступно: нет webSocketFactory или собственной сессии web.";
     readonly WS_INVALID_INPUT: "Неверные аргументы проверки WebSocket.";
     readonly WS_HANDSHAKE_FAILED: "Сервер не установил соединение WebSocket.";
     readonly WS_AUTHENTICATION_REQUIRED: "Сервер требует входа для соединения WebSocket.";
@@ -14,14 +14,19 @@ declare const ERROR_MESSAGES: {
     readonly WS_DISPOSAL_FAILED: "Не удалось убедиться, что соединение WebSocket закрыто с этой стороны.";
 };
 export type WebSocketHeartbeatErrorCode = keyof typeof ERROR_MESSAGES;
+type Phase = "preflight" | "connecting" | "heartbeat" | "closing";
 /** Использует лишь публичный конструктор закреплённой библиотеки, её публичные события и методы. */
 export declare const defaultWebSocketFactory: WebSocketFactory;
-/** Фиксированная диагностика и канонические наблюдения; произвольные подробности не копируются. */
+/** Ошибка проверки WebSocket с фиксированным кодом и компактной диагностикой. */
 export declare class WebSocketHeartbeatError extends WsHcmApiError {
     readonly errorCode: WebSocketHeartbeatErrorCode;
     readonly hint: string;
-    readonly receipt: Readonly<WebSocketHeartbeatReceipt>;
-    constructor(errorCode: WebSocketHeartbeatErrorCode, receipt: WebSocketHeartbeatReceipt, options?: {
+    constructor(errorCode: WebSocketHeartbeatErrorCode, options?: {
+        phase?: Phase;
+        handshakeValidated?: boolean;
+        heartbeatObserved?: boolean;
+        status?: number;
+        closeCode?: number;
         requestSent?: false;
     });
 }

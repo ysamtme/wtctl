@@ -1,7 +1,4 @@
-import { XmlDocument, type PatchChange } from "./documents.js";
-import type { HcmServer } from "./hcm-server.js";
-import type { WriteOutcome } from "./write-outcome.js";
-import { type SchemaReader } from "./schema.js";
+import { type PatchChange } from "./documents.js";
 /** Запись возвращает сводку, а не копию документа; нужны поля — прочитать объект. */
 export interface CreatedObjectData {
     /** ID нового объекта, 0x…. */
@@ -61,42 +58,4 @@ export interface DeletedObjectData {
     readonly verification: "server" | "catalog";
     /** Каталог, по которому проверено удаление. */
     readonly catalog?: string;
-}
-/** Объекты сервера: чтение, создание, правка и удаление одного документа, с журналом записей. */
-export declare class ServerObjects {
-    private readonly server;
-    private readonly schema;
-    /** Журнал записей: папка с mutations.jsonl и его предел в байтах, 0 — без предела. */
-    private readonly journalFile;
-    constructor(server: Pick<HcmServer, "call" | "read" | "applicationInfo">, schema: Pick<SchemaReader, "documentShape" | "catalogShape" | "requireType" | "documentForm" | "typeFormUrl">, 
-    /** Журнал записей: папка с mutations.jsonl и его предел в байтах, 0 — без предела. */
-    journalFile: {
-        readonly directory: string;
-        readonly maxBytes: number;
-    });
-    /** Один объект по id или url, как отвечает objects.get. */
-    get(args: Record<string, unknown>): Promise<Record<string, unknown>>;
-    load(args: Record<string, unknown>): Promise<{
-        document: XmlDocument;
-        url: string;
-        id: string | undefined;
-    }>;
-    private journal;
-    private resolveCatalog;
-    /**
-     * Значения названных полей в строке каталога объекта. В `known` — имена, которые являются
-     * полями каталога, есть у строки значение для них или нет.
-     */
-    private catalogRow;
-    private catalogHasId;
-    /**
-     * Чего сервер не сохранит, отклоняется до записи: поле, которого нет у типа, выпадает из
-     * сохранённого документа, как и значение поля, которое сервер вычисляет сам, а дата, которую
-     * сервер не может прочитать, сохраняется другим значением. Ответ — поля, которые сервер
-     * заполняет при сохранении сам, с полем, из которого их стоит менять, если оно угадывается.
-     */
-    private requireFields;
-    create(args: Record<string, unknown>, out: WriteOutcome): Promise<CreatedObjectData>;
-    patch(args: Record<string, unknown>, out: WriteOutcome): Promise<PatchedObjectData | PatchPreviewData>;
-    delete(args: Record<string, unknown>, out: WriteOutcome): Promise<DeletedObjectData>;
 }

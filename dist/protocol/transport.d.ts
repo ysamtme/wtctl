@@ -15,7 +15,10 @@ export interface SendOptions extends RequestOptions {
 }
 export declare class SessionCookie {
     #private;
+    /** Значение cookie SessionID; undefined, если сессия ещё не выдала SessionID. */
     get value(): string | undefined;
+    /** Все активные cookies сессии в виде заголовка Cookie. */
+    header(): string | undefined;
     capture(headers: Headers): void;
     clear(): void;
 }
@@ -36,6 +39,6 @@ export type NetworkFailure = "refused" | "unknown_host" | "unreachable" | "certi
  * Ограничивает число байтов до того, как потребитель сможет буферизовать недоверенный ответ.
  * Сбой чтения тела — WsHcmApiError с причиной, и при пределе Infinity тоже.
  */
-export declare function limitResponse(response: Response, maxBytes: number): Response;
+export declare function limitResponse(response: Response, maxBytes: number, idleTimeoutMs?: number, onIdleTimeout?: (error: DOMException) => void, externalSignal?: AbortSignal): Response;
 export declare function responseBytes<T>(response: Response, data: T): Promise<WsHcmResponse<T>>;
 export declare function query(path: string, values: Readonly<Record<string, unknown>>): string;

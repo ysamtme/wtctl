@@ -1,9 +1,8 @@
-import { HcmError } from "./errors.js";
 /** Аргументы schema: тип или url и отбор полей. */
 export interface SchemaInput {
     /** Тип объекта: collaborator, group…; вместо него можно url. */
     type?: string;
-    /** Адрес документа: поля типа этого объекта. */
+    /** Адрес формы вместо типа: x-local://…. */
     url?: string;
     /** Слова в пути, заголовке или каталоге ссылки, на любой глубине; все слова — в одном поле. */
     search?: string;
@@ -112,114 +111,3 @@ export interface SchemaTypesResult {
     /** Пояснения к списку. */
     notes?: string[];
 }
-/** Чтобы привести данные к одному виду: имена полей верхнего уровня и повторяющиеся элементы. */
-export interface DataShape {
-    readonly fields: Set<string>;
-    /** Пути элементов, объявленных формой повторяющимися, например collaborators.collaborator. */
-    readonly repeated: Set<string>;
-    /** TYPE полей формы по пути, на любой глубине; у поля без TYPE — пустая строка. */
-    readonly types: Map<string, string>;
-    /** Поля верхнего уровня, которые вычисляет сервер: записанное в них значение не сохраняется. */
-    readonly computed?: Set<string>;
-    /**
-     * Поля верхнего уровня, которые код формы перед сохранением и заполняет, и очищает сам: копии
-     * полей связанных объектов. Узнаются по тексту кода, бывают и лишние — годятся только для пометки.
-     */
-    readonly serverFilled?: Set<string>;
-    /** Базовый тип формы не найден, поэтому имена полей — не все. */
-    partial?: boolean;
-}
-/** Повторяющийся элемент — список и тогда, когда в данных один пункт. */
-export declare function withRepeated(value: unknown, repeated: ReadonlySet<string>, prefix?: string): unknown;
-type Data = Record<string, unknown>;
-/** Базы сервера из сведений о приложении: имя и каталоги каждой; запись без имени пропускается. */
-export declare function serverDatabases(info: Data): {
-    id: string;
-    catalogs: Data[];
-}[];
-export declare function languageFileUrl(id: unknown, language?: string): string;
-/** Читает живые метаданные через фиксированные операции чтения runtime; все кэши — в памяти. */
-export declare class SchemaReader {
-    private applicationInfo;
-    private readForm;
-    private readDocument;
-    private forms;
-    private shapes;
-    private dictionaries;
-    private documents;
-    private customExpires;
-    /** Найденный адрес формы по имени типа или каталога; ненайденный следующий вызов ищет заново. */
-    private formUrls;
-    constructor(applicationInfo: () => Promise<Data>, readForm: (url: string) => Promise<string>, readDocument: (url: string) => Promise<Data>);
-    private form;
-    /**
-     * Типы полей для проверки после записи. Базовый тип отдаёт свои поля тому месту, которое его
-     * называет: без них логическое true, отправленное серверу, не равнялось бы хранимому им 1.
-     */
-    documentForm(url: string): Promise<{
-        roots: string[];
-        fields: unknown[];
-    }>;
-    private shared;
-    private commonData;
-    /** Типы объектов, которые объявляет сервер; пустой список, если объявление не читается. */
-    private declaredTypes;
-    private customData;
-    private language;
-    private unknownType;
-    /**
-     * Имя, не являющееся типом объекта, отклоняется до записи. Проверке нужны списки сервера:
-     * если их не прочитать, имя оставляется серверу.
-     */
-    requireType(type: string): Promise<void>;
-    /**
-     * Являются ли строки этого типа документами. Строки других каталогов (group_collaborators)
-     * строит сервер, документа у них нет; если не определить, ответ — да.
-     */
-    private hasDocuments;
-    /**
-     * Каталоги по базам, основная — первой: каталоги user_data и ещё нескольких типов лежат в базе
-     * trash. Тип объекта сервер называет только у части каталогов. Рядом он перечисляет общие
-     * списки (common.…): это не каталоги, и они пропускаются.
-     */
-    private databases;
-    private catalogs;
-    /** Каталоги с типом объекта; каталоги типа берутся из первой базы, где они есть. */
-    private typedCatalogs;
-    private catalog;
-    /** Тип строк каталога: названный сервером или, если нет, по форме каталога. */
-    private rowType;
-    /**
-     * Каталоги, строки которых — объекты этого типа. У некоторых типов (event) сервер оставляет
-     * каталог без имени: тогда засчитывается каталог, названный по типу, если форма согласна.
-     */
-    private catalogsOf;
-    private context;
-    private title;
-    private typeTranslations;
-    private typeTitle;
-    private samples;
-    /** Поля одной строки каталога по пути, прочитанные из формы каталога. */
-    private catalogFields;
-    /**
-     * Адрес формы документа типа: обычный, а если такой формы нет — тот, что сервер объявляет для
-     * типа в common. Формы типов тестирования (assessment и др.) лежат вне x-local://wtv. Если не
-     * нашлась ни та, ни другая, отказ — тот, что дало чтение обычной формы.
-     */
-    typeFormUrl(type: string): Promise<string>;
-    /** Структура документа одного типа с унаследованными полями; читается один раз на форму. */
-    documentShape(type: string, url?: string): Promise<DataShape>;
-    /** Структура одной строки каталога; каталог назван или находится по типу объекта его строк. */
-    catalogShape(selector: {
-        catalog?: string;
-        type?: string;
-    }): Promise<DataShape | undefined>;
-    /**
-     * Сервер отвечает на отклонённый запрос к каталогу голым HTTP 500. После такого отказа здесь
-     * называется обычная причина: каталога не существует или поля нет в каталоге.
-     */
-    explainQuery(catalogId: string, fields: readonly string[]): Promise<HcmError | undefined>;
-    get(input: SchemaInput): Promise<SchemaResult>;
-    types(input?: SchemaTypesInput): Promise<SchemaTypesResult>;
-}
-export {};

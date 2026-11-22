@@ -1,4 +1,3 @@
-import { HcmError } from "./errors.js";
 /** Функция библиотеки сервера. */
 export interface RpcTargetCard {
     /** «библиотека.функция»: tools.get_version. */
@@ -18,8 +17,6 @@ export interface RpcCatalogFilter {
     readonly library?: string;
     /** Имя функции целиком. */
     readonly method?: string;
-    /** Встроенная таблица функций сервера 2025.1.1171, без обращения к серверу. */
-    readonly builtIn?: boolean;
     /** Включить функции, которые может вызывать только код сервера. */
     readonly all?: boolean;
     /** Сколько функций пропустить: nextCursor прошлой страницы. */
@@ -29,15 +26,13 @@ export interface RpcCatalogFilter {
 }
 /** Аргументы describeRpc помимо targetId. */
 export interface RpcDescribeOptions {
-    /** Встроенная таблица функций сервера 2025.1.1171, без обращения к серверу. */
-    readonly builtIn?: boolean;
     /** Добавить код функции, до 8 КБ. */
     readonly source?: boolean;
 }
 /** Откуда взят список функций. */
 interface RpcCatalogSource {
-    /** Откуда список: с сервера или из встроенной таблицы 2025.1.1171. */
-    readonly source: "server" | "built-in 2025.1.1171";
+    /** Источник списка функций — подключённый сервер. */
+    readonly source: "server";
     /** Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. */
     readonly skipped?: readonly string[];
 }
@@ -62,16 +57,5 @@ export interface RpcTargetDescription extends RpcTargetCard, RpcCatalogSource {
     readonly code?: string;
     /** Код длиннее 8 КБ и обрезан. */
     readonly codeTruncated?: true;
-}
-export declare const RPC_CATALOG_PAGE_MAX_BYTES: number;
-/** Поиск целей внутри runtime; вызов цели остаётся отдельной операцией. */
-export declare class RpcCatalog {
-    private readonly reader;
-    constructor(applicationInfo?: () => Promise<Record<string, unknown>>, readFile?: (url: string) => Promise<unknown>);
-    private catalog;
-    /** Почему сервер отказал в вызове, если это объясняет его собственный список функций. */
-    refusal(targetId: string): Promise<HcmError | undefined>;
-    list(filter?: RpcCatalogFilter): Promise<RpcCatalogPage>;
-    describe(targetId: string, options?: RpcDescribeOptions): Promise<RpcTargetDescription>;
 }
 export {};

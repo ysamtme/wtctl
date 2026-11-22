@@ -1,36 +1,10 @@
 import { createRequire as __wtctlRequire } from "node:module";
 const require = __wtctlRequire(import.meta.url);
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
-var __commonJS = (cb, mod) => function __require2() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
+import {
+  __commonJS,
+  __require,
+  __toESM
+} from "./chunk-LV7Y4FOL.js";
 
 // node_modules/ws/lib/constants.js
 var require_constants = __commonJS({
@@ -8675,7 +8649,7 @@ var reservedXmlNames = /* @__PURE__ */ new Set([
   "__lookupSetter__"
 ]);
 var xmlNameMarker = "";
-var protectXmlName = (name) => reservedXmlNames.has(name) ? xmlNameMarker + name : name;
+var rawParsers = /* @__PURE__ */ new WeakMap();
 function restoreXmlNames(value) {
   if (Array.isArray(value)) return value.map(restoreXmlNames);
   if (value === null || typeof value !== "object") return value;
@@ -8734,24 +8708,38 @@ function assertSafe(source) {
 }
 function createPlatformXmlParser(options = {}) {
   const attributePrefix = options.attributeNamePrefix ?? "@_";
+  let protectedName = false;
+  const protect = (name) => {
+    if (!reservedXmlNames.has(name)) return name;
+    protectedName = true;
+    return xmlNameMarker + name;
+  };
   const result = new XMLParser({
     ...options,
     htmlEntities: true,
-    transformTagName: (name) => protectXmlName(options.transformTagName ? options.transformTagName(name) : name),
+    transformTagName: (name) => protect(options.transformTagName ? options.transformTagName(name) : name),
     transformAttributeName: (name) => {
       const transformed = options.transformAttributeName ? options.transformAttributeName(name) : name;
-      return transformed.startsWith(attributePrefix) ? attributePrefix + protectXmlName(transformed.slice(attributePrefix.length)) : protectXmlName(transformed);
+      return transformed.startsWith(attributePrefix) ? attributePrefix + protect(transformed.slice(attributePrefix.length)) : protect(transformed);
     }
   });
   const parse = result.parse.bind(result);
+  const parseChecked = (text, validation) => {
+    protectedName = false;
+    try {
+      const parsed = parse(text, validation ?? false);
+      return protectedName ? restoreXmlNames(parsed) : parsed;
+    } catch {
+      throw new WsHcmApiError("protocol", "XML не удалось разобрать в поддерживаемых пределах.");
+    } finally {
+      protectedName = false;
+    }
+  };
+  rawParsers.set(result, parseChecked);
   result.parse = (source, validation) => {
     const text = typeof source === "string" ? source : new TextDecoder("utf-8", { fatal: true }).decode(source);
     assertSafe(text);
-    try {
-      return restoreXmlNames(parse(text, validation ?? false));
-    } catch {
-      throw new WsHcmApiError("protocol", "XML не удалось разобрать в поддерживаемых пределах.");
-    }
+    return parseChecked(text, validation);
   };
   return result;
 }
@@ -8780,10 +8768,13 @@ function validatePlatformXmlSource(source) {
   assertSafe(source);
   assertWellFormed(source);
 }
+function parseValidatedXml(instance, source) {
+  const checked = rawParsers.get(instance);
+  return checked ? checked(source) : instance.parse(source);
+}
 function parseXml2(source) {
-  assertSafe(source);
-  assertWellFormed(source);
-  return parser.parse(source);
+  validatePlatformXmlSource(source);
+  return parseValidatedXml(parser, source);
 }
 function buildXml(value) {
   const source = builder.build(value);
@@ -8815,9 +8806,8 @@ function assembledXml(source) {
 }
 function rawXmlElement(source) {
   assertDeclarationFirst(source);
-  assertSafe(source);
-  assertWellFormed(source);
-  const value = topLevelParser.parse(source);
+  validatePlatformXmlSource(source);
+  const value = parseValidatedXml(topLevelParser, source);
   const elements = Object.keys(value).filter(
     (key) => !key.startsWith("?") && !key.startsWith("@_") && key !== "#text"
   );
@@ -8828,10 +8818,23 @@ function rawXmlElement(source) {
 function isRawXml(value) {
   return typeof value === "object" && value !== null && RAW_XML in value;
 }
+var xmlNeedsEscapeOrCheck = /[&<>"'\x00-\x1f\ud800-\udfff\ufffe\uffff]/;
+var xmlEscapePattern = /[&<>"'\r\n\t]/g;
+var xmlEscapes = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&apos;",
+  "\r": "&#13;",
+  "\n": "&#10;",
+  "	": "&#9;"
+};
 function escapeXml(value) {
   const source = String(value);
+  if (!xmlNeedsEscapeOrCheck.test(source)) return source;
   assertXmlCharacters(source);
-  return source.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;").replaceAll("\r", "&#13;").replaceAll("\n", "&#10;").replaceAll("	", "&#9;");
+  return source.replace(xmlEscapePattern, (ch) => xmlEscapes[ch]);
 }
 function localName(name) {
   const colon = name.indexOf(":");
@@ -8853,6 +8856,17 @@ function findXmlNode(value, name) {
   }
   return void 0;
 }
+function unwrapLoadDocSoapXml(rawXml2) {
+  const soapDataMatch = /<(?:[A-Za-z0-9_-]+:)?(?:LoadDoc|GetDoc)Response(?:\s[^>]*)?>\s*<(?:[A-Za-z0-9_-]+:)?Data(?:\s[^>]*)?>([\s\S]*)<\/(?:[A-Za-z0-9_-]+:)?Data>\s*<\/(?:[A-Za-z0-9_-]+:)?(?:LoadDoc|GetDoc)Response>/i.exec(
+    rawXml2
+  );
+  if (soapDataMatch) {
+    const inner = soapDataMatch[1].trim();
+    if (inner) return inner;
+  }
+  const trimmed = rawXml2.trim();
+  return trimmed || void 0;
+}
 
 // src/protocol/types.ts
 var WsHcmBinaryResponse = class {
@@ -8866,20 +8880,53 @@ var WsHcmBinaryResponse = class {
   }
 };
 
-// src/protocol/api.ts
-import { randomBytes, randomInt } from "node:crypto";
-
 // src/protocol/protocol.ts
-function fieldXml([name, value]) {
-  if (value === void 0) return "";
-  if (value === null) return `<${name}></${name}>`;
-  const content = isRawXml(value) ? inlineXml(value) : escapeXml(value);
-  return `<${name}>${content}</${name}>`;
+var SOAP_FRAGMENTS = Symbol("SoapFragments");
+function soapFragments(parts) {
+  return { [SOAP_FRAGMENTS]: true, parts };
 }
-function soapEnvelope(method, fields, profile) {
+function isSoapFragments(value) {
+  return typeof value === "object" && value !== null && SOAP_FRAGMENTS in value;
+}
+function pushFieldXml(parts, [name, value]) {
+  if (value === void 0) return;
+  if (value === null) {
+    parts.push(`<${name}></${name}>`);
+    return;
+  }
+  parts.push(`<${name}>`);
+  if (isSoapFragments(value)) {
+    for (const chunk of value.parts) parts.push(chunk);
+  } else {
+    parts.push(isRawXml(value) ? inlineXml(value) : escapeXml(value));
+  }
+  parts.push(`</${name}>`);
+}
+function soapEnvelopeParts(method, fields, profile) {
   const envelopeNs = profile === "native" ? "http://www.w3.org/2003/05/soap-envelope/" : "http://schemas.xmlsoap.org/soap/envelope/";
   const operationNs = profile === "native" ? "http://www.datex-soft.com/" : "http://www.datex-soft.com/soap/";
-  return `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="${envelopeNs}"><soap:Body><${method} xmlns="${operationNs}">${fields.map(fieldXml).join("")}</${method}></soap:Body></soap:Envelope>`;
+  const parts = [
+    `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="${envelopeNs}"><soap:Body><${method} xmlns="${operationNs}">`
+  ];
+  for (const field of fields) pushFieldXml(parts, field);
+  parts.push(`</${method}></soap:Body></soap:Envelope>`);
+  return parts;
+}
+function soapEnvelope(method, fields, profile) {
+  return soapEnvelopeParts(method, fields, profile).join("");
+}
+var LARGE_SOAP_CHARS = 65536;
+function soapBody(method, fields, profile) {
+  const parts = soapEnvelopeParts(method, fields, profile);
+  let chars = 0;
+  for (const part of parts) chars += part.length;
+  if (chars < LARGE_SOAP_CHARS) return parts.join("");
+  let bytes = 0;
+  for (const part of parts) bytes += Buffer.byteLength(part, "utf8");
+  const buffer = Buffer.allocUnsafe(bytes);
+  let offset = 0;
+  for (const part of parts) offset += buffer.write(part, offset, "utf8");
+  return buffer;
 }
 function soapContentType(profile) {
   return profile === "native" ? "application/soap+xml" : "application/soap+xml; charset=utf-8";
@@ -8964,24 +9011,74 @@ function xmlText(value, name) {
 
 // src/protocol/transport.ts
 import { Buffer as Buffer2 } from "node:buffer";
+var COOKIE_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+var MAX_TIMEOUT_MS = 2147483647;
 var SessionCookie = class {
-  #value;
+  #cookies = /* @__PURE__ */ new Map();
+  #pruneExpired() {
+    const now = Date.now();
+    for (const [key, entry] of this.#cookies)
+      if (entry.expiresAt !== void 0 && entry.expiresAt <= now) this.#cookies.delete(key);
+  }
+  /** Значение cookie SessionID; undefined, если сессия ещё не выдала SessionID. */
   get value() {
-    return this.#value;
+    this.#pruneExpired();
+    return this.#cookies.get("sessionid")?.value;
+  }
+  /** Все активные cookies сессии в виде заголовка Cookie. */
+  header() {
+    this.#pruneExpired();
+    if (this.#cookies.size === 0) return void 0;
+    return [...this.#cookies.values()].map(({ name, value }) => `${name}=${value}`).join("; ");
   }
   capture(headers) {
     const values = headers.getSetCookie?.() ?? (headers.get("set-cookie") ? [headers.get("set-cookie")] : []);
-    for (const value of values) {
-      const first = value.split(";", 1)[0] ?? "";
+    const now = Date.now();
+    for (const raw of values) {
+      const first = raw.split(";", 1)[0] ?? "";
       const equals = first.indexOf("=");
-      if (equals < 0 || first.slice(0, equals).trim().toLowerCase() !== "sessionid") continue;
+      if (equals <= 0) continue;
+      const name = first.slice(0, equals).trim();
       const cookieValue = first.slice(equals + 1).trim();
-      const deleted = /(?:^|;)\s*max-age=0(?:;|$)/i.test(value) || cookieValue === "";
-      this.#value = deleted ? void 0 : cookieValue;
+      if (!COOKIE_NAME_PATTERN.test(name) || /[\x00-\x1f\x7f-\uffff]/.test(cookieValue)) continue;
+      const key = /^sessionid$/i.test(name) ? "sessionid" : name;
+      const attrs = raw.slice(first.length);
+      let deleted = cookieValue === "";
+      let expiresAt;
+      if (!deleted && attrs) {
+        let maxAgeSeconds;
+        let expiresTime;
+        for (const part of attrs.split(";").slice(1)) {
+          const eq = part.indexOf("=");
+          if (eq <= 0) continue;
+          const attrName = part.slice(0, eq).trim().toLowerCase();
+          const attrValue = part.slice(eq + 1).trim();
+          if (attrName === "max-age" && /^-?\d+$/.test(attrValue)) {
+            maxAgeSeconds = Number(attrValue);
+          } else if (attrName === "expires") {
+            const time = Date.parse(attrValue);
+            if (Number.isFinite(time)) expiresTime = time;
+          }
+        }
+        if (maxAgeSeconds !== void 0) {
+          if (maxAgeSeconds <= 0) deleted = true;
+          else expiresAt = now + maxAgeSeconds * 1e3;
+        } else if (expiresTime !== void 0) {
+          if (expiresTime <= now) deleted = true;
+          else expiresAt = expiresTime;
+        }
+      }
+      if (deleted) this.#cookies.delete(key);
+      else
+        this.#cookies.set(key, {
+          name,
+          value: cookieValue,
+          ...expiresAt === void 0 ? {} : { expiresAt }
+        });
     }
   }
   clear() {
-    this.#value = void 0;
+    this.#cookies.clear();
   }
 };
 var HttpTransport = class {
@@ -9006,7 +9103,7 @@ var HttpTransport = class {
     this.baseUrl = baseUrl;
     this.#auth = options.auth;
     this.#timeoutMs = options.timeoutMs;
-    if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1)
+    if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1 || this.#timeoutMs > MAX_TIMEOUT_MS)
       throw new ArgumentError("timeoutMs: нужно положительное целое число");
     this.#fetch = options.fetch;
     this.#webHeaders = options.webHeaders ?? false;
@@ -9051,14 +9148,20 @@ var HttpTransport = class {
         `Basic ${Buffer2.from(`${this.#auth.username}:${this.#auth.password}`, "utf8").toString("base64")}`
       );
     }
-    let ownsCookieHeader = this.cookie.value !== void 0;
-    if (ownsCookieHeader) headers.set("Cookie", `SessionID=${this.cookie.value}`);
+    const callerCookie = headers.has("cookie");
+    const initialCookie = !callerCookie || this.cookie.value !== void 0 ? this.cookie.header() : void 0;
+    let ownsCookieHeader = initialCookie !== void 0;
+    if (initialCookie !== void 0) headers.set("Cookie", initialCookie);
     if (this.#webHeaders) headers.set("X-SpXml-Client", "SP-XML Web client 1.0");
     const maxResponseBytes = options.maxResponseBytes ?? this.#maxResponseBytes;
     if (!(maxResponseBytes === Infinity || Number.isSafeInteger(maxResponseBytes)) || maxResponseBytes < 1)
       throw new ArgumentError("maxResponseBytes: нужно положительное целое число или Infinity");
     const timeoutMs = options.timeoutMs ?? this.#timeoutMs;
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS)
+      throw new ArgumentError("timeoutMs: нужно положительное целое число");
+    const streaming = maxResponseBytes === Infinity;
+    const streamController = streaming ? new AbortController() : void 0;
+    const timeoutSignal = streamController ? streamController.signal : AbortSignal.timeout(timeoutMs);
     const signal = options.signal === void 0 ? timeoutSignal : AbortSignal.any([options.signal, timeoutSignal]);
     const requestInit = {
       ...init,
@@ -9069,6 +9172,14 @@ var HttpTransport = class {
     };
     let requestUrl = this.resolve(path);
     let response;
+    let headerTimer;
+    if (streamController) {
+      headerTimer = setTimeout(() => {
+        streamController.abort(
+          new DOMException("The operation was aborted due to timeout", "TimeoutError")
+        );
+      }, timeoutMs);
+    }
     try {
       response = await this.#fetch(requestUrl, { ...requestInit, redirect: "manual" });
       this.cookie.capture(response.headers);
@@ -9092,8 +9203,9 @@ var HttpTransport = class {
           } catch {
             throw new WsHcmApiError("http", "Перенаправление ведёт на другой сервер", redirected);
           }
-          if (this.cookie.value !== void 0) {
-            headers.set("Cookie", `SessionID=${this.cookie.value}`);
+          const nextCookie = ownsCookieHeader || !callerCookie || this.cookie.value !== void 0 ? this.cookie.header() : void 0;
+          if (nextCookie !== void 0) {
+            headers.set("Cookie", nextCookie);
             ownsCookieHeader = true;
           } else if (ownsCookieHeader) {
             headers.delete("Cookie");
@@ -9104,19 +9216,28 @@ var HttpTransport = class {
       }
     } catch (error) {
       if (error instanceof WsHcmApiError) throw error;
-      const timedOut = error instanceof DOMException && error.name === "TimeoutError";
-      const aborted = error instanceof DOMException && error.name === "AbortError";
+      const reason = timeoutSignal.aborted ? timeoutSignal.reason : void 0;
+      const timedOut = error instanceof DOMException && error.name === "TimeoutError" || reason instanceof DOMException && reason.name === "TimeoutError";
+      const aborted = !timedOut && (error instanceof DOMException && error.name === "AbortError" || Boolean(options.signal?.aborted));
       const network = timedOut ? "timeout" : aborted ? "aborted" : networkFailure(error);
       throw new WsHcmApiError(
         "http",
         timedOut ? "Истекло время HTTP-запроса" : aborted ? "HTTP-запрос прерван" : "HTTP-запрос не выполнен",
         { details: { network } }
       );
+    } finally {
+      clearTimeout(headerTimer);
     }
-    this.cookie.capture(response.headers);
+    const wrap = (res) => limitResponse(
+      res,
+      maxResponseBytes,
+      streaming ? timeoutMs : void 0,
+      streamController ? (error) => streamController.abort(error) : void 0,
+      options.signal
+    );
     if (options.allowStatuses !== void 0) {
       if (options.allowStatuses === "any" || options.allowStatuses.includes(response.status))
-        return limitResponse(response, maxResponseBytes);
+        return wrap(response);
       await response.body?.cancel();
       if (response.status === 401)
         throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", {
@@ -9134,7 +9255,7 @@ var HttpTransport = class {
       await response.body?.cancel();
       throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
     }
-    return limitResponse(response, maxResponseBytes);
+    return wrap(response);
   }
 };
 function networkFailure(error) {
@@ -9158,14 +9279,37 @@ function networkFailure(error) {
   }
   return "failed";
 }
-function limitResponse(response, maxBytes) {
+function limitResponse(response, maxBytes, idleTimeoutMs, onIdleTimeout, externalSignal) {
   if (response.body === null) return response;
   const reader = response.body.getReader();
   let read = 0;
+  const readChunk = () => {
+    if (idleTimeoutMs === void 0) return reader.read();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const timeoutError = new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError"
+        );
+        onIdleTimeout?.(timeoutError);
+        reject(timeoutError);
+      }, idleTimeoutMs);
+      reader.read().then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    });
+  };
   const body = new ReadableStream({
     async pull(controller) {
       try {
-        const result = await reader.read();
+        const result = await readChunk();
         if (result.done) {
           controller.close();
           reader.releaseLock();
@@ -9195,11 +9339,11 @@ function limitResponse(response, maxBytes) {
       } catch (error) {
         await reader.cancel().catch(() => void 0);
         reader.releaseLock();
+        const network = error instanceof DOMException && error.name === "TimeoutError" ? "timeout" : error instanceof DOMException && error.name === "AbortError" || Boolean(externalSignal?.aborted) ? "aborted" : void 0;
         controller.error(
           error instanceof WsHcmApiError ? error : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", {
             cause: error,
-            // Время запроса истекает и посреди тела: большой файл читается дольше timeoutMs.
-            ...error instanceof DOMException && error.name === "TimeoutError" ? { details: { network: "timeout" } } : {}
+            ...network === void 0 ? {} : { details: { network } }
           })
         );
       }
@@ -9228,30 +9372,10 @@ function query(path, values) {
   return `${url.pathname}${url.search.replaceAll("+", "%20")}`;
 }
 
-// src/protocol/api.ts
-function decimal(value, name) {
-  if (value !== void 0 && !/^\d+$/.test(value))
-    throw new ArgumentError(`${name}: нужна строка из десятичных цифр.`);
-  return value;
-}
-function decimalObjectId(value, name) {
-  if (!/^(?:\d{1,20}|0x[0-9a-fA-F]{1,16})$/.test(value) || BigInt(value) > 0xffffffffffffffffn)
-    throw new ArgumentError(`${name}: нужен ID строкой, 0x… или десятичный.`);
-  return BigInt(value).toString(10);
-}
-function tracking(value, name) {
-  if (!/^(?:\d+|0x[0-9a-f]+)$/i.test(value))
-    throw new ArgumentError(
-      `${name}: нужно целое число строкой — десятичное или шестнадцатеричное с 0x.`
-    );
-  return value;
-}
-function validateRpcTarget(target) {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(target))
-    throw new ArgumentError("target: нужно имя библиотеки и имя функции через точку.");
-}
+// src/protocol/wire.ts
+import { randomBytes, randomInt } from "node:crypto";
 async function soapCall(transport2, profile, path, method, fields, options = {}) {
-  const source = soapEnvelope(method, fields, profile);
+  const source = soapBody(method, fields, profile);
   const response = await transport2.send(
     path,
     {
@@ -9306,11 +9430,14 @@ Content-ID: ${contentId}\r
 \r
 `
   );
-  const data = isRawXml(external.data) ? new TextEncoder().encode(external.data.xml) : typeof external.data === "string" ? new TextEncoder().encode(external.data) : external.data instanceof ArrayBuffer ? new Uint8Array(external.data) : external.data;
+  const data = new TextEncoder().encode(external.data.xml);
   const suffix = new TextEncoder().encode(`\r
 --${boundary}--\r
 `);
-  const body = appendBytes(appendBytes(prefix, data), suffix);
+  const body = new Uint8Array(prefix.byteLength + data.byteLength + suffix.byteLength);
+  body.set(prefix, 0);
+  body.set(data, prefix.byteLength);
+  body.set(suffix, prefix.byteLength + data.byteLength);
   const response = await transport2.send(
     path,
     {
@@ -9412,14 +9539,271 @@ async function binaryResponse(response, operation) {
 function withRnd(path) {
   return query(path, { rnd: randomInt(1e9) });
 }
-async function openLdsSession(transport2, profile, basic = false) {
+
+// src/protocol/web-pages.ts
+function invalidUploadInput(operation, message) {
+  return new WsHcmApiError("protocol", message, { operation, requestSent: false });
+}
+function validateUploadFilename(filename, operation) {
+  if (typeof filename !== "string" || !filename || Array.from(filename).length > 255 || /[\\/\x00-\x1F\x7F]/.test(filename) || filename.startsWith("..") || filename.endsWith("..") || filename === ".")
+    throw invalidUploadInput(operation, "filename: нужно имя файла без пути, до 255 знаков.");
+  return filename;
+}
+function validateContentType(contentType, operation) {
+  if (contentType !== void 0 && (typeof contentType !== "string" || !/^[\x20-\x7E]{1,256}$/.test(contentType)))
+    throw invalidUploadInput(
+      operation,
+      "contentType: нужен тип MIME из печатных знаков ASCII, до 256 знаков."
+    );
+  return contentType ?? "application/octet-stream";
+}
+function validateFileId(fileId, operation) {
+  if (typeof fileId !== "string" || !/^[0-9a-f]{32}$/i.test(fileId))
+    throw invalidUploadInput(operation, "fileId: нужно 32 шестнадцатеричные цифры.");
+  return fileId;
+}
+function validateChunksTotal(chunksTotal, operation) {
+  if (!Number.isSafeInteger(chunksTotal) || chunksTotal < 1 || chunksTotal > 1e5)
+    throw invalidUploadInput(operation, "chunksTotal: нужно целое число от 1 до 100000.");
+  return chunksTotal;
+}
+function attachmentBytes(data, operation) {
+  const value = isRawXml(data) ? data.xml : data;
+  if (typeof value === "string") return new TextEncoder().encode(value);
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (value instanceof Uint8Array) return value;
+  throw invalidUploadInput(operation, "data: нужен текст или двоичные данные.");
+}
+function hasUploadedPath(body, filename) {
+  if (!("Url" in body) || typeof body.Url !== "string") return false;
+  const parts = body.Url.split("/");
+  return parts.length === 2 && /^[A-Za-z0-9_-]{1,256}$/.test(parts[0]) && parts[1] === filename;
+}
+var WebPageApi = class {
+  constructor(transport2, uploadToken) {
+    this.transport = transport2;
+    this.uploadToken = uploadToken;
+  }
+  /** Прочитать экранную форму по локальному URL сервера как текст. */
+  async getScreenForm(request, options) {
+    return textResponse(
+      await this.transport.send(
+        query("/spxml_web/service/get_screen_form.htm", request),
+        {},
+        options
+      )
+    );
+  }
+  /** Прочитать и разобрать XML текстов веб-интерфейса в кодировке, объявленной приложением. */
+  async getUiText(options) {
+    return xmlResponse(
+      await this.transport.send("/spxml_web/service/get_ui_text.htm", {}, options)
+    );
+  }
+  /**
+   * Загрузить один файл штатным способом: multipart с полями f и session_token.
+   * Текущий токен страницы подставляет сессия web, которой принадлежит вызов. Размер ограничивает
+   * политика загрузки сервера; части и старый вариант с base64 не используются. Успешный ответ
+   * содержит Url.
+   * @mutating Сохраняет файл на сервере; срабатывают правила загрузки платформы.
+   */
+  async uploadFile(request, options) {
+    const filename = validateUploadFilename(request.filename, "uploadFile");
+    const contentType = validateContentType(request.contentType, "uploadFile");
+    const token = this.uploadToken?.();
+    if (!token || !/^[\x21-\x7E]{1,256}$/.test(token))
+      throw invalidUploadInput(
+        "uploadFile",
+        "В сессии web нет действующего токена страницы для загрузки файла."
+      );
+    const bytes = attachmentBytes(request.data, "uploadFile");
+    const form = new FormData();
+    form.append("f", new Blob([bytes.slice().buffer], { type: contentType }), filename);
+    form.append("session_token", token);
+    const response = await this.transport.send(
+      "/spxml_web/service/upload_file.htm?json_response=1",
+      { method: "POST", body: form },
+      options
+    );
+    if (response.status === 415) {
+      await response.body?.cancel().catch(() => void 0);
+      throw new WsHcmApiError("http", "HTTP 415", {
+        operation: "uploadFile",
+        status: 415,
+        details: { uploadRefused: true }
+      });
+    }
+    const result = await jsonResponse(response);
+    const body = result.data;
+    if (!body || typeof body !== "object" || Array.isArray(body) || !hasUploadedPath(body, filename) || "error" in body && body.error !== 0 && body.error !== false)
+      throw new WsHcmApiError("protocol", "Ответ на загрузку не подтвердил URL ресурса", {
+        operation: "uploadFile",
+        status: result.status
+      });
+    return result;
+  }
+  /**
+   * Отправить один штатный POST upload_chunk с байтами данных как есть и явным Content-Range.
+   * Вызывающий задаёт известный fileId из 32 шестнадцатеричных цифр и следит за порядком частей; последняя часть собирает файл.
+   * Ответы сами по себе не доказывают, что часть сохранена и что байты итогового файла верны.
+   * Перед последней частью загруженное нужно проверить чтением, подходящим для хранилища.
+   * После ошибки на последней части URL результата может остаться неизвестным: не повторять и не угадывать, что удалять.
+   * Нужна установленная ветка WebSoft/libMain и её действующие правила для пользователя и загрузки.
+   * @mutating Пишет в общее хранилище частей и может создать собранный файл.
+   */
+  async uploadChunk(request, options) {
+    const fileId = validateFileId(request.fileId, "uploadChunk");
+    const filename = validateUploadFilename(request.filename, "uploadChunk");
+    const contentType = validateContentType(request.contentType, "uploadChunk");
+    const chunksTotal = validateChunksTotal(request.chunksTotal, "uploadChunk");
+    if (!Number.isSafeInteger(request.index) || request.index < 0 || request.index >= chunksTotal)
+      throw invalidUploadInput("uploadChunk", "index: нужен номер части от 0 до chunksTotal - 1.");
+    if (!Number.isSafeInteger(request.totalBytes) || request.totalBytes < 1)
+      throw invalidUploadInput("uploadChunk", "totalBytes: нужно целое число больше нуля.");
+    if (!Number.isSafeInteger(request.offset) || request.offset < 0)
+      throw invalidUploadInput("uploadChunk", "offset: нужно целое неотрицательное число.");
+    if (request.totalBytes < chunksTotal || request.offset < request.index || request.index === 0 && request.offset !== 0)
+      throw invalidUploadInput(
+        "uploadChunk",
+        "offset и totalBytes не сходятся с номером части: каждой предыдущей части нужен хотя бы один байт, а первая начинается с нуля."
+      );
+    const bytes = attachmentBytes(request.data, "uploadChunk");
+    if (bytes.byteLength < 1)
+      throw invalidUploadInput("uploadChunk", "data: часть должна быть непустой.");
+    if (request.offset > request.totalBytes || bytes.byteLength > request.totalBytes - request.offset)
+      throw invalidUploadInput("uploadChunk", "Часть выходит за totalBytes.");
+    const endExclusive = request.offset + bytes.byteLength;
+    const remainingChunks = chunksTotal - request.index - 1;
+    if (request.totalBytes - endExclusive < remainingChunks || remainingChunks === 0 && endExclusive !== request.totalBytes)
+      throw invalidUploadInput(
+        "uploadChunk",
+        "После части должно остаться место для следующих, а последняя должна кончаться на totalBytes."
+      );
+    const form = new FormData();
+    form.append("action", "upload_chunk");
+    form.append("file_id", fileId);
+    form.append("file_name", filename);
+    form.append("chunk", String(request.index));
+    form.append("chunks_total", String(chunksTotal));
+    form.append("file_size", String(request.totalBytes));
+    form.append("file_type", contentType);
+    form.append(
+      "file_data",
+      `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}`
+    );
+    const response = await this.transport.send(
+      query("/spxml_web/service/upload_file.htm", {
+        json_response: 1,
+        action: "upload_chunk",
+        file_id: fileId,
+        file_name: filename
+      }),
+      {
+        method: "POST",
+        headers: {
+          "Content-Range": `bytes ${request.offset}-${endExclusive - 1}/${request.totalBytes}`
+        },
+        body: form
+      },
+      options
+    );
+    const status = response.status;
+    if (status >= 500 && status <= 503) {
+      let reason;
+      try {
+        const source = new TextDecoder(responseCharset(response, "utf-8")).decode(
+          await response.arrayBuffer()
+        );
+        reason = JSON.parse(source)?.error_text;
+      } catch {
+      }
+      const text = typeof reason === "string" ? reason.trim() : void 0;
+      const details = text === void 0 ? void 0 : status > 500 ? { chunkFailed: true } : text && { uploadRefused: true, reason: text.slice(0, 500) };
+      throw new WsHcmApiError("http", `HTTP ${status}`, {
+        operation: "uploadChunk",
+        status,
+        ...details ? { details } : {}
+      });
+    }
+    const result = await jsonResponse(response);
+    const body = result.data;
+    if (!body || typeof body !== "object" || Array.isArray(body) || !("error" in body) || body.error !== 0 || !hasUploadedPath(body, filename))
+      throw new WsHcmApiError(
+        "protocol",
+        "Ответ на загрузку части не подтвердил запрошенное имя файла",
+        {
+          operation: "uploadChunk",
+          status: result.status
+        }
+      );
+    return result;
+  }
+  /**
+   * Запросить удаление частей [0, chunksTotal) для известного fileId из 32 шестнадцатеричных цифр, выбранного вызывающим.
+   * Пространство ID общее: сервер не проверяет, кто создал этот ID.
+   * Пустой ответ не доказывает, что части, папка, итоговый файл и временные данные удалены.
+   * @mutating Запрашивает удаление частей; отдельные ошибки сервера не сообщаются.
+   */
+  async clearUploadChunks(request, options) {
+    const fileId = validateFileId(request.fileId, "clearUploadChunks");
+    const chunksTotal = validateChunksTotal(request.chunksTotal, "clearUploadChunks");
+    const form = new FormData();
+    form.append("action", "clear_chunks");
+    form.append("file_id", fileId);
+    form.append("chunks_total", String(chunksTotal));
+    const result = await textResponse(
+      await this.transport.send(
+        query("/spxml_web/service/upload_file.htm", {
+          json_response: 1,
+          action: "clear_chunks",
+          file_id: fileId
+        }),
+        { method: "POST", body: form },
+        options
+      )
+    );
+    if (!result.rawBody.every((byte) => byte === 9 || byte === 10 || byte === 13 || byte === 32))
+      throw new WsHcmApiError("protocol", "Ответ clear_chunks — не пустое подтверждение", {
+        operation: "clearUploadChunks",
+        status: result.status
+      });
+    return {
+      ...result,
+      data: {
+        acknowledged: true,
+        fileId,
+        chunksTotal,
+        absenceVerified: false
+      }
+    };
+  }
+};
+
+// src/protocol/api.ts
+function decimalObjectId(value, name) {
+  if (!/^(?:\d{1,20}|0x[0-9a-fA-F]{1,16})$/.test(value) || BigInt(value) > 0xffffffffffffffffn)
+    throw new ArgumentError(`${name}: нужен ID строкой, 0x… или десятичный.`);
+  return BigInt(value).toString(10);
+}
+function tracking(value, name) {
+  if (!/^(?:\d+|0x[0-9a-f]+)$/i.test(value))
+    throw new ArgumentError(
+      `${name}: нужно целое число строкой — десятичное или шестнадцатеричное с 0x.`
+    );
+  return value;
+}
+function validateRpcTarget(target) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(target))
+    throw new ArgumentError("target: нужно имя библиотеки и имя функции через точку.");
+}
+async function openLdsSession(transport2, profile, basic = false, options) {
   const response = await soapCall(
     transport2,
     profile,
     withRnd("/services/LdsService"),
     "OpenSession",
     [["InstallationID", ""]],
-    { basic }
+    { ...options, basic }
   );
   const sessionId = xmlText(response.data, "SessionID");
   if (sessionId === void 0 || !/^\d+$/.test(sessionId)) {
@@ -9440,15 +9824,14 @@ function closeLdsSession(transport2, profile, sessionId, options) {
   );
 }
 var LdsCaller = class {
-  constructor(transport2, profile, sessionId) {
+  constructor(transport2, sessionId) {
     this.transport = transport2;
-    this.profile = profile;
     this.sessionId = sessionId;
   }
   call(method, fields, options) {
     return soapCall(
       this.transport,
-      this.profile,
+      "native",
       withRnd("/services/LdsService"),
       method,
       fields,
@@ -9458,7 +9841,7 @@ var LdsCaller = class {
   binaryCall(method, fields, options) {
     return soapBinaryCall(
       this.transport,
-      this.profile,
+      "native",
       withRnd("/services/LdsService"),
       method,
       fields,
@@ -9485,26 +9868,6 @@ var NativeLdsApi = class {
   closeSession(options) {
     return this.caller.call("CloseSession", [["SessionID", this.caller.id()]], options);
   }
-  /**
-   * Прочитать готовые записи из кэша статистики каталогов текущей сессии.
-   * Пустой ответ Catalogs допустим: неготовые и пропускаемые каталоги в него не попадают.
-   * RecordsNum — число из кэша, а не свежий SQL COUNT и не перечень типов объектов.
-   */
-  getCatalogsStat(options) {
-    return this.caller.call("GetCatalogsStat", [["SessionID", this.caller.id()]], options);
-  }
-  /** Прочитать объекты, изменённые после `minModDate`; дата необязательна. */
-  getModObjects(request = {}, options) {
-    return this.caller.call(
-      "GetModObjects",
-      [
-        ["MinModDate", request.minModDate],
-        ["SessionID", this.caller.id()],
-        ["Compress", request.compress]
-      ],
-      options
-    );
-  }
   loadUrl(request, options) {
     const fields = [
       ["Url", request.url],
@@ -9515,24 +9878,6 @@ var NativeLdsApi = class {
       ["Compress", request.compress]
     ];
     return request.useBinaryResponse || request.useMultipartResponse ? this.caller.binaryCall("LoadUrl", fields, options) : this.caller.call("LoadUrl", fields, options);
-  }
-  /**
-   * Записать по URL текст или двоичные данные как есть, вложением XOP.
-   * @mutating
-   */
-  putUrl(request, options) {
-    return soapMultipartCall(
-      this.caller.getTransport(),
-      "native",
-      withRnd("/services/LdsService"),
-      "PutUrl",
-      [
-        ["Url", request.url],
-        ["SessionID", this.caller.id()]
-      ],
-      { name: "Data", data: request.data },
-      options
-    );
   }
   /**
    * Удалить данные по URL; можно потребовать, чтобы они существовали.
@@ -9614,7 +9959,7 @@ var NativeLdsApi = class {
       options
     );
   }
-  /** Выполнить XQuery; постраничное чтение и курсор необязательны. */
+  /** Выполнить XQuery; постраничное чтение необязательно. */
   xQuery(request, options) {
     return this.caller.call(
       "XQuery",
@@ -9623,118 +9968,8 @@ var NativeLdsApi = class {
         ["StartPos", safeInteger(request.startPos, "startPos")],
         ["MaxCount", safeInteger(request.maxCount, "maxCount")],
         ["ExpectToReadAll", request.expectToReadAll],
-        ["KeepCursor", request.keepCursor],
-        ["CursorID", decimal(request.cursorId, "cursorId")],
+        ["KeepCursor", false],
         ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
-  /**
-   * Освободить курсор, выданный ранее этой сессии LDS.
-   * @mutating Меняет временное состояние курсора.
-   */
-  releaseCursor(cursorId, options) {
-    return this.caller.call(
-      "ReleaseCursor",
-      [
-        ["CursorID", decimal(cursorId, "cursorId")],
-        ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
-  /**
-   * Выполнить функцию библиотеки сервера; аргументы — дочерние элементы XML в `ArgData`.
-   * На сервере 2025.1.1171 аргументы принимаются только как XML в теле SOAP:
-   * внешнее вложение XOP отклоняется с Parameter is not XML.
-   * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
-   * первый ResultData может прийти с типом undefined и не означает завершения.
-   * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
-   * @mutating
-   */
-  runMethod(request, options) {
-    return runLdsMethod(this.caller, request, options);
-  }
-  /** Продлить текущую сессию native LDS. */
-  idle(options) {
-    return this.caller.call("Idle", [["SessionID", this.caller.id()]], options);
-  }
-};
-function runLdsMethod(caller, request, options) {
-  if (!isRawXml(request.argData))
-    throw new ArgumentError("argData: нужен проверенный XML (RawXml).");
-  return caller.call(
-    "RunMethod",
-    [
-      ["LibName", request.libName],
-      ["MethodName", request.methodName],
-      ["RunAsync", request.runAsync],
-      ["ErrorLogName", request.errorLogName],
-      ["SessionID", caller.id()],
-      ["ArgData", request.argData]
-    ],
-    options
-  );
-}
-var WebLdsApi = class {
-  constructor(caller) {
-    this.caller = caller;
-  }
-  /**
-   * Выполнить XQuery через web LDS. `keepCursor` по умолчанию `true`; для разового чтения нужен `false`.
-   * @mutating Если курсор сохраняется (по умолчанию).
-   */
-  xQuery(request, options) {
-    return this.caller.call(
-      "XQuery",
-      [
-        ["Query", request.query],
-        ["KeepCursor", request.keepCursor ?? true],
-        ["CursorID", decimal(request.cursorId, "cursorId")],
-        ["StartPos", safeInteger(request.startPos, "startPos")],
-        ["MaxCount", safeInteger(request.maxCount, "maxCount")],
-        ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
-  /**
-   * Освободить свой курсор web LDS.
-   * @mutating Меняет временное состояние курсора.
-   */
-  releaseCursor(cursorId, options) {
-    return this.caller.call(
-      "ReleaseCursor",
-      [
-        ["CursorID", decimal(cursorId, "cursorId")],
-        ["SessionID", this.caller.id()]
-      ],
-      options
-    );
-  }
-  /**
-   * Выполнить штатный RunMethod LDS в этой веб-сессии по SOAP 1.1.
-   * ArgData содержит дочерние элементы XML с типами; SessionID идёт перед ними.
-   * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
-   * первый ResultData может прийти с типом undefined и не означает завершения.
-   * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
-   * Права сервера на вызываемую функцию действуют и здесь, независимо от профиля web.
-   * @mutating
-   */
-  runMethod(request, options) {
-    return runLdsMethod(this.caller, request, options);
-  }
-  /**
-   * Удалить документ; `StrictDelete=1` отправляется, только когда он включён.
-   * @mutating
-   */
-  deleteDoc(request, options) {
-    return this.caller.call(
-      "DeleteDoc",
-      [
-        ["Url", request.url],
-        ["StrictDelete", request.strictDelete ? "1" : void 0]
       ],
       options
     );
@@ -9755,17 +9990,17 @@ var rpc = Object.freeze({
   }
 });
 function rpcArgs(args) {
-  return assembledXml(
-    args.map((arg, index) => {
-      if (arg.valueType === void 0 && !isRawXml(arg.lexicalValue))
-        throw new ArgumentError(
-          "Аргументу функции нужен valueType; без него передаётся только XML: {lexicalValue: {xml: …}}."
-        );
-      const value = arg.valueType === void 0 ? inlineXml(rawXmlElement(arg.lexicalValue.xml)) : isRawXml(arg.lexicalValue) ? inlineXml(arg.lexicalValue) : escapeXml(arg.lexicalValue);
-      const type = arg.valueType === void 0 ? "" : ` VALUE-TYPE="${escapeXml(arg.valueType)}"`;
-      return `<arg-${index}${type}>${value}</arg-${index}>`;
-    }).join("")
-  );
+  const parts = [];
+  args.forEach((arg, index) => {
+    if (arg.valueType === void 0 && !isRawXml(arg.lexicalValue))
+      throw new ArgumentError(
+        "Аргументу функции нужен valueType; без него передаётся только XML: {lexicalValue: {xml: …}}."
+      );
+    const value = arg.valueType === void 0 ? inlineXml(rawXmlElement(arg.lexicalValue.xml)) : isRawXml(arg.lexicalValue) ? inlineXml(arg.lexicalValue) : escapeXml(arg.lexicalValue);
+    const type = arg.valueType === void 0 ? "" : ` VALUE-TYPE="${escapeXml(arg.valueType)}"`;
+    parts.push(`<arg-${index}${type}>`, value, `</arg-${index}>`);
+  });
+  return soapFragments(parts);
 }
 var RpcApi = class {
   constructor(transport2, profile) {
@@ -9811,15 +10046,6 @@ var RpcApi = class {
 var WebSpXmlApi = class {
   constructor(transport2) {
     this.transport = transport2;
-    this.rpc = new RpcApi(transport2, "web");
-  }
-  rpc;
-  /**
-   * Вызвать функцию библиотеки синхронно. Вызванная функция может менять данные.
-   * @mutating
-   */
-  callMethod(request, options) {
-    return this.rpc.call(request, options);
   }
   /**
    * Запустить функцию библиотеки фоновой задачей; ответ содержит TrackingID без потери точности.
@@ -9893,50 +10119,8 @@ var WebSpXmlApi = class {
       options
     );
   }
-  /**
-   * Прочитать XML документа в UTF-8, если не задан `charset`; кодировка из заголовков ответа важнее.
-   * Сервер 2025.1.1171 не принимает параметр TryLock на этом маршруте:
-   * значение в строке запроса отклоняется.
-   * Проверенный способ заблокировать документ — LoadDoc через native LDS.
-   * @mutating Если включён `tryLock`.
-   */
-  async getDoc(request, options) {
-    const charset = request.charset ?? "utf-8";
-    return xmlResponse(
-      await this.transport.send(
-        query("/api/spxml/GetDoc", {
-          DocUrl: request.docUrl,
-          Charset: charset,
-          TryLock: request.tryLock ? 1 : void 0
-        }),
-        {},
-        options
-      ),
-      charset
-    );
-  }
-  /**
-   * Сохранить свой XML через web SPXML; сервер выполняет обработку перед сохранением.
-   * `neverSaved=true` отправляет `NeverSaved=1`; при false или без значения флаг не отправляется. Управления `SkipActions` на этом маршруте нет.
-   * @mutating
-   */
-  async putDoc(request, options) {
-    if (!isRawXml(request.document)) parseXml2(request.document);
-    const body = isRawXml(request.document) ? request.document.xml : request.document;
-    return jsonResponse(
-      await this.transport.send(
-        query("/api/spxml/PutDoc", {
-          DocUrl: request.docUrl,
-          WriteDocInfo: request.writeDocInfo,
-          NeverSaved: request.neverSaved ? 1 : void 0
-        }),
-        { method: "POST", headers: { "Content-Type": "text/xml" }, body },
-        options
-      )
-    );
-  }
 };
-var SpXml2Base = class {
+var NativeSpXml2Api = class {
   constructor(transport2) {
     this.transport = transport2;
   }
@@ -9960,320 +10144,6 @@ var SpXml2Base = class {
     return textResponse(
       await this.transport.send(query("/api/spxml2/get_form", request), {}, options)
     );
-  }
-};
-var NativeSpXml2Api = class extends SpXml2Base {
-};
-var WebSpXml2Api = class extends SpXml2Base {
-  /** Прочитать сведения сервера о приложении; по умолчанию отправляет `fast_start=1` и случайный `rnd`. */
-  getAppInfo(request = {}, options) {
-    return super.getAppInfo(
-      {
-        ...request,
-        fastStart: request.fastStart ?? true,
-        rnd: request.rnd ?? randomInt(1e9)
-      },
-      options
-    );
-  }
-  /** Прочитать потоком картинку web SPXML2; параметры эффектов необязательны. */
-  async getImage(request, options) {
-    const response = await this.transport.send(
-      query("/api/spxml2/get_image", { ...request.effects, url: request.url }),
-      {},
-      options
-    );
-    return binaryResponse(response, "get_image");
-  }
-  /** Прочитать набор предзагружаемых файлов оформления default. */
-  async getPreloadedDesignFiles(options) {
-    return textResponse(
-      await this.transport.send("/api/spxml2/get_preloaded_design_files?set=default", {}, options)
-    );
-  }
-  /** Вызвать штатную службу сервера `std_encrypt`; это не средство шифрования общего назначения на стороне клиента. */
-  async stdEncrypt(text, options) {
-    return jsonResponse(
-      await this.transport.send(query("/api/spxml2/std_encrypt", { text }), {}, options)
-    );
-  }
-};
-function appendBytes(left, right) {
-  const result = new Uint8Array(left.length + right.length);
-  result.set(left);
-  result.set(right, left.length);
-  return result;
-}
-var WebPageApi = class {
-  constructor(transport2, uploadToken) {
-    this.transport = transport2;
-    this.uploadToken = uploadToken;
-  }
-  /** Прочитать штатную страницу предпросмотра PDF как текст. */
-  async filePreviewPdf(options) {
-    return textResponse(
-      await this.transport.send(
-        "/spxml_web/service/file_preview/file_preview_pdf.htm",
-        {},
-        options
-      )
-    );
-  }
-  /** Прочитать форму по локальному URL сервера как текст. */
-  async getForm(request, options) {
-    return textResponse(
-      await this.transport.send(query("/spxml_web/service/get_form.htm", request), {}, options)
-    );
-  }
-  /** Прочитать экранную форму по локальному URL сервера как текст. */
-  async getScreenForm(request, options) {
-    return textResponse(
-      await this.transport.send(
-        query("/spxml_web/service/get_screen_form.htm", request),
-        {},
-        options
-      )
-    );
-  }
-  /**
-   * Прочитать потоком SVG через штатную страницу картинок веб-интерфейса. Сервер принимает
-   * URL SVG в x-app и x-local и проверяет право чтения источника. Необязательные значения state
-   * hover, pressed и disabled включают штатную подмену цветов; при других значениях
-   * содержимое остаётся исходным. Без значения отправляется state="": штатная
-   * страница требует это поле запроса. Тело ответа нужно дочитать или отменить.
-   */
-  async getImage(request, options) {
-    return binaryResponse(
-      await this.transport.send(
-        query("/spxml_web/service/get_image.htm", { url: request.url, state: request.state ?? "" }),
-        {},
-        options
-      ),
-      "get_image.htm"
-    );
-  }
-  /** Прочитать и разобрать XML текстов веб-интерфейса в кодировке, объявленной приложением. */
-  async getUiText(options) {
-    return xmlResponse(
-      await this.transport.send("/spxml_web/service/get_ui_text.htm", {}, options)
-    );
-  }
-  /** Прочитать потоком ответ службы страниц по URL; тело нужно дочитать или отменить. */
-  async getUrl(request, options) {
-    const response = await this.transport.send(
-      query("/spxml_web/service/get_url.htm", {
-        url: request.url,
-        navigate: request.navigate ? 1 : void 0,
-        download: request.download ? 1 : void 0,
-        base64: request.base64 ? 1 : void 0
-      }),
-      {},
-      options
-    );
-    return binaryResponse(response, "get_url");
-  }
-  /**
-   * Загрузить один файл штатным способом: multipart с полями f и session_token.
-   * Текущий токен страницы подставляет сессия web, которой принадлежит вызов. Размер ограничивает
-   * политика загрузки сервера; части и старый вариант с base64 не используются. Успешный ответ
-   * содержит Url.
-   * @mutating Сохраняет файл на сервере; срабатывают правила загрузки платформы.
-   */
-  async uploadFile(request, options) {
-    const invalidInput = (message) => new WsHcmApiError("protocol", message, { operation: "uploadFile", requestSent: false });
-    const filename = request.filename;
-    if (typeof filename !== "string" || !filename || Array.from(filename).length > 255 || /[\\/\x00-\x1F\x7F]/.test(filename) || filename.startsWith("..") || filename.endsWith("..") || filename === ".")
-      throw invalidInput("filename: нужно имя файла без пути, до 255 знаков.");
-    if (request.contentType !== void 0 && (typeof request.contentType !== "string" || !/^[\x20-\x7E]{1,256}$/.test(request.contentType)))
-      throw invalidInput("contentType: нужен тип MIME из печатных знаков ASCII, до 256 знаков.");
-    const token = this.uploadToken?.();
-    if (!token || !/^[\x21-\x7E]{1,256}$/.test(token))
-      throw invalidInput("В веб-сессии нет действующего токена страницы для загрузки файла.");
-    const value = isRawXml(request.data) ? request.data.xml : request.data;
-    let bytes;
-    if (typeof value === "string") bytes = new TextEncoder().encode(value);
-    else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
-    else if (value instanceof Uint8Array) bytes = value;
-    else throw invalidInput("data: нужен текст или двоичные данные.");
-    const form = new FormData();
-    form.append(
-      "f",
-      new Blob([bytes.slice().buffer], { type: request.contentType ?? "application/octet-stream" }),
-      filename
-    );
-    form.append("session_token", token);
-    const response = await this.transport.send(
-      "/spxml_web/service/upload_file.htm?json_response=1",
-      { method: "POST", body: form },
-      options
-    );
-    if (response.status === 415) {
-      await response.body?.cancel().catch(() => void 0);
-      throw new WsHcmApiError("http", "HTTP 415", {
-        operation: "uploadFile",
-        status: 415,
-        details: { uploadRefused: true }
-      });
-    }
-    const result = await jsonResponse(response);
-    const body = result.data;
-    const uploadedPath = body && typeof body === "object" && "Url" in body && typeof body.Url === "string" ? body.Url.split("/") : void 0;
-    if (!body || typeof body !== "object" || Array.isArray(body) || !uploadedPath || uploadedPath.length !== 2 || !/^[A-Za-z0-9_-]{1,256}$/.test(uploadedPath[0]) || uploadedPath[1] !== filename || "error" in body && body.error !== 0 && body.error !== false)
-      throw new WsHcmApiError("protocol", "Ответ на загрузку не подтвердил URL ресурса", {
-        operation: "uploadFile",
-        status: result.status
-      });
-    return result;
-  }
-  /**
-   * Отправить один штатный POST upload_chunk с байтами данных как есть и явным Content-Range.
-   * Вызывающий задаёт известный fileId из 32 шестнадцатеричных цифр и следит за порядком частей; последняя часть собирает файл.
-   * Ответы сами по себе не доказывают, что часть сохранена и что байты итогового файла верны.
-   * Перед последней частью загруженное нужно проверить чтением, подходящим для хранилища.
-   * После ошибки на последней части URL результата может остаться неизвестным: не повторять и не угадывать, что удалять.
-   * Нужна установленная ветка WebSoft/libMain и её действующие правила для пользователя и загрузки.
-   * @mutating Пишет в общее хранилище частей и может создать собранный файл.
-   */
-  async uploadChunk(request, options) {
-    const invalidInput = (message) => new WsHcmApiError("protocol", message, { operation: "uploadChunk", requestSent: false });
-    if (typeof request.fileId !== "string" || !/^[0-9a-f]{32}$/i.test(request.fileId))
-      throw invalidInput("fileId: нужно 32 шестнадцатеричные цифры.");
-    const filename = request.filename;
-    if (typeof filename !== "string" || !filename || Array.from(filename).length > 255 || /[\\/\x00-\x1F\x7F]/.test(filename) || filename.startsWith("..") || filename.endsWith("..") || filename === ".")
-      throw invalidInput("filename: нужно имя файла без пути, до 255 знаков.");
-    if (request.contentType !== void 0 && (typeof request.contentType !== "string" || !/^[\x20-\x7E]{1,256}$/.test(request.contentType)))
-      throw invalidInput("contentType: нужен тип MIME из печатных знаков ASCII, до 256 знаков.");
-    if (!Number.isSafeInteger(request.chunksTotal) || request.chunksTotal < 1 || request.chunksTotal > 1e5)
-      throw invalidInput("chunksTotal: нужно целое число от 1 до 100000.");
-    if (!Number.isSafeInteger(request.index) || request.index < 0 || request.index >= request.chunksTotal)
-      throw invalidInput("index: нужен номер части от 0 до chunksTotal - 1.");
-    if (!Number.isSafeInteger(request.totalBytes) || request.totalBytes < 1)
-      throw invalidInput("totalBytes: нужно целое число больше нуля.");
-    if (!Number.isSafeInteger(request.offset) || request.offset < 0)
-      throw invalidInput("offset: нужно целое неотрицательное число.");
-    if (request.totalBytes < request.chunksTotal || request.offset < request.index || request.index === 0 && request.offset !== 0)
-      throw invalidInput(
-        "offset и totalBytes не сходятся с номером части: каждой предыдущей части нужен хотя бы один байт, а первая начинается с нуля."
-      );
-    const value = isRawXml(request.data) ? request.data.xml : request.data;
-    let bytes;
-    if (typeof value === "string") bytes = new TextEncoder().encode(value);
-    else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
-    else if (value instanceof Uint8Array) bytes = value;
-    else throw invalidInput("data: нужен текст или двоичные данные.");
-    if (bytes.byteLength < 1) throw invalidInput("data: часть должна быть непустой.");
-    if (request.offset > request.totalBytes || bytes.byteLength > request.totalBytes - request.offset)
-      throw invalidInput("Часть выходит за totalBytes.");
-    const endExclusive = request.offset + bytes.byteLength;
-    const remainingChunks = request.chunksTotal - request.index - 1;
-    if (request.totalBytes - endExclusive < remainingChunks || remainingChunks === 0 && endExclusive !== request.totalBytes)
-      throw invalidInput(
-        "После части должно остаться место для следующих, а последняя должна кончаться на totalBytes."
-      );
-    const form = new FormData();
-    form.append("action", "upload_chunk");
-    form.append("file_id", request.fileId);
-    form.append("file_name", filename);
-    form.append("chunk", String(request.index));
-    form.append("chunks_total", String(request.chunksTotal));
-    form.append("file_size", String(request.totalBytes));
-    form.append("file_type", request.contentType ?? "application/octet-stream");
-    form.append(
-      "file_data",
-      `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}`
-    );
-    const response = await this.transport.send(
-      query("/spxml_web/service/upload_file.htm", {
-        json_response: 1,
-        action: "upload_chunk",
-        file_id: request.fileId,
-        file_name: filename
-      }),
-      {
-        method: "POST",
-        headers: {
-          "Content-Range": `bytes ${request.offset}-${endExclusive - 1}/${request.totalBytes}`
-        },
-        body: form
-      },
-      options
-    );
-    const status = response.status;
-    if (status >= 500 && status <= 503) {
-      let reason;
-      try {
-        const source = new TextDecoder(responseCharset(response, "utf-8")).decode(
-          await response.arrayBuffer()
-        );
-        reason = JSON.parse(source)?.error_text;
-      } catch {
-      }
-      const text = typeof reason === "string" ? reason.trim() : void 0;
-      const details = text === void 0 ? void 0 : status > 500 ? { chunkFailed: true } : text && { uploadRefused: true, reason: text.slice(0, 500) };
-      throw new WsHcmApiError("http", `HTTP ${status}`, {
-        operation: "uploadChunk",
-        status,
-        ...details ? { details } : {}
-      });
-    }
-    const result = await jsonResponse(response);
-    const body = result.data;
-    const parts = body && typeof body === "object" && "Url" in body && typeof body.Url === "string" ? body.Url.split("/") : void 0;
-    if (!body || typeof body !== "object" || Array.isArray(body) || !("error" in body) || body.error !== 0 || !parts || parts.length !== 2 || !/^[A-Za-z0-9_-]{1,256}$/.test(parts[0]) || parts[1] !== filename)
-      throw new WsHcmApiError(
-        "protocol",
-        "Ответ на загрузку части не подтвердил запрошенное имя файла",
-        {
-          operation: "uploadChunk",
-          status: result.status
-        }
-      );
-    return result;
-  }
-  /**
-   * Запросить удаление частей [0, chunksTotal) для известного fileId из 32 шестнадцатеричных цифр, выбранного вызывающим.
-   * Пространство ID общее: сервер не проверяет, кто создал этот ID.
-   * Пустой ответ не доказывает, что части, папка, итоговый файл и временные данные удалены.
-   * @mutating Запрашивает удаление частей; отдельные ошибки сервера не сообщаются.
-   */
-  async clearUploadChunks(request, options) {
-    const invalidInput = (message) => new WsHcmApiError("protocol", message, {
-      operation: "clearUploadChunks",
-      requestSent: false
-    });
-    if (typeof request.fileId !== "string" || !/^[0-9a-f]{32}$/i.test(request.fileId))
-      throw invalidInput("fileId: нужно 32 шестнадцатеричные цифры.");
-    if (!Number.isSafeInteger(request.chunksTotal) || request.chunksTotal < 1 || request.chunksTotal > 1e5)
-      throw invalidInput("chunksTotal: нужно целое число от 1 до 100000.");
-    const form = new FormData();
-    form.append("action", "clear_chunks");
-    form.append("file_id", request.fileId);
-    form.append("chunks_total", String(request.chunksTotal));
-    const result = await textResponse(
-      await this.transport.send(
-        query("/spxml_web/service/upload_file.htm", {
-          json_response: 1,
-          action: "clear_chunks",
-          file_id: request.fileId
-        }),
-        { method: "POST", body: form },
-        options
-      )
-    );
-    if (!result.rawBody.every((byte) => byte === 9 || byte === 10 || byte === 13 || byte === 32))
-      throw new WsHcmApiError("protocol", "Ответ clear_chunks — не пустое подтверждение", {
-        operation: "clearUploadChunks",
-        status: result.status
-      });
-    return {
-      ...result,
-      data: {
-        acknowledged: true,
-        fileId: request.fileId,
-        chunksTotal: request.chunksTotal,
-        absenceVerified: false
-      }
-    };
   }
 };
 var ResourceApi = class {
@@ -10303,8 +10173,7 @@ var ResourceApi = class {
    * Сервер декодирует данные найденного вложения и выбирает тип содержимого
    * по resId. Штатный сервер 2025.1.1171 требует ещё, чтобы источник url лежал в настроенном courses_path:
    * одной разрешённой локальной схемы для этого мало.
-   * Этим маршрутом пользуется штатный клиент администратора; варианты native и web —
-   * один маршрут сервера, различается только сессия HTTP. Тело ответа нужно дочитать или отменить.
+   * Этим маршрутом пользуется штатный клиент администратора. Тело ответа нужно дочитать или отменить.
    */
   async getCompoundResource(request, options) {
     const value = request;
@@ -10367,68 +10236,8 @@ var DiagnosticsApi = class {
     );
   }
 };
-var ExperimentalApi = class {
-  constructor(transport2) {
-    this.transport = transport2;
-  }
-  /**
-   * Отправить свой запрос на тот же origin и вернуть тело ответа потоком.
-   * `unsafe: true` обязателен. Сериализация обычных операций, разбор ошибок сервера и гарантии об исходе записи не действуют;
-   * настроенные авторизация и cookie применяются, а метод, заголовки, тело и закрытие потока — на вызывающем.
-   */
-  async rawRequest(request, options) {
-    if (request.unsafe !== true)
-      throw new WsHcmApiError("protocol", "Экспериментальный rawRequest требует unsafe: true");
-    const method = request.method ?? "GET";
-    try {
-      new Request(this.transport.baseUrl, {
-        method,
-        ...request.body === void 0 ? {} : { body: "" }
-      });
-    } catch {
-      throw new ArgumentError("method: метод HTTP записан неверно или не допускает тела (body).");
-    }
-    const response = await this.transport.send(
-      request.path,
-      {
-        method,
-        ...request.headers === void 0 ? {} : { headers: request.headers },
-        ...request.body === void 0 ? {} : { body: request.body }
-      },
-      {
-        ...options,
-        basic: this.transport.hasCredentials && this.transport.cookie.value === void 0
-      }
-    );
-    return binaryResponse(response);
-  }
-};
-var WebExperimentalApi = class extends ExperimentalApi {
-  /**
-   * Вызвать частично поддержанный маршрут веб-аутентификации; cookie и тело успешного ответа до конца не установлены.
-   * @mutating Меняет состояние аутентификации и сессии.
-   */
-  async authenticate(request, options) {
-    return jsonResponse(
-      await this.transport.send(
-        "/api/spxml2/authenticate",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(request)
-        },
-        options
-      )
-    );
-  }
-};
-var NativeExperimentalApi = class extends ExperimentalApi {
-};
 function createNativeLdsApi(transport2, sessionId) {
-  return new NativeLdsApi(new LdsCaller(transport2, "native", sessionId));
-}
-function createWebLdsApi(transport2, sessionId) {
-  return new WebLdsApi(new LdsCaller(transport2, "web", sessionId));
+  return new NativeLdsApi(new LdsCaller(transport2, sessionId));
 }
 
 // src/protocol/physical-documents.ts
@@ -10487,9 +10296,10 @@ function parsePhysicalDocumentId(url) {
   const id = BigInt(base) * 100n + BigInt(index);
   return id < 4000000000n ? id.toString() : void 0;
 }
-function validateDbName(dbName) {
-  if (!/^[A-Za-z0-9_.-]+$/.test(dbName))
-    throw new ArgumentError("dbName: нужно имя базы из латинских букв, цифр и знаков . _ -");
+function validateDbName(dbName, label = "dbName") {
+  if (!/^[A-Za-z0-9_.-]+$/.test(dbName) || /^\.+$/.test(dbName))
+    throw new ArgumentError(`${label}: нужно имя базы из латинских букв, цифр и знаков . _ -`);
+  return dbName;
 }
 async function createPhysicalDocument(lds, request, options) {
   const dbName = request.dbName ?? "wt_data";
@@ -10582,7 +10392,7 @@ var MAX_MESSAGES = 16;
 var MAX_TOTAL_BYTES = 16384;
 var DISPOSAL_MS = 250;
 var ERROR_MESSAGES = {
-  WS_UNAVAILABLE: "Соединение WebSocket недоступно: нет webSocketFactory или собственной веб-сессии.",
+  WS_UNAVAILABLE: "Соединение WebSocket недоступно: нет webSocketFactory или собственной сессии web.",
   WS_INVALID_INPUT: "Неверные аргументы проверки WebSocket.",
   WS_HANDSHAKE_FAILED: "Сервер не установил соединение WebSocket.",
   WS_AUTHENTICATION_REQUIRED: "Сервер требует входа для соединения WebSocket.",
@@ -10593,132 +10403,80 @@ var ERROR_MESSAGES = {
   WS_SESSION_CHANGED: "При соединении WebSocket сервер сменил cookie сессии.",
   WS_DISPOSAL_FAILED: "Не удалось убедиться, что соединение WebSocket закрыто с этой стороны."
 };
-function boundedInteger(value, minimum, maximum, fallback) {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : fallback;
-}
-function canonicalReceipt(value) {
-  const phase = ["preflight", "connecting", "heartbeat", "closing", "disposed"].includes(
-    value.phase
-  ) ? value.phase : "preflight";
-  const libraryCloseCode = boundedInteger(value.libraryCloseCode, 1e3, 4999, 0);
-  const httpStatus = boundedInteger(value.httpStatus, 100, 599, 0);
-  return Object.freeze({
-    route: ROUTE,
-    phase,
-    handshakeValidated: value.handshakeValidated === true,
-    ...httpStatus === 0 ? {} : { httpStatus },
-    heartbeatWritten: value.heartbeatWritten === true,
-    heartbeatObserved: value.heartbeatObserved === true,
-    closeRequested: value.closeRequested === true,
-    peerCloseObserved: value.peerCloseObserved === true,
-    peerEofObserved: value.peerEofObserved === true,
-    ...libraryCloseCode === 0 ? {} : { libraryCloseCode },
-    closeWriteVerified: false,
-    localSocketDisposed: value.localSocketDisposed === true,
-    forcedLocalTermination: value.forcedLocalTermination === true,
-    ...value.warning === "PEER_CLOSE_ACK_NOT_OBSERVED" ? { warning: value.warning } : {},
-    durationMs: boundedInteger(value.durationMs, 0, 6e4, 0),
-    limits: Object.freeze({
-      timeoutMs: boundedInteger(value.limits?.timeoutMs, 250, 1e4, 5e3),
-      maxMessageBytes: MAX_MESSAGE_BYTES,
-      maxMessages: MAX_MESSAGES,
-      maxTotalBytes: MAX_TOTAL_BYTES
-    }),
-    counts: Object.freeze({
-      messages: boundedInteger(value.counts?.messages, 0, MAX_MESSAGES + 1, 0),
-      receivedBytes: boundedInteger(
-        value.counts?.receivedBytes,
-        0,
-        MAX_TOTAL_BYTES + MAX_MESSAGE_BYTES,
-        0
-      )
-    })
-  });
-}
+var ERROR_HINTS = {
+  WS_UNAVAILABLE: "При своём fetch нужно явно передать webSocketFactory и открыть собственную сессию web.",
+  WS_AUTHENTICATION_REQUIRED: "Проверить аутентификацию и срок действия сессии web.",
+  WS_PERMISSION_DENIED: "Проверить права пользователя на штатную службу WebSocket.",
+  WS_INVALID_INPUT: "timeoutMs должен быть целым числом от 250 до 10000."
+};
+var PHASES = /* @__PURE__ */ new Set(["preflight", "connecting", "heartbeat", "closing"]);
 var defaultWebSocketFactory = (url, options) => new wrapper_default(url, { ...options, headers: { ...options.headers } });
 var WebSocketHeartbeatError = class extends WsHcmApiError {
   errorCode;
   hint;
-  receipt;
-  constructor(errorCode, receipt, options = {}) {
+  constructor(errorCode, options = {}) {
     const code = Object.hasOwn(ERROR_MESSAGES, errorCode) ? errorCode : "WS_TRANSPORT_ERROR";
+    const safe = options && typeof options === "object" ? options : {};
+    const status = typeof safe.status === "number" && Number.isInteger(safe.status) && safe.status >= 100 && safe.status <= 599 ? safe.status : void 0;
+    const closeCode = typeof safe.closeCode === "number" && Number.isInteger(safe.closeCode) && safe.closeCode >= 1e3 && safe.closeCode <= 4999 ? safe.closeCode : void 0;
+    const phase = typeof safe.phase === "string" && PHASES.has(safe.phase) ? safe.phase : "preflight";
+    const details = Object.freeze({
+      phase,
+      handshakeValidated: safe.handshakeValidated === true,
+      heartbeatObserved: safe.heartbeatObserved === true,
+      ...status === void 0 ? {} : { status },
+      ...closeCode === void 0 ? {} : { closeCode }
+    });
     super("protocol", ERROR_MESSAGES[code], {
       operation: "WebSocketHeartbeat",
-      ...options.requestSent === void 0 ? {} : { requestSent: false }
+      ...status === void 0 ? {} : { status },
+      details,
+      ...safe.requestSent === false ? { requestSent: false } : {}
     });
     this.name = "WebSocketHeartbeatError";
     this.errorCode = code;
-    this.hint = code === "WS_UNAVAILABLE" ? "При custom fetch нужно явно передать trusted webSocketFactory и открыть собственный WebSession; сетевой fallback отключён." : code === "WS_AUTHENTICATION_REQUIRED" ? "Проверить аутентификацию и срок действия собственного web-контекста; автоматический повтор отключён." : code === "WS_PERMISSION_DENIED" ? "Проверить права текущего пользователя на штатный WebSocket сервис; автоматический повтор отключён." : code === "WS_INVALID_INPUT" ? "timeoutMs должен быть целым числом 250..10000; другие параметры не поддерживаются." : "Проверить ответ heartbeat; автоматический повтор не выполняется.";
-    this.receipt = canonicalReceipt(receipt);
+    this.hint = ERROR_HINTS[code] ?? "Проверить доступность службы WebSocket и повторить проверку.";
   }
 };
-function emptyReceipt(timeoutMs = 5e3) {
-  return {
-    route: ROUTE,
-    phase: "preflight",
-    handshakeValidated: false,
-    heartbeatWritten: false,
-    heartbeatObserved: false,
-    closeRequested: false,
-    peerCloseObserved: false,
-    peerEofObserved: false,
-    closeWriteVerified: false,
-    localSocketDisposed: true,
-    forcedLocalTermination: false,
-    durationMs: 0,
-    limits: {
-      timeoutMs,
-      maxMessageBytes: MAX_MESSAGE_BYTES,
-      maxMessages: MAX_MESSAGES,
-      maxTotalBytes: MAX_TOTAL_BYTES
-    },
-    counts: { messages: 0, receivedBytes: 0 }
-  };
-}
 function assertWebSocketAvailable(factory) {
   if (typeof factory !== "function")
-    throw new WebSocketHeartbeatError("WS_UNAVAILABLE", emptyReceipt(), {
-      requestSent: false
-    });
+    throw new WebSocketHeartbeatError("WS_UNAVAILABLE", { requestSent: false });
 }
 function timeout(input) {
   if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => key !== "timeoutMs") || input.timeoutMs !== void 0 && (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 250 || input.timeoutMs > 1e4))
-    throw new WebSocketHeartbeatError("WS_INVALID_INPUT", emptyReceipt(), {
-      requestSent: false
-    });
+    throw new WebSocketHeartbeatError("WS_INVALID_INPUT", { requestSent: false });
   return input.timeoutMs ?? 5e3;
 }
 async function webSocketHeartbeat(http, factory, input = {}) {
   assertWebSocketAvailable(factory);
   const timeoutMs = timeout(input);
   const cookie = http.cookie.value;
-  if (cookie === void 0 || cookie.length > 1024 || /[\x00-\x20\x7f-\uffff;,"\\]/.test(cookie))
-    throw new WebSocketHeartbeatError("WS_UNAVAILABLE", emptyReceipt(timeoutMs), {
-      requestSent: false
-    });
+  const cookieHeader = http.cookie.header();
+  if (cookie === void 0 || cookieHeader === void 0 || cookie.length > 1024 || /[\x00-\x20\x7f-\uffff;,"\\]/.test(cookie) || cookieHeader.length > 4096 || /[\x00-\x1f\x7f-\uffff]/.test(cookieHeader))
+    throw new WebSocketHeartbeatError("WS_UNAVAILABLE", { requestSent: false });
   http.assertOpen();
   const url = new URL(ROUTE.replace(/^\/+/, ""), http.baseUrl);
   const origin = url.origin;
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const started = performance.now();
-  const state = {
-    ...emptyReceipt(timeoutMs),
-    phase: "connecting",
-    localSocketDisposed: false
-  };
-  let messages = 0;
-  let receivedBytes = 0;
-  let events = 0;
-  const receipt = () => ({
-    ...state,
-    durationMs: Math.max(0, Math.round(performance.now() - started)),
-    counts: { messages, receivedBytes }
-  });
   return new Promise((resolve, reject) => {
     let ws;
     let responseSocket;
     let deadline;
     let disposal;
+    let phase = "connecting";
+    let handshakeValidated = false;
+    let heartbeatWritten = false;
+    let heartbeatObserved = false;
+    let closeRequested = false;
+    let peerEof = false;
+    let disposed = false;
+    let httpStatus;
+    let closeCode;
+    let warning;
+    let messages = 0;
+    let receivedBytes = 0;
+    let events = 0;
     let finished = false;
     let terminating = false;
     let failure;
@@ -10729,29 +10487,45 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       clearTimeout(disposal);
       responseSocket?.off("end", onEnd);
       responseSocket?.off("error", onSocketError);
-      state.phase = "disposed";
-      if (!state.localSocketDisposed && !failure)
-        failure = {
-          code: "WS_DISPOSAL_FAILED",
-          message: "Закрытие локального сокета WebSocket не зафиксировано"
-        };
-      if (failure) reject(new WebSocketHeartbeatError(failure.code, receipt()));
-      else if (state.handshakeValidated && state.heartbeatWritten && state.heartbeatObserved)
-        resolve(
-          Object.freeze({
-            ...canonicalReceipt(receipt()),
-            handshakeValidated: true,
-            heartbeatObserved: true
+      if (!disposed && !failure) failure = "WS_DISPOSAL_FAILED";
+      if (failure) {
+        reject(
+          new WebSocketHeartbeatError(failure, {
+            phase,
+            handshakeValidated,
+            heartbeatObserved,
+            ...httpStatus === void 0 ? {} : { status: httpStatus },
+            ...closeCode === void 0 ? {} : { closeCode }
           })
         );
-      else reject(new WebSocketHeartbeatError("WS_HEARTBEAT_FAILED", receipt()));
+      } else if (handshakeValidated && heartbeatWritten && heartbeatObserved) {
+        resolve(
+          Object.freeze({
+            route: ROUTE,
+            handshakeValidated: true,
+            heartbeatObserved: true,
+            durationMs: Math.max(0, Math.round(performance.now() - started)),
+            ...closeCode === void 0 ? {} : { closeCode },
+            ...warning === void 0 ? {} : { warning }
+          })
+        );
+      } else {
+        reject(
+          new WebSocketHeartbeatError("WS_HEARTBEAT_FAILED", {
+            phase,
+            handshakeValidated,
+            heartbeatObserved,
+            ...httpStatus === void 0 ? {} : { status: httpStatus },
+            ...closeCode === void 0 ? {} : { closeCode }
+          })
+        );
+      }
     }
     function terminate() {
       if (finished || terminating) return;
       terminating = true;
-      state.forcedLocalTermination = true;
       disposal = setTimeout(() => {
-        state.localSocketDisposed = ws?.readyState === wrapper_default.CLOSED;
+        disposed = ws?.readyState === wrapper_default.CLOSED;
         settle();
       }, DISPOSAL_MS);
       try {
@@ -10759,19 +10533,19 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       } catch {
       }
       if (!ws) {
-        state.localSocketDisposed = true;
+        disposed = true;
         settle();
       }
     }
-    function fail(code, message) {
-      failure ??= { code, message };
+    function fail(code) {
+      failure ??= code;
       terminate();
     }
     function onEnd() {
-      state.peerEofObserved = true;
+      peerEof = true;
     }
     function onSocketError() {
-      if (!finished) fail("WS_TRANSPORT_ERROR", "Сбой транспорта WebSocket");
+      if (!finished) fail("WS_TRANSPORT_ERROR");
     }
     function account(bytes, message = false) {
       if (failure || terminating || finished) return false;
@@ -10779,33 +10553,32 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       events++;
       if (message) messages++;
       if (bytes > MAX_MESSAGE_BYTES || receivedBytes > MAX_TOTAL_BYTES || messages > MAX_MESSAGES || events > 32) {
-        fail("WS_RESPONSE_LIMIT", "Ответ WebSocket превысил заданные пределы");
+        fail("WS_RESPONSE_LIMIT");
         return false;
       }
       return true;
     }
     function requestClose() {
-      if (state.closeRequested || !state.heartbeatWritten || !state.heartbeatObserved || failure || finished)
-        return;
-      state.phase = "closing";
-      state.closeRequested = true;
+      if (closeRequested || !heartbeatWritten || !heartbeatObserved || failure || finished) return;
+      phase = "closing";
+      closeRequested = true;
       try {
         ws.close(1e3);
       } catch {
-        fail("WS_TRANSPORT_ERROR", "Не удалось отправить запрос закрытия WebSocket");
+        fail("WS_TRANSPORT_ERROR");
       }
     }
     deadline = setTimeout(() => {
-      if (state.heartbeatWritten && state.heartbeatObserved && state.closeRequested) {
-        state.warning = "PEER_CLOSE_ACK_NOT_OBSERVED";
+      if (heartbeatWritten && heartbeatObserved && closeRequested) {
+        warning = "PEER_CLOSE_ACK_NOT_OBSERVED";
         terminate();
-      } else fail("WS_HEARTBEAT_FAILED", "Истёк срок ожидания штатного heartbeat");
+      } else fail("WS_HEARTBEAT_FAILED");
     }, timeoutMs);
     try {
       ws = factory(
         url.href,
         Object.freeze({
-          headers: Object.freeze({ Cookie: `SessionID=${cookie}` }),
+          headers: Object.freeze({ Cookie: cookieHeader }),
           origin,
           handshakeTimeout: timeoutMs,
           closeTimeout: timeoutMs,
@@ -10821,18 +10594,17 @@ async function webSocketHeartbeat(http, factory, input = {}) {
         })
       );
     } catch {
-      fail("WS_HANDSHAKE_FAILED", "Соединение WebSocket не создано");
+      fail("WS_HANDSHAKE_FAILED");
       return;
     }
     ws.on("error", (error) => {
       if (finished || terminating && failure) return;
       const code = error && typeof error === "object" && "code" in error ? error.code : void 0;
       const limited = code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" || code === "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH" || code === "WS_ERR_TOO_MANY_BUFFERED_PARTS";
-      fail(limited ? "WS_RESPONSE_LIMIT" : "WS_TRANSPORT_ERROR", "Сбой соединения WebSocket");
+      fail(limited ? "WS_RESPONSE_LIMIT" : "WS_TRANSPORT_ERROR");
     });
     ws.on("upgrade", (response) => {
-      const status = boundedInteger(response.statusCode, 100, 599, 0);
-      if (status !== 0) state.httpStatus = status;
+      if (finished) return;
       responseSocket = response.socket;
       responseSocket.on("end", onEnd);
       responseSocket.on("error", onSocketError);
@@ -10841,35 +10613,32 @@ async function webSocketHeartbeat(http, factory, input = {}) {
         const candidate = new SessionCookie();
         for (const value of cookies) candidate.capture(new Headers({ "set-cookie": value }));
         if (cookies.some((value) => /^\s*SessionID\s*=/i.test(value)) && candidate.value !== cookie)
-          fail("WS_SESSION_CHANGED", "Handshake WebSocket изменил cookie своей сессии");
+          fail("WS_SESSION_CHANGED");
       }
     });
     ws.on("unexpected-response", (request, response) => {
-      const status = boundedInteger(response.statusCode, 100, 599, 0);
-      if (status !== 0) state.httpStatus = status;
+      httpStatus = response.statusCode;
       fail(
-        status === 401 ? "WS_AUTHENTICATION_REQUIRED" : status === 403 ? "WS_PERMISSION_DENIED" : "WS_HANDSHAKE_FAILED",
-        "Штатный handshake WebSocket отклонён"
+        httpStatus === 401 ? "WS_AUTHENTICATION_REQUIRED" : httpStatus === 403 ? "WS_PERMISSION_DENIED" : "WS_HANDSHAKE_FAILED"
       );
       response.destroy();
       request.destroy();
     });
     ws.on("open", () => {
       if (failure || terminating || finished) return;
-      state.handshakeValidated = true;
-      state.phase = "heartbeat";
+      handshakeValidated = true;
+      phase = "heartbeat";
       try {
         ws.send("$hbt", (error) => {
           if (error) {
-            if (!terminating && !finished)
-              fail("WS_TRANSPORT_ERROR", "Не удалось отправить heartbeat");
+            if (!terminating && !finished) fail("WS_TRANSPORT_ERROR");
             return;
           }
-          state.heartbeatWritten = true;
+          heartbeatWritten = true;
           requestClose();
         });
       } catch {
-        fail("WS_TRANSPORT_ERROR", "Не удалось отправить heartbeat");
+        fail("WS_TRANSPORT_ERROR");
       }
     });
     ws.on("message", (data, binary) => {
@@ -10877,7 +10646,7 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       if (!account(length, true) || binary) return;
       const value = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
       if (value.equals(Buffer.from("$ok"))) {
-        state.heartbeatObserved = true;
+        heartbeatObserved = true;
         requestClose();
       }
     });
@@ -10885,34 +10654,25 @@ async function webSocketHeartbeat(http, factory, input = {}) {
       if (!account(data.byteLength)) return;
       try {
         ws.pong(data, true, (error) => {
-          if (error && !terminating && !finished)
-            fail("WS_TRANSPORT_ERROR", "Не удалось отправить pong WebSocket");
+          if (error && !terminating && !finished) fail("WS_TRANSPORT_ERROR");
         });
       } catch {
-        fail("WS_TRANSPORT_ERROR", "Не удалось отправить pong WebSocket");
+        fail("WS_TRANSPORT_ERROR");
       }
     });
     ws.on("pong", (data) => {
       account(data.byteLength);
     });
     ws.on("close", (code) => {
-      state.libraryCloseCode = code;
-      state.localSocketDisposed = ws?.readyState === wrapper_default.CLOSED;
-      state.peerCloseObserved = code !== 1006;
+      closeCode = code === 1006 ? void 0 : code;
+      disposed = ws?.readyState === wrapper_default.CLOSED;
       if (!failure && !terminating && code === 1006) {
-        if (state.peerEofObserved && state.heartbeatWritten && state.heartbeatObserved && state.closeRequested)
-          state.warning = "PEER_CLOSE_ACK_NOT_OBSERVED";
-        else
-          failure = {
-            code: "WS_TRANSPORT_ERROR",
-            message: "WebSocket завершился без ожидаемых heartbeat и закрытия"
-          };
+        if (peerEof && heartbeatWritten && heartbeatObserved && closeRequested)
+          warning = "PEER_CLOSE_ACK_NOT_OBSERVED";
+        else failure = "WS_TRANSPORT_ERROR";
       }
       if (!failure && code !== 1006 && code !== 1e3 && code !== 1005)
-        failure = {
-          code: "WS_HEARTBEAT_FAILED",
-          message: "Другая сторона WebSocket сообщила о неуспешном закрытии"
-        };
+        failure = "WS_HEARTBEAT_FAILED";
       settle();
     });
   });
@@ -10954,20 +10714,18 @@ var NativeSession = class _NativeSession {
     this.rpc = new RpcApi(transport2, "native");
     this.spxml2 = new NativeSpXml2Api(transport2);
     this.resources = new ResourceApi(transport2);
-    this.experimental = new NativeExperimentalApi(transport2);
   }
   lds;
   physicalDocuments;
   rpc;
   spxml2;
   resources;
-  experimental;
   sessionId;
   #closed = false;
-  static async open(defaults) {
+  static async open(defaults, options) {
     const http = transport(defaults);
     try {
-      const opened = await openLdsSession(http, "native", true);
+      const opened = await openLdsSession(http, "native", true, options);
       return new _NativeSession(http, opened.sessionId);
     } catch (error) {
       try {
@@ -11029,8 +10787,10 @@ var NativeSession = class _NativeSession {
 };
 function extractWebUploadToken(html) {
   const assignments = [];
-  const markup = html.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
-  for (const script of markup.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+  for (const script of html.matchAll(
+    /<!--[\s\S]*?(?:-->|$)|<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi
+  )) {
+    if (script[1] === void 0) continue;
     const attributes = script[1];
     const scriptType = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attributes);
     if (/\bsrc\s*=/i.test(attributes) || scriptType && !/^(?:|text\/javascript|application\/javascript|module)$/i.test(
@@ -11101,142 +10861,60 @@ function extractWebUploadToken(html) {
   }
   return typeof token === "string" && /^[\x21-\x7E]{1,256}$/.test(token) ? token : void 0;
 }
-async function boundedWebBootstrap(response, maximumBytes) {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks = [];
-  let length = 0;
+async function webLogout(http) {
+  let logoutError;
   try {
-    for (; ; ) {
-      const part = await reader.read();
-      if (part.done) break;
-      length += part.value.byteLength;
-      if (length > maximumBytes)
-        throw new WsHcmApiError("protocol", "Стартовая страница web превышает предел размера HTML");
-      chunks.push(part.value.slice());
-    }
-    const bytes = new Uint8Array(length);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return new TextDecoder().decode(bytes);
-  } finally {
-    await reader.cancel().catch(() => {
-    });
-    reader.releaseLock();
-  }
-}
-var WebLifecycleApi = class {
-  constructor(transport2, onMain) {
-    this.transport = transport2;
-    this.onMain = onMain;
-  }
-  /** Прочитать ответ `/admin` с перенаправлением, не переходя по нему. */
-  async admin(options) {
-    const response = await this.transport.send(
-      "/admin",
+    const first = await http.send(
+      "/spxml_web/logout.htm",
       {},
       {
-        ...options,
-        redirect: "manual",
-        allowStatuses: [301]
-      }
-    );
-    const rawBody = new Uint8Array(await response.arrayBuffer());
-    return {
-      status: response.status,
-      headers: response.headers,
-      data: new TextDecoder().decode(rawBody),
-      rawBody
-    };
-  }
-  /** Прочитать главную страницу веб-администратора после входа. */
-  async main(options) {
-    this.onMain?.(void 0);
-    const response = await this.transport.send("/spxml_web/main.htm", {}, options);
-    const rawBody = new Uint8Array(await response.arrayBuffer());
-    if (!response.ok)
-      throw new WsHcmApiError("http", `HTTP ${response.status}`, { status: response.status });
-    const data = new TextDecoder().decode(rawBody);
-    this.onMain?.(data);
-    return { status: response.status, headers: response.headers, data, rawBody };
-  }
-  /** Выполнить оба шага выхода; при потере связи дальнейшие запросы не отправляются. */
-  async logout(options) {
-    this.onMain?.(void 0);
-    let logoutError;
-    try {
-      const first = await this.transport.send(
-        "/spxml_web/logout.htm",
-        {},
-        {
-          ...options,
-          redirect: "manual",
-          allowStatuses: [200, 302, 401]
-        }
-      );
-      await first.body?.cancel();
-    } catch (error) {
-      logoutError = error;
-    }
-    try {
-      if (!isTransportFailure(logoutError)) await this.logout2(options);
-    } catch (cleanupError) {
-      if (logoutError === void 0) throw cleanupError;
-      attachCleanupError(logoutError, cleanupError);
-    }
-    if (logoutError !== void 0) throw logoutError;
-  }
-  /** Выполнить второй шаг веб-выхода; его вызывает `logout()`. */
-  async logout2(options) {
-    this.onMain?.(void 0);
-    const second = await this.transport.send(
-      "/spxml_web/logout2.htm",
-      {},
-      {
-        ...options,
         redirect: "manual",
         allowStatuses: [200, 302, 401]
       }
     );
-    await second.body?.cancel();
+    await first.body?.cancel();
+  } catch (error) {
+    logoutError = error;
   }
-};
+  try {
+    if (!isTransportFailure(logoutError)) {
+      const second = await http.send(
+        "/spxml_web/logout2.htm",
+        {},
+        {
+          redirect: "manual",
+          allowStatuses: [200, 302, 401]
+        }
+      );
+      await second.body?.cancel();
+    }
+  } catch (cleanupError) {
+    if (logoutError === void 0) throw cleanupError;
+    attachCleanupError(logoutError, cleanupError);
+  }
+  if (logoutError !== void 0) throw logoutError;
+}
 var WebSession = class _WebSession {
   constructor(transport2, sessionId, uploadToken, webSocketFactory) {
     this.transport = transport2;
     this.webSocketFactory = webSocketFactory;
     this.#uploadToken = uploadToken;
     this.sessionId = sessionId;
-    this.lds = createWebLdsApi(transport2, () => this.sessionId);
     this.rpc = new RpcApi(transport2, "web");
     this.spxml = new WebSpXmlApi(transport2);
-    this.spxml2 = new WebSpXml2Api(transport2);
     this.pages = new WebPageApi(transport2, () => this.#uploadToken);
-    this.resources = new ResourceApi(transport2);
-    this.lifecycle = new WebLifecycleApi(transport2, (html) => {
-      this.#uploadToken = html === void 0 ? void 0 : extractWebUploadToken(html);
-    });
-    this.experimental = new WebExperimentalApi(transport2);
   }
-  lds;
   rpc;
   spxml;
-  spxml2;
   pages;
-  resources;
-  lifecycle;
-  experimental;
   sessionId;
   #closed = false;
   #uploadToken;
   #heartbeat;
-  static async open(defaults) {
+  static async open(defaults, options) {
     const http = transport(defaults, true);
     try {
-      const main = await http.send("/spxml_web/main.htm", {}, { basic: true });
+      const main = await http.send("/spxml_web/main.htm", {}, { ...options, basic: true });
       if (!main.ok) {
         await main.body?.cancel();
         throw new WsHcmApiError("http", `HTTP ${main.status}`, {
@@ -11244,10 +10922,10 @@ var WebSession = class _WebSession {
           status: main.status
         });
       }
-      const html = await boundedWebBootstrap(main, defaults.maxResponseBytes);
+      const html = await main.text();
       if (http.cookie.value === void 0)
         throw new WsHcmApiError("protocol", "Стартовая страница web не вернула cookie SessionID");
-      const opened = await openLdsSession(http, "web");
+      const opened = await openLdsSession(http, "web", false, options);
       return new _WebSession(
         http,
         opened.sessionId,
@@ -11256,7 +10934,7 @@ var WebSession = class _WebSession {
       );
     } catch (error) {
       try {
-        if (!isTransportFailure(error)) await new WebLifecycleApi(http).logout();
+        if (!isTransportFailure(error)) await webLogout(http);
       } catch (cleanup) {
         attachCleanupError(error, cleanup);
       } finally {
@@ -11269,7 +10947,7 @@ var WebSession = class _WebSession {
   heartbeat(input = {}) {
     if (this.#closed)
       return Promise.reject(
-        new WsHcmApiError("protocol", "Веб-сессия закрыта.", { requestSent: false })
+        new WsHcmApiError("protocol", "Сессия web закрыта.", { requestSent: false })
       );
     if (this.#heartbeat)
       return Promise.reject(
@@ -11285,7 +10963,7 @@ var WebSession = class _WebSession {
     });
     return pending;
   }
-  /** Сделать локальный контекст недействительным после прямо запрошенного итогового веб-выхода. */
+  /** Снять локальный доступ, не утверждая, что очистку на сервере подтвердили. */
   disposeLocal() {
     this.#closed = true;
     this.#uploadToken = void 0;
@@ -11305,7 +10983,7 @@ var WebSession = class _WebSession {
       errors.push(error);
     }
     try {
-      if (!errors.some(isTransportFailure)) await this.lifecycle.logout();
+      if (!errors.some(isTransportFailure)) await webLogout(this.transport);
     } catch (error) {
       errors.push(error);
     } finally {
@@ -11321,7 +10999,6 @@ var WebSession = class _WebSession {
 };
 var WsHcmClient = class {
   diagnostics;
-  experimental;
   #defaults;
   #anonymous;
   constructor(options = {}) {
@@ -11336,9 +11013,8 @@ var WsHcmClient = class {
     const anonymous = transport(this.#defaults);
     this.#anonymous = anonymous;
     this.diagnostics = new DiagnosticsApi(anonymous);
-    this.experimental = new ExperimentalApi(anonymous);
   }
-  /** Освободить автономный контекст диагностики и сырых запросов; сессии закрывают их владельцы. */
+  /** Освободить автономный контекст диагностики; сессии закрывают их владельцы. */
   close() {
     this.#anonymous.dispose();
   }
@@ -11347,12 +11023,12 @@ var WsHcmClient = class {
     assertWebSocketAvailable(this.#defaults.webSocketFactory);
   }
   /** Открыть сессию native. Ею владеет вызывающий, он обязан вызвать `close()`. */
-  openNativeSession() {
-    return NativeSession.open(this.#defaults);
+  openNativeSession(options) {
+    return NativeSession.open(this.#defaults, options);
   }
   /** Открыть сессию web Administrator. Ею владеет вызывающий, он обязан вызвать `close()`. */
-  openWebSession() {
-    return WebSession.open(this.#defaults);
+  openWebSession(options) {
+    return WebSession.open(this.#defaults, options);
   }
   /** Выполнить действие в сессии native и закрыть её в `finally`; главная — ошибка операции. */
   async withNativeSession(action) {
@@ -11374,6 +11050,7 @@ export {
   createPlatformXmlParser,
   createPlatformXmlBuilder,
   validatePlatformXmlSource,
+  parseValidatedXml,
   parseXml2 as parseXml,
   buildXml,
   rawXml,
@@ -11381,10 +11058,12 @@ export {
   escapeXml,
   localName,
   findXmlNode,
+  unwrapLoadDocSoapXml,
   WsHcmBinaryResponse,
   rpc,
   resolvePhysicalDocumentLocation,
   parsePhysicalDocumentId,
+  validateDbName,
   createPhysicalDocument,
   NativePhysicalDocumentsApi,
   WebSocketHeartbeatError,
