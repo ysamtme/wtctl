@@ -34,7 +34,7 @@ assert.ok(files.length > 30, "В пакете должны быть собран
 for (const file of files) {
   assert.match(
     file,
-    /^(?:package\.json|README\.md|CHANGELOG\.md|CONTRIBUTING\.md|SECURITY\.md|LICENSE|dist\/|docs\/|examples\/|skills\/|plugin\.json|mcp\.json|gemini-extension\.json|\.claude-plugin\/|\.agents\/plugins\/)/,
+    /^(?:package\.json|README\.md|CHANGELOG\.md|CONTRIBUTING\.md|SECURITY\.md|LICENSE|dist\/|docs\/|examples\/|skills\/|plugin\.json|mcp\.json|mcp_config\.json|\.claude-plugin\/|\.agents\/plugins\/)/,
     `Лишний файл в пакете: ${file}`,
   );
   assert.doesNotMatch(
@@ -60,13 +60,13 @@ const json = async (path) => JSON.parse(await readFile(resolve(directory, path),
 const plugin = await json("plugin.json");
 const servers = [
   (await json("mcp.json")).mcpServers,
+  (await json("mcp_config.json")).mcpServers,
   (await json(".claude-plugin/plugin.json")).mcpServers,
-  (await json("gemini-extension.json")).mcpServers,
 ];
 for (const path of [
   "plugin.json",
   "mcp.json",
-  "gemini-extension.json",
+  "mcp_config.json",
   ".claude-plugin/plugin.json",
   ".claude-plugin/marketplace.json",
   ".agents/plugins/marketplace.json",
@@ -74,7 +74,12 @@ for (const path of [
 ])
   assert.ok(files.includes(path), `В пакете нет файла плагина: ${path}`);
 assert.equal(plugin.version, manifest.version, "В plugin.json — версия пакета.");
-assert.equal((await json("gemini-extension.json")).version, manifest.version);
+// Antigravity игнорирует и предупреждает о поле "type" в mcp_config.json: транспорт выводится из command/url.
+assert.equal(
+  (await json("mcp_config.json")).mcpServers.wtctl.type,
+  undefined,
+  "В mcp_config.json для Antigravity не должно быть поля type.",
+);
 // Claude Code заменяет установленную копию, только когда меняется эта версия.
 assert.equal((await json(".claude-plugin/plugin.json")).version, manifest.version);
 // В этом репозитории сборки нет: файлы marketplace.json отправляют приложение к собранному пакету в
@@ -87,7 +92,6 @@ for (const path of [".claude-plugin/marketplace.json", ".agents/plugins/marketpl
   });
 for (const name of [
   (await json(".claude-plugin/plugin.json")).name,
-  (await json("gemini-extension.json")).name,
   (await json(".claude-plugin/marketplace.json")).plugins[0].name,
   (await json(".agents/plugins/marketplace.json")).plugins[0].name,
 ])

@@ -31,7 +31,7 @@
     "skills",
     "plugin.json",
     "mcp.json",
-    "gemini-extension.json",
+    "mcp_config.json",
     ".claude-plugin",
     ".agents",
     "README.md",
