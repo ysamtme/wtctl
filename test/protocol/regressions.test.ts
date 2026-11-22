@@ -1,17 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { WsHcmApiError, WsHcmClient, rawXml, rpc } from "../../src/protocol/index.js";
+import { ArgumentError } from "../../src/protocol/error.js";
+import { soapBody, soapEnvelope, soapFragments } from "../../src/protocol/protocol.js";
+import { HttpTransport } from "../../src/protocol/transport.js";
+import { escapeXml } from "../../src/protocol/xml.js";
 
 function bodyText(init: RequestInit): string {
   if (typeof init.body === "string") return init.body;
   if (init.body instanceof Uint8Array) return new TextDecoder().decode(init.body);
   return "";
-}
-
-function bodyBytes(init: RequestInit): Uint8Array {
-  if (typeof init.body === "string") return new TextEncoder().encode(init.body);
-  if (init.body instanceof Uint8Array) return init.body;
-  assert.fail("request body must be a string or Uint8Array");
 }
 
 function soap(method: string, inner = "", profile: "native" | "web" = "native"): Response {
@@ -127,53 +125,31 @@ test("RPC отличает существующую пустую типизир�
   }
 });
 
-test("web get_app_info и getUrl страницы используют точный запрос и сохраняют непустой поток", async () => {
-  const pageBody = "non-empty page body";
+test("native get_app_info передаёт точные параметры строки запроса", async () => {
   const seen: string[] = [];
   const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },
-    fetch: webLifecycle((url, init) => {
+    fetch: nativeLifecycle((url, init) => {
       if (url.pathname === "/api/spxml2/get_app_info") {
         seen.push("app-info");
         assert.equal(init.method ?? "GET", "GET");
         assert.equal(url.search, "?fast_start=1&anonymous=1&open_session=1&rnd=123");
         return Response.json({ Success: 1 });
       }
-      if (url.pathname === "/spxml_web/service/get_url.htm") {
-        seen.push("page-get-url");
-        assert.equal(init.method ?? "GET", "GET");
-        assert.equal(
-          url.search,
-          "?url=x-local%3A%2F%2Fwt%2Ffile.txt&navigate=1&download=1&base64=1",
-        );
-        return new Response(pageBody, {
-          status: 200,
-          headers: { "content-type": "application/octet-stream" },
-        });
-      }
       return undefined;
     }),
   });
 
-  await client.withWebSession(async (session) => {
+  await client.withNativeSession(async (session) => {
     await session.spxml2.getAppInfo({
       fastStart: true,
       anonymous: true,
       openSession: true,
       rnd: 123,
     });
-    const response = await session.pages.getUrl({
-      url: "x-local://wt/file.txt",
-      navigate: true,
-      download: true,
-      base64: true,
-    });
-    assert.equal(response.status, 200);
-    assert.ok(response.body, "getUrl must retain a readable response body");
-    assert.equal(await new Response(response.body).text(), pageBody);
   });
-  assert.deepEqual(seen, ["app-info", "page-get-url"]);
+  assert.deepEqual(seen, ["app-info"]);
 });
 
 test("асинхронный жизненный цикл сохраняет шестнадцатеричный TrackingID 1171 в том виде, как он записан", async () => {
@@ -258,62 +234,6 @@ test("потоковые XML-параметры native используют то
     });
   });
   assert.equal(calls, 1);
-});
-
-test("XOP native сохраняет точные двоичные данные PutUrl", async () => {
-  const expected = Uint8Array.of(0, 255, 13, 10, 60, 38);
-  const seen: string[] = [];
-
-  function indexOfBytes(source: Uint8Array, part: Uint8Array): number {
-    outer: for (let index = 0; index <= source.length - part.length; index += 1) {
-      for (let offset = 0; offset < part.length; offset += 1) {
-        if (source[index + offset] !== part[offset]) continue outer;
-      }
-      return index;
-    }
-    return -1;
-  }
-
-  const client = new WsHcmClient({
-    baseUrl: "http://wt.test/",
-    auth: { username: "user", password: "secret" },
-    fetch: nativeLifecycle((url, init) => {
-      if (url.pathname !== "/services/LdsService") return undefined;
-      const body = bodyText(init);
-      if (!body.includes("<PutUrl")) return undefined;
-      const bytes = bodyBytes(init);
-
-      const contentType = new Headers(init.headers).get("content-type") ?? "";
-      const boundary = /boundary="([^"]+)"/.exec(contentType)?.[1];
-      const contentId = /href="cid:(0x[0-9a-f]+)"/.exec(body)?.[1];
-      assert.ok(boundary);
-      assert.ok(contentId);
-
-      assert.match(
-        body,
-        /<PutUrl[^>]*><Url>x-local:\/\/wt\/file\.bin<\/Url><SessionID>42<\/SessionID><Data><xop:Include[^>]+\/><\/Data><\/PutUrl>/,
-      );
-
-      const attachmentHeader = new TextEncoder().encode(
-        `\r\n--${boundary}\r\nContent-ID: ${contentId}\r\n\r\n`,
-      );
-      const footer = new TextEncoder().encode(`\r\n--${boundary}--\r\n`);
-      const start = indexOfBytes(bytes, attachmentHeader);
-      assert.notEqual(start, -1);
-      assert.deepEqual(bytes.subarray(bytes.length - footer.length), footer);
-      assert.deepEqual(
-        bytes.subarray(start + attachmentHeader.length, bytes.length - footer.length),
-        expected,
-      );
-      seen.push("PutUrl");
-      return soap("PutUrl");
-    }),
-  });
-
-  await client.withNativeSession(async (session) => {
-    await session.lds.putUrl({ url: "x-local://wt/file.bin", data: expected });
-  });
-  assert.deepEqual(seen, ["PutUrl"]);
 });
 
 test("потоковые флаги native сохраняют подставные тела LoadUrl и LoadDoc потоками", async () => {
@@ -419,7 +339,7 @@ test("потоковые ошибки SOAP разбирают малые fault �
   assert.equal(cancelled, true);
 });
 
-test("буферизованный XML web учитывает charset ответа и запасной вариант запроса GetDoc", async () => {
+test("буферизованный XML web учитывает charset ответа", async () => {
   const word = Uint8Array.of(0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2);
   const encodedXml = (root: string): Uint8Array<ArrayBuffer> => {
     const start = new TextEncoder().encode(`<${root}><name>`);
@@ -439,61 +359,13 @@ test("буферизованный XML web учитывает charset ответ
           headers: { "content-type": "text/xml; charset=windows-1251" },
         });
       }
-      if (url.pathname === "/api/spxml/GetDoc") {
-        return new Response(encodedXml("document"), { headers: { "content-type": "text/xml" } });
-      }
       return undefined;
     }),
   });
 
   await client.withWebSession(async (session) => {
     assert.match(JSON.stringify((await session.pages.getUiText()).data), /Привет/);
-    assert.match(
-      JSON.stringify(
-        (await session.spxml.getDoc({ docUrl: "x-local://wt/doc.xml", charset: "windows-1251" }))
-          .data,
-      ),
-      /Привет/,
-    );
   });
-});
-
-test("PutDoc в web отклоняет ввод с DTD и entity и отдаёт только штатные флаги сохранения", async () => {
-  let putCalls = 0;
-  const client = new WsHcmClient({
-    baseUrl: "http://wt.test/",
-    auth: { username: "user", password: "secret" },
-    fetch: webLifecycle((url, init) => {
-      if (url.pathname === "/api/spxml/PutDoc") {
-        putCalls += 1;
-        assert.equal(
-          url.search,
-          "?DocUrl=x-local%3A%2F%2Fwt%2Fdoc.xml&WriteDocInfo=false&NeverSaved=1",
-        );
-        assert.doesNotMatch(url.search, /SkipActions/);
-        assert.equal(bodyText(init), "<doc><id>1</id></doc>");
-        return Response.json({ Success: 1 });
-      }
-      return undefined;
-    }),
-  });
-
-  await client.withWebSession(async (session) => {
-    await assert.rejects(
-      session.spxml.putDoc({
-        docUrl: "x-local://wt/doc.xml",
-        document: '<!DOCTYPE doc [<!ENTITY secret "value">]><doc>&secret;</doc>',
-      }),
-      /Объявления DOCTYPE и ENTITY в XML не допускаются/,
-    );
-    await session.spxml.putDoc({
-      docUrl: "x-local://wt/doc.xml",
-      document: rawXml("<doc><id>1</id></doc>"),
-      writeDocInfo: false,
-      neverSaved: true,
-    });
-  });
-  assert.equal(putCalls, 1);
 });
 
 test("голый SOAP Fault становится ограниченной ошибкой soap-fault", async () => {
@@ -547,17 +419,17 @@ test("элементы Fault прикладного уровня не счита
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },
     fetch: nativeLifecycle((url, init) => {
-      if (url.pathname !== "/services/LdsService" || !bodyText(init).includes("<GetCatalogsStat"))
+      if (url.pathname !== "/services/LdsService" || !bodyText(init).includes("<LoadDoc"))
         return undefined;
       return soap(
-        "GetCatalogsStat",
+        "LoadDoc",
         "<ResultData><Fault><message>application value</message></Fault></ResultData>",
       );
     }),
   });
 
   await client.withNativeSession(async (session) => {
-    const response = await session.lds.getCatalogsStat();
+    const response = await session.lds.loadDoc({ url: "x-local://wt/doc.xml" });
     assert.match(JSON.stringify(response.data), /application value/);
   });
 });
@@ -636,39 +508,41 @@ test("обычная Error операции остаётся основной, �
   );
 });
 
-test("транспорт отклоняет встроенные учётные данные и экспериментальные запросы на другой origin до fetch", async () => {
+test("транспорт отклоняет встроенные учётные данные и запросы на другой origin до fetch", async () => {
   assert.throws(
     () => new WsHcmClient({ baseUrl: "http://user:password@wt.test/" }),
     /без имени и пароля в адресе/,
   );
 
   let fetchCalls = 0;
-  const client = new WsHcmClient({
+  const transport = new HttpTransport({
     baseUrl: "http://wt.test/",
+    timeoutMs: 1000,
     fetch: (async () => {
       fetchCalls += 1;
       return new Response("unexpected");
     }) as typeof globalThis.fetch,
   });
-  await assert.rejects(
-    client.experimental.rawRequest({ unsafe: false as true, path: "/xhttp_info" }),
-    (error: unknown) => error instanceof WsHcmApiError && error.kind === "protocol",
-  );
-  await assert.rejects(
-    client.experimental.rawRequest({ unsafe: true, path: "http://other.test/xhttp_info" }),
-    (error: unknown) => error instanceof WsHcmApiError && error.kind === "protocol",
-  );
-  await assert.rejects(
-    client.experimental.rawRequest({ unsafe: true, path: "http://user:secret@wt.test/xhttp_info" }),
-    (error: unknown) => error instanceof WsHcmApiError && error.kind === "protocol",
-  );
-  assert.equal(fetchCalls, 0);
+  try {
+    await assert.rejects(
+      transport.send("http://other.test/xhttp_info"),
+      (error: unknown) => error instanceof WsHcmApiError && error.kind === "protocol",
+    );
+    await assert.rejects(
+      transport.send("http://user:secret@wt.test/xhttp_info"),
+      (error: unknown) => error instanceof WsHcmApiError && error.kind === "protocol",
+    );
+    assert.equal(fetchCalls, 0);
+  } finally {
+    transport.dispose();
+  }
 });
 
 test("транспорт выставляет Node duplex для тел ReadableStream", async () => {
   let duplex: unknown;
-  const client = new WsHcmClient({
+  const transport = new HttpTransport({
     baseUrl: "http://wt.test/",
+    timeoutMs: 1000,
     fetch: (async (input, init) => {
       duplex = (init as RequestInit & { duplex?: unknown }).duplex;
       const request = new Request(input, init);
@@ -676,19 +550,21 @@ test("транспорт выставляет Node duplex для тел Readable
       return new Response("ok");
     }) as typeof globalThis.fetch,
   });
-  const response = await client.experimental.rawRequest({
-    unsafe: true,
-    path: "/upload",
-    method: "POST",
-    body: new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("stream"));
-        controller.close();
-      },
-    }),
-  });
-  await response.body?.cancel();
-  assert.equal(duplex, "half");
+  try {
+    const response = await transport.send("/upload", {
+      method: "POST",
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("stream"));
+          controller.close();
+        },
+      }),
+    });
+    await response.body?.cancel();
+    assert.equal(duplex, "half");
+  } finally {
+    transport.dispose();
+  }
 });
 
 test("диагностика использует необязательную аутентификацию Basic, когда учётные данные есть", async () => {
@@ -736,7 +612,7 @@ test("жизненный цикл web пробует logout2 после сбоя
   assert.deepEqual(logoutCalls, ["logout", "logout2"]);
 });
 
-test("экспериментальные регрессии транспорта и web сохраняют ошибки, секреты и нужные URL", async () => {
+test("регрессии транспорта скрывают секреты из ошибок fetch и отменяют тело при HTTP 500", async () => {
   const secretUrl = "http://secret-user:secret-password@private.example/hidden";
   const failed = new WsHcmClient({
     baseUrl: "http://wt.test/",
@@ -755,63 +631,30 @@ test("экспериментальные регрессии транспорта
   });
 
   let cancelled = false;
-  const raw = new WsHcmClient({
-    baseUrl: "http://wt.test/",
-    fetch: (async () =>
-      new Response(
-        new ReadableStream({
-          cancel() {
-            cancelled = true;
-          },
-        }),
-        { status: 500 },
-      )) as typeof globalThis.fetch,
-  });
-  await assert.rejects(
-    raw.experimental.rawRequest({ unsafe: true, path: "/failure" }),
-    (error: unknown) =>
-      error instanceof WsHcmApiError && error.kind === "http" && error.status === 500,
-  );
-  assert.equal(cancelled, true);
-
-  const token = "private-auth-token";
-  const seen: string[] = [];
-  const web = new WsHcmClient({
+  const client = new WsHcmClient({
     baseUrl: "http://wt.test/",
     auth: { username: "user", password: "secret" },
-    fetch: webLifecycle((url, init) => {
-      if (url.pathname === "/api/spxml2/authenticate") {
-        seen.push("authenticate");
-        assert.equal(init.method, "POST");
-        assert.equal(url.search, "");
-        assert.doesNotMatch(url.href, new RegExp(token));
-        assert.equal(new Headers(init.headers).get("content-type"), "application/json");
-        assert.deepEqual(JSON.parse(bodyText(init)), {
-          login: "login",
-          password: "password",
-          token,
-        });
-        return Response.json({ Success: 1 });
-      }
-      if (url.pathname === "/api/spxml2/get_image") {
-        seen.push("image");
-        assert.equal(init.method ?? "GET", "GET");
-        assert.equal(url.search, "?url=x-local%3A%2F%2Fwt%2Frequired.png&width=120");
-        return new Response("image-body", { status: 200 });
-      }
-      return undefined;
-    }),
+    fetch: nativeLifecycle((url) =>
+      url.pathname === "/lds/get_resource_image.html"
+        ? new Response(
+            new ReadableStream({
+              cancel() {
+                cancelled = true;
+              },
+            }),
+            { status: 500 },
+          )
+        : undefined,
+    ),
   });
-
-  await web.withWebSession(async (session) => {
-    await session.experimental.authenticate({ login: "login", password: "password", token });
-    const image = await session.spxml2.getImage({
-      url: "x-local://wt/required.png",
-      effects: { url: "x-local://wt/override.png", width: 120 },
-    });
-    assert.equal(await new Response(image.body).text(), "image-body");
+  await client.withNativeSession(async (session) => {
+    await assert.rejects(
+      session.resources.getImage({ resourceId: "1" }),
+      (error: unknown) =>
+        error instanceof WsHcmApiError && error.kind === "http" && error.status === 500,
+    );
   });
-  assert.deepEqual(seen, ["authenticate", "image"]);
+  assert.equal(cancelled, true);
 });
 
 test("maxResponseBytes отдельного SOAP-вызова заменяет предел клиента: меньший отклоняет большой ответ, Infinity снимает предел", async () => {
@@ -836,4 +679,86 @@ test("maxResponseBytes отдельного SOAP-вызова заменяет �
     const response = await session.lds.xQuery({ query: "1" }, { maxResponseBytes: Infinity });
     assert.equal(response.status, 200);
   });
+});
+
+test("escapeXml и soapBody сохраняют точное экранирование, проверку символов XML и кодировку UTF-8 для крупных тел", async () => {
+  // Быстрый путь без спецсимволов (ASCII и кириллица) и обход суррогатной пары.
+  assert.equal(escapeXml("ABCabc012+/= Привет"), "ABCabc012+/= Привет");
+  assert.equal(escapeXml("Привет 🙂"), "Привет 🙂");
+  assert.equal(
+    escapeXml(`a&b<c>d"e'f\rg\nh\ti🙂`),
+    "a&amp;b&lt;c&gt;d&quot;e&apos;f&#13;g&#10;h&#9;i🙂",
+  );
+  for (const invalid of ["\u0000", "\u000b", "\ud800", "\udc00", "\ufffe", "\uffff"])
+    assert.throws(() => escapeXml(`ok${invalid}`), ArgumentError);
+
+  const small = soapBody(
+    "CallMethod",
+    [["ArgData", soapFragments(["<arg-0>Привет</arg-0>"])]],
+    "native",
+  );
+  assert.equal(typeof small, "string");
+  assert.equal(
+    small,
+    soapEnvelope("CallMethod", [["ArgData", rawXml("<arg-0>Привет</arg-0>")]], "native"),
+  );
+
+  const payload = "Привет🙂&<>".repeat(8000);
+  const large = soapBody(
+    "CallMethod",
+    [
+      ["LibName", "tools"],
+      ["ArgData", soapFragments(["<arg-0>", escapeXml(payload), "</arg-0>"])],
+    ],
+    "native",
+  );
+  assert.ok(Buffer.isBuffer(large));
+  assert.deepEqual(
+    large,
+    Buffer.from(
+      soapEnvelope(
+        "CallMethod",
+        [
+          ["LibName", "tools"],
+          ["ArgData", rawXml(`<arg-0>${escapeXml(payload)}</arg-0>`)],
+        ],
+        "native",
+      ),
+      "utf8",
+    ),
+  );
+
+  // Публичные вызовы: обычный массив в скалярном поле экранируется, разреженный массив аргументов
+  // сохраняет индексы arg-N, а крупный RPC уходит буфером UTF-8 с тем же XML.
+  const bodies: Array<RequestInit["body"]> = [];
+  const client = new WsHcmClient({
+    baseUrl: "http://wt.test/",
+    auth: { username: "user", password: "secret" },
+    fetch: nativeLifecycle((_url, init) => {
+      const text = bodyText(init);
+      if (text.includes("<LoadDoc")) {
+        bodies.push(init.body);
+        return soap("LoadDoc", "<Data><doc/></Data>");
+      }
+      if (text.includes("<CallMethod")) {
+        bodies.push(init.body);
+        return soap(
+          "CallMethod",
+          '<ResultData><Result VALUE-TYPE="string">ok</Result></ResultData>',
+        );
+      }
+      return undefined;
+    }),
+  });
+  await client.withNativeSession(async (session) => {
+    await session.lds.loadDoc({ url: ["<injected/>"] as unknown as string });
+    const sparse: ReturnType<typeof rpc.string>[] = [];
+    sparse[1] = rpc.string("second");
+    await session.rpc.call({ target: "tools.fn", args: sparse });
+    await session.rpc.call({ target: "tools.big", args: [rpc.string(payload)] });
+  });
+  assert.match(String(bodies[0]), /<Url>&lt;injected\/&gt;<\/Url>/);
+  assert.match(String(bodies[1]), /<ArgData><arg-1 VALUE-TYPE="string">second<\/arg-1><\/ArgData>/);
+  assert.ok(Buffer.isBuffer(bodies[2]));
+  assert.ok(String(bodies[2]).includes(`<arg-0 VALUE-TYPE="string">${escapeXml(payload)}</arg-0>`));
 });

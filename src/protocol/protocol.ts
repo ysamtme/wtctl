@@ -9,15 +9,58 @@ import {
   type XmlObject,
 } from "./xml.js";
 
+const SOAP_FRAGMENTS = Symbol("SoapFragments");
+/** @internal Внутренняя обёртка уже проверенных и экранированных частей XML без промежуточной склейки. */
+export interface SoapFragments {
+  readonly [SOAP_FRAGMENTS]: true;
+  readonly parts: readonly string[];
+}
+/** @internal Помечает готовые части XML, собранные протоколом из проверенных и экранированных значений. */
+export function soapFragments(parts: readonly string[]): SoapFragments {
+  return { [SOAP_FRAGMENTS]: true, parts };
+}
+function isSoapFragments(value: unknown): value is SoapFragments {
+  return typeof value === "object" && value !== null && SOAP_FRAGMENTS in value;
+}
+
 export type SoapProfile = "native" | "web";
 export type SoapScalar = string | number | boolean | RawXml | null | undefined;
 export type SoapField = readonly [name: string, value: SoapScalar];
+/** @internal Поле SOAP для soapBody: скаляр, проверенный RawXml или закрытая обёртка готовых частей XML. */
+export type SoapBodyField = readonly [name: string, value: SoapScalar | SoapFragments];
 
-function fieldXml([name, value]: SoapField): string {
-  if (value === undefined) return "";
-  if (value === null) return `<${name}></${name}>`;
-  const content = isRawXml(value) ? inlineXml(value) : escapeXml(value);
-  return `<${name}>${content}</${name}>`;
+function pushFieldXml(parts: string[], [name, value]: SoapBodyField): void {
+  if (value === undefined) return;
+  if (value === null) {
+    parts.push(`<${name}></${name}>`);
+    return;
+  }
+  parts.push(`<${name}>`);
+  if (isSoapFragments(value)) {
+    for (const chunk of value.parts) parts.push(chunk);
+  } else {
+    parts.push(isRawXml(value) ? inlineXml(value) : escapeXml(value));
+  }
+  parts.push(`</${name}>`);
+}
+
+function soapEnvelopeParts(
+  method: string,
+  fields: readonly SoapBodyField[],
+  profile: SoapProfile,
+): string[] {
+  const envelopeNs =
+    profile === "native"
+      ? "http://www.w3.org/2003/05/soap-envelope/"
+      : "http://schemas.xmlsoap.org/soap/envelope/";
+  const operationNs =
+    profile === "native" ? "http://www.datex-soft.com/" : "http://www.datex-soft.com/soap/";
+  const parts: string[] = [
+    `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="${envelopeNs}"><soap:Body><${method} xmlns="${operationNs}">`,
+  ];
+  for (const field of fields) pushFieldXml(parts, field);
+  parts.push(`</${method}></soap:Body></soap:Envelope>`);
+  return parts;
 }
 
 export function soapEnvelope(
@@ -25,18 +68,31 @@ export function soapEnvelope(
   fields: readonly SoapField[],
   profile: SoapProfile,
 ): string {
-  const envelopeNs =
-    profile === "native"
-      ? "http://www.w3.org/2003/05/soap-envelope/"
-      : "http://schemas.xmlsoap.org/soap/envelope/";
-  const operationNs =
-    profile === "native" ? "http://www.datex-soft.com/" : "http://www.datex-soft.com/soap/";
-  return (
-    '<?xml version="1.0" encoding="utf-8"?>' +
-    `<soap:Envelope xmlns:soap="${envelopeNs}"><soap:Body>` +
-    `<${method} xmlns="${operationNs}">${fields.map(fieldXml).join("")}</${method}>` +
-    "</soap:Body></soap:Envelope>"
-  );
+  return soapEnvelopeParts(method, fields, profile).join("");
+}
+
+const LARGE_SOAP_CHARS = 65_536;
+
+/**
+ * Тело SOAP-запроса: малые запросы строкой, крупные — сразу в один буфер UTF-8 без склейки
+ * больших строк в куче V8 и без повторной перекодировки внутри fetch.
+ * @internal
+ */
+export function soapBody(
+  method: string,
+  fields: readonly SoapBodyField[],
+  profile: SoapProfile,
+): string | Buffer<ArrayBuffer> {
+  const parts = soapEnvelopeParts(method, fields, profile);
+  let chars = 0;
+  for (const part of parts) chars += part.length;
+  if (chars < LARGE_SOAP_CHARS) return parts.join("");
+  let bytes = 0;
+  for (const part of parts) bytes += Buffer.byteLength(part, "utf8");
+  const buffer = Buffer.allocUnsafe(bytes);
+  let offset = 0;
+  for (const part of parts) offset += buffer.write(part, offset, "utf8");
+  return buffer;
 }
 
 export function soapContentType(profile: SoapProfile): string {

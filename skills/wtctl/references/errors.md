@@ -43,6 +43,7 @@
 | `UNKNOWN_OPERATION`, `UNKNOWN_TOPIC` | взять ID из `hcm_api_list` |
 | `UNKNOWN_RPC_TARGET` | такой функции или библиотеки на сервере нет: в `hint` — похожие имена; искать через `rpc.list` с `query` и `all:true` |
 | `RPC_SERVER_ONLY` | функция вызывается только из кода на сервере: `hcm_script`, см. [scripts.md](scripts.md) |
+| `RPC_CATALOG_UNAVAILABLE` | список функций библиотек сервера не получен: проверить подключение через `hcm_check` или повторить позже |
 | `INVALID_FILTER_OPERATOR`, `INVALID_FILTER_VALUE` | см. [queries.md](queries.md) |
 | `INVALID_PATCH_PATH`, `PATCH_PATH_MISSING`, `PATCH_INDEX_MISSING`, `AMBIGUOUS_PATCH` | путь в `patch` или `remove` неверен, см. [objects.md](objects.md) |
 | `INVALID_RPC_ARGUMENT` | аргумент функции задан неверно, см. [scripts.md](scripts.md) |

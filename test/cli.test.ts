@@ -9,6 +9,7 @@ import { permissionHint } from "../src/config.js";
 import { describeHcmOperation, listHcmOperations } from "../src/catalog.js";
 import { discoverOperations, operationHelp } from "../src/operation-help.js";
 import { cliHelp } from "../src/cli/help.js";
+import { NAMES } from "../src/frontend-names.js";
 import { ResultStore } from "../src/results.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -454,7 +455,7 @@ const commandCases: {
       "tools",
       "--method",
       "get_version",
-      "--built-in",
+      "--all",
       "--limit",
       "20",
       "--cursor",
@@ -465,21 +466,39 @@ const commandCases: {
       query: "version",
       library: "tools",
       method: "get_version",
-      builtIn: true,
+      all: true,
       limit: 20,
       cursor: 2,
     },
   },
   {
-    argv: ["rpc", "describe", "tools.get_version", "--built-in", "--source"],
+    argv: ["rpc", "describe", "tools.get_version", "--source"],
     id: "rpc.describe",
-    args: { targetId: "tools.get_version", builtIn: true, source: true },
+    args: { targetId: "tools.get_version", source: true },
   },
   {
     argv: ["doc", "put", "x-local://wt_data/synthetic.xml", "--input-file", "document.xml"],
     input: "<root/>",
     id: "native.lds.putDoc",
     args: { data: "<root/>", url: "x-local://wt_data/synthetic.xml" },
+  },
+  {
+    argv: [
+      "files",
+      "upload",
+      "report.txt",
+      "--input-file",
+      "report.txt",
+      "--content-type",
+      "text/plain",
+    ],
+    input: "A",
+    id: "web.pages.uploadFile",
+    args: {
+      filename: "report.txt",
+      data: { base64: "QQ==" },
+      contentType: "text/plain",
+    },
   },
   {
     argv: [
@@ -1940,5 +1959,475 @@ test("загрузка файла передаёт двоичный ввод л�
       2,
     );
     assert.equal(unsupported.state.loads, 0);
+  }
+});
+
+test("files upload — основная команда загрузки, а file upload — прежнее имя на том же обработчике", async () => {
+  assert.equal(NAMES["web.pages.uploadFile"]?.[1], "wtctl files upload");
+  const top = cliHelp().commands as Record<string, string>;
+  assert.equal(Object.hasOwn(top, "file"), false);
+  assert.match(top.files ?? "", /upload/);
+  const filesHelp = cliHelp("files") as { usage: string[] };
+  assert.ok(
+    filesHelp.usage.some(
+      (line) => line.includes("wtctl files upload") && line.includes("report.txt"),
+    ),
+  );
+  assert.equal(
+    filesHelp.usage.some((line) => line.includes(".bin")),
+    false,
+  );
+  const aliasHelp = cliHelp("file") as { usage: string[]; notes?: string[] };
+  assert.ok(aliasHelp.usage.some((line) => line.includes("wtctl files upload")));
+  assert.ok(aliasHelp.notes?.some((line) => line.includes("file upload")));
+
+  const primary = fixture();
+  const alias = fixture();
+  const payload = Buffer.from("hello-upload", "utf8");
+  primary.io.readBinaryFile = async () => payload;
+  alias.io.readBinaryFile = async () => payload;
+  assert.equal(
+    await runCli(
+      [
+        "files",
+        "upload",
+        "report.txt",
+        "--input-file",
+        "report.txt",
+        "--content-type",
+        "text/plain",
+      ],
+      primary.io,
+      primary.dependencies,
+    ),
+    0,
+  );
+  assert.equal(
+    await runCli(
+      [
+        "file",
+        "upload",
+        "report.txt",
+        "--input-file",
+        "report.txt",
+        "--content-type",
+        "text/plain",
+      ],
+      alias.io,
+      alias.dependencies,
+    ),
+    0,
+  );
+  assert.deepEqual(primary.state.calls, alias.state.calls);
+  assert.equal(await runCli(["file", "get"], primary.io, primary.dependencies), 2);
+});
+
+test("config list выводит разрешённые поля без паролей, работает при незаданном passwordEnv и на старом формате", async () => {
+  const secret = "synthetic-never-print-password";
+  const fileText = JSON.stringify({
+    defaultConnection: "prod",
+    extraTopLevel: "ignored-in-list",
+    connections: {
+      dev: {
+        baseUrl: "http://dev.test",
+        username: "dev-user",
+        password: secret,
+        permissions: { write: true, execute: false },
+        timeoutMs: 0,
+        runtimeDir: "/private/runtime/path",
+        customPrivateNote: "must-not-appear",
+      },
+      prod: {
+        baseUrl: "https://prod.test/hcm",
+        usernameEnv: "WTCTL_TEST_UNSET_USER_999",
+        passwordEnv: "WTCTL_TEST_UNSET_PASS_999",
+        permissions: { write: false, execute: true },
+        outputLimitBytes: 8192,
+      },
+    },
+  });
+  const f = fixture(fileText);
+  assert.equal(await runCli(["config", "list", "--config", "c.json"], f.io, f.dependencies), 0);
+  assert.equal(f.state.loads, 0);
+  assert.doesNotMatch(f.state.stdout + f.state.stderr, new RegExp(secret));
+  assert.doesNotMatch(
+    f.state.stdout,
+    /customPrivateNote|extraTopLevel|dev-user|runtimeDir|timeoutMs|outputLimitBytes/,
+  );
+  const listed = JSON.parse(f.state.stdout) as OperationResult;
+  assert.equal(listed.meta.operationId, "cli.config.list");
+  assert.deepEqual(listed.data, {
+    path: "c.json",
+    defaultConnection: "prod",
+    connections: [
+      {
+        name: "dev",
+        default: false,
+        baseUrl: "http://dev.test/",
+        permissions: { write: true, execute: false },
+        credentials: { username: "file", password: "file" },
+      },
+      {
+        name: "prod",
+        default: true,
+        baseUrl: "https://prod.test/hcm",
+        permissions: { write: false, execute: true },
+        credentials: {
+          username: "env",
+          usernameEnv: "WTCTL_TEST_UNSET_USER_999",
+          password: "env",
+          passwordEnv: "WTCTL_TEST_UNSET_PASS_999",
+        },
+      },
+    ],
+  });
+
+  // defaultConnection указывает на отсутствующее подключение: не выдаётся за существующее.
+  const dangling = fixture(
+    JSON.stringify({
+      defaultConnection: "missing",
+      connections: { dev: { baseUrl: "http://dev.test" } },
+    }),
+  );
+  assert.equal(
+    await runCli(["config", "list", "--config", "d.json"], dangling.io, dangling.dependencies),
+    0,
+  );
+  assert.deepEqual(JSON.parse(dangling.state.stdout).data, {
+    path: "d.json",
+    connections: [
+      {
+        name: "dev",
+        default: false,
+        baseUrl: "http://dev.test/",
+        permissions: { write: false, execute: false },
+        credentials: { username: "none", password: "none" },
+      },
+    ],
+  });
+
+  // Старый формат файла без раздела connections (включая явный defaultConnection).
+  const legacy = fixture(
+    JSON.stringify({
+      defaultConnection: "named",
+      baseUrl: "http://legacy.test",
+      username: "u",
+      password: secret,
+    }),
+  );
+  assert.equal(
+    await runCli(["config", "list", "--config", "old.json"], legacy.io, legacy.dependencies),
+    0,
+  );
+  assert.doesNotMatch(legacy.state.stdout, new RegExp(secret));
+  assert.deepEqual(JSON.parse(legacy.state.stdout).data, {
+    path: "old.json",
+    defaultConnection: "named",
+    legacy: true,
+    connections: [
+      {
+        name: "named",
+        default: true,
+        baseUrl: "http://legacy.test/",
+        permissions: { write: false, execute: false },
+        credentials: { username: "file", password: "file" },
+      },
+    ],
+  });
+
+  // Неверный URL (включая хвостовые ?/#) отклоняется; --output на сам файл подключений и --password-stdin отклоняются.
+  for (const url of ["ftp://bad.test", "http://a.test/app?", "http://a.test/app#"]) {
+    const badUrl = fixture(JSON.stringify({ connections: { bad: { baseUrl: url } } }));
+    assert.equal(
+      await runCli(["config", "list", "--config", "bad.json"], badUrl.io, badUrl.dependencies),
+      1,
+      url,
+    );
+    assert.equal(JSON.parse(badUrl.state.stderr).error.code, "INVALID_CONFIG", url);
+  }
+  const sameOut = fixture(fileText);
+  assert.equal(
+    await runCli(
+      ["config", "list", "--config", "c.json", "--output", "c.json"],
+      sameOut.io,
+      sameOut.dependencies,
+    ),
+    2,
+  );
+  assert.equal(sameOut.state.files.size, 0);
+  assert.equal(
+    await runCli(
+      ["config", "list", "--config", "c.json", "--password-stdin"],
+      f.io,
+      f.dependencies,
+    ),
+    2,
+  );
+});
+
+test("config set меняет поля через правила config.ts, сохраняет неизвестное и защищён от гонки", async () => {
+  const initial = JSON.stringify({
+    defaultConnection: "dev",
+    comment: "keep-top",
+    connections: {
+      dev: {
+        baseUrl: "http://dev.test/",
+        username: "dev-user",
+        passwordEnv: "WTCTL_DEV_PASS",
+        permissions: { write: false, execute: false, customFlag: "keep-perm" },
+        extraField: "keep-profile",
+      },
+      prod: {
+        baseUrl: "https://prod.test/",
+        username: "prod-user",
+        password: "synthetic-prod-secret",
+        permissions: { write: false, execute: false },
+      },
+    },
+  });
+
+  // Успешная правка по имени аргументом + все числовые поля и --default.
+  const f = fixture(initial);
+  const code = await runCli(
+    [
+      "config",
+      "set",
+      "prod",
+      "--config",
+      "c.json",
+      "--write",
+      "true",
+      "--execute",
+      "false",
+      "--default",
+      "--url",
+      "https://prod2.test",
+      "--timeout-ms",
+      "12000",
+      "--max-response-bytes",
+      "4096",
+      "--output-limit-bytes",
+      "2048",
+      "--runtime-dir",
+      "./rt",
+      "--results-max-bytes",
+      "0",
+      "--results-max-age-days",
+      "14",
+      "--journal-max-bytes",
+      "8192",
+    ],
+    f.io,
+    f.dependencies,
+  );
+  assert.equal(code, 0, f.state.stderr);
+  assert.doesNotMatch(f.state.stdout + f.state.stderr, /synthetic-prod-secret/);
+  const saved = JSON.parse(f.state.files.get("c.json")!);
+  assert.equal(saved.defaultConnection, "prod");
+  assert.equal(saved.comment, "keep-top");
+  assert.equal(saved.connections.dev.extraField, "keep-profile");
+  assert.equal(saved.connections.dev.passwordEnv, "WTCTL_DEV_PASS");
+  assert.equal(saved.connections.dev.permissions.customFlag, "keep-perm");
+  assert.deepEqual(saved.connections.prod, {
+    baseUrl: "https://prod2.test/",
+    username: "prod-user",
+    password: "synthetic-prod-secret",
+    permissions: { write: true, execute: false },
+    timeoutMs: 12000,
+    maxResponseBytes: 4096,
+    outputLimitBytes: 2048,
+    runtimeDir: "./rt",
+    resultsMaxBytes: 0,
+    resultsMaxAgeDays: 14,
+    journalMaxBytes: 8192,
+  });
+
+  // Правка подключения по умолчанию (без имени) сохраняет неизвестные поля и passwordEnv.
+  const def = fixture(initial);
+  assert.equal(
+    await runCli(
+      ["config", "set", "--config", "c.json", "--write", "true"],
+      def.io,
+      def.dependencies,
+    ),
+    0,
+  );
+  const defSaved = JSON.parse(def.state.files.get("c.json")!);
+  assert.equal(defSaved.connections.dev.passwordEnv, "WTCTL_DEV_PASS");
+  assert.equal(defSaved.connections.dev.extraField, "keep-profile");
+  assert.deepEqual(defSaved.connections.dev.permissions, {
+    write: true,
+    execute: false,
+    customFlag: "keep-perm",
+  });
+
+  // Правка без имени следует WTCTL_CONNECTION, если он задан.
+  const prevEnv = process.env.WTCTL_CONNECTION;
+  try {
+    process.env.WTCTL_CONNECTION = "prod";
+    const byEnv = fixture(initial);
+    assert.equal(
+      await runCli(
+        ["config", "set", "--config", "c.json", "--write", "true"],
+        byEnv.io,
+        byEnv.dependencies,
+      ),
+      0,
+    );
+    const envSaved = JSON.parse(byEnv.state.files.get("c.json")!);
+    assert.equal(envSaved.connections.prod.permissions.write, true);
+    assert.equal(envSaved.connections.dev.permissions.write, false);
+  } finally {
+    if (prevEnv === undefined) delete process.env.WTCTL_CONNECTION;
+    else process.env.WTCTL_CONNECTION = prevEnv;
+  }
+
+  // Конфликт одновременной записи: файл поменялся между чтением и записью у set и у init.
+  const race = fixture(initial);
+  let reads = 0;
+  race.io.readFile = async () => (++reads === 1 ? initial : '{"changed":true}');
+  assert.equal(
+    await runCli(
+      ["config", "set", "dev", "--config", "c.json", "--write", "true"],
+      race.io,
+      race.dependencies,
+    ),
+    1,
+  );
+  assert.equal(JSON.parse(race.state.stderr).error.code, "CONFIG_CONFLICT");
+  assert.equal(race.state.files.size, 0);
+
+  const initRace = fixture(initial);
+  let initReads = 0;
+  initRace.io.readFile = async () => (++initReads === 1 ? initial : '{"changed":true}');
+  assert.equal(
+    await runCli(
+      [
+        "config",
+        "init",
+        "--config",
+        "c.json",
+        "--name",
+        "stage",
+        "--url",
+        "http://stage.test",
+        "--username",
+        "u",
+        "--password-env",
+        "WTCTL_STAGE_PASS",
+      ],
+      initRace.io,
+      initRace.dependencies,
+    ),
+    1,
+  );
+  assert.equal(JSON.parse(initRace.state.stderr).error.code, "CONFIG_CONFLICT");
+  assert.equal(initRace.state.files.size, 0);
+
+  // Предел размера 1 МиБ проверяется до записи.
+  const nearLimit = JSON.stringify({
+    connections: { dev: { baseUrl: "http://dev.test/" } },
+    pad: "a".repeat(1024 * 1024 - 90),
+  });
+  const tooBig = fixture(nearLimit);
+  assert.equal(
+    await runCli(
+      ["config", "set", "dev", "--config", "c.json", "--timeout-ms", "12345"],
+      tooBig.io,
+      tooBig.dependencies,
+    ),
+    1,
+  );
+  assert.equal(JSON.parse(tooBig.state.stderr).error.code, "INVALID_CONFIG");
+  assert.equal(tooBig.state.files.size, 0);
+
+  // Отказы: старый формат, выход за границы config.ts, URL с ?/#, --output, --password-stdin, оба способа имени, без изменений.
+  const legacy = fixture(JSON.stringify({ baseUrl: "http://legacy.test/" }));
+  assert.equal(
+    await runCli(
+      ["config", "set", "--config", "old.json", "--write", "true"],
+      legacy.io,
+      legacy.dependencies,
+    ),
+    1,
+  );
+  assert.equal(JSON.parse(legacy.state.stderr).error.code, "INVALID_CONFIG");
+
+  for (const badArgs of [
+    ["config", "set", "dev", "--config", "c.json", "--timeout-ms", "0"],
+    ["config", "set", "dev", "--config", "c.json", "--url", "http://a.test/app?"],
+    ["config", "set", "dev", "--config", "c.json", "--url", "http://a.test/app#"],
+  ]) {
+    const bad = fixture(initial);
+    assert.equal(await runCli(badArgs, bad.io, bad.dependencies), 1, badArgs.join(" "));
+    assert.equal(JSON.parse(bad.state.stderr).error.code, "INVALID_CONFIG", badArgs.join(" "));
+    assert.equal(bad.state.files.size, 0);
+  }
+
+  for (const invalid of [
+    ["config", "set", "dev", "--write", "true", "--output", "out.json"],
+    ["config", "set", "dev", "--write", "true", "--password-stdin"],
+    ["config", "set", "dev", "--connection", "prod", "--write", "true"],
+    ["config", "set", "dev", "--write", "yes"],
+    ["config", "set", "dev"],
+  ]) {
+    const bad = fixture(initial);
+    assert.equal(await runCli(invalid, bad.io, bad.dependencies), 2, invalid.join(" "));
+    assert.equal(bad.state.files.size, 0);
+  }
+
+  // Висячий defaultConnection в файле не возвращается в ответе config set, как и в config list.
+  const dangling = JSON.stringify({
+    defaultConnection: "missing",
+    connections: { dev: { baseUrl: "http://dev.test/" } },
+  });
+  const setDangling = fixture(dangling);
+  assert.equal(
+    await runCli(
+      ["config", "set", "dev", "--config", "c.json", "--write", "true"],
+      setDangling.io,
+      setDangling.dependencies,
+    ),
+    0,
+  );
+  const danglingOut = JSON.parse(setDangling.state.stdout).data;
+  assert.equal(danglingOut.defaultConnection, undefined);
+  assert.equal(danglingOut.connection.default, false);
+});
+
+test("подсказка прав для файла с connections называет wtctl config set", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { loadConfig } = await import("../src/config.js");
+  const dir = await mkdtemp(join(tmpdir(), "wtctl-hint-"));
+  try {
+    const file = join(dir, "connections.json");
+    await writeFile(
+      file,
+      JSON.stringify({
+        defaultConnection: "dev",
+        connections: {
+          dev: { baseUrl: "http://dev.test/" },
+          "-h": { baseUrl: "http://flag.test/" },
+          "--dev": { baseUrl: "http://double-dash.test/" },
+        },
+      }),
+    );
+    const loaded = loadConfig({ configPath: file });
+    const hint = permissionHint(loaded, "write");
+    assert.match(hint, /wtctl --config ФАЙЛ config set dev --write true/);
+    assert.match(hint, /permissions\.write: true/);
+
+    for (const name of ["-h", "--dev"]) {
+      const flagged = loadConfig({ configPath: file, connection: name });
+      const flaggedHint = permissionHint(flagged, "execute");
+      assert.ok(
+        flaggedHint.includes(`wtctl --config ФАЙЛ config set --connection=${name} --execute true`),
+        flaggedHint,
+      );
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

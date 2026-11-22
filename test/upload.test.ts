@@ -27,29 +27,15 @@ const soap = (method: string, body = ""): string =>
 function fixture(mainHtml = html(tokenOne), maximumBytes = 4096) {
   const requests: string[] = [];
   const uploads: { filename: string; bytes: Uint8Array; type: string; token: string }[] = [];
-  let currentHtml = mainHtml;
-  let mainFailure = false;
-  let mainBrokenBody = false;
   let uploadStatus = 200;
   let uploadBody: unknown = undefined;
-  let logoutFailure = false;
   let uploadNetworkFailure = false;
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     const headers = new Headers(init?.headers);
     if (url.pathname === "/spxml_web/main.htm") {
       requests.push("main");
-      if (mainFailure) return new Response("safe fixture failure", { status: 500 });
-      if (mainBrokenBody)
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.enqueue(new TextEncoder().encode(html(tokenTwo)));
-              controller.error(new Error("synthetic-private-body-error"));
-            },
-          }),
-        );
-      return new Response(currentHtml, {
+      return new Response(mainHtml, {
         headers: { "set-cookie": "SessionID=synthetic-web-cookie; Path=/" },
       });
     }
@@ -91,7 +77,7 @@ function fixture(mainHtml = html(tokenOne), maximumBytes = 4096) {
       url.pathname === "/spxml_web/logout.htm" || url.pathname === "/spxml_web/logout2.htm",
     );
     requests.push(url.pathname.endsWith("logout2.htm") ? "logout2" : "logout");
-    return new Response("", { status: logoutFailure ? 500 : 200 });
+    return new Response("", { status: 200 });
   };
   const client = new WsHcmClient({
     baseUrl: "http://synthetic.invalid/",
@@ -104,18 +90,6 @@ function fixture(mainHtml = html(tokenOne), maximumBytes = 4096) {
     fetch,
     requests,
     uploads,
-    setHtml: (value: string) => {
-      currentHtml = value;
-    },
-    failMain: () => {
-      mainFailure = true;
-    },
-    breakMain: () => {
-      mainBrokenBody = true;
-    },
-    failLogout: (value = true) => {
-      logoutFailure = value;
-    },
     failUploadNetwork: () => {
       uploadNetworkFailure = true;
     },
@@ -160,18 +134,16 @@ test("загрузка одного файла сохраняет точные �
         JSON.stringify(response.data) + JSON.stringify(session),
         /synthetic_upload_token/,
       );
-      f.setHtml(html(tokenTwo));
-      await session.lifecycle.main();
       await session.pages.uploadFile({
         filename: "synthetic.xml",
         data: rawXml("<r>Текст</r>"),
         contentType: "text/xml",
       });
-      assert.equal(f.uploads[1]?.token, tokenTwo);
+      assert.equal(f.uploads[1]?.token, tokenOne);
       assert.deepEqual(f.uploads[1]?.bytes, new TextEncoder().encode("<r>Текст</r>"));
       assert.equal(
         f.requests.filter((item) => item === "main").length,
-        2,
+        1,
         "upload must not rotate the token by re-fetching main",
       );
     } finally {
@@ -237,58 +209,6 @@ test("токен CodeLiteral в одинарных кавычках и экра�
   } finally {
     f.client.close();
   }
-});
-
-test("неудачный статус и тело основного ответа делают прежний токен недействительным до любой загрузки", async () => {
-  for (const mode of ["status", "body"] as const) {
-    const f = fixture();
-    try {
-      const session = await f.client.openWebSession();
-      try {
-        if (mode === "status") f.failMain();
-        else f.breakMain();
-        await assert.rejects(session.lifecycle.main());
-        const before = f.requests.length;
-        await assert.rejects(
-          session.pages.uploadFile({ filename: "synthetic.txt", data: "x" }),
-          WsHcmApiError,
-        );
-        assert.equal(f.requests.length, before);
-        assert.equal(f.uploads.length, 0);
-      } finally {
-        await session.close();
-      }
-    } finally {
-      f.client.close();
-    }
-  }
-});
-
-test("прямой завершающий выход делает токен загрузки недействительным до успешных и неудачных запросов", async () => {
-  for (const leg of ["logout", "logout2"] as const)
-    for (const failed of [false, true]) {
-      const f = fixture();
-      try {
-        const session = await f.client.openWebSession();
-        try {
-          if (failed) f.failLogout();
-          if (failed) await assert.rejects(session.lifecycle[leg]());
-          else await session.lifecycle[leg]();
-          const before = f.requests.length;
-          await assert.rejects(
-            session.pages.uploadFile({ filename: "synthetic.txt", data: "x" }),
-            WsHcmApiError,
-          );
-          assert.equal(f.requests.length, before);
-          assert.equal(f.uploads.length, 0);
-        } finally {
-          f.failLogout(false);
-          await session.close();
-        }
-      } finally {
-        f.client.close();
-      }
-    }
 });
 
 test("лимиты имени файла и MIME отклоняют запрос до записи; размер файла клиент не ограничивает", async () => {

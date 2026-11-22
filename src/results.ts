@@ -35,6 +35,7 @@ export interface ResultExportData {
  * Файл на этом компьютере: fill пишет содержимое во временный файл рядом, и под своим именем файл
  * появляется только целиком. Путь проверяется до fill, поэтому отказ приходит раньше содержимого.
  * argument — имя аргумента с путём в тексте отказа.
+ * @internal
  */
 export async function saveLocalFile(
   path: string,
@@ -342,6 +343,7 @@ async function appendJson(writer: JsonWriter, value: unknown, nested = false): P
 /**
  * Непрозрачные ID привязаны к подключению и пользователю. Опубликованные метаданные
  * указывают только на полные локальные payload.
+ * @internal
  */
 export class ResultStore {
   private static readonly PRUNE_INTERVAL_MS = 60_000;
@@ -457,18 +459,24 @@ export class ResultStore {
     const maxBytes = this.config.resultsMaxBytes ?? LOCAL_LIMITS.resultsMaxBytes;
     if (!maxAge && !maxBytes) return;
     const found = new Map<string, { payloads: string[]; bytes: number; time?: number }>();
+    const names = await readdir(this.directory);
+    let next = 0;
+    const workers = Math.min(32, names.length);
     await Promise.all(
-      (await readdir(this.directory)).map(async (name) => {
-        // Журнал записей и файлы .tmp недописанных результатов под шаблон не подходят.
-        const [, id, extension] = RESULT_FILE.exec(name) ?? [];
-        if (id === undefined) return;
-        const info = await stat(join(this.directory, name)).catch(() => undefined);
-        if (!info) return;
-        const result = found.get(id) ?? { payloads: [], bytes: 0 };
-        found.set(id, result);
-        result.bytes += info.size;
-        if (extension === "json") result.time = info.mtimeMs;
-        else result.payloads.push(name);
+      Array.from({ length: workers }, async () => {
+        while (next < names.length) {
+          const name = names[next++]!;
+          // Журнал записей и файлы .tmp недописанных результатов под шаблон не подходят.
+          const [, id, extension] = RESULT_FILE.exec(name) ?? [];
+          if (id === undefined) continue;
+          const info = await stat(join(this.directory, name)).catch(() => undefined);
+          if (!info) continue;
+          const result = found.get(id) ?? { payloads: [], bytes: 0 };
+          found.set(id, result);
+          result.bytes += info.size;
+          if (extension === "json") result.time = info.mtimeMs;
+          else result.payloads.push(name);
+        }
       }),
     );
     // Без описания результат ещё пишется: его файлы не трогаются.

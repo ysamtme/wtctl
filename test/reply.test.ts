@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ConnectionConfig, OperationResult } from "../src/contracts.js";
 import { HcmError } from "../src/errors.js";
-import { WebSocketHeartbeatError } from "../src/protocol/websocket.js";
 import { ReplyPacker, type BatchRecovery } from "../src/reply.js";
 import { WriteOutcome } from "../src/write-outcome.js";
 import { scratchRuntimeDir } from "./fake-server.js";
@@ -242,25 +241,6 @@ test("сводка пакета отбрасывает URL длиннее 256 с
   const kept = (reply.data as { receipts: Record<string, unknown>[] }).receipts;
   assert.deepEqual(kept[0], { index: 0, id: "files.upload" });
   assert.deepEqual(kept[1], receipts[1]);
-});
-
-test("ошибка heartbeat при малом пределе сохраняет короткую сводку и фиксированную подсказку", () => {
-  const error = new WebSocketHeartbeatError("WS_UNAVAILABLE", {
-    phase: "heartbeat",
-    handshakeValidated: true,
-  } as never);
-  const full = fail(setup(65536).packer, error);
-  assert.equal(detailsOf(full).heartbeatReceiptFieldsOmitted, undefined);
-  assert.ok(detailsOf(full).heartbeatReceipt.limits);
-
-  const small = fail(setup(800).packer, error);
-  const details = detailsOf(small);
-  assert.equal(details.heartbeatReceiptFieldsOmitted, true);
-  assert.equal(details.heartbeatReceipt.phase, "heartbeat");
-  for (const key of ["limits", "counts", "durationMs"]) {
-    assert.equal(details.heartbeatReceipt[key], undefined);
-  }
-  assert.notEqual(failed(small).hint, error.hint);
 });
 
 test("слишком большая ошибка сохраняет короткое имя подключения и опускает длинное", () => {

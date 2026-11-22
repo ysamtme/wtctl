@@ -1,20 +1,14 @@
 import {
   DiagnosticsApi,
-  ExperimentalApi,
-  NativeExperimentalApi,
   NativeSpXml2Api,
   ResourceApi,
   RpcApi,
   WebPageApi,
-  WebExperimentalApi,
-  WebSpXml2Api,
   WebSpXmlApi,
   closeLdsSession,
   createNativeLdsApi,
-  createWebLdsApi,
   openLdsSession,
   type NativeLdsApi,
-  type WebLdsApi,
 } from "./api.js";
 import { attachCleanupError, isTransportFailure, WsHcmApiError } from "./error.js";
 import { NativePhysicalDocumentsApi } from "./physical-documents.js";
@@ -28,7 +22,6 @@ import type {
   DecimalId,
   RequestOptions,
   WsHcmClientOptions,
-  WsHcmResponse,
   WebSocketFactory,
   WebSocketHeartbeatInput,
   WebSocketHeartbeatData,
@@ -84,7 +77,6 @@ export class NativeSession {
   readonly rpc: RpcApi;
   readonly spxml2: NativeSpXml2Api;
   readonly resources: ResourceApi;
-  readonly experimental: NativeExperimentalApi;
   readonly sessionId: DecimalId;
   #closed = false;
 
@@ -98,7 +90,6 @@ export class NativeSession {
     this.rpc = new RpcApi(transport, "native");
     this.spxml2 = new NativeSpXml2Api(transport);
     this.resources = new ResourceApi(transport);
-    this.experimental = new NativeExperimentalApi(transport);
   }
 
   static async open(defaults: ClientDefaults, options?: RequestOptions): Promise<NativeSession> {
@@ -259,88 +250,39 @@ function extractWebUploadToken(html: string): string | undefined {
   return typeof token === "string" && /^[\x21-\x7E]{1,256}$/.test(token) ? token : undefined;
 }
 
-/** Страница, начальная загрузка и выход web Administrator; привязаны к одному хранилищу cookie. */
-export class WebLifecycleApi {
-  constructor(
-    private readonly transport: HttpTransport,
-    private readonly onMain?: (html: string | undefined) => void,
-  ) {}
-
-  /** Прочитать ответ `/admin` с перенаправлением, не переходя по нему. */
-  async admin(options?: RequestOptions): Promise<WsHcmResponse<string>> {
-    const response = await this.transport.send(
-      "/admin",
+/** Выполнить оба шага веб-выхода; при потере связи дальнейшие запросы не отправляются. */
+async function webLogout(http: HttpTransport): Promise<void> {
+  let logoutError: unknown;
+  try {
+    const first = await http.send(
+      "/spxml_web/logout.htm",
       {},
       {
-        ...options,
-        redirect: "manual",
-        allowStatuses: [301],
-      },
-    );
-    const rawBody = new Uint8Array(await response.arrayBuffer());
-    return {
-      status: response.status,
-      headers: response.headers,
-      data: new TextDecoder().decode(rawBody),
-      rawBody,
-    };
-  }
-
-  /** Прочитать главную страницу веб-администратора после входа. */
-  async main(options?: RequestOptions): Promise<WsHcmResponse<string>> {
-    // Штатная страница меняет токен до записи HTML, в том числе для запросов, ответ на которые
-    // потом не удаётся прочитать. Прежний токен устарел.
-    this.onMain?.(undefined);
-    const response = await this.transport.send("/spxml_web/main.htm", {}, options);
-    const rawBody = new Uint8Array(await response.arrayBuffer());
-    if (!response.ok)
-      throw new WsHcmApiError("http", `HTTP ${response.status}`, { status: response.status });
-    const data = new TextDecoder().decode(rawBody);
-    this.onMain?.(data);
-    return { status: response.status, headers: response.headers, data, rawBody };
-  }
-
-  /** Выполнить оба шага выхода; при потере связи дальнейшие запросы не отправляются. */
-  async logout(options?: RequestOptions): Promise<void> {
-    this.onMain?.(undefined);
-    let logoutError: unknown;
-    try {
-      const first = await this.transport.send(
-        "/spxml_web/logout.htm",
-        {},
-        {
-          ...options,
-          redirect: "manual",
-          allowStatuses: [200, 302, 401],
-        },
-      );
-      await first.body?.cancel();
-    } catch (error) {
-      logoutError = error;
-    }
-    try {
-      if (!isTransportFailure(logoutError)) await this.logout2(options);
-    } catch (cleanupError) {
-      if (logoutError === undefined) throw cleanupError;
-      attachCleanupError(logoutError, cleanupError);
-    }
-    if (logoutError !== undefined) throw logoutError;
-  }
-
-  /** Выполнить второй шаг веб-выхода; его вызывает `logout()`. */
-  private async logout2(options?: RequestOptions): Promise<void> {
-    this.onMain?.(undefined);
-    const second = await this.transport.send(
-      "/spxml_web/logout2.htm",
-      {},
-      {
-        ...options,
         redirect: "manual",
         allowStatuses: [200, 302, 401],
       },
     );
-    await second.body?.cancel();
+    await first.body?.cancel();
+  } catch (error) {
+    logoutError = error;
   }
+  try {
+    if (!isTransportFailure(logoutError)) {
+      const second = await http.send(
+        "/spxml_web/logout2.htm",
+        {},
+        {
+          redirect: "manual",
+          allowStatuses: [200, 302, 401],
+        },
+      );
+      await second.body?.cancel();
+    }
+  } catch (cleanupError) {
+    if (logoutError === undefined) throw cleanupError;
+    attachCleanupError(logoutError, cleanupError);
+  }
+  if (logoutError !== undefined) throw logoutError;
 }
 
 /**
@@ -348,14 +290,9 @@ export class WebLifecycleApi {
  * Умолчания web LDS/SPXML намеренно отличаются от native; ID между сессиями не переносить.
  */
 export class WebSession {
-  readonly lds: WebLdsApi;
   readonly rpc: RpcApi;
   readonly spxml: WebSpXmlApi;
-  readonly spxml2: WebSpXml2Api;
   readonly pages: WebPageApi;
-  readonly resources: ResourceApi;
-  readonly lifecycle: WebLifecycleApi;
-  readonly experimental: WebExperimentalApi;
   readonly sessionId: DecimalId;
   #closed = false;
   #uploadToken: string | undefined;
@@ -369,16 +306,9 @@ export class WebSession {
   ) {
     this.#uploadToken = uploadToken;
     this.sessionId = sessionId;
-    this.lds = createWebLdsApi(transport, () => this.sessionId);
     this.rpc = new RpcApi(transport, "web");
     this.spxml = new WebSpXmlApi(transport);
-    this.spxml2 = new WebSpXml2Api(transport);
     this.pages = new WebPageApi(transport, () => this.#uploadToken);
-    this.resources = new ResourceApi(transport);
-    this.lifecycle = new WebLifecycleApi(transport, (html) => {
-      this.#uploadToken = html === undefined ? undefined : extractWebUploadToken(html);
-    });
-    this.experimental = new WebExperimentalApi(transport);
   }
 
   static async open(defaults: ClientDefaults, options?: RequestOptions): Promise<WebSession> {
@@ -405,7 +335,7 @@ export class WebSession {
       );
     } catch (error) {
       try {
-        if (!isTransportFailure(error)) await new WebLifecycleApi(http).logout();
+        if (!isTransportFailure(error)) await webLogout(http);
       } catch (cleanup) {
         attachCleanupError(error, cleanup);
       } finally {
@@ -419,7 +349,7 @@ export class WebSession {
   heartbeat(input: WebSocketHeartbeatInput = {}): Promise<WebSocketHeartbeatData> {
     if (this.#closed)
       return Promise.reject(
-        new WsHcmApiError("protocol", "Веб-сессия закрыта.", { requestSent: false }),
+        new WsHcmApiError("protocol", "Сессия web закрыта.", { requestSent: false }),
       );
     if (this.#heartbeat)
       return Promise.reject(
@@ -437,7 +367,7 @@ export class WebSession {
     return pending;
   }
 
-  /** Сделать локальный контекст недействительным после прямо запрошенного итогового веб-выхода. */
+  /** Снять локальный доступ, не утверждая, что очистку на сервере подтвердили. */
   disposeLocal(): void {
     this.#closed = true;
     this.#uploadToken = undefined;
@@ -459,7 +389,7 @@ export class WebSession {
       errors.push(error);
     }
     try {
-      if (!errors.some(isTransportFailure)) await this.lifecycle.logout();
+      if (!errors.some(isTransportFailure)) await webLogout(this.transport);
     } catch (error) {
       errors.push(error);
     } finally {
@@ -485,7 +415,6 @@ export class WebSession {
  */
 export class WsHcmClient {
   readonly diagnostics: DiagnosticsApi;
-  readonly experimental: ExperimentalApi;
   readonly #defaults: ClientDefaults;
   readonly #anonymous: HttpTransport;
 
@@ -505,10 +434,9 @@ export class WsHcmClient {
     const anonymous = transport(this.#defaults);
     this.#anonymous = anonymous;
     this.diagnostics = new DiagnosticsApi(anonymous);
-    this.experimental = new ExperimentalApi(anonymous);
   }
 
-  /** Освободить автономный контекст диагностики и сырых запросов; сессии закрывают их владельцы. */
+  /** Освободить автономный контекст диагностики; сессии закрывают их владельцы. */
   close(): void {
     this.#anonymous.dispose();
   }

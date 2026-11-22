@@ -22,15 +22,23 @@ const COOKIE_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
 export class SessionCookie {
-  readonly #cookies = new Map<string, { name: string; value: string }>();
+  readonly #cookies = new Map<string, { name: string; value: string; expiresAt?: number }>();
+
+  #pruneExpired(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.#cookies)
+      if (entry.expiresAt !== undefined && entry.expiresAt <= now) this.#cookies.delete(key);
+  }
 
   /** Значение cookie SessionID; undefined, если сессия ещё не выдала SessionID. */
   get value(): string | undefined {
+    this.#pruneExpired();
     return this.#cookies.get("sessionid")?.value;
   }
 
   /** Все активные cookies сессии в виде заголовка Cookie. */
   header(): string | undefined {
+    this.#pruneExpired();
     if (this.#cookies.size === 0) return undefined;
     return [...this.#cookies.values()].map(({ name, value }) => `${name}=${value}`).join("; ");
   }
@@ -38,6 +46,7 @@ export class SessionCookie {
   capture(headers: Headers): void {
     const values =
       headers.getSetCookie?.() ?? (headers.get("set-cookie") ? [headers.get("set-cookie")!] : []);
+    const now = Date.now();
     for (const raw of values) {
       const first = raw.split(";", 1)[0] ?? "";
       const equals = first.indexOf("=");
@@ -45,24 +54,42 @@ export class SessionCookie {
       const name = first.slice(0, equals).trim();
       const cookieValue = first.slice(equals + 1).trim();
       if (!COOKIE_NAME_PATTERN.test(name) || /[\x00-\x1f\x7f-\uffff]/.test(cookieValue)) continue;
-      const key = name.toLowerCase();
+      // По RFC 6265 имена cookies регистрозависимы; регистронезависимо сводится только SessionID.
+      const key = /^sessionid$/i.test(name) ? "sessionid" : name;
       const attrs = raw.slice(first.length);
       let deleted = cookieValue === "";
-      if (!deleted) {
-        // По RFC 6265 §5.3 атрибут Max-Age имеет приоритет над Expires.
-        const maxAge = /;\s*max-age\s*=\s*(-?\d+)\s*(?:;|$)/i.exec(attrs);
-        if (maxAge !== null) {
-          deleted = Number(maxAge[1]) <= 0;
-        } else {
-          const expires = /;\s*expires\s*=\s*([^;]+)/i.exec(attrs);
-          if (expires?.[1]) {
-            const time = Date.parse(expires[1].trim());
-            if (Number.isFinite(time) && time <= Date.now()) deleted = true;
+      let expiresAt: number | undefined;
+      if (!deleted && attrs) {
+        // По RFC 6265 §5.2–5.3 последний допустимый Max-Age побеждает, а Max-Age важнее Expires.
+        let maxAgeSeconds: number | undefined;
+        let expiresTime: number | undefined;
+        for (const part of attrs.split(";").slice(1)) {
+          const eq = part.indexOf("=");
+          if (eq <= 0) continue;
+          const attrName = part.slice(0, eq).trim().toLowerCase();
+          const attrValue = part.slice(eq + 1).trim();
+          if (attrName === "max-age" && /^-?\d+$/.test(attrValue)) {
+            maxAgeSeconds = Number(attrValue);
+          } else if (attrName === "expires") {
+            const time = Date.parse(attrValue);
+            if (Number.isFinite(time)) expiresTime = time;
           }
+        }
+        if (maxAgeSeconds !== undefined) {
+          if (maxAgeSeconds <= 0) deleted = true;
+          else expiresAt = now + maxAgeSeconds * 1000;
+        } else if (expiresTime !== undefined) {
+          if (expiresTime <= now) deleted = true;
+          else expiresAt = expiresTime;
         }
       }
       if (deleted) this.#cookies.delete(key);
-      else this.#cookies.set(key, { name, value: cookieValue });
+      else
+        this.#cookies.set(key, {
+          name,
+          value: cookieValue,
+          ...(expiresAt === undefined ? {} : { expiresAt }),
+        });
     }
   }
 

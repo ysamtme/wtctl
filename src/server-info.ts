@@ -94,6 +94,7 @@ function catalogLimits(source: string): readonly ServerCatalogLimit[] {
 /**
  * Разбирает только фиксированный штатный RPC метаданных; XML не вычисляется
  * и не декодируется дважды.
+ * @internal
  */
 export function parseServerInfo(
   response: unknown,
@@ -135,7 +136,10 @@ export function parseServerInfo(
   }
 }
 
-/** Сведения о сервере — тем же вызовом, которым их читает админка при запуске. */
+/**
+ * Сведения о сервере — тем же вызовом, которым их читает админка при запуске.
+ * @internal
+ */
 export async function readServerInfo(
   server: Pick<HcmServer, "read">,
   profile: ServerInfoProfile = "native",

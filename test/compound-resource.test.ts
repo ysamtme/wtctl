@@ -109,18 +109,14 @@ test("неоднозначные или небезопасные составн�
       fetch,
     });
     try {
-      for (const id of [
-        "native.resources.getCompoundResource",
-        "web.resources.getCompoundResource",
-      ]) {
-        const operation = getNativeOperations().find((o) => o.id === id)!;
-        assert.equal(operation.effect, "read");
-        await assert.rejects(gateway.call(id, invalid[1] as Record<string, unknown>), TypeError);
-        await assert.rejects(
-          gateway.call(id, { docUrl: "x-local://fixture.xml", resId: "proof.txt" }),
-          TypeError,
-        );
-      }
+      const id = "native.resources.getCompoundResource";
+      const operation = getNativeOperations().find((o) => o.id === id)!;
+      assert.equal(operation.effect, "read");
+      await assert.rejects(gateway.call(id, invalid[1] as Record<string, unknown>), TypeError);
+      await assert.rejects(
+        gateway.call(id, { docUrl: "x-local://fixture.xml", resId: "proof.txt" }),
+        TypeError,
+      );
     } finally {
       await gateway.close();
     }
@@ -240,12 +236,11 @@ test("картинка ресурса принимает ID в записи 0x�
     },
   });
   try {
-    for (const id of ["native.resources.getImage", "web.resources.getImage"]) {
-      await assert.rejects(gateway.call(id, { resourceId: "0x5BC59D3B73C372B00" }), TypeError);
-      const before = requests;
-      await gateway.call(id, { resourceId: "0x5BC59D3B73C372B0" }).catch(() => undefined);
-      assert.ok(requests > before, id);
-    }
+    const id = "native.resources.getImage";
+    await assert.rejects(gateway.call(id, { resourceId: "0x5BC59D3B73C372B00" }), TypeError);
+    const before = requests;
+    await gateway.call(id, { resourceId: "0x5BC59D3B73C372B0" }).catch(() => undefined);
+    assert.ok(requests > before, id);
   } finally {
     await gateway.close();
   }

@@ -1,5 +1,6 @@
 import { HcmError } from "./errors.js";
-import { GUIDE_PAGES, type GuidePage } from "./guide-texts.js";
+import type { GuidePage } from "./guide-texts.js";
+import { GUIDE_TOPICS } from "./guide-topics.js";
 
 export type { GuidePage };
 
@@ -24,7 +25,7 @@ export interface LocalInstall {
 
 /** Темы встроенного гайда; первая — обзор. */
 export function guideTopics(): readonly string[] {
-  return GUIDE_PAGES.map((page) => page.topic);
+  return GUIDE_TOPICS.slice();
 }
 
 /** Как команда и программа доходят до подключения, с которым работает этот процесс. */
@@ -76,14 +77,16 @@ function onThisComputer(local: LocalInstall): string {
 }
 
 /** Одна страница гайда: тот же текст, что в навыке, без установленного навыка. */
-export function guide(topic = "start", local?: LocalInstall): GuidePage {
-  const page = GUIDE_PAGES.find((item) => item.topic === topic);
-  if (!page)
+export async function guide(topic = "start", local?: LocalInstall): Promise<GuidePage> {
+  const index = GUIDE_TOPICS.indexOf(topic);
+  if (index < 0)
     throw new HcmError(
       "UNKNOWN_GUIDE_TOPIC",
       "В гайде нет такой темы.",
-      `Темы: ${guideTopics().join(", ")}.`,
+      `Темы: ${GUIDE_TOPICS.join(", ")}.`,
     );
+  const { GUIDE_PAGES } = await import("./guide-texts.js");
+  const page = GUIDE_PAGES[index]!;
   return local && topic === "cli-sdk"
     ? { ...page, text: `${page.text}\n\n${onThisComputer(local)}` }
     : page;

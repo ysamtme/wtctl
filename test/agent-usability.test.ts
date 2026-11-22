@@ -80,7 +80,7 @@ test("обзор не требует поиска: без выбора выда�
       listHcmOperations({ query, limit: 100 }).operations.some((item) => item.id === expected),
       query,
     );
-  assert.equal(operationTopic("native.lds.idle"), "protocol");
+  assert.equal(operationTopic("native.lds.xQuery"), "protocol");
   assert.throws(() => listHcmOperations({ topic: "missing" }), { code: "UNKNOWN_TOPIC" });
 });
 
@@ -615,7 +615,7 @@ test("описание одной операции говорит, как пер
   );
 });
 
-test("описания операций, инструментов MCP-сервера и тем гайда написаны по-русски", () => {
+test("описания операций, инструментов MCP-сервера и тем гайда написаны по-русски", async () => {
   const texts = [
     ...operations.map((item) => [item.id, item.description]),
     ...operations.map((item) => [item.id, operationHelp(item).description]),
@@ -623,7 +623,7 @@ test("описания операций, инструментов MCP-серве
     ...tools()
       .tools.list()
       .map((tool) => [tool.name, tool.description]),
-    ...guideTopics().map((topic) => [topic, guide(topic).text]),
+    ...(await Promise.all(guideTopics().map(async (topic) => [topic, (await guide(topic)).text]))),
   ];
   for (const [name, text] of texts) assert.match(String(text), /[а-яё]/i, name);
 });

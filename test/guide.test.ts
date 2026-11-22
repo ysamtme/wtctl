@@ -9,7 +9,7 @@ import { HcmMcpTools } from "../src/mcp/server.js";
 import { scratchRuntimeDir } from "./fake-server.js";
 
 const noBackend = (): never => {
-  throw new Error("The guide must not reach a server.");
+  throw new Error("Гайд не должен обращаться к серверу.");
 };
 const runtime: RuntimePort = {
   listOperations: noBackend,
@@ -36,7 +36,7 @@ function cli() {
   return { state, io, dependencies };
 }
 
-test("гайд содержит обзор и по теме на каждый справочник навыка, без ссылок на файлы", () => {
+test("гайд содержит обзор и по теме на каждый справочник навыка, без ссылок на файлы", async () => {
   assert.deepEqual(guideTopics(), [
     "start",
     "queries",
@@ -47,17 +47,17 @@ test("гайд содержит обзор и по теме на каждый с
     "cli-sdk",
     "errors",
   ]);
-  const start = guide();
+  const start = await guide();
   assert.equal(start.topic, "start");
   assert.match(start.text, /^# Работа с сервером WebSoft HCM/);
   assert.match(start.text, /hcm_guide \{topic:"queries"\}/);
   assert.match(start.text, /\| Коды ошибок и что с ними делать \| `errors` \|/);
   for (const topic of guideTopics()) {
-    const page = guide(topic);
+    const page = await guide(topic);
     assert.match(page.text, /^# /, topic);
     assert.doesNotMatch(page.text, /\.md\)|references\//, topic);
   }
-  assert.match(guide("errors").text, /см\. тему `logs`/);
+  assert.match((await guide("errors")).text, /см\. тему `logs`/);
 });
 
 test("hcm_guide отвечает самим текстом и никогда не обращается к серверу", async () => {
@@ -69,9 +69,9 @@ test("hcm_guide отвечает самим текстом и никогда н�
   );
   const overview = await tools.invoke("hcm_guide");
   assert.equal(overview.isError, undefined);
-  assert.deepEqual(overview.content, [{ type: "text", text: guide().text }]);
+  assert.deepEqual(overview.content, [{ type: "text", text: (await guide()).text }]);
   const topic = await tools.invoke("hcm_guide", { topic: "scripts" });
-  assert.deepEqual(topic.content, [{ type: "text", text: guide("scripts").text }]);
+  assert.deepEqual(topic.content, [{ type: "text", text: (await guide("scripts")).text }]);
   const unknown = await tools.invoke("hcm_guide", { topic: "nothing" });
   assert.equal(unknown.isError, true);
   const failed = JSON.parse((unknown.content[0] as { text: string }).text) as OperationResult;
@@ -81,11 +81,11 @@ test("hcm_guide отвечает самим текстом и никогда н�
 test("wtctl guide печатает текст, сохраняет его в файл, а для неизвестной темы называет существующие", async () => {
   const plain = cli();
   assert.equal(await runCli(["guide"], plain.io, plain.dependencies), 0);
-  assert.equal(plain.state.stdout, `${guide().text}\n`);
+  assert.equal(plain.state.stdout, `${(await guide()).text}\n`);
 
   const topic = cli();
   assert.equal(await runCli(["guide", "logs"], topic.io, topic.dependencies), 0);
-  assert.equal(topic.state.stdout, `${guide("logs").text}\n`);
+  assert.equal(topic.state.stdout, `${(await guide("logs")).text}\n`);
 
   const saved = cli();
   assert.equal(
@@ -93,13 +93,13 @@ test("wtctl guide печатает текст, сохраняет его в фа
     0,
   );
   assert.equal(saved.state.stdout, "");
-  assert.equal(saved.state.files.get("errors.md"), `${guide("errors").text}\n`);
+  assert.equal(saved.state.files.get("errors.md"), `${(await guide("errors")).text}\n`);
 
   const json = cli();
   assert.equal(await runCli(["guide", "files", "--json"], json.io, json.dependencies), 0);
   const result = JSON.parse(json.state.stdout) as OperationResult;
   assert.equal(result.ok, true);
-  assert.deepEqual(result.data, guide("files"));
+  assert.deepEqual(result.data, await guide("files"));
 
   const unknown = cli();
   assert.equal(await runCli(["guide", "nothing"], unknown.io, unknown.dependencies), 1);
@@ -114,8 +114,8 @@ test("тема про команду и SDK заканчивается мест�
     script: "/opt/pkg/dist/cli/bin.js",
     sdk: "file:///opt/pkg/dist/index.js",
   };
-  const page = guide("cli-sdk", local);
-  assert.ok(page.text.startsWith(guide("cli-sdk").text));
+  const page = await guide("cli-sdk", local);
+  assert.ok(page.text.startsWith((await guide("cli-sdk")).text));
   assert.ok(
     page.text.endsWith(
       [
@@ -128,8 +128,8 @@ test("тема про команду и SDK заканчивается мест�
       ].join("\n"),
     ),
   );
-  assert.doesNotMatch(guide("cli-sdk", { node: "n", script: "s" }).text, /SDK: `import/);
-  assert.equal(guide("errors", local).text, guide("errors").text);
+  assert.doesNotMatch((await guide("cli-sdk", { node: "n", script: "s" })).text, /SDK: `import/);
+  assert.equal((await guide("errors", local)).text, (await guide("errors")).text);
   // Копия, которую держит npx или хост плагина, при обновлении переезжает: гайд называет то, что остаётся.
   assert.doesNotMatch(page.text, /меняется при обновлении/);
   for (const script of [
@@ -137,7 +137,7 @@ test("тема про команду и SDK заканчивается мест�
     "C:\\Users\\u\\.claude\\plugins\\cache\\wtctl\\wtctl\\0.1.1\\dist\\cli\\bin.js",
   ])
     assert.match(
-      guide("cli-sdk", { node: "n", script }).text,
+      (await guide("cli-sdk", { node: "n", script })).text,
       /меняется при обновлении.*`npx -y wtctl`.*`npm install wtctl`/,
     );
 
@@ -157,20 +157,20 @@ test("та же тема говорит, как команда и програм
   const local = { node: "/opt/node/bin/node", script: "/opt/pkg/dist/cli/bin.js" };
   const last = (text: string): string => text.slice(text.lastIndexOf("\n") + 1);
   assert.equal(
-    last(guide("cli-sdk", { ...local, settings: { environment: false } }).text),
+    last((await guide("cli-sdk", { ...local, settings: { environment: false } })).text),
     "- вызов команды, если `wtctl` нет в `PATH`: Node.js, файл команды, затем аргументы, например `status`",
-    "the default connections file needs no note",
+    "Файл подключений по умолчанию не требует пояснения.",
   );
   assert.equal(
-    last(guide("cli-sdk", { ...local, settings: { configPath: "/etc/hcm.json" } }).text),
+    last((await guide("cli-sdk", { ...local, settings: { configPath: "/etc/hcm.json" } })).text),
     '- подключение: команде добавь `--config "/etc/hcm.json"`, в скрипте — `loadConfig({ configPath: "/etc/hcm.json" })`',
   );
   assert.equal(
-    last(guide("cli-sdk", { ...local, settings: { connection: "prod" } }).text),
+    last((await guide("cli-sdk", { ...local, settings: { connection: "prod" } })).text),
     '- подключение: команде добавь `--connection prod`, в скрипте — `loadConfig({ connection: "prod" })`',
   );
   assert.match(
-    last(guide("cli-sdk", { ...local, settings: { environment: true } }).text),
+    last((await guide("cli-sdk", { ...local, settings: { environment: true } })).text),
     /задано переменными окружения.*WTCTL_URL.*config init/,
   );
 

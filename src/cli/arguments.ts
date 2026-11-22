@@ -28,7 +28,6 @@ const BOOLEAN_OPTIONS = new Set([
   "password-stdin",
   "full",
   "offline",
-  "built-in",
   "source",
   "overwrite",
   "version",
@@ -37,6 +36,7 @@ const BOOLEAN_OPTIONS = new Set([
   "allow-execute",
   "force",
   "deep",
+  "default",
 ]);
 const VALUE_OPTIONS = new Set([
   "config",
@@ -89,6 +89,14 @@ const VALUE_OPTIONS = new Set([
   "username",
   "name",
   "password-env",
+  "write",
+  "execute",
+  "max-response-bytes",
+  "output-limit-bytes",
+  "runtime-dir",
+  "results-max-bytes",
+  "results-max-age-days",
+  "journal-max-bytes",
 ]);
 
 /** Расстояние правки с перестановкой соседних букв: --feilds в одном шаге от --fields. */

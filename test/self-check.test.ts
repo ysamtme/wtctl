@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { checkServer, type CheckData } from "../src/self-check.js";
+import { HcmError } from "../src/errors.js";
 import { HcmClient } from "../src/sdk.js";
 import { HcmRuntime } from "../src/runtime.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
@@ -121,7 +122,10 @@ test("метаданные, наследование, исходный код б
   const f = fixture({
     "native.spxml2.getAppInfo": { ...appInfo, databases: [{ id: "other", catalogs: [{}] }] },
     "schema.get": { fields: [{ origin: "own" }] },
-    "rpc.list": { source: "built-in 2025.1.1171" },
+    "rpc.list": new HcmError(
+      "RPC_CATALOG_UNAVAILABLE",
+      "Список функций библиотек сервера не получен.",
+    ),
     "anonymous.diagnostics.portal": { status: 503 },
     "execute.script": { result: ["3"] },
   });

@@ -98,16 +98,14 @@ export type ObjectTarget =
       readonly type?: string;
       /** ID объекта, строкой: 0x… или десятичная запись. */
       readonly id?: string;
-      /** База сервера, если объект задан через id и лежит не в основной базе. */
-      readonly dbName?: string;
+      readonly dbName?: never;
     }
   | {
       /** ID объекта, строкой: 0x… или десятичная запись. */
       readonly id: string;
       /** Ожидаемый тип объекта. */
       readonly type?: string;
-      /** Адрес документа: url из ответа get. */
-      readonly url?: string;
+      readonly url?: never;
       /** База сервера, если объект лежит не в основной базе. */
       readonly dbName?: string;
     };
@@ -655,7 +653,7 @@ export function unwrap<T = unknown>(result: OperationResult): T {
   return result.data as T;
 }
 
-/** Вызов составной операции: тип данных берётся у её обработчика, объявленный тип метода должен ему подходить. */
+/** Вызов основной операции: тип данных берётся у её обработчика, объявленный тип метода должен ему подходить. */
 function callOperation<Id extends keyof OperationData>(
   client: HcmClient,
   id: Id,

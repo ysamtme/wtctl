@@ -65,12 +65,11 @@ export const rpcOperations = [
     id: "rpc.list",
     effect: "read",
     description:
-      "Найти функции библиотек сервера: query, library, method. Без all — только те, что можно вызвать с клиента (rpc.call); all:true добавляет функции, которые вызываются только из кода на сервере (serverOnly:true). builtIn:true берёт встроенную таблицу сборки 2025.1.1171 без обращения к серверу. Список не говорит о типах аргументов и о том, меняет ли функция данные.",
+      "Найти функции библиотек сервера: query, library, method. Без all — только те, что можно вызвать с клиента (rpc.call); all:true добавляет функции, которые вызываются только из кода на сервере (serverOnly:true). Список не говорит о типах аргументов и о том, меняет ли функция данные.",
     inputSchema: schema({
       query: { type: "string", maxLength: 512 },
       library: { type: "string", maxLength: 128, pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
       method: { type: "string", maxLength: 128, pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
-      builtIn: boolean,
       all: boolean,
       cursor: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
       limit: { type: "integer", minimum: 1, maximum: 100 },
@@ -91,7 +90,6 @@ export const rpcOperations = [
           maxLength: 257,
           pattern: "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$",
         },
-        builtIn: boolean,
         source: boolean,
       },
       ["targetId"],

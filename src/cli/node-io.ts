@@ -1,8 +1,10 @@
 import process from "node:process";
 import { createReadStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { lstat, mkdir, open, readlink, realpath, stat, unlink } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { MAX_CONFIG_BYTES } from "../config.js";
+import { HcmError } from "../errors.js";
 import { saveLocalFile } from "../results.js";
 import type { Readable } from "node:stream";
 import { CliInputError } from "./arguments.js";
@@ -49,6 +51,101 @@ export async function writeAtomicOutput(path: string, text: string): Promise<voi
   await saveLocalFile(path, true, (file) => file.writeFile(text, "utf8"));
 }
 
+const CONFIG_CONFLICT_HINT = "Повторить команду, чтобы не перезаписать чужую правку.";
+const CONFIG_LOCK_HINT =
+  "Повторить команду. Если другой процесс не запущен, удалить оставшийся файл блокировки .lock рядом с файлом подключений.";
+
+async function resolveConfigPath(path: string): Promise<string> {
+  let current = resolve(path);
+  for (let hop = 0; hop < 32; hop++) {
+    try {
+      return await realpath(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    try {
+      const info = await lstat(current);
+      if (info.isSymbolicLink()) {
+        const baseDir = await realpath(dirname(current)).catch(() => dirname(current));
+        current = resolve(baseDir, await readlink(current));
+        continue;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    try {
+      return join(await realpath(dirname(current)), basename(current));
+    } catch {
+      return current;
+    }
+  }
+  throw Object.assign(new Error(`Слишком много уровней символических ссылок: ${path}`), {
+    code: "ELOOP",
+  });
+}
+
+export async function writeConfigIfUnchanged(
+  path: string,
+  expectedText: string | undefined,
+  text: string,
+): Promise<void> {
+  const target = await resolveConfigPath(path);
+  await mkdir(dirname(target), { recursive: true });
+  const lockPath = `${target}.lock`;
+  let lock;
+  try {
+    lock = await open(lockPath, "wx", 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST")
+      throw new HcmError(
+        "CONFIG_CONFLICT",
+        "Файл подключений сейчас изменяется другим процессом.",
+        CONFIG_LOCK_HINT,
+      );
+    throw error;
+  }
+  try {
+    if (expectedText === undefined) {
+      const exists = await stat(target).then(
+        () => true,
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return false;
+          throw error;
+        },
+      );
+      if (exists)
+        throw new HcmError(
+          "CONFIG_CONFLICT",
+          "Файл подключений появился за время выполнения команды.",
+          CONFIG_CONFLICT_HINT,
+        );
+    } else {
+      let current: string;
+      try {
+        current = await readBounded(createReadStream(target), MAX_CONFIG_BYTES);
+      } catch (error) {
+        if (error instanceof CliInputError || (error as NodeJS.ErrnoException).code === "ENOENT")
+          throw new HcmError(
+            "CONFIG_CONFLICT",
+            "Файл подключений изменился за время выполнения команды.",
+            CONFIG_CONFLICT_HINT,
+          );
+        throw error;
+      }
+      if (current !== expectedText)
+        throw new HcmError(
+          "CONFIG_CONFLICT",
+          "Файл подключений изменился за время выполнения команды.",
+          CONFIG_CONFLICT_HINT,
+        );
+    }
+    await saveLocalFile(target, true, (file) => file.writeFile(text, "utf8"));
+  } finally {
+    await lock.close().catch(() => undefined);
+    await unlink(lockPath).catch(() => undefined);
+  }
+}
+
 /** Вопросы идут в stderr: в stdout — JSON команды. */
 async function promptLine(question: string, secret = false): Promise<string> {
   const lines = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
@@ -88,5 +185,6 @@ export function nodeIo(): CliIo {
       return readBounded(process.stdin, maximumBytes);
     },
     writeFile: writeAtomicOutput,
+    writeFileIfUnchanged: writeConfigIfUnchanged,
   };
 }

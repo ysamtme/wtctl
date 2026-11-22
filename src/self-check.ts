@@ -36,7 +36,10 @@ type Invoke = (id: string, args: Record<string, unknown>, signal?: AbortSignal) 
 /** Шаг не прошёл по причине, которую проба называет сама. */
 class CheckFailure extends Error {}
 
-/** Фиксированные пробы не сохраняют в отчёте ни payload сервера, ни тексты ошибок. */
+/**
+ * Фиксированные пробы не сохраняют в отчёте ни payload сервера, ни тексты ошибок.
+ * @internal
+ */
 export async function checkServer(config: ConnectionConfig, invoke: Invoke): Promise<CheckData> {
   const report: CheckData = {
     permissions: config.permissions,

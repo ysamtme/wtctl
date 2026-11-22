@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { errorInFrontendTerms } from "../src/frontend-names.js";
 import { rawXml } from "../src/protocol/index.js";
-import { HcmRuntime } from "../src/runtime.js";
 import { fakeRuntime, refusal, refuse } from "./fake-server.js";
 
 const library = `<SPXML-INLINE-FORM><tools>
@@ -239,12 +238,16 @@ test("native.lds.loadDoc: отказ сервера HTTP 500 называет о
   await runtime.close();
 });
 
-test("native.experimental.rawRequest: GET проходит как чтение на подключении только для чтения, остальные методы — нет", async () => {
+test("native.lds.loadDoc: чтение проходит на подключении только для чтения, tryLock — нет", async () => {
   const { runtime } = fakeRuntime({ "*": {} }, { permissions: { write: false, execute: false } });
-  const request = (method: string) =>
-    runtime.call("native.experimental.rawRequest", { unsafe: true, path: "/x", method });
-  assert.equal((await request("GET")).ok, true);
-  assert.equal((await request("POST")).error?.code, "WRITE_DISABLED");
+  const request = (tryLock?: boolean) =>
+    runtime.call("native.lds.loadDoc", {
+      url: "x-local://wt_data/x.xml",
+      ...(tryLock === undefined ? {} : { tryLock }),
+    });
+  assert.equal((await request()).ok, true);
+  assert.equal((await request(false)).ok, true);
+  assert.equal((await request(true)).error?.code, "WRITE_DISABLED");
   await runtime.close();
 });
 
@@ -255,7 +258,7 @@ test("сбой кода клиента отвечает INTERNAL_ERROR без т
     throw new Error("x");
   };
   const reply = async (answer: () => unknown, id: string, args: Record<string, unknown> = {}) => {
-    const { runtime } = fakeRuntime({ "native.lds.loadUrl": answer, "native.lds.putUrl": answer });
+    const { runtime } = fakeRuntime({ "native.lds.loadUrl": answer, "native.rpc.call": answer });
     const { error } = await runtime.call(id, { url: "x-local://share/a.txt", ...args });
     await runtime.close();
     return error;
@@ -282,51 +285,28 @@ test("значение, которое не принимает Node, откло�
   const { runtime, server } = fakeRuntime({
     "native.lds.loadDoc": { kind: "binary", bytes: new Uint8Array([0xff, 0xfe]) },
   });
-  // Адрес, заголовки и метод сырого запроса разбирает транспорт: ему нужен шлюз подключения.
-  let requests = 0;
-  const overHttp = new HcmRuntime({
-    ...runtime.config,
-    fetch: async () => (requests++, new Response("")),
-  });
-  const raw = (extra: Record<string, unknown>) =>
-    [
-      overHttp,
-      "anonymous.experimental.rawRequest",
-      { unsafe: true, path: "/x", ...extra },
-    ] as const;
   const refusals = [
     [
-      runtime,
       "execute.script",
       { code: "RESULT = [];", params: { id: 1n } },
       "params: значение нельзя записать как JSON.",
     ],
     [
-      runtime,
       "results.export",
       { resultId: "0".repeat(32), path: "a\0b" },
       "path: в пути есть нулевой символ.",
     ],
-    [...raw({ path: "http://[" }), "path: адрес записан неверно."],
-    [
-      ...raw({ headers: { "X-Name": "имя" } }),
-      "headers: имя или значение заголовка записано неверно.",
-    ],
-    [
-      ...raw({ method: "GET", body: "x" }),
-      "method: метод HTTP записан неверно или не допускает тела (body).",
-    ],
   ] as const;
-  for (const [target, id, args, message] of refusals) {
-    const { error } = await target.call(id, args);
+  for (const [id, args, message] of refusals) {
+    const { error } = await runtime.call(id, args);
     assert.deepEqual([error?.code, error?.message], ["INVALID_ARGUMENT", message]);
   }
-  assert.equal(server.calls.length + requests, 0);
+  assert.equal(server.calls.length, 0);
   // По адресу файл, а не документ объекта.
   const file = await runtime.call("objects.get", { url: "x-local://share/a.bin" });
   assert.equal(file.error?.code, "INVALID_XML");
   assert.match(file.error!.hint!, /files\.read/);
-  await Promise.all([runtime.close(), overHttp.close()]);
+  await runtime.close();
 
   // Скрипту с wtctl/protocol отказ по аргументу приходит как TypeError.
   assert.throws(() => rawXml("<a>"), TypeError);

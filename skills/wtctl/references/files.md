@@ -10,7 +10,7 @@
 | --- | --- |
 | Есть ли файл или папка | `hcm_api_read {operationId:"files.exists", args:{url:"x-local://wt/web/default.html"}}` → `{"exists":true}` |
 | Прочитать | `hcm_api_read {operationId:"files.read", args:{url:"…"}}` → `{"text":"…","bytes":48}`; если файл не текст в UTF-8 или в нём есть управляющие байты — `{"base64":"…","bytes":6}`. С `encoding:"base64"` в ответе всегда `base64` |
-| Сохранить файл на диск | то же с `file:"…"` — полный путь на компьютере, где запущен MCP-сервер → `{"bytes":965120,"file":"…"}`. Существующий файл заменяет `overwrite:true`, без него — `FILE_EXISTS` |
+| Сохранить файл на диск | `hcm_api_write {operationId:"files.read", args:{url:"…", file:"…"}}` — полный путь на компьютере, где запущен MCP-сервер → `{"bytes":965120,"file":"…"}` (право `write` сервера не нужно). Существующий файл заменяет `overwrite:true`, без него — `FILE_EXISTS` |
 | Список папки | `hcm_api_execute {operationId:"files.list", args:{url:"x-local://wt/web"}}` → `{"items":[{"name":"default.html","bytes":48},{"name":"img","folder":true}],"total":2}`. С `search:"default"` в ответе только имена с этой частью: так узнаётся и размер одного файла |
 | Записать текст | `hcm_api_write {operationId:"files.write", args:{url:"…", text:"текст файла"}}` → `{"bytes":21,"mutationOutcome":"confirmed"}` |
 | Записать двоичные данные | то же с `base64:"AAECAwT/"` вместо `text` |
@@ -43,7 +43,7 @@
 
 Загрузка принимает только имена, которые разрешает политика загрузки сервера; её задаёт и может менять администратор. Файл с другим именем сервер отклоняет: `UPLOAD_REFUSED`. Файл по своему адресу и с любым именем записывает `files.write`: политика загрузки на него не действует.
 
-`data` — текст файла или `{base64:"…"}`. Двоичный или большой файл с диска этого компьютера загружает команда: `wtctl file upload report.pdf --input-file ./report.pdf`.
+`data` — текст файла или `{base64:"…"}`. Двоичный или большой файл с диска этого компьютера загружает команда: `wtctl files upload report.pdf --input-file ./report.pdf`.
 
 ## Документ как XML
 

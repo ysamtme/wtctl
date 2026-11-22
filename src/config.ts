@@ -18,15 +18,22 @@ export interface ConfigOptions {
 const KIB = 1024;
 const MIB = 1024 * KIB;
 const GIB = 1024 * MIB;
-const MAX_CONFIG_BYTES = MIB;
+/** @internal */
+export const MAX_CONFIG_BYTES = MIB;
 const SETUP_HINT =
   "Нужно задать WTCTL_URL, WTCTL_USERNAME и WTCTL_PASSWORD (для MCP-сервера — в env его записи) или создать файл подключений: wtctl config init.";
 
-/** Папка клиента в профиле пользователя: файл подключений и сохранённые результаты. */
+/**
+ * Папка клиента в профиле пользователя: файл подключений и сохранённые результаты.
+ * @internal
+ */
 export function homeDirectory(): string {
   return resolve(process.env.WTCTL_HOME || join(homedir(), ".wtctl"));
 }
-/** Где ищется файл подключений, если ни --config, ни WTCTL_CONFIG его не назвали. */
+/**
+ * Где ищется файл подключений, если ни --config, ни WTCTL_CONFIG его не назвали.
+ * @internal
+ */
 export function defaultConfigPath(): string {
   return join(homeDirectory(), "connections.json");
 }
@@ -70,7 +77,10 @@ function readConfiguration(path: string): string {
     closeSync(file);
   }
 }
-/** Файл как объект. Ошибка синтаксиса называется только позицией: в тексте может быть пароль. */
+/**
+ * Файл как объект. Ошибка синтаксиса называется только позицией: в тексте может быть пароль.
+ * @internal
+ */
 export function parseConfiguration(text: string, path: string): Record<string, unknown> {
   let value: unknown;
   try {
@@ -138,7 +148,10 @@ function integer(
 const folder: Parse<string> = (value, field) =>
   resolve(string(value, field) ?? join(homeDirectory(), "runtime"));
 
-/** Умолчания пределов локальных файлов; их же берёт подключение, собранное без loadConfig. */
+/**
+ * Умолчания пределов локальных файлов; их же берёт подключение, собранное без loadConfig.
+ * @internal
+ */
 export const LOCAL_LIMITS = {
   resultsMaxBytes: GIB,
   resultsMaxAgeDays: 7,
@@ -188,14 +201,52 @@ export type ConnectionSettings = Partial<
   /** Права отдельного подключения (с baseUrl); по умолчанию выключены. */
   readonly permissions?: Partial<ConnectionConfig["permissions"]>;
 };
+function parseBaseUrl(baseUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера должен быть полным: http://сервер:порт или https://сервер.",
+    );
+  }
+  if (
+    !/^(https?:)$/.test(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.href.includes("?") ||
+    url.href.includes("#")
+  )
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Адрес сервера: только http или https, без имени и пароля, без ? и #.",
+    );
+  return url.href;
+}
+function validateConnectionName(name: string, hint?: string): string {
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name))
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Имя подключения: до 64 латинских букв, цифр и знаков . _ -",
+      hint,
+    );
+  return name;
+}
+function parseEnvName(value: unknown, field: string): string | undefined {
+  const envName = string(value, field);
+  if (envName !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName))
+    throw new HcmError("INVALID_CONFIG", `${field}: это не имя переменной окружения.`);
+  return envName;
+}
 function credential(
   profile: Record<string, unknown>,
   field: "username" | "password",
   globalOverrides: boolean,
 ): string | undefined {
-  const envName = string(profile[`${field}Env`], `${field}Env`);
-  if (envName !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName))
-    throw new HcmError("INVALID_CONFIG", `${field}Env: это не имя переменной окружения.`);
+  const envName = parseEnvName(profile[`${field}Env`], `${field}Env`);
   const global = globalOverrides ? process.env[`WTCTL_${field.toUpperCase()}`] : undefined;
   if (global !== undefined || envName === undefined) return string(global ?? profile[field], field);
   const value = process.env[envName];
@@ -277,17 +328,12 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
     name = "default";
     chosen = "Имя по умолчанию: --connection, WTCTL_CONNECTION и defaultConnection не заданы.";
   }
-  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name))
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Имя подключения: до 64 латинских букв, цифр и знаков . _ -",
-      chosen,
-    );
+  validateConnectionName(name, chosen);
   let profile: Record<string, unknown> = standalone ? settings : {};
   const globalOverrides = !standalone && document.connections === undefined;
   if (document.connections !== undefined) {
     const connections = object(document.connections, "connections");
-    if (connections[name] === undefined)
+    if (!Object.hasOwn(connections, name) || connections[name] === undefined)
       throw new HcmError(
         "UNKNOWN_CONNECTION",
         `В файле подключений ${path} нет подключения ${name}. ${chosen}`,
@@ -308,20 +354,7 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
           `В подключении ${name} не задан адрес сервера (baseUrl).`,
           "Образец файла показывает wtctl config example.",
         );
-  let url: URL;
-  try {
-    url = new URL(baseUrl);
-  } catch {
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Адрес сервера должен быть полным: http://сервер:порт или https://сервер.",
-    );
-  }
-  if (!/^(https?:)$/.test(url.protocol) || url.username || url.password || url.search || url.hash)
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Адрес сервера: только http или https, без имени и пароля, без ? и #.",
-    );
+  const normalizedUrl = parseBaseUrl(baseUrl);
   const username = credential(profile, "username", globalOverrides);
   const password = options.password ?? credential(profile, "password", globalOverrides);
   if ((username === undefined) !== (password === undefined))
@@ -345,7 +378,7 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
   ) as { [K in SettingField]: ReturnType<(typeof SETTINGS)[K][1]> };
   const config: ConnectionConfig = {
     name,
-    baseUrl: url.href,
+    baseUrl: normalizedUrl,
     ...(username === undefined ? {} : { username }),
     ...(password === undefined ? {} : { password }),
     ...values,
@@ -392,6 +425,7 @@ function rememberCopy(key: string, origin: Origin): void {
 }
 /** Подключения, которыми работает MCP-сервер: правку настроек он видит только после перезапуска. */
 const servedByMcp = new WeakSet<ConnectionConfig>();
+/** @internal */
 export function markServedByMcp(config: ConnectionConfig): ConnectionConfig {
   servedByMcp.add(config);
   return config;
@@ -400,6 +434,7 @@ export function markServedByMcp(config: ConnectionConfig): ConnectionConfig {
 /**
  * Подсказка WRITE_DISABLED и EXECUTE_DISABLED: где подключению включают это право. Путь файла
  * не называется: ответ прячет локальные пути.
+ * @internal
  */
 export function permissionHint(config: ConnectionConfig, right: "write" | "execute"): string {
   const origin = origins.get(config) ?? copies.get(copyKey(config));
@@ -417,14 +452,21 @@ export function permissionHint(config: ConnectionConfig, right: "write" | "execu
     const file = origin.named
       ? "в файле подключений из --config или WTCTL_CONFIG"
       : "в файле подключений (путь показывает wtctl config path)";
+    const target = config.name.startsWith("-") ? `--connection=${config.name}` : config.name;
+    const command = origin.named
+      ? `wtctl --config ФАЙЛ config set ${target} --${right} true`
+      : `wtctl config set ${target} --${right} true`;
     where = origin.listed
-      ? `${field} у подключения ${config.name} ${file}`
+      ? `${command} или ${field} у подключения ${config.name} ${file}`
       : `${field} ${file} или переменная ${variable}`;
   }
   return `Право ${right} включает владелец подключения: ${where}.${restart}`;
 }
 
-/** Образец подключения без учётных данных, который можно коммитить. */
+/**
+ * Образец подключения без учётных данных, который можно коммитить.
+ * @internal
+ */
 export function configExample(): Record<string, unknown> {
   return {
     defaultConnection: "dev",
@@ -439,6 +481,7 @@ export function configExample(): Record<string, unknown> {
   };
 }
 
+/** @internal */
 export interface NewConnection {
   readonly name: string;
   readonly baseUrl: string;
@@ -450,7 +493,10 @@ export interface NewConnection {
   readonly execute: boolean;
 }
 
-/** Документ подключений с добавленным подключением; первое становится подключением по умолчанию. */
+/**
+ * Документ подключений с добавленным подключением; первое становится подключением по умолчанию.
+ * @internal
+ */
 export function withConnection(
   document: Record<string, unknown>,
   connection: NewConnection,
@@ -464,31 +510,18 @@ export function withConnection(
       "Файл подключений записан в старом виде, без списка connections.",
       "Нужно перенести его содержимое в connections по образцу wtctl config example или указать другой файл.",
     );
-  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(connection.name))
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Имя подключения: до 64 латинских букв, цифр и знаков . _ -",
-    );
-  if (connections[connection.name] !== undefined && !replace)
+  validateConnectionName(connection.name);
+  if (
+    Object.hasOwn(connections, connection.name) &&
+    connections[connection.name] !== undefined &&
+    !replace
+  )
     throw new HcmError(
       "CONNECTION_EXISTS",
       `Подключение ${connection.name} уже есть в файле.`,
       "Нужно выбрать другое имя (--name) или заменить подключение: --force.",
     );
-  let url: URL;
-  try {
-    url = new URL(connection.baseUrl);
-  } catch {
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Адрес сервера должен быть полным: http://сервер:порт или https://сервер.",
-    );
-  }
-  if (!/^(https?:)$/.test(url.protocol) || url.username || url.password || url.search || url.hash)
-    throw new HcmError(
-      "INVALID_CONFIG",
-      "Адрес сервера: только http или https, без имени и пароля, без ? и #.",
-    );
+  const normalizedUrl = parseBaseUrl(connection.baseUrl);
   return {
     defaultConnection:
       typeof document.defaultConnection === "string" ? document.defaultConnection : connection.name,
@@ -500,7 +533,7 @@ export function withConnection(
     connections: {
       ...connections,
       [connection.name]: {
-        baseUrl: url.href,
+        baseUrl: normalizedUrl,
         username: connection.username,
         ...(connection.passwordEnv === undefined
           ? { password: connection.password }
@@ -508,5 +541,211 @@ export function withConnection(
         permissions: { write: connection.write, execute: connection.execute },
       },
     },
+  };
+}
+
+/**
+ * Безопасная сводка подключения для config list / config set: без паролей и посторонних полей.
+ * @internal
+ */
+export interface ConnectionSummary {
+  readonly name: string;
+  readonly default: boolean;
+  readonly baseUrl: string;
+  readonly permissions: { readonly write: boolean; readonly execute: boolean };
+  readonly credentials: {
+    readonly username: "file" | "env" | "none";
+    readonly usernameEnv?: string;
+    readonly password: "file" | "env" | "none";
+    readonly passwordEnv?: string;
+  };
+}
+
+/** @internal */
+export type UpdatedConnectionSummary = ConnectionSummary &
+  Partial<Pick<ConnectionConfig, SettingField>>;
+
+/** @internal */
+export interface ListedConnections {
+  readonly defaultConnection?: string;
+  readonly legacy?: true;
+  readonly connections: readonly ConnectionSummary[];
+}
+
+function credentialSource(
+  profile: Record<string, unknown>,
+  field: "username" | "password",
+): { readonly source: "file" | "env" | "none"; readonly envName?: string } {
+  const envName = parseEnvName(profile[`${field}Env`], `${field}Env`);
+  if (envName !== undefined) return { source: "env", envName };
+  if (string(profile[field], field) !== undefined) return { source: "file" };
+  return { source: "none" };
+}
+
+function summarizeConnection(
+  name: string,
+  profile: Record<string, unknown>,
+  isDefault: boolean,
+): ConnectionSummary {
+  validateConnectionName(name);
+  const rawBaseUrl = string(profile.baseUrl, `${name}.baseUrl`);
+  if (rawBaseUrl === undefined)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      `В подключении ${name} не задан адрес сервера (baseUrl).`,
+      "Образец файла показывает wtctl config example.",
+    );
+  const baseUrl = parseBaseUrl(rawBaseUrl);
+  const permissions =
+    profile.permissions === undefined ? {} : object(profile.permissions, `${name}.permissions`);
+  const user = credentialSource(profile, "username");
+  const pass = credentialSource(profile, "password");
+  return {
+    name,
+    default: isDefault,
+    baseUrl,
+    permissions: {
+      write: bool(permissions.write, false, `${name}.permissions.write`),
+      execute: bool(permissions.execute, false, `${name}.permissions.execute`),
+    },
+    credentials: {
+      username: user.source,
+      ...(user.envName === undefined ? {} : { usernameEnv: user.envName }),
+      password: pass.source,
+      ...(pass.envName === undefined ? {} : { passwordEnv: pass.envName }),
+    },
+  };
+}
+
+/**
+ * Список подключений из файла конфигурации: строго разрешённые поля, без чтения секретов и env.
+ * @internal
+ */
+export function listConnections(document: Record<string, unknown>): ListedConnections {
+  if (document.connections === undefined) {
+    if (Object.keys(document).length === 0) return { connections: [] };
+    const legacyName = string(document.defaultConnection, "defaultConnection") ?? "default";
+    return {
+      defaultConnection: legacyName,
+      legacy: true,
+      connections: [summarizeConnection(legacyName, document, true)],
+    };
+  }
+  const connections = object(document.connections, "connections");
+  const configuredDefault = string(document.defaultConnection, "defaultConnection");
+  const effectiveDefault = configuredDefault ?? "default";
+  const hasDefault =
+    Object.hasOwn(connections, effectiveDefault) && connections[effectiveDefault] !== undefined;
+  return {
+    ...(hasDefault ? { defaultConnection: effectiveDefault } : {}),
+    connections: Object.entries(connections).map(([name, raw]) =>
+      summarizeConnection(
+        name,
+        object(raw, `connections.${name}`),
+        hasDefault && name === effectiveDefault,
+      ),
+    ),
+  };
+}
+
+/** @internal */
+export type ConnectionPatch = {
+  readonly baseUrl?: string;
+  readonly write?: boolean;
+  readonly execute?: boolean;
+  readonly makeDefault?: boolean;
+  readonly runtimeDir?: string;
+} & { readonly [K in Exclude<SettingField, "runtimeDir">]?: number | string };
+
+/**
+ * Точечное изменение существующего подключения с сохранением неизвестных полей и секретов.
+ * @internal
+ */
+export function updateConnection(
+  document: Record<string, unknown>,
+  name: string | undefined,
+  patch: ConnectionPatch,
+  path: string,
+): {
+  readonly document: Record<string, unknown>;
+  readonly connection: UpdatedConnectionSummary;
+  readonly defaultConnection?: string;
+} {
+  if (document.connections === undefined)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Файл подключений записан в старом виде, без списка connections.",
+      "Нужно перенести его содержимое в connections по образцу wtctl config example или указать другой файл.",
+    );
+  const connections = object(document.connections, "connections");
+  const existingDefault = string(document.defaultConnection, "defaultConnection");
+  const target =
+    name ??
+    existingDefault ??
+    (Object.hasOwn(connections, "default") && connections.default !== undefined
+      ? "default"
+      : undefined);
+  if (target === undefined)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Не указано имя подключения.",
+      `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}. Нужно передать имя подключения аргументом или через --connection.`,
+    );
+  validateConnectionName(target);
+  if (!Object.hasOwn(connections, target) || connections[target] === undefined)
+    throw new HcmError(
+      "UNKNOWN_CONNECTION",
+      `В файле подключений ${path} нет подключения ${target}.`,
+      `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}.`,
+      { connection: target },
+    );
+  const current = object(connections[target], `connections.${target}`);
+  const currentPermissions =
+    current.permissions === undefined ? {} : object(current.permissions, `${target}.permissions`);
+  const nextProfile: Record<string, unknown> = { ...current };
+  if (patch.baseUrl !== undefined) nextProfile.baseUrl = parseBaseUrl(patch.baseUrl);
+  if (patch.write !== undefined || patch.execute !== undefined) {
+    nextProfile.permissions = {
+      ...currentPermissions,
+      ...(patch.write === undefined ? {} : { write: patch.write }),
+      ...(patch.execute === undefined ? {} : { execute: patch.execute }),
+    };
+  }
+  const updatedSettings: Record<string, unknown> = {};
+  for (const [field, [variable, parse]] of Object.entries(SETTINGS) as [
+    SettingField,
+    readonly [string, Parse<unknown>],
+  ][]) {
+    const given = patch[field];
+    if (given === undefined) continue;
+    const parsed =
+      field === "runtimeDir"
+        ? string(given, `runtimeDir (${variable})`)
+        : parse(given, `${field} (${variable})`);
+    nextProfile[field] = parsed;
+    updatedSettings[field] = parsed;
+  }
+  const nextDefault = patch.makeDefault ? target : existingDefault;
+  const nextConnections: Record<string, unknown> = {
+    ...connections,
+    [target]: nextProfile,
+  };
+  const nextDocument: Record<string, unknown> = {
+    ...document,
+    ...(nextDefault === undefined ? {} : { defaultConnection: nextDefault }),
+    connections: nextConnections,
+  };
+  const effectiveDefault = nextDefault ?? "default";
+  const hasDefault =
+    Object.hasOwn(nextConnections, effectiveDefault) &&
+    nextConnections[effectiveDefault] !== undefined;
+  const summary: UpdatedConnectionSummary = {
+    ...summarizeConnection(target, nextProfile, hasDefault && target === effectiveDefault),
+    ...updatedSettings,
+  };
+  return {
+    document: nextDocument,
+    connection: summary,
+    ...(hasDefault ? { defaultConnection: effectiveDefault } : {}),
   };
 }

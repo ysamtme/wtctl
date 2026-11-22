@@ -5,7 +5,9 @@ import { parseXml } from "./protocol/xml.js";
 import { rpcArgument } from "./server-value.js";
 import { WsHcmApiError, attachCleanupError, isTransportFailure } from "./protocol/error.js";
 
+/** @internal */
 export type LogGateway = Pick<ServerPort, "call">;
+/** @internal */
 export interface LogFile {
   readonly name: string;
   readonly url: string;
@@ -32,6 +34,7 @@ export interface LogListInput {
   /** Файлов на странице, 1–1000; по умолчанию 30. */
   readonly limit?: number;
 }
+/** @internal */
 export interface LogListData {
   readonly files: readonly LogFile[];
   readonly total: number;
@@ -50,6 +53,7 @@ export interface LogReadInput {
 /**
  * Собственный читатель сервера отказал на файле из списка и при повторной попытке. Причину
  * сервер не называет; на стендах это бывает, пока он пишет в этот файл.
+ * @internal
  */
 export class LogReadUnavailableError extends HcmError {
   constructor() {
@@ -60,6 +64,7 @@ export class LogReadUnavailableError extends HcmError {
     );
   }
 }
+/** @internal */
 export interface LogReadData {
   readonly file: LogFile;
   readonly text: string;
@@ -81,6 +86,7 @@ export interface LogReadData {
 export type LogResetReason = "overlap-not-found" | "file-size-decreased" | "ambiguous-overlap";
 /** Уровень события; определяется по словам в тексте. */
 export type LogLevel = "normal" | "debug" | "info" | "warning" | "error" | "critical";
+/** @internal */
 export interface LogEvent {
   readonly sequence: number;
   readonly time?: string;
@@ -110,6 +116,7 @@ export interface LogSearchInput extends LogReadInput {
   /** fingerprint прошлой страницы: если файл изменился, ошибка LOG_CHANGED. */
   readonly expectedFingerprint?: string;
 }
+/** @internal */
 export interface LogSearchData {
   readonly file: LogFile;
   readonly events: readonly LogEvent[];
@@ -124,6 +131,7 @@ export interface LogFollowInput extends LogReadInput {
   /** cursor прошлого ответа; без него — события в прочитанной части файла. */
   readonly cursor?: string;
 }
+/** @internal */
 export interface LogFollowData {
   readonly file: LogFile;
   readonly events: readonly LogEvent[];
@@ -177,6 +185,7 @@ function filename(value: unknown): string {
 /**
  * К какому логу относится файл: его имя без даты. Собственный столбец типа на сервере
  * сводит большинство логов в одну группу, поэтому по нему их не различить.
+ * @internal
  */
 export function logKind(name: string): string {
   return name.replace(/\.log$/i, "").replace(/[_-]?\d{4}-\d{2}-\d{2}.*$/, "") || name;
@@ -211,7 +220,10 @@ function selectedName(value: unknown): string {
   return filename(name);
 }
 
-/** Разбирает фактические ячейки таблицы данных от tools_report.server_log_report. */
+/**
+ * Разбирает фактические ячейки таблицы данных от tools_report.server_log_report.
+ * @internal
+ */
 export function parseLogReport(source: string): LogFile[] {
   const parsed = parseXml(source);
   if (Object.keys(parsed).length !== 1 || !Object.hasOwn(parsed, "data"))
@@ -286,7 +298,10 @@ function severity(message: string): LogLevel {
   if (/\b(?:info|information|inform)\b/i.test(message)) return "info";
   return "normal";
 }
-/** Сохраняет строки продолжения и стеки; время остаётся текстом в местном времени сервера. */
+/**
+ * Сохраняет строки продолжения и стеки; время остаётся текстом в местном времени сервера.
+ * @internal
+ */
 export function parseLogEvents(
   source: string,
   dateHint?: string,
@@ -354,7 +369,10 @@ interface FollowCursor {
   anchors: string[];
 }
 
-/** Доступ к логам только удалённо: два существующих проверенных метода чтения платформы. */
+/**
+ * Доступ к логам только удалённо: два существующих проверенных метода чтения платформы.
+ * @internal
+ */
 export class LogReader {
   private readonly maxTailBytes: number;
   private readonly busyMs: number;

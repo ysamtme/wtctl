@@ -2,11 +2,23 @@ import type { NativeOperation } from "../contracts.js";
 import { HcmError } from "../errors.js";
 import { getNativeOperations, getEffectiveNativeEffect } from "../native/index.js";
 import { WsHcmApiError } from "../protocol/error.js";
+import { WebSocketHeartbeatError } from "../protocol/websocket.js";
 import { createPhysicalDocument, parsePhysicalDocumentId } from "../protocol/physical-documents.js";
 import { rawXml } from "../protocol/xml.js";
 import { operation, type Operation } from "../operation.js";
 import { rpcValue } from "../server-value.js";
 import { WriteOutcome } from "../write-outcome.js";
+
+function setOwnProperty(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (key === "__proto__")
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  else target[key] = value;
+}
 
 /** Сырой ответ протокола несёт форматирование XML: отступы между элементами и атрибут xmlns. */
 export function withoutXmlFormatting(value: unknown): unknown {
@@ -39,7 +51,7 @@ export function withoutXmlFormatting(value: unknown): unknown {
         copy = {};
         for (let j = 0; j < i; j++) {
           const prevKey = keys[j]!;
-          copy[prevKey] = record[prevKey];
+          setOwnProperty(copy, prevKey, record[prevKey]);
         }
       }
       continue;
@@ -48,14 +60,14 @@ export function withoutXmlFormatting(value: unknown): unknown {
     const next =
       typeof child === "string" && /^\s*\n[ \t]+$/.test(child) ? "" : withoutXmlFormatting(child);
     if (copy !== undefined) {
-      copy[key] = next;
+      setOwnProperty(copy, key, next);
     } else if (next !== child) {
       copy = {};
       for (let j = 0; j < i; j++) {
         const prevKey = keys[j]!;
-        copy[prevKey] = record[prevKey];
+        setOwnProperty(copy, prevKey, record[prevKey]);
       }
-      copy[key] = next;
+      setOwnProperty(copy, key, next);
     }
   }
   return copy ?? value;
@@ -264,18 +276,6 @@ const FACES: Readonly<Record<string, Face>> = {
     details:
       "documentXmlTemplate — текст XML документа с {{objectId}} на месте ID. После записи документ перечитывается, и его ID сверяется. Обработчики, которые админка выполняет при создании, не запускаются.",
   },
-  // Тема changes.
-  "native.lds.getModObjects": {
-    summary:
-      "Объекты, изменённые после даты minModDate; на 2025.1–2025.2 ответ пуст и при изменениях.",
-    details:
-      "На проверенных серверах ответ пуст и при свежих изменениях. Изменённые объекты находит runtime.query по modification_date в нужном каталоге. compress передавать нельзя: сжатый ответ клиент не разбирает.",
-  },
-  "native.lds.getCatalogsStat": {
-    summary: "Число записей по каталогам из кэша сервера; пустой ответ не значит, что записей нет.",
-    details:
-      "Числа — из кэша сервера, а не свежий подсчёт. Каталога в ответе может не быть; пустой ответ тоже возможен.",
-  },
   // Тема server.
   "native.spxml2.getAppInfo": {
     summary: "Каталоги, типы объектов, общие документы и настройки приложения.",
@@ -293,6 +293,11 @@ const FACES: Readonly<Record<string, Face>> = {
     summary: "Отвечает ли служба WebSocket.",
     details:
       "Одна проверка: соединение, служебное сообщение, ответ. heartbeatObserved:true — служба ответила.",
+    // Коды WS_* переводятся здесь; основные операции должны вызывать heartbeat через pipeline.invoke.
+    failure: (error) =>
+      error instanceof WebSocketHeartbeatError
+        ? new HcmError(error.errorCode, error.message, error.hint, error.details)
+        : error,
   },
   // Тема forms.
   "native.spxml2.getForm": {

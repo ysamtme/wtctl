@@ -121,6 +121,7 @@ function entry(event: LogEvent): LogEntry {
   };
 }
 
+/** @internal */
 export function logFiles(data: LogListData): LogFiles {
   return {
     files: data.files.map(summary),
@@ -128,6 +129,7 @@ export function logFiles(data: LogListData): LogFiles {
     ...(data.nextOffset === undefined ? {} : { nextOffset: data.nextOffset }),
   };
 }
+/** @internal */
 export function logText(data: LogReadData): LogText {
   return {
     file: data.file.name,
@@ -150,6 +152,7 @@ function fitting(entries: readonly LogEntry[], budgetBytes: number, fromEnd: boo
   return count;
 }
 
+/** @internal */
 export function logMatches(data: LogSearchData, budgetBytes: number): LogMatches {
   const events = data.events.map(entry);
   const kept = fitting(events, budgetBytes, false);
@@ -167,7 +170,10 @@ export function logMatches(data: LogSearchData, budgetBytes: number): LogMatches
     ...(kept < events.length ? { cutBySize: true as const } : {}),
   };
 }
-/** first: вызов, который только берёт позицию; прежние события — не новости, часть показывается. */
+/**
+ * first: вызов, который только берёт позицию; прежние события — не новости, часть показывается.
+ * @internal
+ */
 export function logNews(data: LogFollowData, first: boolean, budgetBytes: number): LogNews {
   const all = data.events.map(entry);
   const recent = first ? all.slice(-10) : all;

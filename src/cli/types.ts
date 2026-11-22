@@ -13,6 +13,12 @@ export interface CliIo {
   readBinaryFile?(path: string): Promise<Uint8Array>;
   readBinaryStdin?(): Promise<Uint8Array>;
   writeFile(path: string, text: string): Promise<void>;
+  /** Атомарно записывает файл, только если его содержимое не изменилось (undefined — файла не было). */
+  writeFileIfUnchanged?(
+    path: string,
+    expectedText: string | undefined,
+    text: string,
+  ): Promise<void>;
   /** Спрашивает человека в терминале; без него отсутствует. Секреты при вводе не показываются. */
   prompt?(question: string, secret?: boolean): Promise<string>;
 }

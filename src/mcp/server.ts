@@ -12,6 +12,7 @@ import type { OperationFilter, OperationResult } from "../contracts.js";
 import { HcmError, isSimilarName, similarHint } from "../errors.js";
 import type { RuntimePort } from "../runtime-port.js";
 import { discoverOperations, operationHelp } from "../operation-help.js";
+import { operationWritesLocalDisk } from "../operations.js";
 import { errorInFrontendTerms } from "../frontend-names.js";
 import { guide, guideTopics, type GuidePage, type LocalInstall } from "../guide.js";
 import { VERSION } from "../version.js";
@@ -179,7 +180,8 @@ export class HcmMcpTools {
       "Гайд с примерами вызовов: порядок работы, правила, частые ошибки. Без аргументов — обзор и список тем. Отвечает текстом, к серверу не обращается.",
       { topic: enumeration(guideTopics() as [string, ...string[]], "Тема гайда.") },
       "read",
-      async (args) => this.result("guide", guide(args.topic as string | undefined, options.local)),
+      async (args) =>
+        this.result("guide", await guide(args.topic as string | undefined, options.local)),
       { plain: (data) => (data as GuidePage).text },
     );
     register(
@@ -569,7 +571,6 @@ export class HcmMcpTools {
       },
       "write",
       call("results.export"),
-      { additive: true },
     );
     register(
       "hcm_api_list",
@@ -610,7 +611,7 @@ export class HcmMcpTools {
       ],
       write: [
         "Вызвать операцию записи",
-        "Вызвать операцию, которая записывает на сервер. Нужно право write.",
+        "Запись на сервер (право write) или на диск (files.read с file, results.export; без права write).",
       ],
       execute: [
         "Вызвать операцию выполнения",
@@ -631,7 +632,13 @@ export class HcmMcpTools {
           const id = args.operationId as string;
           const input = (args.args ?? {}) as Arguments;
           const actual = this.runtime.getOperationEffect(id, input);
-          const tool = actual === "unknown" ? "execute" : actual;
+          // Запись на локальный диск не требует серверного права write, но в MCP-сервере не идёт через readOnlyHint:true.
+          const tool =
+            actual === "unknown"
+              ? "execute"
+              : actual === "read" && operationWritesLocalDisk(id, input)
+                ? "write"
+                : actual;
           if (tool !== effect)
             return this.error(
               id,

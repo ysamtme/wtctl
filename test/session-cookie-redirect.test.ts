@@ -213,8 +213,36 @@ test("хранилище cookies учитывает Expires и приорите�
   assert.equal(transport.cookie.header(), "SessionID=s1; AWSALB=keep");
 
   const second = new Headers();
-  second.append("set-cookie", "AWSALB=x; Max-Age=0 ; Path=/");
+  second.append("set-cookie", "AWSALB=x; Max-Age=60; Max-Age=0 ; Path=/");
   transport.cookie.capture(second);
+  assert.equal(transport.cookie.header(), "SessionID=s1");
+
+  const third = new Headers();
+  third.append("set-cookie", "RETRY=ok; Max-Age=60; Max-Age=not-a-number");
+  transport.cookie.capture(third);
+  assert.equal(transport.cookie.header(), "SessionID=s1; RETRY=ok");
+  transport.dispose();
+});
+
+test("хранилище cookies различает регистр имён и перестаёт отправлять cookies после истечения Max-Age и Expires", (t) => {
+  let now = Date.UTC(2026, 10, 21, 12, 0, 0);
+  t.mock.method(Date, "now", () => now);
+  const transport = new HttpTransport({
+    baseUrl: "http://fixture.invalid/",
+    timeoutMs: 1000,
+    fetch: async () => new Response("ok"),
+  });
+  const headers = new Headers();
+  headers.append("set-cookie", "SessionID=s1; Path=/");
+  headers.append("set-cookie", "node=lower; Max-Age=30; Path=/");
+  headers.append("set-cookie", `NODE=upper; Expires=${new Date(now + 60_000).toUTCString()}`);
+  transport.cookie.capture(headers);
+  assert.equal(transport.cookie.header(), "SessionID=s1; node=lower; NODE=upper");
+
+  now += 31_000;
+  assert.equal(transport.cookie.header(), "SessionID=s1; NODE=upper");
+
+  now += 30_000;
   assert.equal(transport.cookie.header(), "SessionID=s1");
   transport.dispose();
 });

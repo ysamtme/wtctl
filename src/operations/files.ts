@@ -1,5 +1,5 @@
 import { FILE_EXISTS_URL_MAX_LENGTH } from "../files.js";
-import { boolean, operation, schema, string } from "../operation.js";
+import { boolean, isStepReference, operation, schema, string } from "../operation.js";
 
 export const fileOperations = [
   operation({
@@ -24,6 +24,13 @@ export const fileOperations = [
   operation({
     id: "files.read",
     effect: "read",
+    writesLocalDisk: (args, inBatch) => {
+      if (inBatch && isStepReference(args)) return true;
+      if (args === null || typeof args !== "object" || Array.isArray(args)) return false;
+      if (!Object.hasOwn(args, "file")) return false;
+      const file = (args as Record<string, unknown>).file;
+      return typeof file === "string" || (inBatch && isStepReference(file));
+    },
     description:
       'Прочитать файл по адресу сервера: text, если содержимое — текст в UTF-8, иначе base64. encoding:"base64" отдаёт base64 и для текста. file — полный путь на этом компьютере: файл любого размера сохраняется туда байт в байт, overwrite заменяет существующий. Документы объектов читает objects.get.',
     inputSchema: schema(

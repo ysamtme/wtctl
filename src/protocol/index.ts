@@ -13,17 +13,14 @@ export {
   type CompoundResourceRequest,
   type LoadRequest,
   type NativeLdsApi,
-  type QueryValues,
   type RpcArgument,
   type RpcResult,
-  type RunMethodRequest,
   type SoapAttachment,
   type SoapLoadRequest,
   type SoapResult,
   type StreamingLoadRequest,
   type UploadChunkRequest,
   type UploadChunkResult,
-  type WebLdsApi,
   type XQueryRequest,
 } from "./api.js";
 export {
@@ -39,7 +36,6 @@ export {
   type WebSocketFactory,
   type WebSocketHeartbeatInput,
   type WebSocketHeartbeatData,
-  type WebSocketHeartbeatReceipt,
 } from "./types.js";
 export {
   NativePhysicalDocumentsApi,

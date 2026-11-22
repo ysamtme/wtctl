@@ -167,7 +167,7 @@ test("по HTTP файл больше maxResponseBytes с file сохраняе�
   });
 });
 
-test("файл сохраняется из CLI (--to, --overwrite), SDK и hcm_api_read", async () => {
+test("файл сохраняется из CLI (--to, --overwrite), SDK и hcm_api_write", async () => {
   await temporary(async (directory) => {
     let out = "";
     const io = {
@@ -222,8 +222,18 @@ test("файл сохраняется из CLI (--to, --overwrite), SDK и hcm_a
     await server.connect(serverTransport);
     await client.connect(clientTransport);
     const mcp = join(directory, "mcp.bin");
+    assert.equal(runtime.getOperationEffect("files.read", { url, file: mcp }), "read");
+    const wrong = mcpJson(
+      await client.callTool({
+        name: "hcm_api_read",
+        arguments: { operationId: "files.read", args: { url, file: mcp } },
+      }),
+    );
+    assert.equal(wrong.ok, false);
+    assert.equal(wrong.error?.code, "mcp.effect_mismatch");
+    assert.match(wrong.error?.hint ?? "", /hcm_api_write/);
     const tool = {
-      name: "hcm_api_read",
+      name: "hcm_api_write",
       arguments: { operationId: "files.read", args: { url, file: mcp } },
     };
     assert.deepEqual(mcpJson(await client.callTool(tool)).data, {

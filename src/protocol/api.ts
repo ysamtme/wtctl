@@ -2,10 +2,14 @@ import { randomBytes, randomInt } from "node:crypto";
 import { ArgumentError, WsHcmApiError } from "./error.js";
 import {
   parseSoapBody,
+  soapBody,
   soapContentType,
   soapEnvelope,
+  soapFragments,
   xmlText,
+  type SoapBodyField,
   type SoapField,
+  type SoapFragments,
   type SoapProfile,
 } from "./protocol.js";
 import { HttpTransport, query } from "./transport.js";
@@ -25,35 +29,14 @@ import {
   parseXml,
   rawXml,
   rawXmlElement,
-  assembledXml,
   type RawXml,
   type XmlObject,
 } from "./xml.js";
 
 /** Буферизованный разобранный результат SOAP с точными байтами ответа. */
 export type SoapResult = WsHcmResponse<XmlObject>;
-/** Карта параметров запроса; заданные значения сериализуются в том виде, как записаны. */
-export type QueryValues = Readonly<Record<string, string | number | boolean | null | undefined>>;
 /** Точные данные внешней части MIME; строки и RawXml кодируются как UTF-8. */
 export type SoapAttachment = RawXml | string | Uint8Array | ArrayBuffer;
-
-/** Вызов штатной библиотеки LDS. ArgData — типизированный дочерний XML в теле, не вложение XOP. */
-export interface RunMethodRequest {
-  libName: string;
-  methodName: string;
-  /** Отдельный внутренний поток; наружу не отдаётся ни ID задачи, ни подтверждение завершения. */
-  runAsync?: boolean;
-  errorLogName?: string;
-  argData: RawXml;
-}
-
-function decimal(value: DecimalId, name: string): DecimalId;
-function decimal(value: DecimalId | undefined, name: string): DecimalId | undefined;
-function decimal(value: DecimalId | undefined, name: string): DecimalId | undefined {
-  if (value !== undefined && !/^\d+$/.test(value))
-    throw new ArgumentError(`${name}: нужна строка из десятичных цифр.`);
-  return value;
-}
 
 /** ID объекта в десятичной записи: так его ждут страницы сервера, а каталоги отдают `0x…`. */
 function decimalObjectId(value: ObjectId, name: string): DecimalId {
@@ -80,10 +63,10 @@ async function soapCall(
   profile: SoapProfile,
   path: string,
   method: string,
-  fields: readonly SoapField[],
+  fields: readonly SoapBodyField[],
   options: RequestOptions & { basic?: boolean } = {},
 ): Promise<SoapResult> {
-  const source = soapEnvelope(method, fields, profile);
+  const source = soapBody(method, fields, profile);
   const response = await transport.send(
     path,
     {
@@ -126,7 +109,7 @@ async function soapMultipartCall(
   path: string,
   method: string,
   fields: readonly SoapField[],
-  external: { readonly name: string; readonly data: SoapAttachment },
+  external: { readonly name: string; readonly data: RawXml },
   options?: RequestOptions,
 ): Promise<SoapResult> {
   const contentId = `0x${randomBytes(8).toString("hex")}`;
@@ -140,13 +123,7 @@ async function soapMultipartCall(
     `\r\n--${boundary}\r\nContent-Type: ${rootContentType}\r\nContent-ID: <5837048452213900518@datex-soft.com>\r\n\r\n${envelope}` +
       `\r\n--${boundary}\r\nContent-ID: ${contentId}\r\n\r\n`,
   );
-  const data = isRawXml(external.data)
-    ? new TextEncoder().encode(external.data.xml)
-    : typeof external.data === "string"
-      ? new TextEncoder().encode(external.data)
-      : external.data instanceof ArrayBuffer
-        ? new Uint8Array(external.data)
-        : external.data;
+  const data = new TextEncoder().encode(external.data.xml);
   const suffix = new TextEncoder().encode(`\r\n--${boundary}--\r\n`);
   const body = new Uint8Array(prefix.byteLength + data.byteLength + suffix.byteLength);
   body.set(prefix, 0);
@@ -329,7 +306,6 @@ export function closeLdsSession(
 class LdsCaller {
   constructor(
     private readonly transport: HttpTransport,
-    private readonly profile: SoapProfile,
     private readonly sessionId: () => DecimalId,
   ) {}
 
@@ -340,7 +316,7 @@ class LdsCaller {
   ): Promise<SoapResult> {
     return soapCall(
       this.transport,
-      this.profile,
+      "native",
       withRnd("/services/LdsService"),
       method,
       fields,
@@ -355,7 +331,7 @@ class LdsCaller {
   ): Promise<WsHcmBinaryResponse> {
     return soapBinaryCall(
       this.transport,
-      this.profile,
+      "native",
       withRnd("/services/LdsService"),
       method,
       fields,
@@ -372,14 +348,12 @@ class LdsCaller {
   }
 }
 
-/** Вид запроса LDS XQuery. ID курсоров остаются десятичными строками без потерь. */
+/** Вид запроса LDS XQuery. */
 export interface XQueryRequest {
   query: string;
   startPos?: number;
   maxCount?: number;
   expectToReadAll?: boolean;
-  keepCursor?: boolean;
-  cursorId?: DecimalId;
 }
 
 function safeInteger(value: number | undefined, name: string): number | undefined {
@@ -419,29 +393,6 @@ export class NativeLdsApi {
     return this.caller.call("CloseSession", [["SessionID", this.caller.id()]], options);
   }
   /**
-   * Прочитать готовые записи из кэша статистики каталогов текущей сессии.
-   * Пустой ответ Catalogs допустим: неготовые и пропускаемые каталоги в него не попадают.
-   * RecordsNum — число из кэша, а не свежий SQL COUNT и не перечень типов объектов.
-   */
-  getCatalogsStat(options?: RequestOptions): Promise<SoapResult> {
-    return this.caller.call("GetCatalogsStat", [["SessionID", this.caller.id()]], options);
-  }
-  /** Прочитать объекты, изменённые после `minModDate`; дата необязательна. */
-  getModObjects(
-    request: { minModDate?: string; compress?: boolean } = {},
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    return this.caller.call(
-      "GetModObjects",
-      [
-        ["MinModDate", request.minModDate],
-        ["SessionID", this.caller.id()],
-        ["Compress", request.compress],
-      ],
-      options,
-    );
-  }
-  /**
    * Прочитать данные по URL; флаги ответа выбирают поток, а `tryLock` меняет состояние блокировки.
    * @mutating Если включён `tryLock`.
    */
@@ -466,27 +417,6 @@ export class NativeLdsApi {
     return request.useBinaryResponse || request.useMultipartResponse
       ? this.caller.binaryCall("LoadUrl", fields, options)
       : this.caller.call("LoadUrl", fields, options);
-  }
-  /**
-   * Записать по URL текст или двоичные данные как есть, вложением XOP.
-   * @mutating
-   */
-  putUrl(
-    request: { url: string; data: SoapAttachment },
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    return soapMultipartCall(
-      this.caller.getTransport(),
-      "native",
-      withRnd("/services/LdsService"),
-      "PutUrl",
-      [
-        ["Url", request.url],
-        ["SessionID", this.caller.id()],
-      ],
-      { name: "Data", data: request.data },
-      options,
-    );
   }
   /**
    * Удалить данные по URL; можно потребовать, чтобы они существовали.
@@ -604,7 +534,7 @@ export class NativeLdsApi {
       options,
     );
   }
-  /** Выполнить XQuery; постраничное чтение и курсор необязательны. */
+  /** Выполнить XQuery; постраничное чтение необязательно. */
   xQuery(request: XQueryRequest, options?: RequestOptions): Promise<SoapResult> {
     return this.caller.call(
       "XQuery",
@@ -613,127 +543,8 @@ export class NativeLdsApi {
         ["StartPos", safeInteger(request.startPos, "startPos")],
         ["MaxCount", safeInteger(request.maxCount, "maxCount")],
         ["ExpectToReadAll", request.expectToReadAll],
-        ["KeepCursor", request.keepCursor],
-        ["CursorID", decimal(request.cursorId, "cursorId")],
+        ["KeepCursor", false],
         ["SessionID", this.caller.id()],
-      ],
-      options,
-    );
-  }
-  /**
-   * Освободить курсор, выданный ранее этой сессии LDS.
-   * @mutating Меняет временное состояние курсора.
-   */
-  releaseCursor(cursorId: DecimalId, options?: RequestOptions): Promise<SoapResult> {
-    return this.caller.call(
-      "ReleaseCursor",
-      [
-        ["CursorID", decimal(cursorId, "cursorId")],
-        ["SessionID", this.caller.id()],
-      ],
-      options,
-    );
-  }
-  /**
-   * Выполнить функцию библиотеки сервера; аргументы — дочерние элементы XML в `ArgData`.
-   * На сервере 2025.1.1171 аргументы принимаются только как XML в теле SOAP:
-   * внешнее вложение XOP отклоняется с Parameter is not XML.
-   * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
-   * первый ResultData может прийти с типом undefined и не означает завершения.
-   * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
-   * @mutating
-   */
-  runMethod(request: RunMethodRequest, options?: RequestOptions): Promise<SoapResult> {
-    return runLdsMethod(this.caller, request, options);
-  }
-  /** Продлить текущую сессию native LDS. */
-  idle(options?: RequestOptions): Promise<SoapResult> {
-    return this.caller.call("Idle", [["SessionID", this.caller.id()]], options);
-  }
-}
-
-function runLdsMethod(
-  caller: LdsCaller,
-  request: RunMethodRequest,
-  options?: RequestOptions,
-): Promise<SoapResult> {
-  if (!isRawXml(request.argData))
-    throw new ArgumentError("argData: нужен проверенный XML (RawXml).");
-  return caller.call(
-    "RunMethod",
-    [
-      ["LibName", request.libName],
-      ["MethodName", request.methodName],
-      ["RunAsync", request.runAsync],
-      ["ErrorLogName", request.errorLogName],
-      ["SessionID", caller.id()],
-      ["ArgData", request.argData],
-    ],
-    options,
-  );
-}
-
-/** Контекст Web Administrator LDS SOAP 1.1 и общие штатные методы службы для одного ID LDS. */
-export class WebLdsApi {
-  constructor(private readonly caller: LdsCaller) {}
-
-  /**
-   * Выполнить XQuery через web LDS. `keepCursor` по умолчанию `true`; для разового чтения нужен `false`.
-   * @mutating Если курсор сохраняется (по умолчанию).
-   */
-  xQuery(request: XQueryRequest, options?: RequestOptions): Promise<SoapResult> {
-    return this.caller.call(
-      "XQuery",
-      [
-        ["Query", request.query],
-        ["KeepCursor", request.keepCursor ?? true],
-        ["CursorID", decimal(request.cursorId, "cursorId")],
-        ["StartPos", safeInteger(request.startPos, "startPos")],
-        ["MaxCount", safeInteger(request.maxCount, "maxCount")],
-        ["SessionID", this.caller.id()],
-      ],
-      options,
-    );
-  }
-  /**
-   * Освободить свой курсор web LDS.
-   * @mutating Меняет временное состояние курсора.
-   */
-  releaseCursor(cursorId: DecimalId, options?: RequestOptions): Promise<SoapResult> {
-    return this.caller.call(
-      "ReleaseCursor",
-      [
-        ["CursorID", decimal(cursorId, "cursorId")],
-        ["SessionID", this.caller.id()],
-      ],
-      options,
-    );
-  }
-  /**
-   * Выполнить штатный RunMethod LDS в этой веб-сессии по SOAP 1.1.
-   * ArgData содержит дочерние элементы XML с типами; SessionID идёт перед ними.
-   * RunAsync выполняет функцию в отдельном внутреннем потоке и не возвращает ID задачи;
-   * первый ResultData может прийти с типом undefined и не означает завершения.
-   * GetAsyncMethodStatus и KillAsyncMethod такое выполнение не отслеживают.
-   * Права сервера на вызываемую функцию действуют и здесь, независимо от профиля web.
-   * @mutating
-   */
-  runMethod(request: RunMethodRequest, options?: RequestOptions): Promise<SoapResult> {
-    return runLdsMethod(this.caller, request, options);
-  }
-  /**
-   * Удалить документ; `StrictDelete=1` отправляется, только когда он включён.
-   * @mutating
-   */
-  deleteDoc(
-    request: { url: string; strictDelete?: boolean },
-    options?: RequestOptions,
-  ): Promise<SoapResult> {
-    return this.caller.call(
-      "DeleteDoc",
-      [
-        ["Url", request.url],
-        ["StrictDelete", request.strictDelete ? "1" : undefined],
       ],
       options,
     );
@@ -772,26 +583,24 @@ export const rpc = Object.freeze({
   },
 });
 
-/** Значения экранированы, а фрагменты проверены: собранный текст проверять не нужно. */
-function rpcArgs(args: readonly RpcArgument[]): RawXml {
-  return assembledXml(
-    args
-      .map((arg, index) => {
-        if (arg.valueType === undefined && !isRawXml(arg.lexicalValue))
-          throw new ArgumentError(
-            "Аргументу функции нужен valueType; без него передаётся только XML: {lexicalValue: {xml: …}}.",
-          );
-        const value =
-          arg.valueType === undefined
-            ? inlineXml(rawXmlElement((arg.lexicalValue as RawXml).xml))
-            : isRawXml(arg.lexicalValue)
-              ? inlineXml(arg.lexicalValue)
-              : escapeXml(arg.lexicalValue);
-        const type = arg.valueType === undefined ? "" : ` VALUE-TYPE="${escapeXml(arg.valueType)}"`;
-        return `<arg-${index}${type}>${value}</arg-${index}>`;
-      })
-      .join(""),
-  );
+/** Значения экранированы, а фрагменты проверены: закрытая обёртка частей без промежуточной склейки. */
+function rpcArgs(args: readonly RpcArgument[]): SoapFragments {
+  const parts: string[] = [];
+  args.forEach((arg, index) => {
+    if (arg.valueType === undefined && !isRawXml(arg.lexicalValue))
+      throw new ArgumentError(
+        "Аргументу функции нужен valueType; без него передаётся только XML: {lexicalValue: {xml: …}}.",
+      );
+    const value =
+      arg.valueType === undefined
+        ? inlineXml(rawXmlElement((arg.lexicalValue as RawXml).xml))
+        : isRawXml(arg.lexicalValue)
+          ? inlineXml(arg.lexicalValue)
+          : escapeXml(arg.lexicalValue);
+    const type = arg.valueType === undefined ? "" : ` VALUE-TYPE="${escapeXml(arg.valueType)}"`;
+    parts.push(`<arg-${index}${type}>`, value, `</arg-${index}>`);
+  });
+  return soapFragments(parts);
 }
 
 /**
@@ -851,22 +660,9 @@ export class RpcApi {
   }
 }
 
-/** Штатный web `/api/spxml`: RPC, документы и фоновые задачи. */
+/** Штатный web `/api/spxml`: фоновые задачи. */
 export class WebSpXmlApi {
-  readonly rpc: RpcApi;
-  constructor(private readonly transport: HttpTransport) {
-    this.rpc = new RpcApi(transport, "web");
-  }
-  /**
-   * Вызвать функцию библиотеки синхронно. Вызванная функция может менять данные.
-   * @mutating
-   */
-  callMethod(
-    request: { target: string; args?: readonly RpcArgument[] },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<RpcResult>> {
-    return this.rpc.call(request, options);
-  }
+  constructor(private readonly transport: HttpTransport) {}
   /**
    * Запустить функцию библиотеки фоновой задачей; ответ содержит TrackingID без потери точности.
    * @mutating
@@ -945,63 +741,11 @@ export class WebSpXmlApi {
       options,
     );
   }
-  /**
-   * Прочитать XML документа в UTF-8, если не задан `charset`; кодировка из заголовков ответа важнее.
-   * Сервер 2025.1.1171 не принимает параметр TryLock на этом маршруте:
-   * значение в строке запроса отклоняется.
-   * Проверенный способ заблокировать документ — LoadDoc через native LDS.
-   * @mutating Если включён `tryLock`.
-   */
-  async getDoc(
-    request: { docUrl: string; charset?: string; tryLock?: boolean },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<XmlObject>> {
-    const charset = request.charset ?? "utf-8";
-    return xmlResponse(
-      await this.transport.send(
-        query("/api/spxml/GetDoc", {
-          DocUrl: request.docUrl,
-          Charset: charset,
-          TryLock: request.tryLock ? 1 : undefined,
-        }),
-        {},
-        options,
-      ),
-      charset,
-    );
-  }
-  /**
-   * Сохранить свой XML через web SPXML; сервер выполняет обработку перед сохранением.
-   * `neverSaved=true` отправляет `NeverSaved=1`; при false или без значения флаг не отправляется. Управления `SkipActions` на этом маршруте нет.
-   * @mutating
-   */
-  async putDoc(
-    request: {
-      docUrl: string;
-      document: string | RawXml;
-      writeDocInfo?: boolean;
-      neverSaved?: boolean;
-    },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<unknown>> {
-    if (!isRawXml(request.document)) parseXml(request.document);
-    const body = isRawXml(request.document) ? request.document.xml : request.document;
-    return jsonResponse(
-      await this.transport.send(
-        query("/api/spxml/PutDoc", {
-          DocUrl: request.docUrl,
-          WriteDocInfo: request.writeDocInfo,
-          NeverSaved: request.neverSaved ? 1 : undefined,
-        }),
-        { method: "POST", headers: { "Content-Type": "text/xml" }, body },
-        options,
-      ),
-    );
-  }
 }
 
-class SpXml2Base {
-  constructor(protected readonly transport: HttpTransport) {}
+/** Native SPXML2: сведения о приложении и получение форм. */
+export class NativeSpXml2Api {
+  constructor(private readonly transport: HttpTransport) {}
   /** Прочитать сведения сервера о приложении; `application_module` необязателен и может отсутствовать. */
   async getAppInfo(
     request: { fastStart?: boolean; anonymous?: boolean; openSession?: boolean; rnd?: number } = {},
@@ -1027,52 +771,6 @@ class SpXml2Base {
   ): Promise<WsHcmResponse<string>> {
     return textResponse(
       await this.transport.send(query("/api/spxml2/get_form", request), {}, options),
-    );
-  }
-}
-
-/** Native SPXML2: сведения о приложении и получение форм. */
-export class NativeSpXml2Api extends SpXml2Base {}
-
-/** Web SPXML2; сведения о приложении по умолчанию идут с `fast_start=1` и случайным `rnd`. */
-export class WebSpXml2Api extends SpXml2Base {
-  /** Прочитать сведения сервера о приложении; по умолчанию отправляет `fast_start=1` и случайный `rnd`. */
-  override getAppInfo(
-    request: { fastStart?: boolean; anonymous?: boolean; openSession?: boolean; rnd?: number } = {},
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<unknown>> {
-    return super.getAppInfo(
-      {
-        ...request,
-        fastStart: request.fastStart ?? true,
-        rnd: request.rnd ?? randomInt(1_000_000_000),
-      },
-      options,
-    );
-  }
-
-  /** Прочитать потоком картинку web SPXML2; параметры эффектов необязательны. */
-  async getImage(
-    request: { url: string; effects?: QueryValues },
-    options?: RequestOptions,
-  ): Promise<WsHcmBinaryResponse> {
-    const response = await this.transport.send(
-      query("/api/spxml2/get_image", { ...request.effects, url: request.url }),
-      {},
-      options,
-    );
-    return binaryResponse(response, "get_image");
-  }
-  /** Прочитать набор предзагружаемых файлов оформления default. */
-  async getPreloadedDesignFiles(options?: RequestOptions): Promise<WsHcmResponse<string>> {
-    return textResponse(
-      await this.transport.send("/api/spxml2/get_preloaded_design_files?set=default", {}, options),
-    );
-  }
-  /** Вызвать штатную службу сервера `std_encrypt`; это не средство шифрования общего назначения на стороне клиента. */
-  async stdEncrypt(text: string, options?: RequestOptions): Promise<WsHcmResponse<unknown>> {
-    return jsonResponse(
-      await this.transport.send(query("/api/spxml2/std_encrypt", { text }), {}, options),
     );
   }
 }
@@ -1115,25 +813,6 @@ export class WebPageApi {
     private readonly transport: HttpTransport,
     private readonly uploadToken?: () => string | undefined,
   ) {}
-  /** Прочитать штатную страницу предпросмотра PDF как текст. */
-  async filePreviewPdf(options?: RequestOptions): Promise<WsHcmResponse<string>> {
-    return textResponse(
-      await this.transport.send(
-        "/spxml_web/service/file_preview/file_preview_pdf.htm",
-        {},
-        options,
-      ),
-    );
-  }
-  /** Прочитать форму по локальному URL сервера как текст. */
-  async getForm(
-    request: { url: string },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<string>> {
-    return textResponse(
-      await this.transport.send(query("/spxml_web/service/get_form.htm", request), {}, options),
-    );
-  }
   /** Прочитать экранную форму по локальному URL сервера как текст. */
   async getScreenForm(
     request: { url: string },
@@ -1147,48 +826,11 @@ export class WebPageApi {
       ),
     );
   }
-  /**
-   * Прочитать потоком SVG через штатную страницу картинок веб-интерфейса. Сервер принимает
-   * URL SVG в x-app и x-local и проверяет право чтения источника. Необязательные значения state
-   * hover, pressed и disabled включают штатную подмену цветов; при других значениях
-   * содержимое остаётся исходным. Без значения отправляется state="": штатная
-   * страница требует это поле запроса. Тело ответа нужно дочитать или отменить.
-   */
-  async getImage(
-    request: { url: string; state?: string },
-    options?: RequestOptions,
-  ): Promise<WsHcmBinaryResponse> {
-    return binaryResponse(
-      await this.transport.send(
-        query("/spxml_web/service/get_image.htm", { url: request.url, state: request.state ?? "" }),
-        {},
-        options,
-      ),
-      "get_image.htm",
-    );
-  }
   /** Прочитать и разобрать XML текстов веб-интерфейса в кодировке, объявленной приложением. */
   async getUiText(options?: RequestOptions): Promise<WsHcmResponse<XmlObject>> {
     return xmlResponse(
       await this.transport.send("/spxml_web/service/get_ui_text.htm", {}, options),
     );
-  }
-  /** Прочитать потоком ответ службы страниц по URL; тело нужно дочитать или отменить. */
-  async getUrl(
-    request: { url: string; navigate?: boolean; download?: boolean; base64?: boolean },
-    options?: RequestOptions,
-  ): Promise<WsHcmBinaryResponse> {
-    const response = await this.transport.send(
-      query("/spxml_web/service/get_url.htm", {
-        url: request.url,
-        navigate: request.navigate ? 1 : undefined,
-        download: request.download ? 1 : undefined,
-        base64: request.base64 ? 1 : undefined,
-      }),
-      {},
-      options,
-    );
-    return binaryResponse(response, "get_url");
   }
 
   /**
@@ -1222,7 +864,7 @@ export class WebPageApi {
       throw invalidInput("contentType: нужен тип MIME из печатных знаков ASCII, до 256 знаков.");
     const token = this.uploadToken?.();
     if (!token || !/^[\x21-\x7E]{1,256}$/.test(token))
-      throw invalidInput("В веб-сессии нет действующего токена страницы для загрузки файла.");
+      throw invalidInput("В сессии web нет действующего токена страницы для загрузки файла.");
     const value = isRawXml(request.data) ? request.data.xml : request.data;
     let bytes: Uint8Array;
     if (typeof value === "string") bytes = new TextEncoder().encode(value);
@@ -1494,7 +1136,7 @@ export class WebPageApi {
 export type CompoundResourceRequest =
   { url: string; resId: string } | { docUrl: string; elemPath: string; resId: string };
 
-/** API потокового чтения ресурсов, общий для сессий native и web. */
+/** API потокового чтения ресурсов для сессии native. */
 export class ResourceApi {
   constructor(private readonly transport: HttpTransport) {}
   /** Прочитать потоком картинку ресурса по ID (0x… или десятичный); тип картинки необязателен. */
@@ -1523,8 +1165,7 @@ export class ResourceApi {
    * Сервер декодирует данные найденного вложения и выбирает тип содержимого
    * по resId. Штатный сервер 2025.1.1171 требует ещё, чтобы источник url лежал в настроенном courses_path:
    * одной разрешённой локальной схемы для этого мало.
-   * Этим маршрутом пользуется штатный клиент администратора; варианты native и web —
-   * один маршрут сервера, различается только сессия HTTP. Тело ответа нужно дочитать или отменить.
+   * Этим маршрутом пользуется штатный клиент администратора. Тело ответа нужно дочитать или отменить.
    */
   async getCompoundResource(
     request: CompoundResourceRequest,
@@ -1599,88 +1240,9 @@ export class DiagnosticsApi {
   }
 }
 
-/**
- * Запасной путь для неизвестных и экспериментальных запросов протокола. Лучше типизированные API.
- */
-export class ExperimentalApi {
-  constructor(protected readonly transport: HttpTransport) {}
-  /**
-   * Отправить свой запрос на тот же origin и вернуть тело ответа потоком.
-   * `unsafe: true` обязателен. Сериализация обычных операций, разбор ошибок сервера и гарантии об исходе записи не действуют;
-   * настроенные авторизация и cookie применяются, а метод, заголовки, тело и закрытие потока — на вызывающем.
-   */
-  async rawRequest(
-    request: {
-      unsafe: true;
-      path: string;
-      method?: string;
-      headers?: HeadersInit;
-      body?: BodyInit;
-    },
-    options?: RequestOptions,
-  ): Promise<WsHcmBinaryResponse> {
-    if (request.unsafe !== true)
-      throw new WsHcmApiError("protocol", "Экспериментальный rawRequest требует unsafe: true");
-    const method = request.method ?? "GET";
-    try {
-      // Пробный Request: метод и допустимость тела проверяет тот же код, что у fetch, до сети.
-      new Request(this.transport.baseUrl, {
-        method,
-        ...(request.body === undefined ? {} : { body: "" }),
-      });
-    } catch {
-      throw new ArgumentError("method: метод HTTP записан неверно или не допускает тела (body).");
-    }
-    const response = await this.transport.send(
-      request.path,
-      {
-        method,
-        ...(request.headers === undefined ? {} : { headers: request.headers }),
-        ...(request.body === undefined ? {} : { body: request.body }),
-      },
-      {
-        ...options,
-        basic: this.transport.hasCredentials && this.transport.cookie.value === undefined,
-      },
-    );
-    return binaryResponse(response);
-  }
-}
-
-/** Частичные операции web, подкреплённые схемой, и запасной путь — сырой запрос. */
-export class WebExperimentalApi extends ExperimentalApi {
-  /**
-   * Вызвать частично поддержанный маршрут веб-аутентификации; cookie и тело успешного ответа до конца не установлены.
-   * @mutating Меняет состояние аутентификации и сессии.
-   */
-  async authenticate(
-    request: { login: string; password: string; token: string },
-    options?: RequestOptions,
-  ): Promise<WsHcmResponse<unknown>> {
-    return jsonResponse(
-      await this.transport.send(
-        "/api/spxml2/authenticate",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(request),
-        },
-        options,
-      ),
-    );
-  }
-}
-
-/** Частичные операции native, подкреплённые схемой, и запасной путь — сырой запрос. */
-export class NativeExperimentalApi extends ExperimentalApi {}
-
 export function createNativeLdsApi(
   transport: HttpTransport,
   sessionId: () => DecimalId,
 ): NativeLdsApi {
-  return new NativeLdsApi(new LdsCaller(transport, "native", sessionId));
-}
-
-export function createWebLdsApi(transport: HttpTransport, sessionId: () => DecimalId): WebLdsApi {
-  return new WebLdsApi(new LdsCaller(transport, "web", sessionId));
+  return new NativeLdsApi(new LdsCaller(transport, sessionId));
 }

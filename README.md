@@ -198,7 +198,7 @@ npm run build
 node dist/cli/bin.js version
 ```
 
-`npm run build` собирает CLI в один файл `dist/cli/bin.js` без внешних зависимостей, `npm run verify` запускает все проверки. Как устроен клиент, написано в [docs/architecture.md](docs/architecture.md).
+`npm run build` собирает CLI и SDK в `dist/` со встроенными зависимостями. Точка входа CLI — `dist/cli/bin.js`. `npm run verify` запускает все проверки. Как устроен клиент, написано в [docs/architecture.md](docs/architecture.md).
 
 Собранный плагин лежит в ветке `plugin`. Плагин из папки с исходниками Claude Code загружает на один сеанс: `claude --plugin-dir .`.
 

@@ -20,32 +20,49 @@ const library = `<SPXML-INLINE-FORM><tools>
 const response = (source: string | Buffer) => ({
   Data: Buffer.from(source).toString("base64").replace(/.{60}/g, "$&\n"),
 });
-test("встроенный обзор сохраняет постраничность, краткие карточки, фильтры и неизменяемые параметры", async () => {
-  const catalog = new RpcCatalog();
+test("обзор функций сервера сохраняет постраничность, краткие карточки, фильтры и неизменяемые параметры", async () => {
+  const extra = Array.from(
+    { length: 35 },
+    (_, i) =>
+      `<fn_${String(i).padStart(2, "0")} PROPERTY="1" ALLOW-CALL-FROM-CLIENT="1" PARAM="iPageSize" EXPR="return ${i};"/>`,
+  ).join("");
+  const files = new Map<string, string>([
+    [
+      "x-local://libs/tools.xml",
+      `<SPXML-INLINE-FORM><tools>
+        <get_version PROPERTY="1" ALLOW-CALL-FROM-CLIENT="1" PARAM="sTypeParam" PARAM="bDateFlag" EXPR="return '1.0';"/>
+        <fnSaveFile ALLOW-CALL-FROM-CLIENT="0" EXPR="return false;"/>
+        ${extra}
+      </tools></SPXML-INLINE-FORM>`,
+    ],
+  ]);
+  const catalog = new RpcCatalog(
+    async () => ({ shared_docs: [{ id: "tools", url: "x-local://libs/tools.xml" }] }),
+    async (url) => response(files.get(url)!),
+  );
   const page = await catalog.list();
-  assert.equal(page.source, "built-in 2025.1.1171");
-  assert.equal(page.total, 263);
+  assert.equal(page.source, "server");
+  assert.equal(page.total, 37);
   assert.equal(page.targets.length, 30);
   assert.equal(page.nextCursor, 30);
   assert.deepEqual(page.targets[0], {
-    id: "i18n.obtain_const_translate_data",
-    parameters: [],
-    allowed: null,
+    id: "tools.fn_00",
+    parameters: ["iPageSize"],
+    allowed: true,
   });
   const version = await catalog.describe("tools.get_version", { source: true });
   assert.deepEqual(version, {
     id: "tools.get_version",
     parameters: ["sTypeParam", "bDateFlag"],
     allowed: true,
-    source: page.source,
+    source: "server",
+    code: "return '1.0';",
   });
-  assert.equal((await catalog.describe("tools_report.fnSaveFile")).allowed, false);
+  assert.equal((await catalog.describe("tools.fnSaveFile")).allowed, false);
   assert.equal((await catalog.list({ query: " GET_VERSION " })).total, 1);
   assert.equal((await catalog.list({ library: "tools", method: "get_version" })).total, 1);
   assert.ok(
-    (await catalog.list({ query: "iPageSize" })).targets.some(
-      (item) => item.id === "ms_tools.evaluate_remote_collection_obj",
-    ),
+    (await catalog.list({ query: "iPageSize" })).targets.some((item) => item.id === "tools.fn_00"),
   );
   const ids: string[] = [];
   let cursor = 0;
@@ -57,8 +74,8 @@ test("встроенный обзор сохраняет постранично�
     assert.equal(next.nextCursor, cursor + next.targets.length);
     cursor = next.nextCursor;
   }
-  assert.equal(ids.length, 263);
-  assert.equal(new Set(ids).size, 263);
+  assert.equal(ids.length, 37);
+  assert.equal(new Set(ids).size, 37);
   assert.equal((await catalog.list({ cursor: Number.MAX_SAFE_INTEGER })).targets.length, 0);
   assert.equal((await catalog.list({ library: "synthetic_unknown" })).total, 0);
   assert.ok(Object.isFrozen(version) && Object.isFrozen(version.parameters));
@@ -87,7 +104,7 @@ test("неверный ввод обзора отклоняется до чте�
     { query: "x".repeat(513) },
     { library: "tools.extra" },
     { method: "" },
-    { builtIn: "yes" },
+    { builtIn: true },
     { arbitrary: "synthetic_secret" },
   ])
     await assert.rejects(
@@ -107,13 +124,16 @@ test("неверный ввод обзора отклоняется до чте�
     "tools.synthetic-secret",
   ])
     await assert.rejects(catalog.describe(id as string), { code: "INVALID_ARGUMENT" });
-  await assert.rejects(new RpcCatalog().describe("tools.missing"), { code: "UNKNOWN_RPC_TARGET" });
+  await assert.rejects(new RpcCatalog().list(), { code: "RPC_CATALOG_UNAVAILABLE" });
+  await assert.rejects(new RpcCatalog().describe("tools.missing"), {
+    code: "RPC_CATALOG_UNAVAILABLE",
+  });
   await assert.rejects(catalog.describe("tools.get_version", { source: "yes" } as never), {
     code: "INVALID_ARGUMENT",
   });
 });
 
-test("runtime читает отфильтрованные файлы библиотек один раз, пропускает сломанные файлы, а встроенный обзор не делает запросов", async () => {
+test("runtime читает отфильтрованные файлы библиотек один раз и пропускает сломанные файлы", async () => {
   const files = new Map([
     ["x-local://libs/tools.xml", library],
     [
@@ -148,15 +168,6 @@ test("runtime читает отфильтрованные файлы библи�
   );
   const calls = () => server.calls.map(({ id, args }) => String(args.url ?? id));
   try {
-    for (const [id, args] of [
-      ["rpc.list", { builtIn: true, limit: 3 }],
-      ["rpc.describe", { targetId: "tools.get_version", builtIn: true, source: true }],
-    ] as const) {
-      const builtIn = await runtime.call(id, args);
-      assert.equal(builtIn.ok, true);
-      assert.equal((builtIn.data as { source: string }).source, "built-in 2025.1.1171");
-    }
-    assert.deepEqual(calls(), []);
     const first = await runtime.call("rpc.list", { library: "tools" });
     assert.equal(first.ok, true, JSON.stringify(first.error));
     assert.deepEqual(calls(), [
@@ -265,7 +276,7 @@ test("чтение библиотек идёт по одному запросу;
   assert.equal((await catalog.describe("lib0.get_version")).code, undefined);
 });
 
-test("на запасной вариант переходят только при сбое метаданных приложения; нечитаемые библиотеки сохраняют исходный код сервера", async () => {
+test("при сбое метаданных приложения возвращается RPC_CATALOG_UNAVAILABLE; нечитаемые библиотеки остаются в skipped", async () => {
   let reads = 0;
   const fallback = new RpcCatalog(
     async () => {
@@ -275,8 +286,10 @@ test("на запасной вариант переходят только пр�
       reads++;
     },
   );
-  assert.equal((await fallback.list()).source, "built-in 2025.1.1171");
-  assert.equal((await fallback.describe("tools.get_version", { source: true })).code, undefined);
+  await assert.rejects(fallback.list(), { code: "RPC_CATALOG_UNAVAILABLE" });
+  await assert.rejects(fallback.describe("tools.get_version", { source: true }), {
+    code: "RPC_CATALOG_UNAVAILABLE",
+  });
   assert.equal(reads, 0);
   const empty = new RpcCatalog(
     async () => ({ shared_docs: [{ id: "tools", url: "x-local://libs/missing.xml" }] }),

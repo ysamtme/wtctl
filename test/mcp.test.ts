@@ -14,7 +14,7 @@ import { HcmRuntime } from "../src/runtime.js";
 import type { ConnectionConfig } from "../src/contracts.js";
 import { mcpJson } from "./mcp-json.js";
 import { operationHelp } from "../src/operation-help.js";
-import { scratchRuntimeDir } from "./fake-server.js";
+import { fakeRuntime, scratchRuntimeDir } from "./fake-server.js";
 
 function fixture() {
   const definitions: OperationDefinition[] = (
@@ -117,6 +117,10 @@ test("все инструменты объявляют простые схемы
   assert.equal(
     f.tools.list().find((tool) => tool.name === "hcm_object_create")?.annotations?.destructiveHint,
     false,
+  );
+  assert.equal(
+    f.tools.list().find((tool) => tool.name === "hcm_result_export")?.annotations?.destructiveHint,
+    true,
   );
   assert.equal(
     f.tools.list().find((tool) => tool.name === "hcm_api_read")?.annotations?.idempotentHint,
@@ -267,7 +271,7 @@ test("фактический эффект в runtime не пропускает T
   }
 });
 
-test("без прав чтение через rawRequest по GET, POST и getNewObjectId отклоняется без отправки", async () => {
+test("без прав на запись чтение проходит, а loadDoc с tryLock и getNewObjectId отклоняются без отправки", async () => {
   let requests = 0;
   const fetch = async () => (requests++, new Response("page"));
   const permissions = { write: false, execute: false };
@@ -285,20 +289,29 @@ test("без прав чтение через rawRequest по GET, POST и getNe
     fetch,
   });
   const tools = new HcmMcpTools(runtime);
-  const raw = (method: string) => ({
-    operationId: "anonymous.experimental.rawRequest",
-    args: { unsafe: true, path: "/page", method },
-  });
+  const lockDoc = {
+    operationId: "native.lds.loadDoc",
+    args: { url: "x-local://wt_data/synthetic.xml", tryLock: true },
+  };
   try {
-    for (const method of ["GET", "head"])
-      assert.equal(structured(await tools.invoke("hcm_api_read", raw(method))).ok, true);
-    const post = raw("POST");
-    const mismatch = structured(await tools.invoke("hcm_api_read", post));
+    assert.equal(
+      structured(
+        await tools.invoke("hcm_api_read", {
+          operationId: "anonymous.diagnostics.portal",
+          args: {},
+        }),
+      ).ok,
+      true,
+    );
+    const mismatch = structured(await tools.invoke("hcm_api_read", lockDoc));
     assert.equal(mismatch.error?.code, "mcp.effect_mismatch");
-    assert.equal((await runtime.call(post.operationId, post.args)).error?.code, "WRITE_DISABLED");
+    assert.equal(
+      (await runtime.call(lockDoc.operationId, lockDoc.args)).error?.code,
+      "WRITE_DISABLED",
+    );
     const id = await runtime.call("native.lds.getNewObjectId", { dbName: "wt_data" });
     assert.equal(id.error?.code, "WRITE_DISABLED");
-    assert.equal(requests, 2);
+    assert.equal(requests, 1);
   } finally {
     await runtime.close();
   }
@@ -732,10 +745,25 @@ test("обзор MCP на настоящем runtime компактен, а desc
     assert.equal(properties.url?.type, "string");
     assert.equal(properties.tryLock?.type, "boolean");
     assert.equal(properties.useBinaryResponse?.type, "boolean");
+    assert.equal(networkCalls, 0);
+  } finally {
+    await runtime.close();
+  }
+
+  const libXml =
+    '<SPXML-INLINE-FORM><tools><get_version PROPERTY="1" ALLOW-CALL-FROM-CLIENT="1" PARAM="sTypeParam" PARAM="bDateFlag" EXPR="return \'1.0\';"/></tools></SPXML-INLINE-FORM>';
+  const { runtime: rpcRuntime } = fakeRuntime({
+    "native.spxml2.getAppInfo": {
+      shared_docs: [{ id: "tools", url: "x-local://libs/tools.xml" }],
+    },
+    "native.lds.loadUrl": { Data: Buffer.from(libXml).toString("base64") },
+  });
+  const rpcTools = new HcmMcpTools(rpcRuntime);
+  try {
     const rpcList = structured(
-      await tools.invoke("hcm_api_read", {
+      await rpcTools.invoke("hcm_api_read", {
         operationId: "rpc.list",
-        args: { library: "tools", method: "get_version", builtIn: true },
+        args: { library: "tools", method: "get_version" },
       }),
     );
     assert.equal(rpcList.ok, true);
@@ -745,13 +773,13 @@ test("обзор MCP на настоящем runtime компактен, а desc
       source: string;
     };
     assert.equal(rpcPage.total, 1);
-    assert.equal(rpcPage.source, "built-in 2025.1.1171");
+    assert.equal(rpcPage.source, "server");
     assert.equal(rpcPage.targets[0]?.id, "tools.get_version");
     assert.deepEqual(rpcPage.targets[0]?.parameters, ["sTypeParam", "bDateFlag"]);
     const rpcDescribe = structured(
-      await tools.invoke("hcm_api_read", {
+      await rpcTools.invoke("hcm_api_read", {
         operationId: "rpc.describe",
-        args: { targetId: "tools.get_version", builtIn: true, source: true },
+        args: { targetId: "tools.get_version", source: true },
       }),
     );
     assert.equal(rpcDescribe.ok, true);
@@ -759,18 +787,164 @@ test("обзор MCP на настоящем runtime компактен, а desc
       source: string;
       code?: string;
     };
-    assert.equal(rpcTarget.source, "built-in 2025.1.1171");
-    assert.equal(rpcTarget.code, undefined);
+    assert.equal(rpcTarget.source, "server");
+    assert.equal(rpcTarget.code, "return '1.0';");
     const unknown = structured(
-      await tools.invoke("hcm_api_read", {
+      await rpcTools.invoke("hcm_api_read", {
         operationId: "rpc.describe",
-        args: { targetId: "tools.synthetic_missing", builtIn: true },
+        args: { targetId: "tools.synthetic_missing" },
       }),
     );
     assert.equal(unknown.ok, false);
     assert.equal(unknown.error?.code, "UNKNOWN_RPC_TARGET");
-    assert.equal(networkCalls, 0);
+  } finally {
+    await rpcRuntime.close();
+  }
+});
+
+test("запись на диск в MCP идёт через hcm_api_write (или hcm_api_execute в пакете с кодом), но остаётся чтением в ядре", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "hcm-mcp-disk-"));
+  const bytes = Buffer.from("hello-disk", "utf8");
+  const { runtime } = fakeRuntime(
+    {
+      "native.lds.loadUrl": bytes,
+    },
+    { runtimeDir: directory, permissions: { write: false, execute: false } },
+  );
+  const tools = new HcmMcpTools(runtime);
+  try {
+    const outFile = join(directory, "saved.txt");
+    const batchFile = join(directory, "batch.txt");
+    const exportFile = join(directory, "exported.json");
+    assert.equal(
+      runtime.getOperationEffect("files.read", { url: "x-local://wt/a.txt", file: outFile }),
+      "read",
+    );
+    assert.equal(
+      runtime.getOperationEffect("results.export", { resultId: "id", path: exportFile }),
+      "read",
+    );
+
+    for (const [tool, operationId, args, expectedTool] of [
+      ["hcm_api_read", "files.read", { url: "x-local://wt/a.txt", file: outFile }, "hcm_api_write"],
+      [
+        "hcm_api_read",
+        "results.export",
+        { resultId: "missing", path: exportFile },
+        "hcm_api_write",
+      ],
+      [
+        "hcm_api_read",
+        "runtime.batch",
+        { steps: [{ id: "files.read", args: { url: "x-local://wt/a.txt", file: batchFile } }] },
+        "hcm_api_write",
+      ],
+      [
+        "hcm_api_read",
+        "runtime.batch",
+        {
+          steps: [
+            { id: "runtime.status", as: "s" },
+            {
+              id: "files.read",
+              args: { url: "x-local://wt/a.txt", file: { $ref: "s.data.connection" } },
+            },
+          ],
+        },
+        "hcm_api_write",
+      ],
+      [
+        "hcm_api_read",
+        "runtime.batch",
+        {
+          steps: [
+            { id: "runtime.status", as: "s" },
+            { id: "files.read", args: { $ref: "s.data" } },
+          ],
+        },
+        "hcm_api_write",
+      ],
+      [
+        "hcm_api_read",
+        "runtime.batch",
+        { steps: [{ id: "results.export", args: { resultId: "missing", path: exportFile } }] },
+        "hcm_api_write",
+      ],
+      [
+        "hcm_api_read",
+        "runtime.batch",
+        {
+          steps: [
+            { id: "execute.script", args: { code: "RESULT=[];" } },
+            { id: "files.read", args: { url: "x-local://wt/a.txt", file: batchFile } },
+          ],
+        },
+        "hcm_api_execute",
+      ],
+      [
+        "hcm_api_write",
+        "runtime.batch",
+        {
+          steps: [
+            { id: "execute.script", args: { code: "RESULT=[];" } },
+            { id: "files.read", args: { url: "x-local://wt/a.txt", file: batchFile } },
+          ],
+        },
+        "hcm_api_execute",
+      ],
+      ["hcm_api_write", "files.read", { url: "x-local://wt/a.txt" }, "hcm_api_read"],
+    ] as const) {
+      const denied = structured(await tools.invoke(tool, { operationId, args }));
+      assert.equal(denied.ok, false, `${tool} ${operationId}`);
+      assert.equal(denied.error?.code, "mcp.effect_mismatch", `${tool} ${operationId}`);
+      assert.match(denied.error?.hint ?? "", new RegExp(expectedTool), `${tool} ${operationId}`);
+    }
+
+    // Неверные типы file и $ref в прямом вызове files.read не советуют менять инструмент — сразу ошибка аргументов.
+    for (const invalidArgs of [
+      { url: "x-local://wt/a.txt", file: null },
+      { url: "x-local://wt/a.txt", file: 42 },
+      { $ref: "step.data" },
+    ]) {
+      const bad = structured(
+        await tools.invoke("hcm_api_read", { operationId: "files.read", args: invalidArgs }),
+      );
+      assert.equal(bad.ok, false);
+      assert.notEqual(bad.error?.code, "mcp.effect_mismatch");
+    }
+
+    // Обычное чтение файла без file и пакет с ним остаются в hcm_api_read.
+    const plainRead = structured(
+      await tools.invoke("hcm_api_read", {
+        operationId: "runtime.batch",
+        args: { steps: [{ id: "files.read", args: { url: "x-local://wt/a.txt" } }] },
+      }),
+    );
+    assert.equal(plainRead.ok, true);
+
+    // На подключении только для чтения hcm_api_write сохраняет файл на диск и экспортирует результат.
+    const batchWrite = structured(
+      await tools.invoke("hcm_api_write", {
+        operationId: "runtime.batch",
+        args: {
+          steps: [{ id: "files.read", args: { url: "x-local://wt/a.txt", file: batchFile } }],
+        },
+      }),
+    );
+    assert.equal(batchWrite.ok, true, JSON.stringify(batchWrite.error));
+    assert.equal(readFileSync(batchFile, "utf8"), "hello-disk");
+
+    const stored = await runtime.results.put({ items: [1, 2] });
+    const exported = structured(
+      await tools.invoke("hcm_api_write", {
+        operationId: "results.export",
+        args: { resultId: stored.resultId, path: exportFile },
+      }),
+    );
+    assert.equal(exported.ok, true, JSON.stringify(exported.error));
+    assert.deepEqual(JSON.parse(readFileSync(exportFile, "utf8")), { items: [1, 2] });
   } finally {
     await runtime.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });

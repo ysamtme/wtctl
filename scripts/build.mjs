@@ -1,5 +1,5 @@
-// Собирает dist/: команду одним самодостаточным файлом, библиотеку со встроенными зависимостями,
-// объявления типов и тексты лицензий всего встроенного.
+// Собирает dist/: CLI и SDK с общими модулями и встроенными зависимостями,
+// объявления типов и тексты лицензий встроенных пакетов.
 import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
@@ -23,47 +23,66 @@ const declarations = spawnSync(
 );
 if (declarations.status !== 0) process.exit(declarations.status ?? 1);
 
-const shared = {
+// ws загружает эти два модуля, только если они установлены; без них использует свой код.
+const optional = ["bufferutil", "utf-8-validate"];
+const { metafile } = await build({
   absWorkingDir: root,
+  entryPoints: {
+    "cli/bin": "src/cli/bin.ts",
+    index: "src/index.ts",
+    "native/index": "src/native/index.ts",
+    "protocol/index": "src/protocol/index.ts",
+  },
+  outdir: dist,
   bundle: true,
+  splitting: true,
+  chunkNames: "chunks/[name]-[hash]",
   platform: "node",
   format: "esm",
   target: "node22",
   metafile: true,
   legalComments: "none",
   charset: "utf8",
-  // ws загружает эти два модуля, только если они установлены; без них использует свой код.
-  external: ["bufferutil", "utf-8-validate"],
+  external: optional,
   // Встроенные зависимости CommonJS вызывают require() для собственных модулей Node.
   banner: {
     js: 'import { createRequire as __wtctlRequire } from "node:module";\nconst require = __wtctlRequire(import.meta.url);',
   },
   logLevel: "warning",
-};
-const command = await build({
-  ...shared,
-  entryPoints: { "cli/bin": "src/cli/bin.ts" },
-  outdir: dist,
-});
-const library = await build({
-  ...shared,
-  entryPoints: {
-    index: "src/index.ts",
-    "native/index": "src/native/index.ts",
-    "protocol/index": "src/protocol/index.ts",
-  },
-  outdir: dist,
-  splitting: true,
-  chunkNames: "chunks/[name]-[hash]",
 });
 
 // У установленного пакета нет зависимостей: для импорта могут остаться только модули самого Node.
-const outside = new Set([...builtinModules, ...shared.external]);
-for (const result of [command, library])
-  for (const [file, output] of Object.entries(result.metafile.outputs))
-    for (const item of output.imports)
-      if (item.external && !outside.has(item.path.replace(/^node:/, "")))
-        throw new Error(`${file} всё ещё импортирует ${item.path}.`);
+const outside = new Set([...builtinModules, ...optional]);
+for (const [file, output] of Object.entries(metafile.outputs))
+  for (const item of output.imports)
+    if (item.external && !outside.has(item.path.replace(/^node:/, "")))
+      throw new Error(`${file} всё ещё импортирует ${item.path}.`);
+
+// При обычном запуске CLI и в SDK модули MCP-сервера и тексты гайда не загружаются.
+const visited = new Set();
+const pending = [
+  "dist/cli/bin.js",
+  "dist/index.js",
+  "dist/native/index.js",
+  "dist/protocol/index.js",
+];
+while (pending.length) {
+  const file = pending.pop();
+  if (visited.has(file)) continue;
+  visited.add(file);
+  const { inputs, imports } = metafile.outputs[file];
+  for (const input of Object.keys(inputs)) {
+    const path = input.replaceAll("\\", "/");
+    if (
+      path.startsWith("src/mcp/") ||
+      path === "src/guide-texts.ts" ||
+      /(?:^|\/)node_modules\/(?:@modelcontextprotocol\/sdk|zod|ajv)\//.test(path)
+    )
+      throw new Error(`В статически достижимый файл ${file} попал модуль ${input}.`);
+  }
+  for (const item of imports)
+    if (!item.external && item.kind === "import-statement") pending.push(item.path);
+}
 
 // То же для объявлений типов; не достижимые из трёх точек входа отбрасываются.
 const reached = new Set();
@@ -89,10 +108,7 @@ for (const name of readdirSync(dist, { recursive: true, withFileTypes: true }))
 
 // Тексты лицензий встроенных пакетов, найденные по файлам, которые сборщик действительно прочитал.
 const packages = new Map();
-for (const input of [
-  ...Object.keys(command.metafile.inputs),
-  ...Object.keys(library.metafile.inputs),
-]) {
+for (const input of Object.keys(metafile.inputs)) {
   const match = /^(.*node_modules\/((?:@[^/]+\/)?[^/]+))\//.exec(input.replaceAll("\\", "/"));
   if (match) packages.set(match[2], resolve(root, match[1]));
 }

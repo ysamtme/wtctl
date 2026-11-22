@@ -32,7 +32,10 @@ function paramsJson(params: unknown): string {
   }
 }
 
-/** Существующий RPC Administrator получает несохранённый XmElem с приложенной штатной формой. */
+/**
+ * Существующий RPC Administrator получает несохранённый XmElem с приложенной штатной формой.
+ * @internal
+ */
 export function prepareScript(
   value: unknown,
   params?: unknown,
@@ -74,7 +77,10 @@ export interface AgentRunData {
   readonly hint: string;
 }
 
-/** Код и параметры запуска агента на месте. ID идут в код агента, поэтому проходят только ID. */
+/**
+ * Код и параметры запуска агента на месте. ID идут в код агента, поэтому проходят только ID.
+ * @internal
+ */
 export function agentRun(args: Record<string, unknown>): { code: string; params: object } {
   const id = (value: unknown, path: string): string => {
     if (typeof value !== "string" || !ID.test(value))
@@ -94,6 +100,7 @@ export function agentRun(args: Record<string, unknown>): { code: string; params:
   };
 }
 
+/** @internal */
 export function agentRunResult(data: ScriptData): AgentRunData {
   const row = data.result[0] as { started?: unknown; from?: unknown; to?: unknown } | undefined;
   const time = (value: unknown): string => String(value ?? "").slice(0, 19);
@@ -108,12 +115,18 @@ export function agentRunResult(data: ScriptData): AgentRunData {
   };
 }
 
-/** Сырые пробы могут идти тем же запросом, не меняя свой низкоуровневый контракт аргументов. */
+/**
+ * Сырые пробы могут идти тем же запросом, не меняя свой низкоуровневый контракт аргументов.
+ * @internal
+ */
 export function scriptRequest(value: unknown, params?: unknown): Record<string, unknown> {
   return prepareScript(value, params).request;
 }
 
-/** Успешного транспорта мало: коллекция может сообщить о пойманной ошибке скрипта. */
+/**
+ * Успешного транспорта мало: коллекция может сообщить о пойманной ошибке скрипта.
+ * @internal
+ */
 export function scriptResult(response: unknown, executionId: string): ScriptData {
   const decoded = decodeRpcValue(findXmlNode(response, "Result"));
   if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded))

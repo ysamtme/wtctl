@@ -2,6 +2,7 @@ import type { OperationResult } from "../contracts.js";
 import { HcmError, inputObject, requiredString } from "../errors.js";
 import {
   boolean,
+  isStepReference,
   operation,
   schema,
   type EffectFor,
@@ -79,6 +80,24 @@ export const batchOperations = [
     id: "runtime.batch",
     effect: "unknown",
     effectFor: batchEffect,
+    writesLocalDisk: (args, _inBatch, writes) => {
+      if (args === null || typeof args !== "object" || Array.isArray(args)) return false;
+      const steps = (args as Record<string, unknown>).steps;
+      return (
+        Array.isArray(steps) &&
+        steps.some(
+          (step) =>
+            step !== null &&
+            typeof step === "object" &&
+            !Array.isArray(step) &&
+            typeof (step as Record<string, unknown>).id === "string" &&
+            writes(
+              (step as Record<string, unknown>).id as string,
+              (step as Record<string, unknown>).args,
+            ),
+        )
+      );
+    },
     reply: { failed: batchFailed, list: { key: "results", summary: stepSummary } },
     description:
       "Несколько операций одним вызовом: steps — список {id, args, as}. Значение из прошлого шага: {$ref:'имя.data.items.0.id'}, где имя — as того шага, дальше путь по его ответу. Класс вызова — по самому сильному шагу: все шаги читают — чтение, есть запись — запись, есть выполнение кода — выполнение. Права проверяются для каждого шага. Это не транзакция: выполненные шаги не откатываются; первый сбой останавливает остальные, если не задано stopOnError:false.",
@@ -149,7 +168,7 @@ export const batchOperations = [
         if (Array.isArray(value)) return value.map((item) => resolveRefs(item, depth + 1));
         if (value === null || typeof value !== "object") return value;
         const record = inputObject(value);
-        if (Object.keys(record).length === 1 && typeof record.$ref === "string") {
+        if (isStepReference(record)) {
           const [stepName, ...path] = record.$ref.split(".");
           let result: unknown = named.get(stepName!);
           for (const key of path) {

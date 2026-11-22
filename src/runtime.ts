@@ -2,6 +2,7 @@ import { operations, operationDefinition, operationSpec } from "./operations.js"
 import type { Operation, OperationCall, OperationContext } from "./operation.js";
 import { listHcmOperations, describeHcmOperation, operationEffect } from "./catalog.js";
 import { NativeGateway, WsHcmApiError } from "./native/index.js";
+import { trustedGatewayPort } from "./native/gateway.js";
 import { validate } from "./native/validation.js";
 import { HcmError, inputObject, requiredString } from "./errors.js";
 import { LOCAL_LIMITS, permissionHint } from "./config.js";
@@ -48,7 +49,7 @@ export class HcmRuntime implements RuntimePort {
     this.results = new ResultStore(config);
     this.replies = new ReplyPacker(config, this.results);
     this.gateway = new NativeGateway(config);
-    this.server = new HcmServer(port ?? this.gateway);
+    this.server = new HcmServer(port ?? trustedGatewayPort(this.gateway));
     this.logs = new LogReader({ call: (id, args) => this.server.read(id, args) }, config);
     this.files = new ServerFiles(this.server, config);
     this.rpcCatalog = new RpcCatalog(
@@ -168,7 +169,7 @@ export class HcmRuntime implements RuntimePort {
       verdict.mutationOutcome === "not_sent" ||
       id === "files.list" ||
       id === "runtime.batch" ||
-      ((id === "native.lds.xQuery" || id === "web.lds.xQuery") &&
+      (id === "native.lds.xQuery" &&
         typeof args.query === "string" &&
         !/^\s*sql\s*:/i.test(args.query))
     )

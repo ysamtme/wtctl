@@ -39,7 +39,7 @@ function refuseUnowned(
     throw new Error(`${id}: запрос, который может изменить сервер, без владельца исхода записи`);
 }
 
-/** Сервер для составных операций: каждый запрос к порту проходит здесь. */
+/** Сервер для основных операций: каждый запрос к порту проходит здесь. */
 export class HcmServer {
   private appInfo: { expires: number; value: Promise<Record<string, unknown>> } | undefined;
 

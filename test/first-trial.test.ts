@@ -554,7 +554,7 @@ test("пустой элемент сырого ответа — пустая с�
     { "*": { Catalogs: "\n\t\t\t", note: " ", lines: "a\n\tb" } },
     readOnly,
   );
-  const result = await runtime.call("native.lds.getCatalogsStat", {});
+  const result = await runtime.call("native.spxml2.getAppInfo", {});
   assert.deepEqual(result.data, { Catalogs: "", note: " ", lines: "a\n\tb" });
   await runtime.close();
 });

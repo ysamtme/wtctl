@@ -39,22 +39,16 @@ function responseFor(url: URL, init: RequestInit, operationId?: WireOperationId)
       headers: { "set-cookie": "SessionID=web-cookie; Path=/" },
     });
   }
-  if (url.pathname === "/admin")
-    return new Response(null, { status: 301, headers: { location: "/spxml_web/main.htm" } });
   if (url.pathname === "/spxml_web/logout.htm")
     return new Response(null, { status: 302, headers: { location: "/spxml_web/logout2.htm" } });
   if (url.pathname === "/spxml_web/logout2.htm") return new Response("", { status: 401 });
-  if (url.pathname === "/api/spxml/GetDoc" || url.pathname.endsWith("get_ui_text.htm")) {
+  if (url.pathname.endsWith("get_ui_text.htm")) {
     return new Response("<root/>", { status: 200, headers: { "content-type": "text/xml" } });
   }
-  if (
-    url.pathname === "/api/spxml/PutDoc" ||
-    url.pathname === "/api/spxml2/get_app_info" ||
-    url.pathname === "/api/spxml2/std_encrypt"
-  ) {
+  if (url.pathname === "/api/spxml2/get_app_info") {
     return Response.json({ Success: 1 });
   }
-  if (operationId?.includes("resource") || url.pathname.endsWith("get_image")) {
+  if (operationId?.includes("resource")) {
     return new Response(encoder.encode("binary"), {
       status: 200,
       headers: { "content-type": "application/octet-stream" },
@@ -67,19 +61,18 @@ async function cancel(response: WsHcmBinaryResponse): Promise<void> {
   await response.body?.cancel();
 }
 
-test("все 45 поддерживаемых единиц операций строят запрос через публичный метод", async () => {
+test("все поддерживаемые единицы операций строят запрос через публичный метод", async () => {
   const pending: WireOperationId[] = [];
   const covered = new Set<WireOperationId>();
   const fetch: typeof globalThis.fetch = async (input, init = {}) => {
     const url = new URL(String(input));
     const operationId = pending.shift();
     if (operationId === undefined) {
-      const cleanup =
-        url.pathname === "/loggedoff.html" ||
-        url.pathname === "/spxml_web/logout.htm" ||
-        url.pathname === "/spxml_web/logout2.htm" ||
-        /<CloseSession\b/.test(requestBody(init));
-      assert.ok(cleanup, `unexpected untracked request: ${init.method ?? "GET"} ${url.pathname}`);
+      assert.equal(
+        url.pathname,
+        "/loggedoff.html",
+        `unexpected untracked request: ${init.method ?? "GET"} ${url.pathname}`,
+      );
       return responseFor(url, init);
     }
 
@@ -92,10 +85,6 @@ test("все 45 поддерживаемых единиц операций ст�
         new RegExp(`<${metadata.operationName}\\b`),
         `${operationId} SOAP operation`,
       );
-    if (operationId === "web-spxml2-get-app-info") {
-      assert.equal(url.searchParams.get("fast_start"), "1");
-      assert.match(url.searchParams.get("rnd") ?? "", /^\d+$/);
-    }
     covered.add(operationId);
     return responseFor(url, init, operationId);
   };
@@ -120,15 +109,8 @@ test("все 45 поддерживаемых единиц операций ст�
 
   await cover("native-xhttp-info", () => client.diagnostics.xhttpInfo());
   const native = await cover("native-lds-open-session", () => client.openNativeSession());
-  await cover("native-lds-get-catalogs-stat", () => native.lds.getCatalogsStat());
-  await cover("native-lds-get-mod-objects", () =>
-    native.lds.getModObjects({ minModDate: "2025-01-01" }),
-  );
   await cover("native-lds-load-url", () =>
     native.lds.loadUrl({ url: "x-local://wt/web/webtutor.wtv" }),
-  );
-  await cover("native-lds-put-url", () =>
-    native.lds.putUrl({ url: "x-local://wt/test.xml", data: fragment }),
   );
   await cover("native-lds-delete-url", () =>
     native.lds.deleteUrl({ url: "x-local://wt/test.xml" }),
@@ -146,11 +128,6 @@ test("все 45 поддерживаемых единиц операций ст�
   await cover("native-lds-xquery", () =>
     native.lds.xQuery({ query: "for $x in collaborators return $x" }),
   );
-  await cover("native-lds-release-cursor", () => native.lds.releaseCursor("9"));
-  await cover("native-lds-run-method", () =>
-    native.lds.runMethod({ libName: "tools", methodName: "method", argData: fragment }),
-  );
-  await cover("native-lds-idle", () => native.lds.idle());
   await cover("native-spxml-call-method", () =>
     native.rpc.call({ target: "tools.get_version", args: [rpc.string("wtv")] }),
   );
@@ -163,50 +140,28 @@ test("все 45 поддерживаемых единиц операций ст�
       native.resources.getImage({ resourceId: "1" }),
     ),
   );
+  await cancel(
+    await cover("native-resource-compound", () =>
+      native.resources.getCompoundResource({ url: "x-local://wt/course.html", resId: "a.txt" }),
+    ),
+  );
   await cover("native-lds-close-session", () => native.close());
 
   const web = await cover(["web-main-page", "web-lds-open-session"], () => client.openWebSession());
-  await cover("web-admin-alias", () => web.lifecycle.admin());
-  await cover("web-lds-xquery", () =>
-    web.lds.xQuery({ query: "for $x in collaborators return $x" }),
-  );
-  await cover("web-lds-release-cursor", () => web.lds.releaseCursor("10"));
-  await cover("web-lds-delete-doc", () => web.lds.deleteDoc({ url: "x-local://wt/test.xml" }));
-  await cover("web-spxml-call-method", () => web.spxml.callMethod({ target: "tools.get_version" }));
+  await cover("web-spxml-call-method", () => web.rpc.call({ target: "tools.get_version" }));
   await cover("web-spxml-call-method-async", () =>
     web.spxml.callMethodAsync({ target: "tools.get_version" }),
   );
+  await cover("web-spxml-get-background-tasks", () =>
+    web.spxml.getBackgroundTasksByName({ libName: "tools", methodName: "get_version" }),
+  );
   await cover("web-spxml-get-async-method-status", () => web.spxml.getAsyncMethodStatus("71"));
   await cover("web-spxml-kill-async-method", () => web.spxml.killAsyncMethod("71"));
-  await cover("web-spxml-get-doc", () => web.spxml.getDoc({ docUrl: "x-local://wt/test.xml" }));
-  await cover("web-spxml-put-doc", () =>
-    web.spxml.putDoc({ docUrl: "x-local://wt/test.xml", document: "<doc/>" }),
-  );
-  await cover("web-spxml2-get-app-info", () => web.spxml2.getAppInfo({ fastStart: true }));
-  await cover("web-spxml2-get-form", () => web.spxml2.getForm({ url: "x-app://wt/form.xml" }));
-  await cancel(
-    await cover("web-spxml2-get-image", () =>
-      web.spxml2.getImage({ url: "x-local://wt/image.png" }),
-    ),
-  );
-  await cover("web-spxml2-get-preloaded-design-files", () => web.spxml2.getPreloadedDesignFiles());
-  await cover("web-spxml2-std-encrypt", () => web.spxml2.stdEncrypt("value"));
-  await cover("web-page-file-preview-pdf-htm", () => web.pages.filePreviewPdf());
-  await cover("web-page-get-form-htm", () => web.pages.getForm({ url: "x-app://wt/form.xml" }));
   await cover("web-page-get-screen-form-htm", () =>
     web.pages.getScreenForm({ url: "x-app://wt/form.xml" }),
   );
   await cover("web-page-get-ui-text-htm", () => web.pages.getUiText());
-  await cancel(
-    await cover("web-page-get-url-htm", () => web.pages.getUrl({ url: "x-local://wt/a" })),
-  );
-  await cancel(
-    await cover("web-resource-lds-get-resource-image", () =>
-      web.resources.getImage({ resourceId: "1" }),
-    ),
-  );
-  await cover(["web-logout-page", "web-logout2-page"], () => web.lifecycle.logout());
-  await web.close();
+  await cover(["web-lds-close-session", "web-logout-page", "web-logout2-page"], () => web.close());
 
   assert.deepEqual([...covered].sort(), WIRE_CONTRACT.map(({ id }) => id).sort());
 });

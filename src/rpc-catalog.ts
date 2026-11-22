@@ -3,7 +3,6 @@ import { freezeRegistry } from "./immutable.js";
 import { validate } from "./native/validation.js";
 import { operationDefinition } from "./operations.js";
 import { LibraryReader } from "./protocol/library-functions.js";
-import { RPC_TARGETS_1171 } from "./rpc-targets-1171.js";
 
 /** Функция библиотеки сервера. */
 export interface RpcTargetCard {
@@ -24,8 +23,6 @@ export interface RpcCatalogFilter {
   readonly library?: string;
   /** Имя функции целиком. */
   readonly method?: string;
-  /** Встроенная таблица функций сервера 2025.1.1171, без обращения к серверу. */
-  readonly builtIn?: boolean;
   /** Включить функции, которые может вызывать только код сервера. */
   readonly all?: boolean;
   /** Сколько функций пропустить: nextCursor прошлой страницы. */
@@ -35,15 +32,13 @@ export interface RpcCatalogFilter {
 }
 /** Аргументы describeRpc помимо targetId. */
 export interface RpcDescribeOptions {
-  /** Встроенная таблица функций сервера 2025.1.1171, без обращения к серверу. */
-  readonly builtIn?: boolean;
   /** Добавить код функции, до 8 КБ. */
   readonly source?: boolean;
 }
 /** Откуда взят список функций. */
 interface RpcCatalogSource {
-  /** Откуда список: с сервера или из встроенной таблицы 2025.1.1171. */
-  readonly source: "server" | "built-in 2025.1.1171";
+  /** Источник списка функций — подключённый сервер. */
+  readonly source: "server";
   /** Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. */
   readonly skipped?: readonly string[];
 }
@@ -70,10 +65,8 @@ export interface RpcTargetDescription extends RpcTargetCard, RpcCatalogSource {
   readonly codeTruncated?: true;
 }
 
+/** @internal */
 export const RPC_CATALOG_PAGE_MAX_BYTES = 16 * 1024;
-const targets = freezeRegistry(
-  RPC_TARGETS_1171.map(([id, parameters, allowed]) => ({ id, parameters, allowed })),
-);
 function input(id: string, value: unknown): Record<string, unknown> {
   try {
     validate(value, operationDefinition(id)!.inputSchema);
@@ -90,7 +83,7 @@ function input(id: string, value: unknown): Record<string, unknown> {
 function unknownTarget(
   targetId: string,
   available: readonly RpcTargetCard[],
-  { source, skipped }: RpcCatalogSource,
+  { skipped }: RpcCatalogSource,
 ): HcmError {
   const [library, method] = targetId.split(".") as [string, string];
   const inLibrary = available.filter((item) => item.id.startsWith(`${library}.`));
@@ -108,16 +101,17 @@ function unknownTarget(
     );
   return new HcmError(
     "UNKNOWN_RPC_TARGET",
-    source !== "server"
-      ? `Функции ${targetId} нет во встроенной таблице.`
-      : inLibrary.length
-        ? `В библиотеке ${library} нет функции ${method}.`
-        : `Среди библиотек сервера нет библиотеки ${library} или в ней нет функций.`,
+    inLibrary.length
+      ? `В библиотеке ${library} нет функции ${method}.`
+      : `Среди библиотек сервера нет библиотеки ${library} или в ней нет функций.`,
     `${similar}Имена ищет rpc.list: query — часть имени, all:true — вместе с функциями, которые вызываются только из кода на сервере.`,
   );
 }
 
-/** Поиск целей внутри runtime; вызов цели остаётся отдельной операцией. */
+/**
+ * Поиск целей внутри runtime; вызов цели остаётся отдельной операцией.
+ * @internal
+ */
 export class RpcCatalog {
   private readonly reader: LibraryReader | undefined;
   constructor(
@@ -134,17 +128,20 @@ export class RpcCatalog {
     this.reader?.invalidate();
   }
   private async catalog(
-    builtIn: unknown,
     library?: string,
   ): Promise<RpcCatalogSource & { targets: readonly (RpcTargetCard & { code?: string })[] }> {
-    const server = builtIn === true ? undefined : await this.reader?.read(library);
-    return server
-      ? {
-          targets: server.targets,
-          source: "server",
-          ...(server.skipped.length ? { skipped: server.skipped } : {}),
-        }
-      : { targets, source: "built-in 2025.1.1171" };
+    const server = await this.reader?.read(library);
+    if (!server)
+      throw new HcmError(
+        "RPC_CATALOG_UNAVAILABLE",
+        "Список функций библиотек сервера не получен.",
+        "Проверить подключение через runtime.check или повторить позже.",
+      );
+    return {
+      targets: server.targets,
+      source: "server",
+      ...(server.skipped.length ? { skipped: server.skipped } : {}),
+    };
   }
   /** Почему сервер отказал в вызове, если это объясняет его собственный список функций. */
   async refusal(targetId: string): Promise<HcmError | undefined> {
@@ -173,7 +170,7 @@ export class RpcCatalog {
     const query = filter.query?.trim().toLowerCase();
     const cursor = boundedInteger(args.cursor, 0, Number.MAX_SAFE_INTEGER, "cursor");
     const limit = boundedInteger(args.limit, 30, 100, "limit");
-    const { targets: available, ...metadata } = await this.catalog(filter.builtIn, filter.library);
+    const { targets: available, ...metadata } = await this.catalog(filter.library);
     const matching = available.filter((target) => {
       const [library, method] = target.id.split(".");
       return (
@@ -238,15 +235,12 @@ export class RpcCatalog {
     options: RpcDescribeOptions = {},
   ): Promise<RpcTargetDescription> {
     input("rpc.describe", { ...inputObject(options), targetId });
-    const { targets: available, ...metadata } = await this.catalog(
-      options.builtIn,
-      targetId.split(".")[0],
-    );
+    const { targets: available, ...metadata } = await this.catalog(targetId.split(".")[0]);
     const target = available.find((item) => item.id === targetId);
     if (!target) throw unknownTarget(targetId, available, metadata);
     const { id, parameters, allowed, serverOnly } = target;
     let code: Pick<RpcTargetDescription, "code" | "codeTruncated"> = {};
-    if (options.source === true && metadata.source === "server") {
+    if (options.source === true) {
       const bytes = Buffer.from(target.code ?? "", "utf8");
       code = {
         code: new TextDecoder().decode(bytes.subarray(0, 8192), { stream: true }),

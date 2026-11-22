@@ -17,6 +17,22 @@ import type { BatchRecovery } from "./reply.js";
 import type { SchemaReader } from "./schema.js";
 import type { WriteOutcome } from "./write-outcome.js";
 
+/** Ссылка на поле ответа предыдущего шага runtime.batch: ровно один ключ $ref со строкой. */
+export function isStepReference(value: unknown): value is { readonly $ref: string } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    typeof (value as Record<string, unknown>).$ref === "string"
+  );
+}
+
+/** Признак записи на локальный диск для этих аргументов (без смены серверного эффекта операции). */
+export type LocalDiskWrite =
+  | true
+  | ((args: unknown, inBatch: boolean, writes: (id: string, args: unknown) => boolean) => boolean);
+
 /** Право для этих аргументов; undefined — базовое право операции. */
 export type EffectFor = (
   args: Readonly<Record<string, unknown>>,
@@ -84,6 +100,8 @@ export interface Operation<Id extends string = string, Data = unknown> {
   /** Самое большее, что операция может; это право показывают списки. */
   readonly effect: OperationEffect;
   readonly effectFor?: EffectFor;
+  /** Пишет ли операция файл на локальный диск (для маршрутизации инструментов MCP-сервера). */
+  readonly writesLocalDisk?: LocalDiskWrite;
   readonly description: string;
   /** Строка обзора: её показывают `api list` и `api describe`. */
   readonly summary?: string;

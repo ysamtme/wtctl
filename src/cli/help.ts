@@ -123,7 +123,6 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
     notes: [
       "list читает с сервера функции, разрешённые для вызова с клиента; --all добавляет те, что вызываются только из кода на сервере (serverOnly:true) — их вызывают через exec.",
       "describe знает и те, и другие; --source добавляет код функции.",
-      "--built-in берёт встроенную таблицу сборки 2025.1.1171 без обращения к серверу.",
       "Аргументы вызова — массив JSON, ответ — в data.value.",
       "Вызов требует права execute.",
     ],
@@ -163,17 +162,9 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
       "Текст лога или файла читается и сохраняется как текст (--format text).",
     ],
   },
-  file: {
-    summary: "Загрузка файла в папку загрузок сервера: upload.",
-    commands: ["upload"],
-    usage: [
-      "wtctl file upload ИМЯ --input-file resource.bin [--content-type application/octet-stream]",
-    ],
-    notes: ["В ответе url — адрес файла, folderUrl — папка, созданная для него."],
-  },
   files: {
-    summary: "Файл сервера: read (текстом или на диск), exists, list, write, delete.",
-    commands: ["read", "exists", "list", "write", "delete"],
+    summary: "Файл сервера: read, exists, list, write, delete, upload.",
+    commands: ["read", "exists", "list", "write", "delete", "upload"],
     usage: [
       "wtctl files read АДРЕС",
       "wtctl files read АДРЕС --base64",
@@ -182,11 +173,13 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
       "wtctl files list АДРЕС [--search ЧАСТЬ_ИМЕНИ]",
       "wtctl files write АДРЕС --input-file ФАЙЛ",
       "wtctl files delete АДРЕС",
+      "wtctl files upload ИМЯ --input-file report.txt [--content-type text/plain]",
     ],
     notes: [
-      "read отдаёт text, если файл — текст в UTF-8, иначе base64; --base64 отдаёт base64 и для текста. --to сохраняет файл на диск байт в байт, любого размера; --overwrite заменяет существующий.",
+      "read: text для UTF-8, иначе base64; --to сохраняет на диск байт в байт любого размера, --overwrite заменяет существующий.",
       "list показывает один уровень папки и требует права execute.",
-      "write читает ФАЙЛ с диска частями и сверяет записанное; --stdin держит весь ввод в памяти. В папку кода (wt, wtv, custom…) нужно ещё право execute: файл в ней — код сервера.",
+      "write читает ФАЙЛ частями и сверяет записанное; --stdin держит ввод в памяти. В папку кода нужно ещё право execute.",
+      "upload кладёт файл в папку загрузок сервера (в ответе url и folderUrl); прежнее имя file upload сохранено.",
     ],
   },
   doc: {
@@ -243,21 +236,21 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
     notes: ["Пароль задаётся переменной окружения из подключения: stdin занят протоколом."],
   },
   config: {
-    summary: "Файл подключений: init, path, example.",
-    commands: ["init", "path", "example"],
+    summary: "Файл подключений: init, list, set, path, example.",
+    commands: ["init", "list", "set", "path", "example"],
     usage: [
       "wtctl config init",
-      "wtctl config init --url http://localhost:8088 --username user1 --password-stdin < пароль.txt",
       "wtctl config init --name prod --url https://hcm.example.org --username admin --password-env WTCTL_PROD_PASSWORD",
+      "wtctl config list",
+      "wtctl config set [ИМЯ] [--write true|false] [--execute true|false] [--default] [--url АДРЕС] [--timeout-ms N]",
       "wtctl config path",
       "wtctl config example",
     ],
     notes: [
-      "init добавляет подключение в файл; в терминале сам спрашивает адрес, имя и пароль.",
-      "Первое подключение становится подключением по умолчанию.",
+      "init добавляет подключение (в терминале спрашивает адрес, логин, пароль; без терминала — --password-stdin или --password-env); --allow-write, --allow-execute, --force.",
+      "list показывает подключения, адреса, права и источник учётных данных без паролей.",
+      "set меняет поля существующего подключения (также --max-response-bytes, --output-limit-bytes, --runtime-dir, --results-max-bytes, --results-max-age-days, --journal-max-bytes) и не принимает --output.",
       "Файл по умолчанию — ~/.wtctl/connections.json; другой задают --config или WTCTL_CONFIG.",
-      "Новое подключение только читает: --allow-write разрешает запись, --allow-execute — выполнение кода на сервере.",
-      "--force заменяет подключение с тем же именем.",
     ],
   },
   guide: {
@@ -297,9 +290,25 @@ const NOTES: readonly string[] = [
   "При error.mutationOutcome = indeterminate запись могла пройти: перед повтором проверить объект.",
 ];
 
+const ALIASES: Readonly<Record<string, CommandHelp>> = {
+  file: {
+    summary: "Прежнее имя для files upload.",
+    commands: ["upload"],
+    usage: ["wtctl files upload ИМЯ --input-file report.txt [--content-type text/plain]"],
+    notes: [
+      "file upload сохранён для совместимости; основная команда — wtctl files upload.",
+      "В ответе url — адрес файла, folderUrl — папка, созданная для него.",
+    ],
+  },
+};
+
 // Имя приходит из командной строки: имена, унаследованные каждым объектом, не команды.
 function known(command: string): CommandHelp | undefined {
-  return Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
+  return Object.hasOwn(COMMANDS, command)
+    ? COMMANDS[command]
+    : Object.hasOwn(ALIASES, command)
+      ? ALIASES[command]
+      : undefined;
 }
 
 /** Команда справки к ошибке разбора: справка самой команды, если она есть. */

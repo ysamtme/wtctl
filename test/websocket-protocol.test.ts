@@ -7,9 +7,9 @@ import type { Socket } from "node:net";
 import WebSocket, { WebSocketServer } from "ws";
 import { WsHcmClient, WebSocketHeartbeatError } from "../src/protocol/index.js";
 import { HttpTransport } from "../src/protocol/transport.js";
-import { webSocketHeartbeat, defaultWebSocketFactory } from "../src/protocol/websocket.js";
+import { webSocketHeartbeat } from "../src/protocol/websocket.js";
 import { NativeGateway } from "../src/native/gateway.js";
-import type { WebSocketConnection, WebSocketHeartbeatReceipt } from "../src/protocol/types.js";
+import type { WebSocketConnection } from "../src/protocol/types.js";
 
 type Mode =
   | "ack"
@@ -244,19 +244,16 @@ for (const mode of ["ack", "fragmented", "eof-close"] as const) {
       const result = await f.client.withWebSession((session) =>
         session.heartbeat({ timeoutMs: 500 }),
       );
+      assert.equal(result.route, "/services/main_ws_service");
       assert.equal(result.handshakeValidated, true);
-      assert.equal(result.httpStatus, 101);
-      assert.equal(result.heartbeatWritten, true);
       assert.equal(result.heartbeatObserved, true);
-      assert.equal(result.localSocketDisposed, true);
-      assert.equal(result.closeRequested, true);
-      assert.equal(result.closeWriteVerified, false);
-      assert.equal(result.peerCloseObserved, mode !== "eof-close");
+      assert.equal(typeof result.durationMs, "number");
+      assert.ok(result.durationMs >= 0);
+      assert.equal(result.closeCode, mode === "eof-close" ? undefined : 1000);
       assert.equal(
         result.warning,
         mode === "eof-close" ? "PEER_CLOSE_ACK_NOT_OBSERVED" : undefined,
       );
-      assert.equal(result.peerEofObserved, true);
       assert.equal(f.observed.heartbeats, 1);
       assert.equal(f.observed.upgrades, 1);
       assert.deepEqual(f.observed.paths, [
@@ -297,31 +294,21 @@ for (const [mode, code] of [
         (error: unknown) => {
           assert.ok(error instanceof WebSocketHeartbeatError);
           assert.equal(error.errorCode, code);
-          assert.equal(error.receipt.localSocketDisposed, true);
-          assert.equal(error.receipt.heartbeatObserved, false);
-          assert.equal(error.receipt.closeWriteVerified, false);
+          assert.equal(error.details?.heartbeatObserved, false);
+          assert.notEqual(error.details?.closeCode, 1006);
           if (["reject", "reject-auth", "reject-permission"].includes(mode)) {
-            assert.equal(
-              error.receipt.httpStatus,
-              mode === "reject-auth" ? 401 : mode === "reject-permission" ? 403 : 404,
-            );
-            assert.equal(error.receipt.handshakeValidated, false);
-            assert.equal(error.receipt.heartbeatWritten, false);
-            assert.equal(error.receipt.counts.messages, 0);
+            const expectedStatus =
+              mode === "reject-auth" ? 401 : mode === "reject-permission" ? 403 : 404;
+            assert.equal(error.status, expectedStatus);
+            assert.equal(error.details?.status, expectedStatus);
+            assert.equal(error.details?.handshakeValidated, false);
             assert.equal(f.observed.heartbeats, 0);
+          } else {
+            assert.equal(error.status, undefined);
+            assert.equal(error.details?.status, undefined);
           }
           assert.equal(error.cleanupError, undefined);
-          if (mode === "flood")
-            assert.equal(
-              error.receipt.counts.messages,
-              17,
-              "Keep the first over-limit observation; ignore remaining buffered frames",
-            );
-          if (mode === "total-bytes") {
-            assert.equal(error.receipt.counts.receivedBytes, 20480);
-            assert.equal(error.receipt.counts.messages, 5);
-          }
-          assert.ok(JSON.stringify(error).length < 1500);
+          assert.ok(JSON.stringify(error).length < 1000);
           assert.doesNotMatch(
             JSON.stringify(error),
             /foreign-secret|owned-synthetic|127\.0\.0\.1|private response body/,
@@ -348,14 +335,11 @@ test("принятый heartbeat без Close ACK завершается лок�
     const result = await f.client.withWebSession((session) =>
       session.heartbeat({ timeoutMs: 250 }),
     );
-    assert.equal(result.heartbeatWritten, true);
+    assert.equal(result.route, "/services/main_ws_service");
+    assert.equal(result.handshakeValidated, true);
     assert.equal(result.heartbeatObserved, true);
-    assert.equal(result.localSocketDisposed, true);
-    assert.equal(result.forcedLocalTermination, true);
-    assert.equal(result.peerCloseObserved, false);
-    assert.equal(result.closeWriteVerified, false);
+    assert.equal(result.closeCode, undefined);
     assert.equal(result.warning, "PEER_CLOSE_ACK_NOT_OBSERVED");
-    assert.equal(result.peerEofObserved, false);
     assert.equal(f.observed.clientCloses, 1);
     assert.equal(f.observed.heartbeats, 1);
     assert.deepEqual(f.observed.paths.slice(-3), [
@@ -376,10 +360,8 @@ test("сброс после принятого heartbeat остаётся сбо
       (error: unknown) => {
         assert.ok(error instanceof WebSocketHeartbeatError);
         assert.equal(error.errorCode, "WS_TRANSPORT_ERROR");
-        assert.equal(error.receipt.heartbeatObserved, true);
-        assert.equal(error.receipt.heartbeatWritten, true);
-        assert.equal(error.receipt.localSocketDisposed, true);
-        assert.equal(error.receipt.peerCloseObserved, false);
+        assert.equal(error.details?.handshakeValidated, true);
+        assert.equal(error.details?.heartbeatObserved, true);
         assert.equal(error.cleanupError, undefined);
         return true;
       },
@@ -486,9 +468,8 @@ test("доверенная фабрика видит только собстве
       (error: unknown) => {
         assert.ok(error instanceof WebSocketHeartbeatError);
         assert.equal(error.errorCode, "WS_TRANSPORT_ERROR");
-        assert.equal(error.receipt.localSocketDisposed, true);
-        assert.equal(error.receipt.heartbeatObserved, mode === "disposal-reset");
-        assert.equal(error.receipt.forcedLocalTermination, true);
+        assert.equal(error.details?.handshakeValidated, true);
+        assert.equal(error.details?.heartbeatObserved, mode === "disposal-reset");
         assert.doesNotMatch(JSON.stringify(error), /secret|private-value/);
         return true;
       },
@@ -496,26 +477,24 @@ test("доверенная фабрика видит только собстве
   http.dispose();
 });
 
-test("конструктор типизированной сводки пропускает только поля из белого списка и не может опубликовать произвольную диагностику доверенной фабрики", () => {
+test("конструктор ошибки heartbeat пропускает только поля из белого списка и не публикует произвольные значения", () => {
   const injected = {
-    route: "secret-route",
     phase: "secret-phase",
+    handshakeValidated: "secret",
     heartbeatObserved: "secret",
-    httpStatus: "secret",
-    limits: { timeoutMs: "secret", cookies: "secret" },
-    counts: { messages: -1, receivedBytes: Infinity },
+    status: "secret",
+    closeCode: 9999,
     extra: "secret",
-  } as unknown as WebSocketHeartbeatReceipt;
+  } as unknown as ConstructorParameters<typeof WebSocketHeartbeatError>[1];
   const error = new WebSocketHeartbeatError("secret-code" as "WS_TRANSPORT_ERROR", injected);
   assert.equal(error.errorCode, "WS_TRANSPORT_ERROR");
-  assert.equal(error.receipt.route, "/services/main_ws_service");
-  assert.equal(error.receipt.phase, "preflight");
-  assert.equal(error.receipt.heartbeatObserved, false);
-  assert.equal(error.receipt.httpStatus, undefined);
-  assert.equal(error.receipt.counts.messages, 0);
+  assert.equal(error.details?.phase, "preflight");
+  assert.equal(error.details?.handshakeValidated, false);
+  assert.equal(error.details?.heartbeatObserved, false);
+  assert.equal(error.details?.status, undefined);
+  assert.equal(error.details?.closeCode, undefined);
   assert.doesNotMatch(JSON.stringify(error), /secret/);
-  assert.ok(Object.isFrozen(error.receipt));
-  assert.ok(Object.isFrozen(error.receipt.limits));
+  assert.ok(Object.isFrozen(error.details));
 });
 
 test("webSocketHeartbeat передаёт все cookies сессии в рукопожатие и отклоняет слишком длинный заголовок Cookie", async () => {
@@ -573,4 +552,94 @@ test("webSocketHeartbeat передаёт все cookies сессии в рук�
       error instanceof WebSocketHeartbeatError && error.errorCode === "WS_UNAVAILABLE",
   );
   http.dispose();
+});
+
+test("прямой webSocketHeartbeat проверяет ввод, фиксирует код закрытия сервера и отказ освобождения сокета", async () => {
+  const http = new HttpTransport({
+    baseUrl: "http://invalid.example/",
+    timeoutMs: 500,
+    fetch: async () => new Response(""),
+  });
+  http.cookie.capture(new Headers({ "set-cookie": "SessionID=ws-direct; Path=/" }));
+  try {
+    await assert.rejects(
+      webSocketHeartbeat(
+        http,
+        () => {
+          throw new Error("фабрика не должна вызываться");
+        },
+        { timeoutMs: 100 },
+      ),
+      (error: unknown) =>
+        error instanceof WebSocketHeartbeatError &&
+        error.errorCode === "WS_INVALID_INPUT" &&
+        error.requestSent === false,
+    );
+
+    class StubSocket extends EventEmitter implements WebSocketConnection {
+      readyState: number = WebSocket.CONNECTING;
+      constructor(private readonly mode: "server-1011" | "stuck-close") {
+        super();
+      }
+      send(_data: string, callback: (error?: Error) => void): void {
+        callback();
+        if (this.mode === "server-1011") {
+          queueMicrotask(() => {
+            this.readyState = WebSocket.CLOSED;
+            this.emit("close", 1011, Buffer.alloc(0));
+          });
+        } else {
+          queueMicrotask(() => this.emit("message", Buffer.from("$ok"), false));
+        }
+      }
+      close(): void {
+        this.readyState = WebSocket.CLOSING;
+      }
+      pong(): void {}
+      terminate(): void {
+        // В режиме stuck-close сокет намеренно не переходит в CLOSED.
+      }
+    }
+
+    await assert.rejects(
+      webSocketHeartbeat(
+        http,
+        () => {
+          const socket = new StubSocket("server-1011");
+          queueMicrotask(() => {
+            socket.readyState = WebSocket.OPEN;
+            socket.emit("open");
+          });
+          return socket;
+        },
+        { timeoutMs: 250 },
+      ),
+      (error: unknown) =>
+        error instanceof WebSocketHeartbeatError &&
+        error.errorCode === "WS_HEARTBEAT_FAILED" &&
+        error.details?.closeCode === 1011 &&
+        error.details?.status === undefined,
+    );
+
+    await assert.rejects(
+      webSocketHeartbeat(
+        http,
+        () => {
+          const socket = new StubSocket("stuck-close");
+          queueMicrotask(() => {
+            socket.readyState = WebSocket.OPEN;
+            socket.emit("open");
+          });
+          return socket;
+        },
+        { timeoutMs: 250 },
+      ),
+      (error: unknown) =>
+        error instanceof WebSocketHeartbeatError &&
+        error.errorCode === "WS_DISPOSAL_FAILED" &&
+        error.details?.heartbeatObserved === true,
+    );
+  } finally {
+    http.dispose();
+  }
 });

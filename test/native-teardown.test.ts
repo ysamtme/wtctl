@@ -142,9 +142,9 @@ for (const variant of [
       ]);
     }
     const completedRequests = requests.length;
-    await assert.rejects(native.lds.idle(), /закрыт/);
+    await assert.rejects(native.spxml2.getAppInfo(), /закрыт/);
     await assert.rejects(web.rpc.call({ target: "tools.get_version", args: [] }), /закрыт/);
-    await assert.rejects(gateway.call("web.lds.idle", {}), /закрыт/);
+    await assert.rejects(gateway.call("native.spxml2.getAppInfo", {}), /закрыт/);
     assert.equal(
       requests.length,
       completedRequests,

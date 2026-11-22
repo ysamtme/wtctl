@@ -58,7 +58,10 @@ export interface FileSaveData {
   readonly file: string;
 }
 
-/** Файл целиком: текст, если это текст в UTF-8, иначе base64. */
+/**
+ * Файл целиком: текст, если это текст в UTF-8, иначе base64.
+ * @internal
+ */
 export function fileContent(content: Buffer, encoding?: "base64"): FileReadData {
   // base64 строится, только когда он и есть ответ: у большого текста это лишняя копия файла.
   const binary = () => ({ base64: content.toString("base64"), bytes: content.length });
@@ -80,9 +83,13 @@ const FILE_EXISTS_TARGET = "tools.file_url_exists_server";
 // Вход держится в этом объявленном пределе, чтобы длинный URL не был молча обрезан при
 // привязке параметра этим провайдером.
 // Это не утверждение о максимальной длине пути файловой системы на любом сервере.
+/** @internal */
 export const FILE_EXISTS_URL_MAX_LENGTH = 256;
 
-/** Проверяет, не нормализуя URL, который передаётся штатному предикату. */
+/**
+ * Проверяет, не нормализуя URL, который передаётся штатному предикату.
+ * @internal
+ */
 export function fileExistsUrl(value: unknown): string {
   const invalid = () =>
     new HcmError(
@@ -145,6 +152,7 @@ export type FileDeleteData = {
 /**
  * Папки сервера: папка кода хранит код сервера, поэтому запись в неё требует ещё права execute.
  * database — папки данных, которые сервер хранит в базе данных, а не на диске.
+ * @internal
  */
 export type FileFolders = {
   readonly data: readonly string[];
@@ -233,7 +241,10 @@ function folderKind(folders: FileFolders | undefined, folder: string): "data" | 
   );
 }
 
-/** Столько байт за раз шлёт штатная настольная админка. */
+/**
+ * Столько байт за раз шлёт штатная настольная админка.
+ * @internal
+ */
 export const UPLOAD_BLOCK_BYTES = 10_000_000;
 const WRITE_INTERRUPTED = {
   message:
@@ -478,7 +489,10 @@ function fileList(data: ScriptData, folder: string, search = ""): FileListData {
   return { items, total: items.length };
 }
 
-/** Разбирает только прямой булев ResultData/Result фиксированного штатного предиката. */
+/**
+ * Разбирает только прямой булев ResultData/Result фиксированного штатного предиката.
+ * @internal
+ */
 export function parseFileExists(response: unknown): FileExistsData {
   try {
     const { rpc, result } = strictResponse(response);
@@ -505,13 +519,17 @@ export function parseFileExists(response: unknown): FileExistsData {
 /**
  * Что операция сообщает runtime об одном вызове: из этого строятся исход и сообщение при сбое.
  * Часть OperationCall, своим типом: объявления пакета не тянут за собой устройство runtime.
+ * @internal
  */
 export interface FileCall {
   outcome: WriteOutcome;
   afterSend?: { message: string; hint?: string };
 }
 
-/** Файловые операции: метод — вся цепочка одной, от проверки адреса до проверки после ответа. */
+/**
+ * Файловые операции: метод — вся цепочка одной, от проверки адреса до проверки после ответа.
+ * @internal
+ */
 export class ServerFiles {
   constructor(
     private readonly server: Pick<

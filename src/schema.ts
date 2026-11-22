@@ -121,7 +121,10 @@ export interface SchemaTypesResult {
   /** Пояснения к списку. */
   notes?: string[];
 }
-/** Чтобы привести данные к одному виду: имена полей верхнего уровня и повторяющиеся элементы. */
+/**
+ * Чтобы привести данные к одному виду: имена полей верхнего уровня и повторяющиеся элементы.
+ * @internal
+ */
 export interface DataShape {
   readonly fields: Set<string>;
   /** Пути элементов, объявленных формой повторяющимися, например collaborators.collaborator. */
@@ -140,7 +143,10 @@ export interface DataShape {
   /** Базовый тип формы не найден, поэтому имена полей — не все. */
   partial?: boolean;
 }
-/** Повторяющийся элемент — список и тогда, когда в данных один пункт. */
+/**
+ * Повторяющийся элемент — список и тогда, когда в данных один пункт.
+ * @internal
+ */
 export function withRepeated(value: unknown, repeated: ReadonlySet<string>, prefix = ""): unknown {
   if (Array.isArray(value)) return value.map((item) => withRepeated(item, repeated, prefix));
   if (value === null || typeof value !== "object") return value;
@@ -163,7 +169,10 @@ const parser = createPlatformXmlParser({
 const list = (value: unknown): Data[] =>
   (Array.isArray(value) ? value : [value]).filter((v): v is Data => !!v && typeof v === "object");
 const data = (value: unknown): Data => list(value)[0] ?? {};
-/** Базы сервера из сведений о приложении: имя и каталоги каждой; запись без имени пропускается. */
+/**
+ * Базы сервера из сведений о приложении: имя и каталоги каждой; запись без имени пропускается.
+ * @internal
+ */
 export function serverDatabases(info: Data): { id: string; catalogs: Data[] }[] {
   return list(info.databases).flatMap((db) =>
     typeof db.id === "string" ? [{ id: db.id, catalogs: list(db.catalogs) }] : [],
@@ -192,6 +201,7 @@ const languages: Record<string, string> = {
   bg: "bulgarian",
   tr: "turkish",
 };
+/** @internal */
 export function languageFileUrl(id: unknown, language?: string): string {
   const folder =
     language === undefined ? (languages[text(id)] ?? "russian") : (languages[language] ?? language);
@@ -241,7 +251,10 @@ function remembered<V>(
   return reading;
 }
 
-/** Читает живые метаданные через фиксированные операции чтения runtime; все кэши — в памяти. */
+/**
+ * Читает живые метаданные через фиксированные операции чтения runtime; все кэши — в памяти.
+ * @internal
+ */
 export class SchemaReader {
   private static readonly TTL_MS = 60_000;
   private forms = new Map<string, Timed<Node[]>>();
@@ -250,6 +263,7 @@ export class SchemaReader {
   private documents = new Map<string, Timed<Data>>();
   /** Найденный адрес формы по имени типа или каталога; ненайденный следующий вызов ищет заново. */
   private formUrls = new Map<string, { expires: number; value: string }>();
+  private fetches = 0;
   constructor(
     private applicationInfo: () => Promise<Data>,
     private readForm: (url: string) => Promise<string>,
@@ -257,6 +271,18 @@ export class SchemaReader {
     private readonly ttlMs = SchemaReader.TTL_MS,
     private readonly now: () => number = Date.now,
   ) {}
+  /** Сколько раз формы или общие документы запрашивались у сервера мимо кэша. */
+  get serverReads(): number {
+    return this.fetches;
+  }
+  private fetchForm(url: string): Promise<string> {
+    this.fetches++;
+    return this.readForm(url);
+  }
+  private fetchDocument(url: string): Promise<Data> {
+    this.fetches++;
+    return this.readDocument(url);
+  }
   /** Сбросить кэши форм, структур, словарей и общих документов. */
   invalidate(): void {
     this.forms.clear();
@@ -281,7 +307,7 @@ export class SchemaReader {
   }
   private form(url: string): Promise<Node[]> {
     return this.cached(this.forms, url, () =>
-      this.readForm(url).then((source) => {
+      this.fetchForm(url).then((source) => {
         const normalized = normalizeFormParams(source);
         try {
           validatePlatformXmlSource(normalized);
@@ -330,8 +356,8 @@ export class SchemaReader {
         new HcmError("SCHEMA_METADATA", `Сервер не сообщил адрес общего документа ${id}.`),
       );
     return id === "common"
-      ? this.readForm(url).then((source) => XmlDocument.parse(source).snapshot().data)
-      : this.readDocument(url);
+      ? this.fetchForm(url).then((source) => XmlDocument.parse(source).snapshot().data)
+      : this.fetchDocument(url);
   }
   private commonData(info: Data): Promise<Data> {
     return this.cached(this.documents, "common", () => this.shared(info, "common"));
@@ -349,7 +375,7 @@ export class SchemaReader {
   private language(info: Data, language: string | undefined): Promise<Map<string, string>> {
     const url = languageFileUrl(info.ui_lang_id, language);
     return this.cached(this.dictionaries, url, async () => {
-      const value = await this.readDocument(url);
+      const value = await this.fetchDocument(url);
       return new Map(
         list(data(value.items).item ?? value.item).map((item) => [text(item.id), text(item.val)]),
       );
@@ -489,7 +515,7 @@ export class SchemaReader {
   private typeTranslations(info: Data): Promise<Map<string, string>> {
     const url = `x-local://i18n/common/${identifier(info.ui_lang_id ?? "ru", "ui_lang_id")}/const.json`;
     return this.cached(this.dictionaries, url, async () => {
-      const source = await this.readForm(url);
+      const source = await this.fetchForm(url);
       return new Map(
         Object.entries(data(JSON.parse(source))).map(([key, value]) => [key, text(value)]),
       );

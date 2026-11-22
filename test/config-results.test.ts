@@ -572,3 +572,28 @@ test("ResultStore не чистит папку результатов на ка�
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("ResultStore.prune удаляет все просроченные файлы при их числе больше пула stat", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "hcm-results-prune-many-"));
+  try {
+    let clock = Date.now();
+    const store = new ResultStore(
+      { ...config(directory), resultsMaxAgeDays: 7, resultsMaxBytes: 1024 * 1024 },
+      () => clock,
+    );
+    const ids: string[] = [];
+    for (let i = 0; i < 45; i++) ids.push((await store.put({ i })).resultId);
+    for (const id of ids) await age(store.directory, id, 8 * 24 * HOUR);
+    clock += 60_000;
+    const fresh = await store.put({ fresh: true });
+    for (const id of ids) await assert.rejects(store.read(id), { code: "RESULT_NOT_FOUND" });
+    assert.ok(await store.read(fresh.resultId));
+    const remaining = await readdir(store.directory);
+    assert.ok(
+      remaining.every((name) => name.startsWith(fresh.resultId)),
+      `остались лишние файлы: ${remaining.join(", ")}`,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

@@ -17,16 +17,20 @@ import {
 import { cliHelp, cliHelpText, helpCommand, requireCommand } from "./help.js";
 import { discoverOperations, operationHelp } from "../operation-help.js";
 import {
+  MAX_CONFIG_BYTES,
   configExample,
   defaultConfigPath,
+  listConnections,
   markServedByMcp,
   parseConfiguration,
+  updateConnection,
   withConnection,
 } from "../config.js";
 import { DeferredRuntime } from "./deferred-runtime.js";
 import { VERSION } from "../version.js";
 import { guide, type LocalInstall } from "../guide.js";
-import { resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileExistsUrl } from "../files.js";
 import { describeHcmOperation, listHcmOperations } from "../catalog.js";
 import type { CliDependencies, CliIo, RuntimePort } from "./types.js";
@@ -256,6 +260,79 @@ function withSettings(
   };
 }
 
+function configPathOption(args: CliArguments): string {
+  return stringOption(args, "config") ?? process.env.WTCTL_CONFIG ?? defaultConfigPath();
+}
+
+function canonicalPath(path: string): string {
+  const full = resolve(path);
+  try {
+    return realpathSync(full);
+  } catch {
+    try {
+      return join(realpathSync(dirname(full)), basename(full));
+    } catch {
+      return full;
+    }
+  }
+}
+
+function sameLocalPath(first: string, second: string): boolean {
+  const a = canonicalPath(first);
+  const b = canonicalPath(second);
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+function rejectOutputOnConfigPath(args: CliArguments, configPath: string): void {
+  const output = stringOption(args, "output");
+  if (output !== undefined && sameLocalPath(output, configPath))
+    throw new CliInputError(
+      "--output не может указывать на сам файл подключений: это перезапишет подключения ответом команды.",
+    );
+}
+
+async function saveConfigDocument(
+  io: CliIo,
+  path: string,
+  beforeText: string | undefined,
+  document: Record<string, unknown>,
+): Promise<void> {
+  const nextText = `${JSON.stringify(document, null, 2)}\n`;
+  if (Buffer.byteLength(nextText, "utf8") > MAX_CONFIG_BYTES)
+    throw new HcmError("INVALID_CONFIG", "Файл подключений больше 1 МиБ.");
+  if (io.writeFileIfUnchanged) {
+    await io.writeFileIfUnchanged(path, beforeText, nextText);
+    return;
+  }
+  const conflict = () =>
+    new HcmError(
+      "CONFIG_CONFLICT",
+      "Файл подключений изменился за время выполнения команды.",
+      "Повторить команду, чтобы не перезаписать чужую правку.",
+    );
+  if (beforeText === undefined) {
+    let exists = true;
+    try {
+      await io.readFile(path, MAX_CONFIG_BYTES);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") exists = false;
+      else throw error;
+    }
+    if (exists) throw conflict();
+  } else {
+    let currentText: string;
+    try {
+      currentText = await io.readFile(path, MAX_CONFIG_BYTES);
+    } catch (error) {
+      if (error instanceof CliInputError || (error as NodeJS.ErrnoException).code === "ENOENT")
+        throw conflict();
+      throw error;
+    }
+    if (currentText !== beforeText) throw conflict();
+  }
+  await io.writeFile(path, nextText);
+}
+
 /** Добавляет подключение в файл подключений, спрашивая у человека то, что не задано. */
 async function initConnection(args: CliArguments, io: CliIo): Promise<OperationResult> {
   allowOptions(args, [
@@ -268,7 +345,8 @@ async function initConnection(args: CliArguments, io: CliIo): Promise<OperationR
     "force",
   ]);
   exactPositionals(args, 2);
-  const path = stringOption(args, "config") ?? process.env.WTCTL_CONFIG ?? defaultConfigPath();
+  const path = configPathOption(args);
+  rejectOutputOnConfigPath(args, path);
   const value = async (option: string, question: string): Promise<string> => {
     const given = stringOption(args, option);
     if (given !== undefined) return given;
@@ -302,9 +380,11 @@ async function initConnection(args: CliArguments, io: CliIo): Promise<OperationR
     if (!password || /[\r\n\0]/.test(password))
       throw new CliInputError("Пароль должен быть одной непустой строкой.");
   }
+  let beforeText: string | undefined;
   let document: Record<string, unknown> = {};
   try {
-    document = parseConfiguration(await io.readFile(path, 1024 * 1024), path);
+    beforeText = await io.readFile(path, MAX_CONFIG_BYTES);
+    document = parseConfiguration(beforeText, path);
   } catch (error) {
     const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException;
     // Файла ещё нет — init его создаст; другой отказ файловой системы называет файл.
@@ -329,7 +409,7 @@ async function initConnection(args: CliArguments, io: CliIo): Promise<OperationR
     },
     args.options.force === true,
   );
-  await io.writeFile(path, `${JSON.stringify(next, null, 2)}\n`);
+  await saveConfigDocument(io, path, beforeText, next);
   const selected = next.defaultConnection === name;
   // Переменная может появиться позже, например в env записи MCP-сервера: подключение записывается.
   const check =
@@ -345,6 +425,121 @@ async function initConnection(args: CliArguments, io: CliIo): Promise<OperationR
   });
 }
 
+async function readExistingConfig(
+  path: string,
+  io: CliIo,
+): Promise<{ readonly text: string; readonly document: Record<string, unknown> }> {
+  let text: string;
+  try {
+    text = await io.readFile(path, MAX_CONFIG_BYTES);
+  } catch (error) {
+    const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException;
+    if (code === "ENOENT")
+      throw new HcmError(
+        "INVALID_CONFIG",
+        `Файл подключений не найден: ${path}.`,
+        "Нужно проверить --config и WTCTL_CONFIG или создать файл: wtctl config init.",
+      );
+    throw syscall === undefined
+      ? error
+      : new CliInputError(`Файл подключений не открывается для чтения: ${resolve(path)}.`);
+  }
+  return { text, document: parseConfiguration(text, path) };
+}
+
+async function listConfigConnections(args: CliArguments, io: CliIo): Promise<OperationResult> {
+  if (args.options["password-stdin"])
+    throw new CliInputError("Ввод пароля не нужен для config list.");
+  allowOptions(args, []);
+  exactPositionals(args, 2);
+  const path = configPathOption(args);
+  rejectOutputOnConfigPath(args, path);
+  const { document } = await readExistingConfig(path, io);
+  return frontendResult("cli.config.list", "unselected", {
+    path,
+    ...listConnections(document),
+  });
+}
+
+function booleanValueOption(args: CliArguments, name: string): boolean | undefined {
+  const value = stringOption(args, name);
+  if (value === undefined) return undefined;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new CliInputError(`--${name}: нужно true или false.`);
+}
+
+async function setConfigConnection(args: CliArguments, io: CliIo): Promise<OperationResult> {
+  if (stringOption(args, "output") !== undefined)
+    throw new CliInputError(
+      "wtctl config set не принимает --output: команда изменяет файл подключений, путь файла задаёт --config.",
+    );
+  if (args.options["password-stdin"])
+    throw new CliInputError(
+      "--password-stdin не нужен для config set: учётные данные меняет wtctl config init --force.",
+    );
+  allowOptions(args, [
+    "write",
+    "execute",
+    "default",
+    "url",
+    "timeout-ms",
+    "max-response-bytes",
+    "output-limit-bytes",
+    "runtime-dir",
+    "results-max-bytes",
+    "results-max-age-days",
+    "journal-max-bytes",
+  ]);
+  exactPositionals(args, 2, 3);
+  const positionalName = args.positionals[2];
+  const optionName = stringOption(args, "connection");
+  if (positionalName !== undefined && optionName !== undefined)
+    throw new CliInputError("Имя подключения задано и аргументом, и в --connection.");
+  const name = positionalName ?? optionName ?? process.env.WTCTL_CONNECTION;
+  const patch = {
+    ...optional("baseUrl", stringOption(args, "url")),
+    ...optional("write", booleanValueOption(args, "write")),
+    ...optional("execute", booleanValueOption(args, "execute")),
+    ...(args.options.default === true ? { makeDefault: true } : {}),
+    ...optional("timeoutMs", stringOption(args, "timeout-ms")),
+    ...optional("maxResponseBytes", stringOption(args, "max-response-bytes")),
+    ...optional("outputLimitBytes", stringOption(args, "output-limit-bytes")),
+    ...optional("runtimeDir", stringOption(args, "runtime-dir")),
+    ...optional("resultsMaxBytes", stringOption(args, "results-max-bytes")),
+    ...optional("resultsMaxAgeDays", stringOption(args, "results-max-age-days")),
+    ...optional("journalMaxBytes", stringOption(args, "journal-max-bytes")),
+  };
+  if (Object.keys(patch).length === 0)
+    throw new CliInputError(
+      "Не указано, что изменить: например --write true, --execute false, --default или --timeout-ms.",
+    );
+  const path = configPathOption(args);
+  const { text: beforeText, document } = await readExistingConfig(path, io);
+  const updated = updateConnection(document, name, patch, path);
+  await saveConfigDocument(io, path, beforeText, updated.document);
+  return frontendResult("cli.config.set", updated.connection.name, {
+    path,
+    ...(updated.defaultConnection === undefined
+      ? {}
+      : { defaultConnection: updated.defaultConnection }),
+    connection: updated.connection,
+  });
+}
+
+async function uploadFileInvocation(args: CliArguments, io: CliIo): Promise<Invocation> {
+  allowOptions(args, ["input-file", "stdin", "content-type"]);
+  exactPositionals(args, 3);
+  return {
+    operationId: "web.pages.uploadFile",
+    args: {
+      filename: requirePositional(args, 2, "имя файла без пути"),
+      ...(await putData("file", args, io)),
+      ...optional("contentType", stringOption(args, "content-type")),
+    },
+  };
+}
+
 /** Компилирует команду в один явный вызов реестра; без поиска методов клиента по имени. */
 export async function commandInvocation(args: CliArguments, io: CliIo): Promise<Invocation> {
   const [command, action] = args.positionals;
@@ -358,9 +553,12 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
     case "server": {
       allowOptions(args, ["profile"]);
       exactPositionals(args, 2);
-      const profile = stringOption(args, "profile");
-      if (profile !== undefined && profile !== "native" && profile !== "web")
-        throw new CliInputError("Для --profile допустимы native или web.");
+      const profile = enumOption(
+        args,
+        "profile",
+        ["native", "web"],
+        "Для --profile допустимы native или web.",
+      );
       return { operationId: "server.info", args: { ...optional("profile", profile) } };
     }
     case "run":
@@ -548,6 +746,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       };
     }
     case "files": {
+      if (action === "upload") return uploadFileInvocation(args, io);
       allowOptions(
         args,
         action === "read"
@@ -594,18 +793,8 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       }
       return { operationId: "files.exists", args: { url } };
     }
-    case "file": {
-      allowOptions(args, ["input-file", "stdin", "content-type"]);
-      exactPositionals(args, 3);
-      return {
-        operationId: "web.pages.uploadFile",
-        args: {
-          filename: requirePositional(args, 2, "имя файла без пути"),
-          ...(await putData("file", args, io)),
-          ...optional("contentType", stringOption(args, "content-type")),
-        },
-      };
-    }
+    case "file":
+      return uploadFileInvocation(args, io);
     case "doc": {
       allowOptions(args, action === "put" ? INPUT : []);
       exactPositionals(args, 3);
@@ -622,7 +811,7 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
     }
     case "rpc": {
       if (action === "list") {
-        allowOptions(args, ["query", "library", "method", "built-in", "all", "cursor", "limit"]);
+        allowOptions(args, ["query", "library", "method", "all", "cursor", "limit"]);
         exactPositionals(args, 2);
         return {
           operationId: "rpc.list",
@@ -630,7 +819,6 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
             ...optional("query", stringOption(args, "query")),
             ...optional("library", stringOption(args, "library")),
             ...optional("method", stringOption(args, "method")),
-            ...(args.options["built-in"] ? { builtIn: true } : {}),
             ...(args.options.all ? { all: true } : {}),
             ...optional("cursor", integerOption(args, "cursor", 0, Number.MAX_SAFE_INTEGER)),
             ...optional("limit", integerOption(args, "limit", 1, 100)),
@@ -638,13 +826,12 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
         };
       }
       if (action === "describe") {
-        allowOptions(args, ["built-in", "source"]);
+        allowOptions(args, ["source"]);
         exactPositionals(args, 3);
         return {
           operationId: "rpc.describe",
           args: {
             targetId: requirePositional(args, 2, "аргумент БИБЛИОТЕКА.ФУНКЦИЯ"),
-            ...(args.options["built-in"] ? { builtIn: true } : {}),
             ...(args.options.source ? { source: true } : {}),
           },
         };
@@ -694,9 +881,14 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       const exporting = action === "export";
       allowOptions(args, exporting ? ["to", "format", "overwrite"] : ["offset", "limit", "format"]);
       exactPositionals(args, 3);
-      const format = stringOption(args, "format");
-      if (!exporting && format !== undefined && !["auto", "json", "text"].includes(format))
-        throw new CliInputError("--format должен быть auto, json или text.");
+      const format = exporting
+        ? stringOption(args, "format")
+        : enumOption(
+            args,
+            "format",
+            ["auto", "json", "text"],
+            "--format должен быть auto, json или text.",
+          );
       const path = stringOption(args, "to");
       if (exporting && !path) throw new CliInputError("result export требует --to ФАЙЛ.");
       return {
@@ -817,12 +1009,12 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
           operationId: "logs.follow",
           args: { ...base, ...optional("cursor", stringOption(args, "cursor")) },
         };
-      const level = stringOption(args, "level");
-      if (
-        level !== undefined &&
-        !["normal", "debug", "info", "warning", "error", "critical"].includes(level)
-      )
-        throw new CliInputError("--level: normal, debug, info, warning, error или critical.");
+      const level = enumOption(
+        args,
+        "level",
+        ["normal", "debug", "info", "warning", "error", "critical"],
+        "--level: normal, debug, info, warning, error или critical.",
+      );
       return {
         operationId: "logs.search",
         args: {
@@ -847,61 +1039,81 @@ function optional(key: string, value: unknown): Record<string, unknown> {
   return value === undefined ? {} : { [key]: value };
 }
 
-function outputDeliveryReceipt(result: OperationResult, savedOutput?: string): OperationResult {
-  const text = (value: unknown, maximum: number): string | undefined =>
-    typeof value === "string" &&
+function enumOption<T extends string>(
+  args: CliArguments,
+  name: string,
+  allowed: readonly T[],
+  message: string,
+): T | undefined {
+  const value = stringOption(args, name);
+  if (value !== undefined && !allowed.includes(value as T)) throw new CliInputError(message);
+  return value as T | undefined;
+}
+
+const UUID_RE = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const OBJECT_ID_RE = /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/;
+const EXEC_ID_RE = /^hcm_inline_[a-f0-9]{32}$/;
+const TRACKING_ID_RE = /^(?:\d+|0x[0-9a-f]+)$/i;
+const OUTCOMES = new Set<MutationOutcome>(["not_sent", "confirmed", "indeterminate"]);
+
+function boundedText(value: unknown, maximum: number): string | undefined {
+  return typeof value === "string" &&
     value.length <= maximum &&
     Buffer.byteLength(JSON.stringify(value), "utf8") <= maximum
-      ? value
-      : undefined;
-  const outcome = (value: unknown): MutationOutcome | undefined =>
-    value === "not_sent" || value === "confirmed" || value === "indeterminate" ? value : undefined;
+    ? value
+    : undefined;
+}
+
+function firstString(values: readonly unknown[], pattern: RegExp): string | undefined {
+  return values.find((v): v is string => typeof v === "string" && pattern.test(v));
+}
+
+function outputDeliveryReceipt(result: OperationResult, savedOutput?: string): OperationResult {
   const returned =
     result.data !== null && typeof result.data === "object" && !Array.isArray(result.data)
       ? (result.data as Record<string, unknown>)
       : {};
-  const mutationOutcome =
-    outcome(result.error?.mutationOutcome) ?? outcome(returned.mutationOutcome);
-  const id = [returned.id, result.error?.details?.objectId].find(
-    (value): value is string =>
-      typeof value === "string" &&
-      /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(value) &&
-      BigInt(value) <= 0xffffffffffffffffn,
+  const details = result.error?.details;
+  const pickOutcome = (v: unknown): MutationOutcome | undefined =>
+    typeof v === "string" && OUTCOMES.has(v as MutationOutcome)
+      ? (v as MutationOutcome)
+      : undefined;
+  const id = [returned.id, details?.objectId].find(
+    (v): v is string =>
+      typeof v === "string" && OBJECT_ID_RE.test(v) && BigInt(v) <= 0xffffffffffffffffn,
   );
-  const uuid = (value: unknown): value is string =>
-    typeof value === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
-  const resultId = [result.meta.resultId, returned.resultId].find(uuid);
-  const mutationId = [returned.mutationId, result.error?.details?.mutationId].find(uuid);
-  const executionId = [returned.executionId, result.error?.details?.executionId].find(
-    (value): value is string =>
-      typeof value === "string" && /^hcm_inline_[a-f0-9]{32}$/.test(value),
-  );
-  const tracking = text(returned.TrackingID, 128);
-  const TrackingID =
-    tracking !== undefined && /^(?:\d+|0x[0-9a-f]+)$/i.test(tracking) ? tracking : undefined;
-  const operationId = text(result.meta.operationId, 128);
-  const connection = text(result.meta.connection, 256);
+  const resultId = firstString([result.meta.resultId, returned.resultId], UUID_RE);
+  const mutationId = firstString([returned.mutationId, details?.mutationId], UUID_RE);
+  const executionId = firstString([returned.executionId, details?.executionId], EXEC_ID_RE);
+  const tracking = boundedText(returned.TrackingID, 128);
+  const TrackingID = tracking !== undefined && TRACKING_ID_RE.test(tracking) ? tracking : undefined;
+  const operationId = boundedText(result.meta.operationId, 128);
+  const connection = boundedText(result.meta.connection, 256);
   const deliveryHint =
     "Серверную операцию из-за ошибки вывода не повторять; проверить известный ID, resultId или сохранённый файл.";
+  const metaFlags = (["cleanupFailed", "outputFailed", "truncated"] as const).reduce<
+    Record<string, true>
+  >((acc, key) => (result.meta[key] === true ? { ...acc, [key]: true } : acc), {});
   return {
     ok: false,
     data: {
       receiptOnly: true,
       operationSucceeded:
-        typeof result.error?.details?.operationSucceeded === "boolean"
-          ? result.error.details.operationSucceeded
-          : result.ok,
-      ...optional("mutationOutcome", mutationOutcome),
+        typeof details?.operationSucceeded === "boolean" ? details.operationSucceeded : result.ok,
+      ...optional(
+        "mutationOutcome",
+        pickOutcome(result.error?.mutationOutcome) ?? pickOutcome(returned.mutationOutcome),
+      ),
       ...optional("id", id),
       ...optional("mutationId", mutationId),
       ...optional("resultId", resultId),
       ...optional("executionId", executionId),
-      ...(TrackingID ? { TrackingID } : {}),
+      ...optional("TrackingID", TrackingID),
       ...(savedOutput === undefined
         ? {}
         : {
             saved: true,
-            ...(text(savedOutput, 1024) === undefined
+            ...(boundedText(savedOutput, 1024) === undefined
               ? { outputOmitted: true }
               : { output: savedOutput }),
           }),
@@ -909,13 +1121,13 @@ function outputDeliveryReceipt(result: OperationResult, savedOutput?: string): O
     },
     error: result.error
       ? {
-          code: text(result.error.code, 128) ?? "OPERATION_FAILED",
+          code: boundedText(result.error.code, 128) ?? "OPERATION_FAILED",
           message:
-            text(result.error.message, 512) ??
+            boundedText(result.error.message, 512) ??
             "Основная операция вернула ошибку; подробности опущены.",
-          ...optional("hint", text(result.error.hint, 256)),
+          ...optional("hint", boundedText(result.error.hint, 256)),
           retryable: result.error.retryable ?? false,
-          ...optional("mutationOutcome", outcome(result.error.mutationOutcome)),
+          ...optional("mutationOutcome", pickOutcome(result.error.mutationOutcome)),
         }
       : {
           code: "OUTPUT_WRITE_FAILED",
@@ -932,9 +1144,7 @@ function outputDeliveryReceipt(result: OperationResult, savedOutput?: string): O
       ...(connection === undefined || result.meta.connectionOmitted === true
         ? { connectionOmitted: true }
         : {}),
-      ...(result.meta.cleanupFailed === true ? { cleanupFailed: true } : {}),
-      ...(result.meta.outputFailed === true ? { outputFailed: true } : {}),
-      ...(result.meta.truncated === true ? { truncated: true } : {}),
+      ...metaFlags,
       ...optional("resultId", resultId),
     },
   };
@@ -1051,21 +1261,25 @@ export async function runCli(
     if (command === "guide") {
       allowOptions(parsed, []);
       exactPositionals(parsed, 1, 2);
-      const page = guide(action, withSettings(dependencies.local, parsed));
+      const page = await guide(action, withSettings(dependencies.local, parsed));
       if (parsed.options.json)
         return await emit(frontendResult("cli.guide", "unselected", page), parsed, io);
       return await emitText(`${page.text}\n`, parsed, io);
     }
     if (command === "config" && action === "init")
       return await emit(await initConnection(parsed, io), parsed, io);
+    if (command === "config" && action === "list")
+      return await emit(await listConfigConnections(parsed, io), parsed, io);
+    if (command === "config" && action === "set")
+      return await emit(await setConfigConnection(parsed, io), parsed, io);
     if (command === "config" && action === "path") {
       allowOptions(parsed, []);
       exactPositionals(parsed, 2);
-      const path =
-        stringOption(parsed, "config") ?? process.env.WTCTL_CONFIG ?? defaultConfigPath();
+      const path = configPathOption(parsed);
+      rejectOutputOnConfigPath(parsed, path);
       let exists = true;
       try {
-        await io.readFile(path, 1024 * 1024);
+        await io.readFile(path, MAX_CONFIG_BYTES);
       } catch (error) {
         // Файл без доступа или больше предела тоже есть.
         exists = (error as NodeJS.ErrnoException).code !== "ENOENT";
@@ -1108,15 +1322,12 @@ export async function runCli(
     } else {
       allowOptions(parsed, ["query", "topic", "group", "effect", "cursor", "limit", "offline"]);
       exactPositionals(parsed, 2);
-      const effect = stringOption(parsed, "effect");
-      if (
-        effect &&
-        effect !== "read" &&
-        effect !== "write" &&
-        effect !== "execute" &&
-        effect !== "unknown"
-      )
-        throw new CliInputError("--effect должен быть read, write, execute или unknown.");
+      const effect = enumOption(
+        parsed,
+        "effect",
+        ["read", "write", "execute", "unknown"],
+        "--effect должен быть read, write, execute или unknown.",
+      );
       discoveryFilter = {
         ...optional("query", stringOption(parsed, "query")),
         ...optional("topic", stringOption(parsed, "topic")),

@@ -4,6 +4,7 @@ import { XmlDocument } from "../src/documents.js";
 import { SchemaReader } from "../src/schema.js";
 import { queryPage } from "../src/query.js";
 import { buildXml, createPlatformXmlParser, parseXml } from "../src/protocol/xml.js";
+import { withoutXmlFormatting } from "../src/operations/native.js";
 import { fakeRuntime } from "./fake-server.js";
 
 const names =
@@ -108,6 +109,43 @@ test("превышение лимитов разбора документа да
     assert.equal(result.error?.code, "INVALID_XML");
     assert.match(result.error?.message ?? "", /Не удалось разобрать XML документа/);
     assert.equal(JSON.stringify(result).includes("private-document-marker"), false);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("нормализация ответа и упаковка JSON сохраняют собственное поле __proto__ рядом с преобразуемыми полями", async () => {
+  const before = Object.fromEntries([
+    ["__proto__", { kept: "before" }],
+    ["@_xmlns", "http://example.invalid/"],
+    ["#text", "   "],
+  ]);
+  const after = Object.fromEntries([
+    ["@_xmlns", "http://example.invalid/"],
+    ["__proto__", { kept: "after" }],
+  ]);
+  const cleanBefore = withoutXmlFormatting(before) as Record<string, unknown>;
+  const cleanAfter = withoutXmlFormatting(after) as Record<string, unknown>;
+  assert.equal(Object.getPrototypeOf(cleanBefore), Object.prototype);
+  assert.equal(Object.getPrototypeOf(cleanAfter), Object.prototype);
+  assert.equal(Object.hasOwn(cleanBefore, "__proto__"), true);
+  assert.equal(Object.hasOwn(cleanAfter, "__proto__"), true);
+  assert.deepEqual(cleanBefore["__proto__"], { kept: "before" });
+  assert.deepEqual(cleanAfter["__proto__"], { kept: "after" });
+
+  const payload = Object.fromEntries([
+    ["__proto__", { kept: "json" }],
+    ["big", 42n],
+  ]);
+  const { runtime } = fakeRuntime({ "native.spxml2.getAppInfo": payload });
+  try {
+    const result = await runtime.call("native.spxml2.getAppInfo", {});
+    assert.equal(result.ok, true);
+    const data = result.data as Record<string, unknown>;
+    assert.equal(Object.getPrototypeOf(data), Object.prototype);
+    assert.equal(Object.hasOwn(data, "__proto__"), true);
+    assert.deepEqual(data["__proto__"], { kept: "json" });
+    assert.equal(data.big, "42");
   } finally {
     await runtime.close();
   }

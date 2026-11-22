@@ -79,7 +79,7 @@ export function refusal(id: string, status = 500): WsHcmApiError {
   return new WsHcmApiError("soap-fault", "Internal Server Error", { operation: id, status });
 }
 
-/** Ответ-отказ для сценария: { "native.lds.putUrl": refuse() }. */
+/** Ответ-отказ для сценария: { "native.lds.putDoc": refuse() }. */
 export function refuse(status?: number): Answer {
   return (_args: Args, id: string) => {
     throw refusal(id, status);

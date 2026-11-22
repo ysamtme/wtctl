@@ -176,15 +176,15 @@ const cases: {
   },
   {
     name: "RPC discovery",
-    run: (c) => c.listRpc({ query: "version", library: "tools", builtIn: true, limit: 10 }),
+    run: (c) => c.listRpc({ query: "version", library: "tools", all: true, limit: 10 }),
     id: "rpc.list",
-    args: { query: "version", library: "tools", builtIn: true, limit: 10 },
+    args: { query: "version", library: "tools", all: true, limit: 10 },
   },
   {
     name: "RPC target contract",
-    run: (c) => c.describeRpc("tools.get_version", { builtIn: true, source: true }),
+    run: (c) => c.describeRpc("tools.get_version", { source: true }),
     id: "rpc.describe",
-    args: { targetId: "tools.get_version", builtIn: true, source: true },
+    args: { targetId: "tools.get_version", source: true },
   },
   {
     name: "execute",
@@ -705,4 +705,18 @@ test("типизированный status возвращает версию по
   assert.ok(status.operationCount > 0);
   assert.deepEqual(status.permissions, config.permissions);
   assert.deepEqual(methods, ["OpenSession", "CallMethod", "CallMethod", "CloseSession"]);
+});
+
+test("ObjectTarget допускает dbName только с id и отклоняет сочетание url с dbName на этапе типов", () => {
+  const f = fixture();
+  const byId = () => f.client.get({ id: "42", dbName: "trash" });
+  const byUrl = () => f.client.get({ url: "x-local://trash/objects/0000/42.xml" });
+  const bothIdAndUrl = () => f.client.get({ url: "x-local://trash/objects/0000/42.xml", id: "42" });
+  const invalid = () =>
+    // @ts-expect-error url и dbName вместе запрещены в runtime и в типе ObjectTarget.
+    f.client.get({ url: "x-local://trash/objects/0000/42.xml", dbName: "trash" });
+  assert.equal(typeof byId, "function");
+  assert.equal(typeof byUrl, "function");
+  assert.equal(typeof bothIdAndUrl, "function");
+  assert.equal(typeof invalid, "function");
 });

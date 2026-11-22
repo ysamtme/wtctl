@@ -25,7 +25,7 @@ const composite: readonly Operation[] = [
   ...scriptOperations,
   ...batchOperations,
 ];
-/** Результат обработчика каждой составной операции по её ID; SDK сверяет с ним объявленные типы методов. */
+/** Результат обработчика каждой основной операции по её ID; SDK сверяет с ним объявленные типы методов. */
 export type OperationData = {
   [
     O in
@@ -55,6 +55,16 @@ export function operationSpec(id: string): Operation | undefined {
 
 export function operationDefinition(id: string): OperationDefinition | undefined {
   return byId.get(id);
+}
+
+/** Пишет ли операция с этими аргументами файл на локальный диск (включая шаги runtime.batch). */
+export function operationWritesLocalDisk(id: string, args: unknown, inBatch = false): boolean {
+  const rule = specById.get(id)?.writesLocalDisk;
+  if (rule === undefined) return false;
+  if (rule === true) return true;
+  return rule(args, inBatch, (stepId, stepArgs) =>
+    operationWritesLocalDisk(stepId, stepArgs, true),
+  );
 }
 
 /** Точные ID и части идентификаторов идут раньше случайных совпадений с подстрокой описания. */

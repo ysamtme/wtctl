@@ -837,11 +837,11 @@ test("сохранённый ответ со списком под другим 
 test("ответ, который клиент не смог прочитать, не называется ошибкой HTTP 200", () => {
   const explained = platformFailure(
     new WsHcmApiError("protocol", "Unexpected response", {
-      operation: "GetModObjects",
+      operation: "LoadDoc",
       status: 200,
     }),
     "http://fixture.invalid/",
-    "native.lds.getModObjects",
+    "native.lds.loadDoc",
   );
   assert.equal(explained.message, "Сервер ответил HTTP 200, но разобрать ответ не удалось.");
 });

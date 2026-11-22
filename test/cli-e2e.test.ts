@@ -91,6 +91,7 @@ async function fixture() {
                 catalogs: [{ id: "education_modes", object_type: "education_mode" }],
               },
             ],
+            shared_docs: [{ id: "tools", url: "x-local://libs/tools.xml" }],
           }),
         );
         return;
@@ -266,6 +267,12 @@ async function fixture() {
         if (body.includes("<UseBinaryResponse>true</UseBinaryResponse>")) {
           response.setHeader("content-type", "application/binary");
           response.end(uploaded);
+          break;
+        }
+        if (body.includes("x-local://libs/tools.xml")) {
+          const libXml =
+            '<SPXML-INLINE-FORM><tools><alpha ALLOW-CALL-FROM-CLIENT="1"/><beta ALLOW-CALL-FROM-CLIENT="1"/><gamma ALLOW-CALL-FROM-CLIENT="1"/><get_version PROPERTY="1" ALLOW-CALL-FROM-CLIENT="1" PARAM="sTypeParam" PARAM="bDateFlag" EXPR="return \'1.0\';"/></tools></SPXML-INLINE-FORM>';
+          response.end(soap(method, "<Data>" + Buffer.from(libXml).toString("base64") + "</Data>"));
           break;
         }
         response.end(soap(method, "<Data>QQ==</Data>"));
@@ -896,7 +903,7 @@ test(
         "--group",
         "lds",
         "--effect",
-        "read",
+        "write",
         "--limit",
         "2",
       ]);
@@ -907,7 +914,7 @@ test(
       };
       assert.equal(page.operations.length, 2);
       assert.equal(
-        page.operations.every((op) => op.effect === "read"),
+        page.operations.every((op) => op.effect === "write"),
         true,
       );
       assert.equal(page.nextCursor, 2);
@@ -916,12 +923,14 @@ test(
       assert.equal(describe.code, 0, describe.stdout + describe.stderr);
       assert.equal((describe.result?.data as { id: string }).id, "native.lds.loadDoc");
       assert.equal(f.methods.length, 0);
+      const rpcBuiltIn = await f.cli(["--connection", "readonly", "rpc", "list", "--built-in"]);
+      assert.equal(rpcBuiltIn.code, 2);
+      assert.equal(f.methods.length, 0);
       const rpcList = await f.cli([
         "--connection",
         "readonly",
         "rpc",
         "list",
-        "--built-in",
         "--library",
         "tools",
         "--method",
@@ -933,44 +942,37 @@ test(
       assert.equal(rpcPage.targets[0]?.id, "tools.get_version");
       assert.deepEqual(rpcPage.targets[0]?.parameters, ["sTypeParam", "bDateFlag"]);
       assert.equal(rpcPage.targets[0]?.allowed, true);
-      assert.equal(rpcPage.source, "built-in 2025.1.1171");
+      assert.equal(rpcPage.source, "server");
       const rpcDescribe = await f.cli([
         "--connection",
         "readonly",
         "rpc",
         "describe",
         "tools.get_version",
-        "--built-in",
         "--source",
       ]);
       assert.equal(rpcDescribe.code, 0, rpcDescribe.stdout + rpcDescribe.stderr);
       const rpcTarget = rpcDescribe.result?.data as RpcTargetDescription;
-      assert.equal(rpcTarget.source, "built-in 2025.1.1171");
-      assert.equal(rpcTarget.code, undefined);
-      const rpcUnknown = await f.cli(["rpc", "describe", "tools.synthetic_missing", "--built-in"]);
+      assert.equal(rpcTarget.source, "server");
+      assert.equal(rpcTarget.code, "return '1.0';");
+      const rpcUnknown = await f.cli(["rpc", "describe", "tools.synthetic_missing"]);
       assert.equal(rpcUnknown.code, 1);
       assert.equal(rpcUnknown.result?.error?.code, "UNKNOWN_RPC_TARGET");
       await withHcmClient(f.sdkConfig, async (hcm) => {
-        const first = unwrap(await hcm.listRpc({ limit: 2, builtIn: true }));
-        assert.equal(first.total, 263);
+        const first = unwrap(await hcm.listRpc({ limit: 2 }));
+        assert.equal(first.total, 4);
         assert.equal(first.nextCursor, 2);
-        const second = unwrap(
-          await hcm.listRpc({ limit: 2, cursor: first.nextCursor!, builtIn: true }),
-        );
-        assert.equal(second.nextCursor, 4);
-        assert.equal(first.targets[0]?.id, "i18n.obtain_const_translate_data");
-        assert.equal(first.targets[0]?.allowed, null);
+        const second = unwrap(await hcm.listRpc({ limit: 2, cursor: first.nextCursor! }));
+        assert.equal(second.nextCursor, undefined);
+        assert.equal(first.targets[0]?.id, "tools.alpha");
+        assert.equal(first.targets[0]?.allowed, true);
         assert.equal(new Set([...first.targets, ...second.targets].map((item) => item.id)).size, 4);
-        assert.deepEqual(
-          unwrap(await hcm.describeRpc("tools.get_version", { builtIn: true })).parameters,
-          ["sTypeParam", "bDateFlag"],
-        );
+        assert.deepEqual(unwrap(await hcm.describeRpc("tools.get_version")).parameters, [
+          "sTypeParam",
+          "bDateFlag",
+        ]);
       });
-      assert.equal(
-        f.methods.length,
-        0,
-        "Built-in RPC discovery must not contact the configured server",
-      );
+      const beforeDeny = f.methods.length;
       const denyWrite = await f.cli(
         ["--connection", "readonly", "object", "create", "education_mode", "--stdin"],
         '{"name":"Denied"}',
@@ -981,7 +983,7 @@ test(
       const denyExec = await f.cli(["--connection", "readonly", "query", "(1)"]);
       assert.equal(denyExec.code, 1);
       assert.equal(denyExec.result?.error?.code, "EXECUTE_DISABLED");
-      assert.equal(f.methods.length, 0);
+      assert.equal(f.methods.length, beforeDeny);
       const preview = await f.cli(
         [
           "--connection",

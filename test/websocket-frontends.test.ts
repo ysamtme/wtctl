@@ -11,7 +11,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { HcmClient, withHcmClient, unwrap } from "../src/sdk.js";
 import type { ConnectionConfig, OperationResult } from "../src/contracts.js";
-import type { WebSocketHeartbeatReceipt } from "../src/protocol/types.js";
+import type { WebSocketHeartbeatData } from "../src/protocol/types.js";
 import { mcpJson } from "./mcp-json.js";
 
 const bin = fileURLToPath(new URL("../src/cli/bin.ts", import.meta.url));
@@ -281,17 +281,14 @@ function success(result: OperationResult) {
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.meta.operationId, "web.websocket.heartbeat");
   assert.equal(result.meta.truncated, undefined);
-  const data = result.data as WebSocketHeartbeatReceipt;
+  const data = result.data as WebSocketHeartbeatData;
   assert.equal(data.route, "/services/main_ws_service");
-  assert.equal(data.phase, "disposed");
   assert.equal(data.handshakeValidated, true);
-  assert.equal(data.heartbeatWritten, true);
   assert.equal(data.heartbeatObserved, true);
-  assert.equal(data.closeRequested, true);
-  assert.equal(data.closeWriteVerified, false);
-  assert.equal(data.localSocketDisposed, true);
-  assert.equal(data.forcedLocalTermination, false);
-  assert.equal(data.limits.timeoutMs, 1000);
+  assert.equal(typeof data.durationMs, "number");
+  assert.ok(data.durationMs >= 0);
+  assert.equal(data.closeCode, 1000);
+  assert.equal(data.warning, undefined);
   assert.doesNotMatch(
     JSON.stringify(result),
     /heartbeat-owned-|fixture-password|SessionID|Authorization/,
@@ -339,15 +336,13 @@ test(
       for (const result of results) {
         assert.equal(result.ok, false);
         assert.equal(result.error?.retryable, false);
+        assert.equal(result.error?.code, "WS_HEARTBEAT_FAILED");
         assert.equal(result.meta.operationId, "web.websocket.heartbeat");
-        const receipt = result.error?.details?.heartbeatReceipt as WebSocketHeartbeatReceipt;
-        assert.ok(receipt);
-        assert.equal(receipt.handshakeValidated, true);
-        assert.equal(receipt.heartbeatWritten, true);
-        assert.equal(receipt.heartbeatObserved, false);
-        assert.equal(receipt.localSocketDisposed, true);
-        assert.equal(receipt.closeWriteVerified, false);
-        assert.equal(receipt.limits.timeoutMs, 250);
+        const details = result.error?.details as Record<string, unknown>;
+        assert.ok(details);
+        assert.equal(details.phase, "heartbeat");
+        assert.equal(details.handshakeValidated, true);
+        assert.equal(details.heartbeatObserved, false);
         assert.ok(Buffer.byteLength(JSON.stringify(result)) < f.config.outputLimitBytes);
         assert.doesNotMatch(
           JSON.stringify(result),
@@ -370,14 +365,11 @@ test(
           Buffer.byteLength(JSON.stringify(result)) <= 1024,
           "Whole failure envelope respects output budget",
         );
-        const receipt = result.error?.details?.heartbeatReceipt as WebSocketHeartbeatReceipt;
-        assert.ok(receipt);
-        assert.equal(receipt.heartbeatObserved, false);
-        assert.equal(receipt.localSocketDisposed, true);
-        assert.equal(receipt.closeWriteVerified, false);
-        if (result.error?.details?.heartbeatReceiptFieldsOmitted === true) {
-          assert.equal(receipt.limits, undefined);
-        } else assert.equal(receipt.limits.timeoutMs, 250);
+        const details = result.error?.details as Record<string, unknown>;
+        assert.ok(details);
+        assert.equal(details.phase, "heartbeat");
+        assert.equal(details.handshakeValidated, true);
+        assert.equal(details.heartbeatObserved, false);
       }
       f.assertClosed(5);
     } finally {
@@ -403,11 +395,11 @@ test(
       const result = await client.heartbeat();
       assert.equal(result.ok, false);
       assert.equal(httpCalls, 0);
+      assert.equal(result.error?.code, "WS_UNAVAILABLE");
       assert.equal(result.error?.retryable, false);
-      assert.equal(
-        (result.error?.details?.heartbeatReceipt as WebSocketHeartbeatReceipt).phase,
-        "preflight",
-      );
+      assert.equal(result.error?.details?.phase, "preflight");
+      assert.equal(result.error?.details?.handshakeValidated, false);
+      assert.equal(result.error?.details?.heartbeatObserved, false);
       for (const command of [
         ["ws", "heartbeat", "--timeout-ms", "249"],
         ["ws", "heartbeat", "--timeout-ms", "10001"],

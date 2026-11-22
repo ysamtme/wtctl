@@ -2,12 +2,7 @@ import type { NativeConfig, NativeOperation } from "../contracts.js";
 import { WsHcmClient, type NativeSession, type WebSession } from "../protocol/client.js";
 import { WsHcmBinaryResponse, type RequestOptions } from "../protocol/types.js";
 import { WebSocketHeartbeatError } from "../protocol/websocket.js";
-import {
-  ArgumentError,
-  WsHcmApiError,
-  attachCleanupError,
-  isTransportFailure,
-} from "../protocol/error.js";
+import { ArgumentError, WsHcmApiError, isTransportFailure } from "../protocol/error.js";
 import { NATIVE_ENTRIES, type NativeEntry } from "./generated.js";
 import { prepare } from "./validation.js";
 import { freezeRegistry } from "../immutable.js";
@@ -99,7 +94,10 @@ export function getNativeOperations(): readonly NativeOperation[] {
   return entries.map((entry) => entry.operation).filter((item) => !isInternalNative(item.id));
 }
 
-/** Эффект операции реестра для этих аргументов (и внутренней); undefined для неизвестного ID. */
+/**
+ * Эффект операции реестра для этих аргументов (и внутренней); undefined для неизвестного ID.
+ * @internal
+ */
 export function nativeEffect(
   id: string,
   args: Record<string, unknown>,
@@ -116,7 +114,10 @@ function sessionGone(error: unknown): boolean {
 }
 
 const failedLogins = new WeakSet<object>();
-/** Сбой случился при открытии сессии: сама операция не отправлена. */
+/**
+ * Сбой случился при открытии сессии: сама операция не отправлена.
+ * @internal
+ */
 export function loginFailed(error: unknown): boolean {
   return typeof error === "object" && error !== null && failedLogins.has(error);
 }
@@ -128,7 +129,47 @@ function abortedError(): WsHcmApiError {
   });
 }
 
-/** Владелец состояния для SDK, MCP и CLI. Вызовы идут по очереди: сессия и курсор не путаются. */
+const trustedPorts = new WeakMap<
+  NativeGateway,
+  {
+    call(id: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
+    stream<T>(
+      id: string,
+      args: Record<string, unknown>,
+      read: (body: AsyncIterable<Uint8Array>) => Promise<T>,
+      signal?: AbortSignal,
+    ): Promise<T>;
+  }
+>();
+
+/**
+ * Доверенный порт для HcmRuntime: аргументы уже скопированы на входе runtime или созданы заново
+ * внутри операции, поэтому повторный structuredClone не нужен; подмена call/stream на экземпляре
+ * или прототипе и обёртки Proxy сохраняются.
+ * @internal
+ */
+export function trustedGatewayPort(gateway: NativeGateway) {
+  const internal = trustedPorts.get(gateway);
+  return {
+    call(id: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+      return internal && gateway.call === ORIGINAL_CALL
+        ? internal.call(id, args, signal)
+        : gateway.call(id, args, signal);
+    },
+    stream<T>(
+      id: string,
+      args: Record<string, unknown>,
+      read: (body: AsyncIterable<Uint8Array>) => Promise<T>,
+      signal?: AbortSignal,
+    ): Promise<T> {
+      return internal && gateway.stream === ORIGINAL_STREAM
+        ? internal.stream(id, args, read, signal)
+        : gateway.stream(id, args, read, signal);
+    },
+  };
+}
+
+/** Владелец состояния для SDK, MCP и CLI. Вызовы идут по очереди: сессия не путается. */
 export class NativeGateway {
   readonly client: WsHcmClient;
   private nativeSession: Promise<NativeSession> | undefined;
@@ -152,6 +193,10 @@ export class NativeGateway {
       ...(config.username === undefined
         ? {}
         : { auth: { username: config.username, password: config.password! } }),
+    });
+    trustedPorts.set(this, {
+      call: (id, args, signal) => this.callInternal(id, args, signal, false),
+      stream: (id, args, read, signal) => this.streamInternal(id, args, read, signal, false),
     });
   }
   private assertOpen(): void {
@@ -184,32 +229,22 @@ export class NativeGateway {
     if (session) await (await session).close();
   }
   call(id: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    return this.callInternal(id, args, signal, true);
+  }
+  private callInternal(
+    id: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal | undefined,
+    clone: boolean,
+  ): Promise<unknown> {
     if (signal?.aborted) return Promise.reject(abortedError());
     const options = signal === undefined ? undefined : { signal };
-    return this.enqueue(id, args, async (entry, snapshot) => {
-      let failed = false;
-      let operationError: unknown;
-      try {
-        return await this.output(await this.invoke(entry, snapshot, options));
-      } catch (error) {
-        failed = true;
-        operationError = error;
-        throw error;
-      } finally {
-        if (id === "web.lifecycle.logout") {
-          const session = this.webSession;
-          this.webSession = undefined;
-          if (session) {
-            try {
-              (await session).disposeLocal();
-            } catch (cleanupError) {
-              if (failed) attachCleanupError(operationError, cleanupError);
-              else throw cleanupError;
-            }
-          }
-        }
-      }
-    });
+    return this.enqueue(
+      id,
+      args,
+      async (entry, snapshot) => this.output(await this.invoke(entry, snapshot, options)),
+      clone,
+    );
   }
   /**
    * Двоичный ответ операции потоком, без предела maxResponseBytes: read читает тело, и очередь
@@ -221,38 +256,53 @@ export class NativeGateway {
     read: (body: AsyncIterable<Uint8Array>) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
+    return this.streamInternal(id, args, read, signal, true);
+  }
+  private streamInternal<T>(
+    id: string,
+    args: Record<string, unknown>,
+    read: (body: AsyncIterable<Uint8Array>) => Promise<T>,
+    signal: AbortSignal | undefined,
+    clone: boolean,
+  ): Promise<T> {
     if (signal?.aborted) return Promise.reject(abortedError());
     if (!Object.hasOwn(streams, id))
       return Promise.reject(new WsHcmApiError("protocol", "Операция не отдаёт ответ потоком"));
     const options = signal === undefined ? undefined : { signal };
-    return this.enqueue(id, args, async (entry, snapshot) => {
-      const response = await this.invoke({ ...entry, invoke: streams[id]! }, snapshot, options);
-      if (!(response instanceof WsHcmBinaryResponse))
-        throw new WsHcmApiError("protocol", "Ответ сервера — не поток байт");
-      const body = response.body ?? new ReadableStream({ start: (stream) => stream.close() });
-      try {
-        // В Node поток ответа перебирается for await, хотя типы DOM этого не знают.
-        return await read(body as unknown as AsyncIterable<Uint8Array>);
-      } finally {
-        await body.cancel().catch(() => undefined);
-      }
-    });
+    return this.enqueue(
+      id,
+      args,
+      async (entry, snapshot) => {
+        const response = await this.invoke({ ...entry, invoke: streams[id]! }, snapshot, options);
+        if (!(response instanceof WsHcmBinaryResponse))
+          throw new WsHcmApiError("protocol", "Ответ сервера — не поток байт");
+        const body = response.body ?? new ReadableStream({ start: (stream) => stream.close() });
+        try {
+          // В Node поток ответа перебирается for await, хотя типы DOM этого не знают.
+          return await read(body as unknown as AsyncIterable<Uint8Array>);
+        } finally {
+          await body.cancel().catch(() => undefined);
+        }
+      },
+      clone,
+    );
   }
   /** Вызовы идут по очереди; проверяется собственный снимок аргументов. */
   private enqueue<T>(
     id: string,
     args: Record<string, unknown>,
     run: (entry: NativeEntry, snapshot: Record<string, unknown>) => Promise<T>,
+    clone: boolean,
   ): Promise<T> {
     if (!this.accepting) return Promise.reject(new WsHcmApiError("protocol", "Шлюз закрыт"));
     const entry = byId.get(id);
     if (!entry)
       return Promise.reject(new WsHcmApiError("protocol", "Неизвестная низкоуровневая операция"));
     let snapshot: Record<string, unknown>;
-    // Свой снимок: вызывающий не может подменить URL или вложенные обёртки XML и двоичных данных,
-    // пока предыдущий принятый вызов занимает очередь. Подготовленным снимком вызов и идёт.
+    // На публичном входе берётся свой снимок: вызывающий не может подменить URL или вложенные
+    // обёртки XML и двоичных данных, пока предыдущий принятый вызов занимает очередь.
     try {
-      snapshot = prepare(structuredClone(args), entry.operation.inputSchema);
+      snapshot = prepare(clone ? structuredClone(args) : args, entry.operation.inputSchema);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -289,7 +339,7 @@ export class NativeGateway {
         session === undefined ||
         profile === "anonymous" ||
         !authExpired ||
-        /[.](?:session|lifecycle)[.]/.test(entry.operation.id)
+        entry.operation.group === "session"
       )
         throw error;
       const current = profile === "native" ? this.nativeSession : this.webSession;
@@ -351,3 +401,6 @@ export class NativeGateway {
       });
   }
 }
+
+const ORIGINAL_CALL = NativeGateway.prototype.call;
+const ORIGINAL_STREAM = NativeGateway.prototype.stream;

@@ -1,5 +1,13 @@
 import { HcmError, boundedInteger, inputObject, requiredString } from "../errors.js";
-import { fields, object, operation, schema, string, type EffectFor } from "../operation.js";
+import {
+  fields,
+  isStepReference,
+  object,
+  operation,
+  schema,
+  string,
+  type EffectFor,
+} from "../operation.js";
 import { WsHcmApiError } from "../protocol/error.js";
 import {
   catalogQuery,
@@ -17,10 +25,8 @@ import {
 import { withRepeated, type DataShape } from "../schema.js";
 
 /** Запрос с query или со ссылкой $ref выполняет код на сервере; запрос по каталогу читает. */
-const queryEffect: EffectFor = (args) => {
-  const deferredArguments = Object.keys(args).length === 1 && typeof args.$ref === "string";
-  return deferredArguments || args.query !== undefined ? "execute" : "read";
-};
+const queryEffect: EffectFor = (args) =>
+  isStepReference(args) || args.query !== undefined ? "execute" : "read";
 
 /**
  * Типы полей каталога, которые читаются, только когда условие содержит значение, записанное
@@ -119,7 +125,6 @@ export const queryOperations = [
           startPos,
           maxCount: limit,
           expectToReadAll: false,
-          keepCursor: false,
         };
         response = await (sql
           ? context.server.call("native.lds.xQuery", request, call.outcome)

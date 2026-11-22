@@ -1211,7 +1211,6 @@ ObjectData<T extends object = HcmData>
 | `url` | `string` | Адрес документа: url из ответа get. |
 | `type?` | `string` | Ожидаемый тип объекта. |
 | `id?` | `string` | ID объекта, строкой: 0x… или десятичная запись. |
-| `dbName?` | `string` | База сервера, если объект задан через id и лежит не в основной базе. |
 
 Вариант 2:
 
@@ -1219,7 +1218,6 @@ ObjectData<T extends object = HcmData>
 | --- | --- | --- |
 | `id` | `string` | ID объекта, строкой: 0x… или десятичная запись. |
 | `type?` | `string` | Ожидаемый тип объекта. |
-| `url?` | `string` | Адрес документа: url из ответа get. |
 | `dbName?` | `string` | База сервера, если объект лежит не в основной базе. |
 
 ### OperationDefinition
@@ -1527,7 +1525,6 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `query?` | `string` | Часть имени функции или параметра. |
 | `library?` | `string` | Библиотека: tools, ms_tools… |
 | `method?` | `string` | Имя функции целиком. |
-| `builtIn?` | `boolean` | Встроенная таблица функций сервера 2025.1.1171, без обращения к серверу. |
 | `all?` | `boolean` | Включить функции, которые может вызывать только код сервера. |
 | `cursor?` | `number` | Сколько функций пропустить: nextCursor прошлой страницы. |
 | `limit?` | `number` | Функций на странице, 1–100; по умолчанию 30. |
@@ -1543,7 +1540,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `serverOnlyHidden?` | `number` | Подходящие функции, пропущенные из-за того, что клиент их не вызовет; all:true выводит их. |
 | `hint?` | `string` | Есть при serverOnlyHidden: как их показать. |
 | `nextCursor?` | `number` | cursor следующей страницы; нет — страница последняя. |
-| `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
+| `source` | `"server"` | Источник списка функций — подключённый сервер. |
 | `skipped?` | `readonly string[]` | Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. |
 
 ### RpcDescribeOptions
@@ -1552,7 +1549,6 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `builtIn?` | `boolean` | Встроенная таблица функций сервера 2025.1.1171, без обращения к серверу. |
 | `source?` | `boolean` | Добавить код функции, до 8 КБ. |
 
 ### RpcInput
@@ -1590,7 +1586,7 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `parameters` | `readonly string[]` | Имена параметров по порядку; типов сервер не объявляет. |
 | `allowed` | `boolean \| null` | Разрешён ли вызов с клиента; null — не установлено. |
 | `serverOnly?` | `true` | Функция не допускает вызова с клиента: её зовёт только код сервера. |
-| `source` | `"server" \| "built-in 2025.1.1171"` | Откуда список: с сервера или из встроенной таблицы 2025.1.1171. |
+| `source` | `"server"` | Источник списка функций — подключённый сервер. |
 | `skipped?` | `readonly string[]` | Библиотеки, файл которых не прочитан: сервер его не отдал или клиент не разобрал. |
 
 ### RpcTypedArgument
@@ -1855,33 +1851,16 @@ data ответа, который больше outputLimitBytes и сохран�
 
 ### WebSocketHeartbeatData
 
-Проверка прошла: подключение принято, $ok получен.
+Ответ проверки WebSocket: подключение принято, получен ответ $ok.
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `handshakeValidated` | `true` | Всегда true. |
-| `heartbeatObserved` | `true` | Всегда true. |
-| `route` | `"/services/main_ws_service"` | Адрес WebSocket на сервере. |
-| `phase` | `"preflight" \| "connecting" \| "heartbeat" \| "closing" \| "disposed"` | До какой фазы дошла проверка. |
-| `httpStatus?` | `number` | Статус HTTP при повышении протокола или отказе, если был; без него ответа не наблюдали. |
-| `heartbeatWritten` | `boolean` | Сообщение $hbt отправлено. |
-| `closeRequested` | `boolean` | Клиент запросил закрытие. |
-| `peerCloseObserved` | `boolean` | Сервер прислал кадр закрытия. |
-| `peerEofObserved` | `boolean` | Сервер закрыл соединение. |
-| `libraryCloseCode?` | `number` | Код закрытия WebSocket, если был. |
-| `closeWriteVerified` | `false` | Всегда false: что кадр закрытия дошёл до сервера, не проверить. |
-| `localSocketDisposed` | `boolean` | Соединение на стороне клиента закрыто. |
-| `forcedLocalTermination` | `boolean` | Клиент оборвал соединение сам: истёк срок или превышен предел. |
-| `warning?` | `"PEER_CLOSE_ACK_NOT_OBSERVED"` | Ответа сервера на закрытие не было; $ok при этом получен. |
+| `route` | `"/services/main_ws_service"` | Адрес службы WebSocket на сервере. |
+| `handshakeValidated` | `true` | Сервер принял подключение WebSocket. |
+| `heartbeatObserved` | `true` | Получен ответ $ok. |
 | `durationMs` | `number` | Время проверки, мс. |
-| `limits` | `{…}` | Пределы проверки. |
-| `limits.timeoutMs` | `number` | Срок проверки, мс. |
-| `limits.maxMessageBytes` | `number` | Предел одного сообщения в байтах. |
-| `limits.maxMessages` | `number` | Предел числа сообщений. |
-| `limits.maxTotalBytes` | `number` | Предел всех полученных байт. |
-| `counts` | `{…}` | Сколько получено. |
-| `counts.messages` | `number` | Сообщений. |
-| `counts.receivedBytes` | `number` | Байт. |
+| `closeCode?` | `number` | Код закрытия WebSocket, если сервер прислал кадр закрытия. |
+| `warning?` | `"PEER_CLOSE_ACK_NOT_OBSERVED"` | Ответа сервера на закрытие не было; $ok при этом получен. |
 
 ### WebSocketHeartbeatInput
 

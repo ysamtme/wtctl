@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const directory = fileURLToPath(new URL("..", import.meta.url));
 const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -17,10 +19,9 @@ assert.ok(
 // эта проверка только читает и работает без сети, поэтому берёт собственное окружение.
 const smokeEnv = { ...process.env };
 for (const key of Object.keys(smokeEnv))
-  if (/^WTCTL_/i.test(key) || key.toUpperCase() === "NODE_OPTIONS") delete smokeEnv[key];
+  if (/^(?:WTCTL_|NODE_(?:OPTIONS|PATH)$)/i.test(key)) delete smokeEnv[key];
 smokeEnv.NODE_OPTIONS = "";
 smokeEnv.WTCTL_URL = "http://synthetic.invalid/";
-smokeEnv.WTCTL_RUNTIME_DIR = resolve(directory, ".runtime", "package-check");
 const packed = spawnSync(
   process.execPath,
   [npmEntry, "pack", "--dry-run", "--json", "--ignore-scripts", "--cache", ".cache/npm"],
@@ -106,54 +107,113 @@ for (const entry of servers) {
     "Плагин запускает файл команды из пакета.",
   );
 }
-assert.match(await readFile(resolve(directory, bin), "utf8"), /^#!\/usr\/bin\/env node\r?\n/);
-const help = spawnSync(process.execPath, [resolve(directory, bin), "--help"], {
-  cwd: directory,
-  env: smokeEnv,
-  encoding: "utf8",
-  timeout: 10000,
-});
-assert.equal(help.status, 0, help.stderr);
-assert.match(help.stdout, /wtctl/);
-const api = spawnSync(
-  process.execPath,
-  [resolve(directory, bin), "--json", "api", "list", "--limit", "1"],
-  { cwd: directory, env: smokeEnv, encoding: "utf8", timeout: 10000 },
-);
-assert.equal(api.status, 0, api.stderr);
-assert.ok(JSON.parse(api.stdout), "Собранный CLI должен вывести один корректный результат JSON.");
-// Файл команды отдельно, вне этой папки и её node_modules.
+
+// Копируется ровно тот набор файлов, который выбрал npm, как установленный пакет без зависимостей.
 const alone = await mkdtemp(join(tmpdir(), "wtctl-package-check-"));
+const pkgDir = join(alone, "node_modules", manifest.name);
 try {
-  await copyFile(resolve(directory, bin), join(alone, "wtctl.mjs"));
-  const version = spawnSync(process.execPath, [join(alone, "wtctl.mjs"), "version"], {
+  for (const file of files) {
+    const target = join(pkgDir, file);
+    await mkdir(dirname(target), { recursive: true });
+    await copyFile(join(directory, file), target);
+  }
+  smokeEnv.WTCTL_RUNTIME_DIR = join(alone, ".runtime");
+  const binPath = resolve(pkgDir, bin);
+  assert.match(await readFile(binPath, "utf8"), /^#!\/usr\/bin\/env node\r?\n/);
+  const timeout = 10000;
+  const cli = (...args) => {
+    const run = spawnSync(process.execPath, [binPath, ...args], {
+      cwd: alone,
+      env: smokeEnv,
+      encoding: "utf8",
+      timeout,
+    });
+    if (run.error) throw run.error;
+    assert.equal(run.status, 0, run.stderr);
+    return run.stdout;
+  };
+  assert.equal(JSON.parse(cli("version")).data.version, manifest.version);
+  assert.match(cli("--help"), /wtctl/);
+  assert.match(cli("guide"), /^# Работа с сервером WebSoft HCM/);
+  const logs = cli("guide", "logs");
+  assert.match(logs, /^# Логи сервера/);
+  assert.equal(JSON.parse(cli("--json", "api", "list", "--limit", "1")).ok, true);
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [binPath, "mcp"],
+    cwd: alone,
+    env: smokeEnv,
+  });
+  const client = new Client({ name: "wtctl-package-check", version: manifest.version });
+  try {
+    const options = { timeout };
+    await client.connect(transport, options);
+    assert.deepEqual(client.getServerVersion(), { name: "wtctl", version: manifest.version });
+    const { tools } = await client.listTools(undefined, options);
+    assert.ok(
+      tools.some((tool) => tool.name === "hcm_guide"),
+      "В MCP-сервере должен быть гайд.",
+    );
+    const guide = await client.callTool(
+      { name: "hcm_guide", arguments: { topic: "logs" } },
+      undefined,
+      options,
+    );
+    assert.deepEqual(guide.content, [{ type: "text", text: logs.trimEnd() }]);
+    const missing = await client.callTool(
+      { name: "hcm_api_describe", arguments: { operationId: "packageCheck.unknown" } },
+      undefined,
+      options,
+    );
+    assert.equal(missing.isError, true);
+    assert.equal(JSON.parse(missing.content[0].text).error.code, "UNKNOWN_OPERATION");
+  } finally {
+    await client.close();
+  }
+
+  // Публичные точки входа SDK проверяются по именам пакета через exports в package.json.
+  const consumer = join(alone, "check-exports.mjs");
+  await writeFile(
+    consumer,
+    [
+      'import * as sdk from "wtctl";',
+      'import * as native from "wtctl/native";',
+      'import * as protocol from "wtctl/protocol";',
+      "console.log(JSON.stringify({",
+      "  sdk: Object.keys(sdk).sort(),",
+      "  native: typeof native.NativeGateway,",
+      "  protocol: typeof protocol.WsHcmClient,",
+      "}));",
+    ].join("\n"),
+  );
+  const importsRun = spawnSync(process.execPath, [consumer], {
     cwd: alone,
     env: smokeEnv,
     encoding: "utf8",
-    timeout: 10000,
+    timeout,
   });
-  assert.equal(version.status, 0, version.stderr);
-  assert.equal(JSON.parse(version.stdout).data.version, manifest.version);
+  if (importsRun.error) throw importsRun.error;
+  assert.equal(importsRun.status, 0, importsRun.stderr);
+  const exported = JSON.parse(importsRun.stdout);
+  assert.deepEqual(exported.sdk, [
+    "HcmCleanupError",
+    "HcmClient",
+    "HcmError",
+    "HcmOperationError",
+    "HcmStoredResultError",
+    "describeHcmOperation",
+    "getCleanupError",
+    "listHcmOperations",
+    "loadConfig",
+    "unwrap",
+    "withHcmClient",
+  ]);
+  assert.equal(exported.native, "function");
+  assert.equal(exported.protocol, "function");
 } finally {
   await rm(alone, { recursive: true, force: true });
 }
-// Точка входа wtctl отдаёт только описанное для вызывающего; остальное — для разработки клиента.
-const sdk = await import(new URL("../dist/index.js", import.meta.url));
-assert.deepEqual(Object.keys(sdk).sort(), [
-  "HcmCleanupError",
-  "HcmClient",
-  "HcmError",
-  "HcmOperationError",
-  "HcmStoredResultError",
-  "describeHcmOperation",
-  "getCleanupError",
-  "listHcmOperations",
-  "loadConfig",
-  "unwrap",
-  "withHcmClient",
-]);
-for (const path of Object.values(manifest.exports).flatMap((entry) => Object.values(entry)))
-  assert.ok((await stat(resolve(directory, path))).isFile());
 console.log(
   `Пакет проверен: открытых файлов — ${files.length}, команда и SDK самодостаточны, локального состояния нет.`,
 );

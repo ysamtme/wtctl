@@ -130,13 +130,21 @@ export interface DeletedObjectData {
   /** Каталог, по которому проверено удаление. */
   readonly catalog?: string;
 }
-/** Объекты сервера: чтение, создание, правка и удаление одного документа, с журналом записей. */
+/**
+ * Объекты сервера: чтение, создание, правка и удаление одного документа, с журналом записей.
+ * @internal
+ */
 export class ServerObjects {
   constructor(
     private readonly server: Pick<HcmServer, "call" | "read" | "applicationInfo">,
     private readonly schema: Pick<
       SchemaReader,
-      "documentShape" | "catalogShape" | "requireType" | "documentForm" | "typeFormUrl"
+      | "documentShape"
+      | "catalogShape"
+      | "requireType"
+      | "documentForm"
+      | "typeFormUrl"
+      | "serverReads"
     >,
     /** Журнал записей: папка с mutations.jsonl и его предел в байтах, 0 — без предела. */
     private readonly journalFile: { readonly directory: string; readonly maxBytes: number },
@@ -319,7 +327,6 @@ export class ServerObjects {
         query: `for $elem in ${catalog} where $elem/id = ${resolvePhysicalDocumentLocation(id).objectId} return $elem`,
         maxCount: 1,
         expectToReadAll: false,
-        keepCursor: false,
       });
       const [item] = queryPage(response, 0, 1, [...known], false).items;
       const values = Object.fromEntries(
@@ -338,7 +345,6 @@ export class ServerObjects {
       query: `for $elem in ${catalog} where $elem/id = ${lexicalId} return $elem`,
       maxCount: 2,
       expectToReadAll: false,
-      keepCursor: false,
     });
     const data = cleanXmlValue(findXmlNode(response, "Data"));
     return (
@@ -582,6 +588,7 @@ export class ServerObjects {
   ): Promise<PatchedObjectData | PatchPreviewData> {
     const operations = patchInput(args.patch, args.remove, args.resave === true);
     const loaded = await this.load(args);
+    const schemaReadsBefore = this.schema.serverReads;
     // Форма отличает целое поле, где 0x1F и 31 — один ID, от строкового, и проверяет имена и даты.
     const { type, formUrl } = loaded.document.form();
     const shape = await this.schema.documentShape(type, formUrl);
@@ -632,6 +639,17 @@ export class ServerObjects {
     const form = await this.schema.documentForm(
       changes.before.formUrl ?? (await this.schema.typeFormUrl(changes.before.type)),
     );
+    // Если во время подготовки формы читались с сервера, перепроверить документ прямо перед записью,
+    // чтобы не затереть чужую правку за время сетевого чтения форм.
+    if (this.schema.serverReads !== schemaReadsBefore) {
+      const current = await this.load({ url: loaded.url });
+      if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
+        throw new HcmError(
+          "CONFLICT",
+          "Объект изменился, пока готовилась запись.",
+          "Прочитать объект заново и составить изменение по его текущему состоянию.",
+        );
+    }
     const branches = changes.changes.map((change) => patchSegments(change.path)[0]![1]!);
     const mutationId = randomUUID();
     await this.journal({

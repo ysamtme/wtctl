@@ -197,7 +197,10 @@ function sameKey(stored: unknown, key: string, type: string | undefined): boolea
       BigInt(text) === BigInt(key))
   );
 }
-/** Глубокое равенство данных без зависимости от порядка ключей объектов. */
+/**
+ * Глубокое равенство данных без зависимости от порядка ключей объектов.
+ * @internal
+ */
 export function sameData(left: unknown, right: unknown): boolean {
   if (left === right) return true;
   if (left === null || right === null || typeof left !== "object" || typeof right !== "object")
@@ -252,6 +255,7 @@ function brief(value: unknown, nested = false): unknown {
   );
   return `{${keys.slice(0, 4).join(", ")}${keys.length > 4 ? ", …" : ""}}`;
 }
+/** @internal */
 export function patchSegments(path: string): RegExpExecArray[] {
   const parts = path.match(/[^.[\]]+(?:\[[^\]]*\])?/g) ?? [];
   const matches = parts.map((part) =>
@@ -262,6 +266,7 @@ export function patchSegments(path: string): RegExpExecArray[] {
   return matches as RegExpExecArray[];
 }
 
+/** @internal */
 export interface DocumentSnapshot {
   readonly type: string;
   readonly xml: string;
@@ -280,7 +285,10 @@ export interface PatchChange {
   /** Значение после правки. */
   readonly after?: unknown;
 }
-/** Сохраняет по порядку неизвестные элементы, атрибуты, комментарии и CDATA при правке путей. */
+/**
+ * Сохраняет по порядку неизвестные элементы, атрибуты, комментарии и CDATA при правке путей.
+ * @internal
+ */
 export class XmlDocument {
   private constructor(private root: Node) {}
   static parse(source: string): XmlDocument {

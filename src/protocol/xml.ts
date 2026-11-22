@@ -278,12 +278,8 @@ export function rawXml(source: string): RawXml {
   return assembledXml(source);
 }
 
-/**
- * Помечает без проверки XML, который клиент собрал сам из экранированных значений и проверенных
- * фрагментов: проверка такой строки ничего не находит, а на десятках мегабайт занимает секунды.
- * @internal
- */
-export function assembledXml(source: string): RawXml {
+/** Помечает уже проверенный XML как RawXml. */
+function assembledXml(source: string): RawXml {
   return Object.freeze({ [RAW_XML]: true as const, xml: source });
 }
 
@@ -310,19 +306,27 @@ export function isRawXml(value: unknown): value is RawXml {
   return typeof value === "object" && value !== null && RAW_XML in value;
 }
 
+// Быстрый проход без флага /u: если в строке нет спецсимволов XML, управляющих знаков, суррогатов
+// и U+FFFE/U+FFFF, строка целиком допустима в XML 1.0 и не требует экранирования.
+const xmlNeedsEscapeOrCheck = /[&<>"'\x00-\x1f\ud800-\udfff\ufffe\uffff]/;
+const xmlEscapePattern = /[&<>"'\r\n\t]/g;
+const xmlEscapes: Readonly<Record<string, string>> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&apos;",
+  "\r": "&#13;",
+  "\n": "&#10;",
+  "\t": "&#9;",
+};
+
 /** Экранирует скаляр для текста и атрибутов XML; полный документ не строит. */
 export function escapeXml(value: unknown): string {
   const source = String(value);
+  if (!xmlNeedsEscapeOrCheck.test(source)) return source;
   assertXmlCharacters(source);
-  return source
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;")
-    .replaceAll("\r", "&#13;")
-    .replaceAll("\n", "&#10;")
-    .replaceAll("\t", "&#9;");
+  return source.replace(xmlEscapePattern, (ch) => xmlEscapes[ch]!);
 }
 
 /** Возвращает локальную часть имени XML, возможно с префиксом пространства имён. */

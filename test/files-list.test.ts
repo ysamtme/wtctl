@@ -125,7 +125,7 @@ test("ошибка с not_sent не делает отправленную зап
 test("операции LDS с URL снаружи неизвестны, но внутри files.read работают", async () => {
   const { runtime, server } = fixture([]);
   const args = { url: "x-local://share/a" };
-  for (const id of ["native.lds.putUrl", "native.lds.deleteUrl", "native.lds.loadUrl"]) {
+  for (const id of ["native.lds.deleteUrl", "native.lds.loadUrl"]) {
     assert.throws(() => runtime.describe(id), { code: "UNKNOWN_OPERATION" }, id);
     assert.equal((await runtime.call(id, args)).error?.code, "UNKNOWN_OPERATION");
     assert.equal((await runtime.call("runtime.batch", { steps: [{ id, args }] })).ok, false, id);
@@ -137,7 +137,7 @@ test("операции LDS с URL снаружи неизвестны, но вн
 
 test("удалённые операции снаружи неизвестны", async () => {
   const { runtime, server } = fixture([]);
-  const removed = `native.lds.getModDeletedObjects native.lds.createDoc native.lds.loadLargeField native.lds.putLargeField native.lds.deleteLargeField web.spxml.putLargeField web.spxml.getLargeField web.spxml.putLargeFieldFromUrl web.pages.createDoc web.pages.getIcon web.lifecycle.logout2 web.experimental.getUiTemplate native.experimental.spxml.getLargeField native.experimental.spxml.putLargeField native.experimental.spxml.putLargeFieldFromUrl native.experimental.spxml.callMethodAsync native.experimental.spxml.getBackgroundTasksByName native.experimental.spxml.getAsyncMethodStatus native.experimental.spxml.killAsyncMethod native.experimental.spxml.getDoc native.experimental.spxml.putDoc native.lds.openSession native.lds.closeSession web.lds.openSession web.lds.closeSession native.spxml.call`;
+  const removed = `native.lds.putUrl native.lds.getModDeletedObjects native.lds.createDoc native.lds.loadLargeField native.lds.putLargeField native.lds.deleteLargeField web.spxml.putLargeField web.spxml.getLargeField web.spxml.putLargeFieldFromUrl web.pages.createDoc web.pages.getIcon web.lifecycle.logout2 web.experimental.getUiTemplate native.experimental.spxml.getLargeField native.experimental.spxml.putLargeField native.experimental.spxml.putLargeFieldFromUrl native.experimental.spxml.callMethodAsync native.experimental.spxml.getBackgroundTasksByName native.experimental.spxml.getAsyncMethodStatus native.experimental.spxml.killAsyncMethod native.experimental.spxml.getDoc native.experimental.spxml.putDoc native.lds.openSession native.lds.closeSession web.lds.openSession web.lds.closeSession native.spxml.call`;
   for (const id of removed.split(" ")) {
     assert.throws(() => runtime.describe(id), { code: "UNKNOWN_OPERATION" }, id);
     assert.equal((await runtime.call(id, {})).error?.code, "UNKNOWN_OPERATION");

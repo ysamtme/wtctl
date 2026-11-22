@@ -59,11 +59,6 @@ const TOPICS: readonly Topic[] = [
     ],
   },
   {
-    id: "changes",
-    title: "Учёт изменений самим сервером: на 2025.1–2025.2 отвечает пусто, см. описания операций",
-    operations: ["native.lds.getModObjects", "native.lds.getCatalogsStat"],
-  },
-  {
     id: "server",
     title: "Сведения о сервере и проверка служб",
     operations: [
@@ -95,7 +90,7 @@ const TOPICS: readonly Topic[] = [
   {
     id: PROTOCOL,
     title:
-      "Прямые вызовы протокола: те же действия через веб-профиль, сессии, сырые запросы. Обычно не нужны",
+      "Прямые вызовы протокола: сырой XQuery и RPC, открытие и закрытие сессий. Обычно не нужны",
     operations: [],
   },
 ];
@@ -146,7 +141,7 @@ export function operationMap(): OperationMap {
         .map((effect) => [effect, operations.filter((item) => item.effect === effect).length])
         .filter(([, count]) => count),
     ),
-    hint: 'Операции темы с описаниями: список с topic; операции одного эффекта: query "read", "write", "execute" или "unknown". Эффект — право, которого операция требует: write может менять данные, но не обязана; unknown — зависит от аргументов (запрос, пакет, сырой вызов). Аргументы одной операции: describe по её id.',
+    hint: 'Операции темы с описаниями: список с topic; операции одного эффекта: query "read", "write", "execute" или "unknown". Эффект — право, которого операция требует: write может менять данные, но не обязана; unknown — зависит от аргументов (запрос, пакет). Аргументы одной операции: describe по её id.',
   };
 }
 

@@ -32,7 +32,7 @@ async function fixture(
     {
       "native.lds.xQuery": (args) => {
         assert.equal(args.expectToReadAll, false);
-        assert.equal(args.keepCursor, false);
+        assert.equal("keepCursor" in args, false);
         const body = response(Number(args.startPos), Number(args.maxCount), args);
         return parseSoapBody(
           "XQuery",
@@ -301,7 +301,6 @@ test("скаляры без обрамления и смешанные Data, т�
           startPos: 0,
           maxCount: 2,
           expectToReadAll: false,
-          keepCursor: false,
         });
         assert.equal(native.ok, true);
         assert.deepEqual(

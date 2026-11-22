@@ -235,7 +235,7 @@ test("параллельное закрытие runtime ждёт приняту�
   runtime.gateway.close = async () => {
     cleanupCalls++;
   };
-  const accepted = runtime.call("native.lds.idle");
+  const accepted = runtime.call("native.spxml2.getAppInfo");
   const first = runtime.close();
   const second = runtime.close();
   let secondSettled = false;
@@ -250,7 +250,7 @@ test("параллельное закрытие runtime ждёт приняту�
     await Promise.all([accepted, first, second]);
   }
   assert.equal(cleanupCalls, 1);
-  assert.equal((await runtime.call("native.lds.idle")).error?.code, "RUNTIME_CLOSED");
+  assert.equal((await runtime.call("native.spxml2.getAppInfo")).error?.code, "RUNTIME_CLOSED");
 });
 
 test("данные документа не пропадают из-за того, что имя поля похоже на учётные данные транспорта", async () => {
@@ -820,7 +820,7 @@ test("отказ на входе после принятой записи — in
     fixture(
       {
         "native.lds.loadDoc": () => {
-          if (door === "load" && ++loads === 2) throw unauthorized();
+          if (door === "load" && ++loads === 3) throw unauthorized();
           return doc("<fixture><id>41</id><name>before</name></fixture>");
         },
         "native.spxml2.getForm": fixtureForm,
@@ -837,7 +837,7 @@ test("отказ на входе после принятой записи — in
           assert.equal(result.error?.mutationOutcome, "not_sent");
           assert.doesNotMatch(result.error?.hint ?? "", readBackHint);
         } else {
-          assert.equal(loads, 2);
+          assert.equal(loads, 3);
           assert.equal(result.error?.mutationOutcome, "indeterminate");
           assert.match(result.error?.hint ?? "", readBackHint);
         }
@@ -1034,4 +1034,78 @@ test("durationMs измеряет фактическое время выполн
     assert.ok(r1.meta.durationMs >= 100);
     assert.ok(r2.meta.durationMs < 80, `второй вызов показал durationMs=${r2.meta.durationMs}`);
   });
+});
+
+test("objects.patch перепроверяет отпечаток перед записью, если форма читалась с сервера, и не делает лишний LoadDoc при тёплом кэше", async () => {
+  let source = "<fixture><id>41</id><name>old</name><note>initial</note></fixture>";
+  let loads = 0;
+  let puts = 0;
+  let mutateDuringForm = true;
+  const form =
+    '<SPXML-FORM><fixture><id TYPE="integer"/><name TYPE="string"/><note TYPE="string"/></fixture></SPXML-FORM>';
+  const script: Script = {
+    "native.lds.loadDoc": () => {
+      loads++;
+      return doc(source);
+    },
+    "native.spxml2.getForm": () => {
+      if (mutateDuringForm) {
+        mutateDuringForm = false;
+        source = "<fixture><id>41</id><name>old</name><note>concurrent-edit</note></fixture>";
+      }
+      return form;
+    },
+    "native.lds.putDoc": (args) => {
+      puts++;
+      source = String(args.data);
+      return { completed: true };
+    },
+  };
+  await fixture(script, async (runtime) => {
+    // Первая правка читает форму с сервера: чужая правка во время чтения формы даёт CONFLICT без PutDoc.
+    const conflict = await runtime.call("objects.patch", {
+      id: "41",
+      patch: { name: "mine" },
+    });
+    assert.equal(conflict.error?.code, "CONFLICT");
+    assert.equal(puts, 0);
+    assert.equal(loads, 2);
+    assert.match(source, /<note>concurrent-edit<\/note>/);
+
+    // Вторая правка работает с кэшированной формой: только два LoadDoc (до записи и сверка после), без лишнего чтения.
+    loads = 0;
+    const applied = await runtime.call("objects.patch", {
+      id: "41",
+      patch: { name: "mine" },
+    });
+    assert.equal(applied.ok, true, JSON.stringify(applied));
+    assert.equal(puts, 1);
+    assert.equal(loads, 2);
+    assert.match(source, /<name>mine<\/name>/);
+    assert.match(source, /<note>concurrent-edit<\/note>/);
+  });
+
+  // Смена корневого типа документа во время чтения формы даёт CONFLICT, а не TYPE_MISMATCH.
+  let typedSource = "<fixture><id>42</id><name>old</name></fixture>";
+  let flipType = true;
+  await fixture(
+    {
+      "native.lds.loadDoc": () => doc(typedSource),
+      "native.spxml2.getForm": () => {
+        if (flipType) {
+          flipType = false;
+          typedSource = "<other><id>42</id><name>old</name></other>";
+        }
+        return form;
+      },
+    },
+    async (runtime) => {
+      const conflict = await runtime.call("objects.patch", {
+        id: "42",
+        type: "fixture",
+        patch: { name: "mine" },
+      });
+      assert.equal(conflict.error?.code, "CONFLICT");
+    },
+  );
 });

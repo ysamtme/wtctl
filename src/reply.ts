@@ -1,6 +1,5 @@
 import { WsHcmApiError } from "./native/index.js";
 import { ArgumentError, redactCredentials } from "./protocol/error.js";
-import { WebSocketHeartbeatError } from "./protocol/websocket.js";
 import { HcmError } from "./errors.js";
 import { operationSpec } from "./operations.js";
 import { platformFailure } from "./platform-errors.js";
@@ -15,6 +14,16 @@ export interface BatchRecovery {
   requested: number;
   sentMutationSteps: number;
   receipts: Record<string, unknown>[];
+}
+function setOwnProperty(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (key === "__proto__")
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  else target[key] = value;
 }
 function jsonSafe(value: unknown): unknown {
   if (typeof value === "bigint") return value.toString();
@@ -43,14 +52,14 @@ function jsonSafe(value: unknown): unknown {
       const child = record[key];
       const next = jsonSafe(child);
       if (copy !== undefined) {
-        copy[key] = next;
+        setOwnProperty(copy, key, next);
       } else if (next !== child) {
         copy = {};
         for (let j = 0; j < i; j++) {
           const prevKey = keys[j]!;
-          copy[prevKey] = record[prevKey];
+          setOwnProperty(copy, prevKey, record[prevKey]);
         }
-        copy[key] = next;
+        setOwnProperty(copy, key, next);
       }
     }
     return copy ?? value;
@@ -292,39 +301,32 @@ export class ReplyPacker {
     const { mutationOutcome: _own, ...normal }: OperationError =
       error instanceof HcmError
         ? error.toJSON()
-        : error instanceof WebSocketHeartbeatError
+        : error instanceof WsHcmApiError
           ? {
-              code: error.errorCode,
-              message: "Служба WebSocket не ответила на проверку.",
-              hint: error.hint,
+              code: `PLATFORM_${error.kind.toUpperCase()}`,
+              ...platformFailure(
+                error,
+                this.config.baseUrl,
+                operationSpec(id)?.usualCause,
+                // Своё сообщение после отправки операция даёт сама (afterSend).
+                mutationOutcome === "indeterminate" && !afterSend,
+              ),
               retryable: false,
+              ...(error.status === undefined ? {} : { details: { status: error.status } }),
             }
-          : error instanceof WsHcmApiError
+          : error instanceof ArgumentError
             ? {
-                code: `PLATFORM_${error.kind.toUpperCase()}`,
-                ...platformFailure(
-                  error,
-                  this.config.baseUrl,
-                  operationSpec(id)?.usualCause,
-                  // Своё сообщение после отправки операция даёт сама (afterSend).
-                  mutationOutcome === "indeterminate" && !afterSend,
-                ),
+                code: "INVALID_ARGUMENT",
+                message: error.message,
+                hint: "Аргументы операции описывает api.describe.",
                 retryable: false,
-                ...(error.status === undefined ? {} : { details: { status: error.status } }),
               }
-            : error instanceof ArgumentError
-              ? {
-                  code: "INVALID_ARGUMENT",
-                  message: error.message,
-                  hint: "Аргументы операции описывает api.describe.",
-                  retryable: false,
-                }
-              : {
-                  code: "INTERNAL_ERROR",
-                  message: "Операция не выполнена: внутренняя ошибка клиента.",
-                  hint: "Это дефект клиента: подбирать аргументы не нужно.",
-                  retryable: false,
-                };
+            : {
+                code: "INTERNAL_ERROR",
+                message: "Операция не выполнена: внутренняя ошибка клиента.",
+                hint: "Это дефект клиента: подбирать аргументы не нужно.",
+                retryable: false,
+              };
     if (refusedAfterSend)
       normal.hint =
         `${normal.hint ?? ""} До этого отказа запрос на запись уже ушёл: после восстановления входа проверить, прошла ли запись, прежде чем повторять.`.trim();
@@ -403,43 +405,6 @@ export class ReplyPacker {
         durationMs: Math.round(performance.now() - start),
       },
     });
-    if (error instanceof WebSocketHeartbeatError) {
-      // Специальный конструктор сохраняет только ограниченные наблюдения протокола.
-      // Общие подробности со стороны сервера и причины закрытия в эту сводку не попадают.
-      const contextual: OperationResult = omitOversizedConnection({
-        ...result,
-        error: {
-          ...result.error!,
-          details: { ...result.error?.details, heartbeatReceipt: error.receipt },
-        },
-      });
-      if (jsonBytes(contextual) <= this.config.outputLimitBytes) return contextual;
-      const receipt = error.receipt;
-      return {
-        ...contextual,
-        error: {
-          ...contextual.error!,
-          hint: "Проверить ответ heartbeat; автоматический повтор не выполняется.",
-          details: {
-            heartbeatReceiptFieldsOmitted: true,
-            heartbeatReceipt: {
-              route: receipt.route,
-              phase: receipt.phase,
-              ...(receipt.httpStatus === undefined ? {} : { httpStatus: receipt.httpStatus }),
-              handshakeValidated: receipt.handshakeValidated,
-              heartbeatWritten: receipt.heartbeatWritten,
-              heartbeatObserved: receipt.heartbeatObserved,
-              closeRequested: receipt.closeRequested,
-              peerCloseObserved: receipt.peerCloseObserved,
-              peerEofObserved: receipt.peerEofObserved,
-              closeWriteVerified: false,
-              localSocketDisposed: receipt.localSocketDisposed,
-              forcedLocalTermination: receipt.forcedLocalTermination,
-            },
-          },
-        },
-      };
-    }
     return result;
   }
 }

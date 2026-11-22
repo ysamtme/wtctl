@@ -12,7 +12,6 @@ import { HcmRuntime } from "../src/runtime.js";
 import { rawXml, parseXml, escapeXml, buildXml } from "../src/protocol/xml.js";
 import { parseSoapBody } from "../src/protocol/protocol.js";
 import { WsHcmApiError } from "../src/protocol/error.js";
-import { createNativeLdsApi, WebSpXmlApi } from "../src/protocol/api.js";
 import { LogReader } from "../src/logs.js";
 import { scratchRuntimeDir } from "./fake-server.js";
 
@@ -36,7 +35,13 @@ function soap(method: string, inner = ""): Response {
   );
 }
 function fixture() {
-  const calls: Array<{ url: URL; body: string; headers: Headers; method: string }> = [];
+  const calls: Array<{
+    url: URL;
+    body: string;
+    headers: Headers;
+    method: string;
+    fileBytes?: Uint8Array;
+  }> = [];
   const fetch: typeof globalThis.fetch = async (input, init = {}) => {
     const url = new URL(String(input));
     const body =
@@ -45,7 +50,16 @@ function fixture() {
         : init.body instanceof Uint8Array
           ? new TextDecoder().decode(init.body)
           : "";
-    calls.push({ url, body, headers: new Headers(init.headers), method: init.method ?? "GET" });
+    const uploaded = init.body instanceof FormData ? init.body.get("f") : null;
+    const fileBytes =
+      uploaded instanceof File ? new Uint8Array(await uploaded.arrayBuffer()) : undefined;
+    calls.push({
+      url,
+      body,
+      headers: new Headers(init.headers),
+      method: init.method ?? "GET",
+      ...(fileBytes ? { fileBytes } : {}),
+    });
     assert.ok(url.pathname.startsWith("/hcm/"));
     const method = /<soap:Body><([A-Za-z0-9]+)/.exec(body)?.[1];
     if (method) {
@@ -80,14 +94,11 @@ function fixture() {
       return new Response("\r\n");
     if (url.pathname.endsWith("/upload_file.htm"))
       return Response.json({
-        Url: `fixture-folder/${(init.body as FormData).get("f") instanceof File ? ((init.body as FormData).get("f") as File).name : "fixture"}`,
+        Url: `fixture-folder/${uploaded instanceof File ? uploaded.name : "fixture"}`,
       });
-    if (url.pathname.endsWith("/admin"))
-      return new Response(null, { status: 301, headers: { location: "/hcm/spxml_web/main.htm" } });
-    if (url.pathname.endsWith("/GetDoc") || url.pathname.endsWith("/get_ui_text.htm"))
+    if (url.pathname.endsWith("/get_ui_text.htm"))
       return new Response("<collaborator><id>41</id></collaborator>");
-    if (/(?:PutDoc|get_app_info|std_encrypt|authenticate)$/.test(url.pathname))
-      return Response.json({ ok: true });
+    if (url.pathname.endsWith("/get_app_info")) return Response.json({ ok: true });
     return new Response("fixture");
   };
   return { fetch, calls };
@@ -109,7 +120,6 @@ function sample(schema: Record<string, unknown>, key = ""): unknown {
   if (key === "target") return "custom.unlisted";
   if (key === "document") return "<fixture/>";
   if (key === "documentXmlTemplate") return "<collaborator><id>{{objectId}}</id></collaborator>";
-  if (key === "path") return "/raw-fixture";
   if (/url/i.test(key)) return "x-local://wtv/fixture.xml";
   if (schema.pattern) return "42";
   return "fixture";
@@ -130,27 +140,58 @@ function operationSample(id: string, schema: Record<string, unknown>): Record<st
   return sample(schema) as Record<string, unknown>;
 }
 
-test("неудачный web.lifecycle.logout освобождает старый контекст, и следующий вызов выполняет bootstrap заново", async () => {
+test("удалённые низкоуровневые операции отклоняются в runtime с UNKNOWN_OPERATION и в шлюзе без обращения к сети", async () => {
   const mock = fixture();
-  const gateway = new NativeGateway({
+  const runtime = new HcmRuntime({
     ...base,
-    fetch: async (input, init) => {
-      if (new URL(String(input)).pathname.endsWith("/logout.htm"))
-        return new Response("failed logout", { status: 500 });
-      return mock.fetch(input, init);
-    },
+    fetch: mock.fetch,
+    name: "removed-ops",
+    outputLimitBytes: 1024,
+    runtimeDir: scratchRuntimeDir,
+    permissions: { write: true, execute: true },
   });
-  const previous = await gateway.web();
   try {
-    await assert.rejects(
-      gateway.call("web.lifecycle.logout", {}),
-      (error) => error instanceof Error && (error as { status?: number }).status === 500,
-    );
-    await assert.rejects(previous.lds.xQuery({ query: "1" }), /закрыт/);
-    await gateway.call("web.lds.xQuery", { query: "1" });
-    assert.equal(mock.calls.filter((call) => call.url.pathname.endsWith("/main.htm")).length, 2);
+    for (const id of [
+      "web.lds.xQuery",
+      "web.lds.releaseCursor",
+      "web.lds.runMethod",
+      "web.lds.deleteDoc",
+      "web.spxml.callMethod",
+      "web.spxml.getDoc",
+      "web.spxml.putDoc",
+      "web.spxml2.getAppInfo",
+      "web.spxml2.getForm",
+      "web.spxml2.getImage",
+      "web.spxml2.getPreloadedDesignFiles",
+      "web.spxml2.stdEncrypt",
+      "web.resources.getImage",
+      "web.resources.getCompoundResource",
+      "web.pages.filePreviewPdf",
+      "web.pages.getForm",
+      "web.pages.getImage",
+      "web.pages.getUrl",
+      "web.lifecycle.admin",
+      "web.lifecycle.main",
+      "web.lifecycle.logout",
+      "native.lds.getCatalogsStat",
+      "native.lds.getModObjects",
+      "native.lds.putUrl",
+      "native.lds.releaseCursor",
+      "native.lds.runMethod",
+      "native.lds.idle",
+      "web.experimental.authenticate",
+      "anonymous.experimental.rawRequest",
+      "native.experimental.rawRequest",
+      "web.experimental.rawRequest",
+    ]) {
+      const result = await runtime.call(id, {});
+      assert.equal(result.ok, false, id);
+      assert.equal(result.error?.code, "UNKNOWN_OPERATION", id);
+      await assert.rejects(runtime.gateway.call(id, {}), /Неизвестная низкоуровневая операция/);
+    }
+    assert.equal(mock.calls.length, 0);
   } finally {
-    await gateway.close().catch(() => undefined);
+    await runtime.close();
   }
 });
 
@@ -159,11 +200,11 @@ test("двоичный результат несёт только kind, bytes и
   const gateway = new NativeGateway({
     ...base,
     fetch: async (input, init) =>
-      String(input).includes("/get_url.htm")
+      String(input).includes("/get_resource_image.html")
         ? new Response(Uint8Array.of(0, 255), { headers: { "x-private-fixture": "private" } })
         : mock.fetch(input, init),
   });
-  const result = await gateway.call("web.pages.getUrl", { url: "x-local://wtv/fixture.png" });
+  const result = await gateway.call("native.resources.getImage", { resourceId: "42" });
   assert.deepEqual(Object.keys(result as object), ["kind", "bytes", "contentType"]);
   await gateway.close();
 });
@@ -194,16 +235,6 @@ for (const operation of getNativeOperations().filter((item) => item.group !== "w
         operationSample(operation.id, operation.inputSchema),
       );
       assert.notEqual(result, undefined);
-      if (operation.id.endsWith(".rawRequest")) {
-        const request = mock.calls.find((call) => call.url.pathname.endsWith("/raw-fixture"))!;
-        if (operation.profile === "anonymous")
-          assert.match(request.headers.get("authorization") ?? "", /^Basic /);
-        else {
-          assert.equal(request.headers.get("authorization"), null);
-          assert.match(request.headers.get("cookie") ?? "", /^SessionID=/);
-        }
-        assert.equal((result as { kind: string }).kind, "binary");
-      }
       if (operation.id.endsWith(".call"))
         assert.equal((result as { lexicalValue: string }).lexicalValue, "fixture");
     } finally {
@@ -211,24 +242,31 @@ for (const operation of getNativeOperations().filter((item) => item.group !== "w
     }
   });
 
-test("вызовы native делят одну сессию и контекст курсора; close запрещает дальнейшее обращение к сети", async () => {
+test("вызовы native делят одну сессию и всегда шлют KeepCursor=false; close запрещает дальнейшее обращение к сети", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
   await gateway.call("native.lds.xQuery", {
     query: "for $x in collaborators return $x",
-    keepCursor: true,
   });
   await gateway.call("native.lds.xQuery", {
-    query: "",
-    cursorId: "9007199254740993",
+    query: "for $x in groups return $x",
     startPos: 1,
     maxCount: 1,
   });
   assert.equal(mock.calls.filter((call) => call.body.includes("<OpenSession ")).length, 1);
-  assert.ok(mock.calls.some((call) => call.body.includes("<CursorID>9007199254740993</CursorID>")));
+  const queries = mock.calls.filter((call) => call.body.includes("<XQuery "));
+  assert.equal(queries.length, 2);
+  for (const call of queries) {
+    assert.ok(call.body.includes("<KeepCursor>false</KeepCursor>"));
+    assert.ok(!call.body.includes("<CursorID>"));
+  }
+  await assert.rejects(
+    gateway.call("native.lds.xQuery", { query: "1", keepCursor: true }),
+    /такого аргумента у операции нет/,
+  );
   await gateway.close();
   const count = mock.calls.length;
-  await assert.rejects(gateway.call("native.lds.idle", {}), /закрыт/);
+  await assert.rejects(gateway.call("native.spxml2.getAppInfo", {}), /закрыт/);
   assert.equal(mock.calls.length, count);
 });
 
@@ -324,27 +362,14 @@ test("частичный bootstrap web выходит из сессии, а ос
   const session = await normal.openNativeSession();
   await session.close();
   const count = mock.calls.length;
-  await assert.rejects(session.lds.idle(), /закрыт/);
+  await assert.rejects(session.spxml2.getAppInfo(), /закрыт/);
   assert.equal(mock.calls.length, count);
-});
-
-test("web SPXML GetDoc опускает ложный TryLock, а не включает флаг наличия", async () => {
-  const mock = fixture();
-  const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
-  await gateway.call("web.spxml.getDoc", { docUrl: "x-local://wtv/fixture.xml", tryLock: false });
-  assert.equal(
-    mock.calls
-      .find((call) => call.url.pathname.endsWith("/GetDoc"))
-      ?.url.searchParams.get("TryLock"),
-    null,
-  );
-  await gateway.close();
 });
 
 test("параллельные вызовы close ждут одной и той же очистки и дорабатывают принятые операции из очереди", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
-  const accepted = gateway.call("native.lds.idle", {});
+  const accepted = gateway.call("native.lds.xQuery", { query: "for $e in groups return $e" });
   const first = gateway.close();
   const second = gateway.close();
   assert.equal(first, second);
@@ -357,13 +382,17 @@ test("параллельные вызовы close ждут одной и той 
 test("вызовы native в очереди запоминают повторно используемые URL и вложенные двоичные и XML-обёртки в момент приёма", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
-  const input = { url: "x-local://share/original-a.bin", data: { base64: "QQ==" } };
-  const first = gateway.call("native.lds.putUrl", input);
-  input.url = "x-local://share/original-b.bin";
-  input.data.base64 = "Qg==";
-  const second = gateway.call("native.lds.putUrl", input);
-  input.url = "x-local://share/unaccepted-c.bin";
-  input.data.base64 = "Qw==";
+  const doc = { url: "x-local://wt_data/original-a.xml", data: { xml: "<doc>A</doc>" } };
+  const first = gateway.call("native.lds.putDoc", doc);
+  doc.url = "x-local://wt_data/original-b.xml";
+  doc.data.xml = "<doc>B</doc>";
+  const second = gateway.call("native.lds.putDoc", doc);
+  doc.url = "x-local://wt_data/unaccepted-c.xml";
+  doc.data.xml = "<doc>C</doc>";
+  const upload = { filename: "original.bin", data: { base64: "QQ==" } };
+  const uploaded = gateway.call("web.pages.uploadFile", upload);
+  upload.filename = "unaccepted.bin";
+  upload.data.base64 = "Qw==";
   const rpc = {
     target: "custom.original",
     args: [
@@ -373,18 +402,88 @@ test("вызовы native в очереди запоминают повторн�
   const third = gateway.call("native.rpc.call", rpc);
   rpc.target = "custom.unaccepted";
   rpc.args[0]!.lexicalValue.xml = '<Item VALUE-TYPE="string">unaccepted</Item>';
-  await Promise.all([first, second, third]);
-  const writes = mock.calls.filter((call) => call.body.includes("<PutUrl "));
+  await Promise.all([first, second, uploaded, third]);
+  const writes = mock.calls.filter((call) => call.body.includes("<PutDoc "));
   assert.equal(writes.length, 2);
-  assert.ok(writes[0]!.body.includes("<Url>x-local://share/original-a.bin</Url>"));
-  assert.ok(writes[0]!.body.includes("\r\n\r\nA\r\n--"));
-  assert.ok(writes[1]!.body.includes("<Url>x-local://share/original-b.bin</Url>"));
-  assert.ok(writes[1]!.body.includes("\r\n\r\nB\r\n--"));
+  assert.ok(writes[0]!.body.includes("<Url>x-local://wt_data/original-a.xml</Url>"));
+  assert.ok(writes[0]!.body.includes("\r\n\r\n<doc>A</doc>\r\n--"));
+  assert.ok(writes[1]!.body.includes("<Url>x-local://wt_data/original-b.xml</Url>"));
+  assert.ok(writes[1]!.body.includes("\r\n\r\n<doc>B</doc>\r\n--"));
+  assert.deepEqual(await uploaded, { Url: "fixture-folder/original.bin" });
+  const uploadRequest = mock.calls.find((request) =>
+    request.url.pathname.endsWith("/upload_file.htm"),
+  )!;
+  assert.deepEqual(uploadRequest.fileBytes, Uint8Array.of(0x41));
   const call = mock.calls.find((request) => request.body.includes("<CallMethod "))!;
   assert.ok(call.body.includes("<MethodName>original</MethodName>"));
   assert.ok(call.body.includes(">original</Item>"));
   assert.ok(!call.body.includes("unaccepted"));
   await gateway.close();
+});
+
+test("web.session.close выполняет CloseSession, logout и logout2, сбрасывает токен старой сессии и после сбоя выхода открывает новую", async () => {
+  const mock = fixture();
+  let failLogout = false;
+  const gateway = new NativeGateway({
+    ...base,
+    fetch: async (input, init) => {
+      if (failLogout && new URL(String(input)).pathname.endsWith("/logout.htm")) {
+        mock.calls.push({
+          url: new URL(String(input)),
+          body: "",
+          headers: new Headers(init?.headers),
+          method: init?.method ?? "GET",
+        });
+        return new Response("failed logout", { status: 500 });
+      }
+      return mock.fetch(input, init);
+    },
+  });
+  try {
+    const first = await gateway.web();
+    const beforeClose = mock.calls.length;
+    assert.deepEqual(await gateway.call("web.session.close", {}), { closed: true, profile: "web" });
+    const firstCloseSequence = mock.calls
+      .slice(beforeClose)
+      .map((call) =>
+        call.body.includes("<CloseSession ") ? "CloseSession" : call.url.pathname.split("/").at(-1),
+      );
+    assert.deepEqual(firstCloseSequence, ["CloseSession", "logout.htm", "logout2.htm"]);
+    await assert.rejects(
+      first.pages.uploadFile({ filename: "a.bin", data: Uint8Array.of(1) }),
+      /закрыт|токен/i,
+    );
+
+    await gateway.call("web.pages.uploadFile", { filename: "next.bin", data: { base64: "QQ==" } });
+    assert.equal(mock.calls.filter((call) => call.url.pathname.endsWith("/main.htm")).length, 2);
+
+    const second = await gateway.web();
+    failLogout = true;
+    const beforeFailedClose = mock.calls.length;
+    await assert.rejects(
+      gateway.call("web.session.close", {}),
+      (error) => error instanceof WsHcmApiError && error.kind === "cleanup",
+    );
+    const failedCloseSequence = mock.calls
+      .slice(beforeFailedClose)
+      .map((call) =>
+        call.body.includes("<CloseSession ") ? "CloseSession" : call.url.pathname.split("/").at(-1),
+      );
+    assert.deepEqual(failedCloseSequence, ["CloseSession", "logout.htm", "logout2.htm"]);
+    await assert.rejects(
+      second.pages.uploadFile({ filename: "b.bin", data: Uint8Array.of(2) }),
+      /закрыт|токен/i,
+    );
+
+    failLogout = false;
+    await gateway.call("web.pages.uploadFile", {
+      filename: "recovered.bin",
+      data: { base64: "QQ==" },
+    });
+    assert.equal(mock.calls.filter((call) => call.url.pathname.endsWith("/main.htm")).length, 3);
+  } finally {
+    await gateway.close().catch(() => undefined);
+  }
 });
 
 test("реестр native описывает чтение конечного результата асинхронных операций на 1171", () => {
@@ -514,13 +613,9 @@ test("отказ по аргументу с именем password не маск�
     runtimeDir: scratchRuntimeDir,
     permissions: { write: true, execute: true },
   });
-  const result = await runtime.call("web.experimental.authenticate", {
-    login: "a",
-    password: 1,
-    token: "t",
-  });
+  const result = await runtime.call("runtime.status", { password: 1 });
   assert.equal(result.error?.code, "INVALID_ARGUMENT");
-  assert.match(result.error?.message ?? "", /password: нужна строка\./);
+  assert.match(result.error?.message ?? "", /password: такого аргумента у операции нет\./);
   // Имя неизвестного аргумента задаёт вызывающий: сообщение всё равно короткое.
   const long = await runtime.call("runtime.status", { ["x".repeat(10_000)]: 1 });
   assert.equal(long.error?.code, "INVALID_ARGUMENT");
@@ -542,15 +637,10 @@ test("отказ по аргументу, который шлюз находит
   assert.equal((await runtime.call("native.lds.loadDoc", { url: "x-local://a.xml" })).ok, true);
   assert.equal((await runtime.call("web.pages.getUiText", {})).ok, true);
   const opened = mock.calls.length;
-  const raw = { unsafe: true, path: "/x", method: "POST" };
   for (const [id, args] of [
-    ["native.lds.deleteDoc", { url: "x-local://wt_data/a.xml" }],
-    ["web.lds.deleteDoc", { url: "x-local://wt_data/a.xml" }],
-    ["native.lds.xQuery", { query: "for $e in x return $e" }],
-    ["web.lds.xQuery", { query: "for $e in x return $e" }],
-    ["native.experimental.rawRequest", { ...raw, path: "http://[" }],
-    ["web.experimental.rawRequest", { ...raw, headers: { "X-Name": "имя" } }],
-    ["anonymous.experimental.rawRequest", { ...raw, method: "PO ST" }],
+    ["native.lds.deleteDoc", { url: "x-local://wt_data/a\u0001.xml" }],
+    ["native.lds.xQuery", { query: "for $e in x\u0001 return $e" }],
+    ["web.pages.uploadFile", { filename: "../bad.txt", data: "x" }],
     [
       "native.physicalDocuments.createFromXml",
       { documentXmlTemplate: "<x><id>{{objectId}}</id></x>", dbName: "wt data" },
@@ -594,7 +684,7 @@ test("литералы и ссылки XML отклоняют символы, н
 });
 
 test("присутствующие пустые узлы ответа SOAP принимаются, а отсутствующие всё равно дают отказ", () => {
-  for (const method of ["PutDoc", "PutUrl", "CloseSession"]) {
+  for (const method of ["PutDoc", "DeleteUrl", "CloseSession"]) {
     for (const node of [`<${method}Response/>`, `<${method}Response></${method}Response>`])
       assert.deepEqual(
         parseSoapBody(
@@ -662,9 +752,9 @@ test("символьные ссылки XML раскрываются ровно 
 });
 
 test("неразрешённые ссылки пакета требуют права на запись для условных операций блокировки", () => {
-  for (const operation of getNativeOperations().filter((operation) =>
-    ["loadDoc", "loadUrl", "getDoc"].includes(operation.method),
-  )) {
+  const lockable = getNativeOperations().filter((operation) => operation.method === "loadDoc");
+  assert.equal(lockable.length, 1);
+  for (const operation of lockable) {
     assert.equal(getEffectiveNativeEffect(operation, { tryLock: true }), "write", operation.id);
     assert.equal(
       getEffectiveNativeEffect(operation, { tryLock: { $ref: "policy.data.lock" } }),
@@ -736,30 +826,21 @@ test("логи нулевого размера проходят через де�
   }
 });
 
-test("поля-счётчики native и скаляры эффектов изображения отклоняют неверный ввод до любого транспорта", async () => {
+test("поля-счётчики native и поля загрузки отклоняют неверный ввод до любого транспорта", async () => {
   const mock = fixture();
   const gateway = new NativeGateway({ ...base, fetch: mock.fetch });
-  for (const operation of ["native.lds.xQuery", "web.lds.xQuery"])
-    for (const field of ["startPos", "maxCount"])
-      for (const value of [
-        0.5,
-        Number.MAX_SAFE_INTEGER + 1,
-        Number.MIN_SAFE_INTEGER - 1,
-        NaN,
-        Infinity,
-      ])
-        await assert.rejects(
-          gateway.call(operation, { query: "presence_states", [field]: value }),
-          /нужно целое число|число больше допустимого|число меньше допустимого|нужно число/,
-        );
-  for (const value of [{ nested: true }, ["nested"]])
-    await assert.rejects(
-      gateway.call("web.spxml2.getImage", {
-        url: "x-local://fixture.jpg",
-        effects: { width: value },
-      }),
-      /ни под один из допустимых вариантов/,
-    );
+  for (const field of ["startPos", "maxCount"])
+    for (const value of [
+      0.5,
+      Number.MAX_SAFE_INTEGER + 1,
+      Number.MIN_SAFE_INTEGER - 1,
+      NaN,
+      Infinity,
+    ])
+      await assert.rejects(
+        gateway.call("native.lds.xQuery", { query: "presence_states", [field]: value }),
+        /нужно целое число|число больше допустимого|число меньше допустимого|нужно число/,
+      );
   for (const filename of [
     "",
     "../fixture",

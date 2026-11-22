@@ -6,6 +6,7 @@ export const resultOperations = [
   operation({
     id: "results.export",
     effect: "read",
+    writesLocalDisk: true,
     description:
       "Сохранить большой результат целиком в файл на этом компьютере: json — как есть, jsonl — по строке на элемент списка ответа, text — текст лога или файла. Папка должна существовать.",
     inputSchema: schema({ resultId: string, path: string, format: string, overwrite: boolean }, [
