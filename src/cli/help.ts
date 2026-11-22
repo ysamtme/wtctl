@@ -1,334 +1,58 @@
 import { isSimilarName, similarHint } from "../errors.js";
-import { guideTopics } from "../guide.js";
-import { CliInputError, printableName } from "./arguments.js";
+import { CliInputError, RPC_TARGET_RE, printableName } from "./arguments.js";
+import {
+  COMMAND_GROUPS,
+  GLOBAL_OPTIONS,
+  commandUsageLines,
+  formatOptionFlag,
+  lookupCommand,
+  lookupSubcommand,
+  visibleCommands,
+  type CommandSpec,
+  type OptionSpec,
+  type SubcommandSpec,
+} from "./registry.js";
 
-interface CommandHelp {
-  /** Одна строка для обзора. */
-  readonly summary: string;
-  /** Вложенные команды в порядке строк usage; тест сверяет их со справкой. */
-  readonly commands?: readonly string[];
-  /** Аргументы, которыми команда без вложенной вызывает функцию. */
-  readonly call?: string;
-  readonly usage: readonly string[];
-  /** Только то, чего нет в строках usage; по предложению на пункт, в текстовом виде — по строке. */
-  readonly notes?: readonly string[];
-}
-
-const COMMANDS: Readonly<Record<string, CommandHelp>> = {
-  status: {
-    summary: "Адрес и версия сервера, база данных, пользователь и права подключения.",
-    usage: ["wtctl status"],
-  },
-  check: {
-    summary: "Проверка подключения по шагам.",
-    usage: ["wtctl check"],
-    notes: [
-      "Шаги: вход, версия, запрос, документ, схема, библиотеки, логи, портал, выполнение кода.",
-      "Ничего не записывает.",
-      "При сбое хотя бы одного шага код выхода 1.",
-    ],
-  },
-  types: {
-    summary: "Типы объектов сервера и их каталоги.",
-    usage: ["wtctl types [--search ТЕКСТ] [--limit N] [--cursor N]"],
-    notes: [
-      "search ищет по имени типа, каталогу и заголовку.",
-      "По умолчанию 50 строк, не больше 1000.",
-      'customFields "by kind" — настраиваемые поля у каждого вида объекта свои: schema ТИП --kind ID.',
-    ],
-  },
-  schema: {
-    summary: "Поля типа объекта.",
-    usage: [
-      "wtctl schema (ТИП | --url АДРЕС) [--search ТЕКСТ] [--path ПУТЬ] [--deep] [--origin own,inherited,custom,catalog] [--kind ID] [--include methods] [--language ЯЗЫК] [--limit N] [--cursor N]",
-    ],
-    notes: [
-      "Без --search показывает верхний уровень, с ним ищет на любой глубине.",
-      "--deep — вложенные поля всех уровней одним списком; страницы те же (--limit, --cursor), cutBySize — страница короче запрошенной.",
-      "query:true — поле есть в каталоге и годится для query; computed:true — вычисляемое.",
-      "По умолчанию 80 полей, не больше 1000.",
-    ],
-  },
-  query: {
-    summary: "Поиск в каталоге; запрос XQuery.",
-    usage: [
-      String.raw`wtctl query --catalog collaborators --where '{\"is_dismiss\":false}' --fields id,fullname --limit 20`,
-      'wtctl query --catalog collaborators --input-file where.json --fields id,fullname --order "fullname, hire_date desc"',
-      "wtctl query 'for $e in collaborators order by $e/fullname return $e' --fields id,fullname --limit 20",
-      "wtctl query --input-file query.json",
-      "wtctl query --input-file query.xquery",
-    ],
-    notes: [
-      "where — условия через «и»; значение или {оператор: значение} с eq, ne, gt, gte, lt, lte, contains, in.",
-      "С --catalog файл из --input-file содержит условия where: так кавычки JSON не зависят от оболочки.",
-      "Без --catalog файл с объектом JSON — все аргументы сразу: {catalog, where, fields, order, limit, startPosition} или {query, fields, limit, startPosition}; иначе это текст XQuery.",
-      "--limit, --start-position, --fields и --order в командной строке сильнее значений из файла.",
-      "--order: поля сортировки через запятую, «поле desc» — по убыванию; работает с --catalog, в тексте XQuery пишут order by.",
-      "--limit — строк на странице: по умолчанию 20, не больше 1000.",
-      "Ответ: items, total; пока строки не кончились, есть nextStartPosition — он передаётся в --start-position.",
-      "Запрос XQuery требует права execute.",
-    ],
-  },
-  object: {
-    summary: "Объект: get, create, patch, delete.",
-    commands: ["get", "create", "patch", "delete"],
-    usage: [
-      "wtctl object get [ТИП] ID [--fields id,name]",
-      "wtctl object get (--id ID | --url АДРЕС) [--type ТИП]",
-      "wtctl object get --ids ID,ID,… [--type ТИП] [--fields id,name] — несколько объектов, до 100",
-      String.raw`wtctl object create ТИП (--input-file object.json | --stdin | --args '{\"name\":\"…\"}')`,
-      "wtctl object patch [ТИП] ID --input-file patch.json [--preview] [--resave] [--expected-fingerprint ОТПЕЧАТОК]",
-      "wtctl object delete [ТИП] ID --permanent [--catalog КАТАЛОГ]",
-    ],
-    notes: [
-      "ТИП перед ID не обязателен: с ним команда проверяет, что объект этого типа.",
-      "patch.json — {путь: значение}, [{op:'set'|'remove', path, value}] или {patch:{…}, remove:[пути]}.",
-      "Путь: name; a.b; items[0]; custom_elems.custom_elem[name=код].value.",
-      "JSON для create и patch: --input-file, --stdin, --args.",
-      "patch и delete принимают объект и по адресу: (--id ID | --url АДРЕС) [--type ТИП] вместо [ТИП] ID.",
-      "--preview показывает изменения без записи.",
-      "Правка, которая ничего не меняет, не записывается (noop:true).",
-      "--resave сохраняет и без правок (сервер обновляет поля-копии из связанных объектов); можно без JSON.",
-      "delete удаляет безвозвратно; каталог проверки выбирается по типу, если он один, --catalog задаёт его явно.",
-      "--db-name задаёт базу, если не основная; create принимает ещё --form-url.",
-      "Ответ create — id нового объекта и mutationOutcome; patch — changes и mutationOutcome; delete — mutationOutcome и verification.",
-    ],
-  },
-  exec: {
-    summary: "Выполнить код на сервере (SP-XML Script).",
-    usage: [
-      "wtctl exec 'КОД' [--params-file params.json | --params …]",
-      String.raw`wtctl exec --input-file script.js [--params-file params.json | --params '{\"name\":\"…\"}']`,
-      "wtctl exec --stdin",
-    ],
-    notes: [
-      "Параметры — объект JSON; в коде это готовая переменная PARAMS: PARAMS.ids, PARAMS.name.",
-      "Код присваивает массив переменной RESULT, например RESULT = [{name: doc.TopElem.name + ''}]; ответ — в data.result, числа и логические значения приходят строками.",
-      "Значение из String() в ответ не попадает, дата — не на всех версиях сервера: приводить к строке нужно так — x + '', StrDate(d).",
-      "Текст ошибки кода — в error.details.scriptError.",
-      "Нужно право execute.",
-      "Код может менять данные, отката нет.",
-    ],
-  },
-  rpc: {
-    summary: "Функции библиотек сервера: list, describe, вызов.",
-    commands: ["list", "describe"],
-    call: "БИБЛИОТЕКА ФУНКЦИЯ",
-    usage: [
-      "wtctl rpc list [--query ТЕКСТ] [--library БИБЛИОТЕКА] [--method ФУНКЦИЯ] [--all] [--limit N] [--cursor N]",
-      "wtctl rpc describe БИБЛИОТЕКА.ФУНКЦИЯ [--source]",
-      String.raw`wtctl rpc tools get_version --args '[\"wtv\"]'`,
-      "wtctl rpc БИБЛИОТЕКА ФУНКЦИЯ --input-file args.json [--async]",
-    ],
-    notes: [
-      "list читает с сервера функции, разрешённые для вызова с клиента; --all добавляет те, что вызываются только из кода на сервере (serverOnly:true) — их вызывают через exec.",
-      "describe знает и те, и другие; --source добавляет код функции.",
-      "Аргументы вызова — массив JSON, ответ — в data.value.",
-      "Вызов требует права execute.",
-    ],
-  },
-  logs: {
-    summary: "Логи сервера: list, read, tail, search, follow.",
-    commands: ["list", "read", "tail", "search", "follow"],
-    usage: [
-      "wtctl logs list [--type xhttp] [--date ГГГГ-ММ-ДД] [--name-contains ТЕКСТ] [--start-date Д] [--end-date Д] [--offset N] [--limit N]",
-      "wtctl logs read ФАЙЛ [--tail-bytes N | --full]",
-      "wtctl logs tail ФАЙЛ [--tail-bytes N]",
-      "wtctl logs search ФАЙЛ [--text ТЕКСТ] [--level error] [--context ТЕКСТ] [--newest-first] [--tail-bytes N | --full] [--offset N] [--limit N] [--expected-fingerprint ОТПЕЧАТОК]",
-      "wtctl logs follow ФАЙЛ [--cursor КУРСОР] [--tail-bytes N | --full]",
-    ],
-    notes: [
-      "list показывает сначала свежие файлы, по умолчанию 30; --type — имя лога без даты.",
-      "ФАЙЛ — имя из logs list.",
-      "read по умолчанию отдаёт конец файла, сколько помещается в один ответ.",
-      "Уровень события определяется по словам в тексте.",
-      "search ищет в конце файла, с --full — во всём файле; --newest-first отдаёт сначала последние события.",
-      "cutBySize:true в ответе search — на страницу поместилось меньше событий, чем --limit, дальше — nextOffset.",
-      "follow делает один опрос: первый раз отдаёт последние 10 событий и cursor, дальше передаётся cursor из ответа.",
-      "LOG_READ_UNAVAILABLE — сервер сейчас пишет в этот файл: повторить чуть позже.",
-    ],
-  },
-  result: {
-    summary: "Большой результат: read, export.",
-    commands: ["read", "export"],
-    usage: [
-      "wtctl result read RESULT_ID [--offset N] [--limit N] [--format auto|json|text]",
-      "wtctl result export RESULT_ID --to ФАЙЛ [--format json|jsonl|text] [--overwrite]",
-    ],
-    notes: [
-      "Когда в ответе meta.truncated, данные сохранены локально под meta.resultId, а в data.preview — их начало; сервер повторно не вызывается.",
-      "read: список ответа (items, types, fields, results) — по элементам, до 1000; остальное — текстом, до 65536 символов. cutBySize — страница короче запрошенной.",
-      "export --format jsonl — по строке на элемент списка.",
-      "Текст лога или файла читается и сохраняется как текст (--format text).",
-    ],
-  },
-  files: {
-    summary: "Файл сервера: read, exists, list, write, delete, upload.",
-    commands: ["read", "exists", "list", "write", "delete", "upload"],
-    usage: [
-      "wtctl files read АДРЕС",
-      "wtctl files read АДРЕС --base64",
-      "wtctl files read АДРЕС --to ФАЙЛ [--overwrite]",
-      "wtctl files exists АДРЕС",
-      "wtctl files list АДРЕС [--search ЧАСТЬ_ИМЕНИ]",
-      "wtctl files write АДРЕС --input-file ФАЙЛ",
-      "wtctl files delete АДРЕС",
-      "wtctl files upload ИМЯ --input-file report.txt [--content-type text/plain]",
-    ],
-    notes: [
-      "read: text для UTF-8, иначе base64; --to сохраняет на диск байт в байт любого размера, --overwrite заменяет существующий.",
-      "list показывает один уровень папки и требует права execute.",
-      "write читает ФАЙЛ частями и сверяет записанное; --stdin держит ввод в памяти. В папку кода нужно ещё право execute.",
-      "upload кладёт файл в папку загрузок сервера (в ответе url и folderUrl); прежнее имя file upload сохранено.",
-    ],
-  },
-  doc: {
-    summary: "Документ как XML по адресу: get, put, delete.",
-    commands: ["get", "put", "delete"],
-    usage: [
-      "wtctl doc get АДРЕС",
-      "wtctl doc put АДРЕС --input-file document.xml",
-      "wtctl doc delete АДРЕС",
-    ],
-    notes: [
-      "Для объектов удобнее object: он сохраняет остальное содержимое документа.",
-      "put с --args JSON задаёт все параметры операции native.lds.putDoc.",
-    ],
-  },
-  api: {
-    summary: "Остальные операции: list (карта по темам), describe, call.",
-    commands: ["list", "describe", "call"],
-    usage: [
-      "wtctl api list",
-      "wtctl api list --topic ТЕМА | --query ТЕКСТ [--effect read|write|execute|unknown] [--limit N] [--cursor N]",
-      "wtctl api describe ОПЕРАЦИЯ",
-      String.raw`wtctl api call ОПЕРАЦИЯ (--input-file args.json | --stdin | --args '{\"id\":\"…\"}')`,
-    ],
-    notes: [
-      "list без фильтров показывает темы и ID операций.",
-      "list и describe читают список из пакета без настроек подключения и обращения к серверу.",
-    ],
-  },
-  run: {
-    summary: "Несколько операций одним вызовом.",
-    usage: ["wtctl run --input-file batch.json", "wtctl run --stdin"],
-    notes: [
-      "Файл: {steps:[{id, args?, as?}], stopOnError?}; as — имя шага: латинские буквы, цифры и _, первой не цифра.",
-      "Значение из прошлого шага: {$ref:'имя_шага.data.id'}.",
-      "Права проверяются для каждого шага.",
-      "Это не транзакция: выполненные шаги не откатываются.",
-    ],
-  },
-  server: {
-    summary: "Сведения о сервере: версия, операционная система, ограничения.",
-    commands: ["info"],
-    usage: ["wtctl server info [--profile native|web]"],
-  },
-  ws: {
-    summary: "Отвечает ли служба WebSocket.",
-    commands: ["heartbeat"],
-    usage: ["wtctl ws heartbeat [--timeout-ms N]"],
-    notes: ["timeout-ms от 250 до 10000, по умолчанию 5000."],
-  },
-  mcp: {
-    summary: "MCP-сервер для агента (stdio).",
-    usage: ["wtctl --config ФАЙЛ --connection ИМЯ mcp"],
-    notes: [
-      "Пароль берётся из файла подключений или переменной окружения: stdin занят протоколом.",
-    ],
-  },
-  config: {
-    summary: "Файл подключений: init, list, set, path, example.",
-    commands: ["init", "list", "set", "path", "example"],
-    usage: [
-      "wtctl config init",
-      "wtctl config init --name prod --url https://hcm.example.org --username admin --password-env WTCTL_PROD_PASSWORD",
-      "wtctl config list",
-      "wtctl config set [ИМЯ] [--write true|false] [--execute true|false] [--default] [--url АДРЕС] [--timeout-ms N]",
-      "wtctl config path",
-      "wtctl config example",
-    ],
-    notes: [
-      "init добавляет подключение (в терминале спрашивает адрес, логин, пароль; без терминала — --password-stdin или --password-env); --allow-write, --allow-execute, --force.",
-      "list показывает подключения, адреса, права и источник учётных данных без паролей.",
-      "set меняет поля существующего подключения (также --max-response-bytes, --output-limit-bytes, --runtime-dir, --results-max-bytes, --results-max-age-days, --journal-max-bytes) и не принимает --output.",
-      "Файл по умолчанию — ~/.wtctl/connections.json; другой задают --config или WTCTL_CONFIG.",
-    ],
-  },
-  guide: {
-    summary: "Гайд по работе с сервером: порядок действий, примеры, ошибки.",
-    usage: ["wtctl guide", "wtctl guide ТЕМА"],
-    notes: [
-      "Без темы — общий порядок и список тем.",
-      `Темы: ${guideTopics().slice(1).join(", ")}.`,
-      "Печатает текст; с --json — обычный ответ с полем data.text.",
-      "К серверу не обращается.",
-    ],
-  },
-  version: {
-    summary: "Версия клиента.",
-    usage: ["wtctl version"],
-  },
-};
-
-const USAGE = "wtctl [--config ФАЙЛ] [--connection ИМЯ] КОМАНДА …";
-
-const OPTIONS: Readonly<Record<string, string>> = {
-  "--config ФАЙЛ": "Файл подключений.",
-  "--connection ИМЯ": "Подключение из файла.",
-  "--input-file ФАЙЛ | --stdin | --args JSON": "Откуда взять ввод команды; один источник.",
-  "--output ФАЙЛ": "Сохранить полный результат в файл; в stdout останется короткая сводка.",
-  "--json": "help и guide: ответ JSON вместо текста.",
-  "--password-stdin": "Прочитать пароль подключения из stdin.",
-};
+const USAGE = "wtctl [--config ФАЙЛ] [-c ИМЯ] [--format ВИД | --json] КОМАНДА …";
 
 const NOTES: readonly string[] = [
-  "Аргументы и примеры команды: wtctl help КОМАНДА.",
-  "Ответ команды — JSON {ok, data, meta} или {ok:false, error:{code, message, hint}}; help и guide печатают текст.",
-  "Код выхода: 0 — успех, 1 — ошибка операции, 2 — ошибка аргументов, 3 — ответ не поместился и сохранён локально: result read, result export или --output.",
-  "С --output при ошибке операции в сводке есть error, в файле — полный ответ с ok:false; ошибка аргументов или настроек подключения печатается в stderr, файл не создаётся.",
-  "ID передаётся строкой: 0x… или десятичной записью.",
-  String.raw`Короткий JSON в примерах записан как '{\"…\"}' для совместимости с PowerShell и bash; длинный передаётся через --input-file.`,
-  "При коде 3 операция выполнена, в ответе meta.truncated и meta.resultId: запись или код не повторять.",
-  "При error.mutationOutcome = indeterminate запись могла пройти: перед повтором проверить объект.",
+  "Аргументы и примеры команды: wtctl help КОМАНДА [ПОДКОМАНДА].",
+  "В терминале выводятся таблицы, сводки и текст; при перенаправлении (в скриптах и pipe) и с --json — JSON {ok, data, meta} (help, guide и completion без --json печатают текст).",
+  "Форматы: table — читаемый вывод и при перенаправлении; jsonl — по объекту JSON на строку; raw — данные как есть. У result read/export свой --format.",
+  "Код выхода: 0 — успех, 1 — ошибка операции, записи в stdout или закрытия сессии, 2 — ошибка аргументов, 3 — ответ сохранён локально (result read/export или --output).",
+  "С --output в JSON сводка идёт в stdout (при ошибке в файл — ok:false); в остальных форматах — в stderr (если перенаправлены оба потока — в stdout; -q скрывает), при отказе файл не создаётся (кроме check/run); help/guide/completion без --json пишут без сводки.",
+  "ID передаётся строкой: 0x… или десятичной записью. При коде 1, 3 или error.mutationOutcome = indeterminate запись не повторять без проверки объекта.",
 ];
-
-const ALIASES: Readonly<Record<string, CommandHelp>> = {
-  file: {
-    summary: "Прежнее имя для files upload.",
-    commands: ["upload"],
-    usage: ["wtctl files upload ИМЯ --input-file report.txt [--content-type text/plain]"],
-    notes: [
-      "file upload сохранён для совместимости; основная команда — wtctl files upload.",
-      "В ответе url — адрес файла, folderUrl — папка, созданная для него.",
-    ],
-  },
-};
-
-// Имя приходит из командной строки: имена, унаследованные каждым объектом, не команды.
-function known(command: string): CommandHelp | undefined {
-  return Object.hasOwn(COMMANDS, command)
-    ? COMMANDS[command]
-    : Object.hasOwn(ALIASES, command)
-      ? ALIASES[command]
-      : undefined;
-}
 
 /** Команда справки к ошибке разбора: справка самой команды, если она есть. */
 export function helpCommand(command: string | undefined): string {
-  return command !== undefined && command !== "help" && known(command)
+  return command !== undefined && command !== "help" && lookupCommand(command) !== undefined
     ? `wtctl help ${command}`
     : "wtctl help";
 }
 
 /** Справка команды; неизвестную команду отказ называет как набрана, с похожими. */
-function topic(command: string): CommandHelp {
-  const help = known(command);
-  if (help !== undefined) return help;
-  const near = [...Object.keys(COMMANDS), "help"].filter((name) => isSimilarName(name, command));
+function topic(command: string): CommandSpec {
+  const spec = lookupCommand(command);
+  if (spec !== undefined) return spec;
+  const near = [...visibleCommands().map((item) => item.name), "help"].filter((name) =>
+    isSimilarName(name, command),
+  );
   throw new CliInputError(
     printableName(command) ? `Команды wtctl ${command} нет.` : "Неизвестная команда.",
     similarHint(near).trimEnd() || undefined,
+  );
+}
+
+function subcommandError(command: CommandSpec, action: string | undefined): CliInputError {
+  const names = command.subcommands!.map((sub) => sub.name);
+  const list = `есть ${names.join(", ")}${command.call === undefined ? "" : ` или вызов ${command.call}`}.`;
+  return new CliInputError(
+    action === undefined
+      ? `Не указана команда после wtctl ${command.name}: ${list}`
+      : printableName(action)
+        ? `Команды wtctl ${command.name} ${action} нет: ${list}`
+        : `Неизвестная команда после wtctl ${command.name}: ${list}`,
   );
 }
 
@@ -337,60 +61,174 @@ function topic(command: string): CommandHelp {
  * как её набрали, и рядом сказано, какие есть. Остальные аргументы проверяет сама команда.
  */
 export function requireCommand([command = "", action, ...rest]: readonly string[]): void {
-  const { commands, call } = topic(command);
-  if (commands === undefined || (action !== undefined && commands.includes(action))) return;
-  // Одного слова после rpc мало и для вызова: rpc БИБЛИОТЕКА ФУНКЦИЯ.
-  if (call !== undefined && rest.length) return;
-  const list = `есть ${commands.join(", ")}${call === undefined ? "" : ` или вызов ${call}`}.`;
-  throw new CliInputError(
-    action === undefined
-      ? `Не указана команда после wtctl ${command}: ${list}`
-      : printableName(action)
-        ? `Команды wtctl ${command} ${action} нет: ${list}`
-        : `Неизвестная команда после wtctl ${command}: ${list}`,
-  );
+  const spec = topic(command);
+  if (spec.subcommands === undefined || (action !== undefined && lookupSubcommand(spec, action)))
+    return;
+  // Вызов функции библиотеки: rpc БИБЛИОТЕКА ФУНКЦИЯ или rpc БИБЛИОТЕКА.ФУНКЦИЯ.
+  if (
+    spec.call !== undefined &&
+    (rest.length > 0 || (action !== undefined && RPC_TARGET_RE.test(action)))
+  )
+    return;
+  throw subcommandError(spec, action);
 }
 
-export function cliHelp(command?: string): Record<string, unknown> {
-  if (command === undefined)
+function resolveTarget(
+  command: string,
+  subcommand?: string,
+): { readonly spec: CommandSpec; readonly sub?: SubcommandSpec } {
+  const spec = topic(command);
+  if (subcommand === undefined) return { spec };
+  if (spec.subcommands === undefined) throw new CliInputError("Лишние аргументы команды.");
+  const sub = lookupSubcommand(spec, subcommand);
+  if (sub === undefined) throw subcommandError(spec, subcommand);
+  return { spec, sub };
+}
+
+function optionLongKey(option: OptionSpec): string {
+  return option.valueLabel ? `--${option.name} ${option.valueLabel}` : `--${option.name}`;
+}
+
+function optionMap(options: readonly OptionSpec[] | undefined): Record<string, string> | undefined {
+  if (!options?.length) return undefined;
+  return Object.fromEntries(options.map((option) => [optionLongKey(option), option.description]));
+}
+
+export function cliHelp(command?: string, subcommand?: string): Record<string, unknown> {
+  if (command === undefined) {
+    const commands = visibleCommands();
+    const globalOptions = optionMap(GLOBAL_OPTIONS)!;
+    // Сохраняет прежний набор ключей options в выводе help --json.
+    const options: Record<string, string> = {};
+    for (const [key, description] of Object.entries(globalOptions)) {
+      options[key] = description;
+      if (key === "--connection ИМЯ") {
+        options["--input-file ФАЙЛ | --stdin | --args JSON"] =
+          "Откуда взять ввод команды; один источник.";
+      }
+    }
     return {
       usage: USAGE,
-      commands: Object.fromEntries(
-        Object.entries(COMMANDS).map(([name, help]) => [name, help.summary]),
-      ),
-      options: OPTIONS,
+      groups: COMMAND_GROUPS.map((group) => ({
+        title: group.title,
+        commands: commands.filter((item) => item.group === group.id).map((item) => item.name),
+      })),
+      commands: Object.fromEntries(commands.map((item) => [item.name, item.summary])),
+      options,
       notes: NOTES,
     };
-  const help = topic(command);
-  return { command, usage: help.usage, ...(help.notes === undefined ? {} : { notes: help.notes }) };
+  }
+  const { spec, sub } = resolveTarget(command, subcommand);
+  if (sub !== undefined) {
+    const options = optionMap(sub.options);
+    return {
+      command,
+      subcommand: sub.name,
+      summary: sub.summary,
+      usage: sub.usage,
+      ...(options === undefined ? {} : { options }),
+      ...(sub.notes?.length ? { notes: sub.notes } : {}),
+    };
+  }
+  const options = optionMap(spec.options);
+  return {
+    command,
+    ...(spec.subcommands
+      ? {
+          subcommands: Object.fromEntries(
+            spec.subcommands.map((item) => [item.name, item.summary]),
+          ),
+        }
+      : {}),
+    usage: commandUsageLines(spec),
+    ...(options === undefined ? {} : { options }),
+    ...(spec.notes?.length ? { notes: spec.notes } : {}),
+  };
 }
 
-function rows(pairs: readonly (readonly [string, string])[]): string[] {
-  const width = Math.max(...pairs.map(([name]) => name.length));
+function rows(pairs: readonly (readonly [string, string])[], minWidth = 0): string[] {
+  const width = Math.max(minWidth, ...pairs.map(([name]) => name.length));
   return pairs.map(([name, text]) => `  ${name.padEnd(width)}  — ${text}`);
 }
 
+function optionLines(options: readonly OptionSpec[] | undefined, heading = "Параметры:"): string[] {
+  if (!options?.length) return [];
+  return [
+    "",
+    heading,
+    ...rows(options.map((option) => [formatOptionFlag(option), option.description])),
+  ];
+}
+
 /** Та же справка, что у cliHelp, разложенная по строкам для чтения. */
-export function cliHelpText(command?: string): string {
-  const help = command === undefined ? undefined : topic(command);
-  const lines =
-    help === undefined
-      ? [
-          USAGE,
-          "",
-          "Команды:",
-          ...rows(Object.entries(COMMANDS).map(([name, help]) => [name, help.summary])),
-          "",
-          "Параметры:",
-          ...rows(Object.entries(OPTIONS)),
-          "",
-          ...NOTES,
-        ]
-      : [
-          `wtctl ${command} — ${help.summary}`,
-          "",
-          ...help.usage.map((line) => `  ${line}`),
-          ...(help.notes === undefined ? [] : ["", ...help.notes]),
-        ];
+export function cliHelpText(command?: string, subcommand?: string): string {
+  if (command === undefined) {
+    const commands = visibleCommands();
+    const width = Math.max(...commands.map((item) => item.name.length));
+    const lines = [USAGE];
+    for (const group of COMMAND_GROUPS) {
+      const members = commands.filter((item) => item.group === group.id);
+      if (!members.length) continue;
+      lines.push(
+        "",
+        `${group.title}:`,
+        ...rows(
+          members.map((item) => [item.name, item.summary]),
+          width,
+        ),
+      );
+    }
+    lines.push(...optionLines(GLOBAL_OPTIONS), "", ...NOTES);
+    return `${lines.join("\n")}\n`;
+  }
+
+  const { spec, sub } = resolveTarget(command, subcommand);
+  if (sub !== undefined) {
+    const hasLocalFormat = sub.options?.some((o) => o.name === "format" && o.overridesGlobal);
+    const globals = [
+      "-c",
+      ...(hasLocalFormat ? [] : ["--format"]),
+      "--json",
+      ...(sub.noOutput ? [] : ["-o"]),
+      "-q",
+      "-y",
+    ];
+    const globalList = globals.join(", ");
+    const lines = [
+      `wtctl ${command} ${sub.name} — ${sub.summary}`,
+      "",
+      ...sub.usage.map((line) => `  ${line}`),
+      ...optionLines(sub.options),
+      ...(sub.notes?.length ? ["", ...sub.notes] : []),
+      "",
+      `Общие параметры (${globalList}): wtctl help.`,
+    ];
+    return `${lines.join("\n")}\n`;
+  }
+
+  if (spec.subcommands !== undefined) {
+    const lines = [
+      `wtctl ${command} — ${spec.summary}`,
+      "",
+      "Подкоманды:",
+      ...rows(spec.subcommands.map((item) => [item.name, item.summary])),
+      "",
+      "Использование:",
+      ...commandUsageLines(spec).map((line) => `  ${line}`),
+      ...optionLines(spec.options, "Параметры вызова:"),
+      "",
+      ...(spec.notes ?? []),
+      `Подробности и параметры подкоманды: wtctl help ${command} ПОДКОМАНДА.`,
+    ];
+    return `${lines.join("\n")}\n`;
+  }
+
+  const lines = [
+    `wtctl ${command} — ${spec.summary}`,
+    "",
+    ...commandUsageLines(spec).map((line) => `  ${line}`),
+    ...optionLines(spec.options),
+    ...(spec.notes?.length ? ["", ...spec.notes] : []),
+  ];
   return `${lines.join("\n")}\n`;
 }

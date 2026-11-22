@@ -416,6 +416,40 @@ test("config init пишет подключение только для чтен
     assert.equal(again.json().error?.code, "CONNECTION_EXISTS");
     const forced = cli();
     assert.equal(await runCli([...argv, "--force"], forced.io, forced.dependencies), 0);
+
+    // Путь --config с пробелами в подсказке экранируется, а при другом WTCTL_CONNECTION указывается --connection.
+    const spacedPath = join(home, "work folder", "hcm.json");
+    const prevConn = process.env.WTCTL_CONNECTION;
+    process.env.WTCTL_CONNECTION = "other";
+    try {
+      const spaced = cli();
+      assert.equal(
+        await runCli(
+          [
+            "config",
+            "init",
+            "--config",
+            spacedPath,
+            "--url",
+            "http://localhost:8088",
+            "--username",
+            "admin",
+            "--password-env",
+            "PROD_PASSWORD",
+          ],
+          spaced.io,
+          spaced.dependencies,
+        ),
+        0,
+      );
+      assert.equal(
+        (spaced.json().data as { next: string }).next,
+        `Проверить подключение: wtctl --config "${spacedPath}" --connection default check`,
+      );
+    } finally {
+      if (prevConn === undefined) delete process.env.WTCTL_CONNECTION;
+      else process.env.WTCTL_CONNECTION = prevConn;
+    }
   });
 });
 

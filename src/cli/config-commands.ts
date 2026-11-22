@@ -6,6 +6,7 @@ import {
   defaultConfigPath,
   listConnections,
   parseConfiguration,
+  removeConnection,
   updateConnection,
   withConnection,
 } from "../config.js";
@@ -13,15 +14,21 @@ import type { OperationResult } from "../contracts.js";
 import { HcmError } from "../errors.js";
 import {
   CliInputError,
-  allowOptions,
   exactPositionals,
   optional,
   rejectPasswordStdin,
+  requirePositional,
   stringOption,
   type CliArguments,
 } from "./arguments.js";
+import { createStyler, resolveColor } from "./format/index.js";
+import { isInteractiveConfirm, sanitizeTerminalText } from "./interactive.js";
 import { frontendResult } from "./output.js";
 import type { CliIo } from "./types.js";
+
+export type ConfigCommandOutcome =
+  | { readonly kind: "result"; readonly result: OperationResult }
+  | { readonly kind: "cancelled"; readonly exitCode: 1 };
 
 function configPathOption(args: CliArguments): string {
   return stringOption(args, "config") ?? process.env.WTCTL_CONFIG ?? defaultConfigPath();
@@ -144,15 +151,6 @@ async function readExistingConfig(
 
 /** Добавляет подключение в файл подключений, спрашивая у человека то, что не задано. */
 async function initConnection(args: CliArguments, io: CliIo): Promise<OperationResult> {
-  allowOptions(args, [
-    "url",
-    "username",
-    "name",
-    "password-env",
-    "allow-write",
-    "allow-execute",
-    "force",
-  ]);
   exactPositionals(args, 2);
   const path = configPathOption(args);
   rejectOutputOnConfigPath(args, path);
@@ -225,18 +223,24 @@ async function initConnection(args: CliArguments, io: CliIo): Promise<OperationR
     passwordEnv !== undefined && !process.env[passwordEnv]
       ? `Переменная ${passwordEnv} сейчас не задана, без неё подключение не откроется. Задать её и проверить подключение`
       : "Проверить подключение";
+  const explicitConfig = stringOption(args, "config");
+  const quoteArg = (value: string): string =>
+    /[\s"]/.test(value) ? `"${value.replaceAll('"', '\\"')}"` : value;
+  const configFlag = explicitConfig !== undefined ? `--config ${quoteArg(explicitConfig)} ` : "";
+  const envConn = process.env.WTCTL_CONNECTION?.trim();
+  const needsConnectionFlag =
+    !selected || (envConn !== undefined && envConn !== "" && envConn !== name);
   return frontendResult("cli.config.init", name, {
     path,
     connection: name,
     defaultConnection: next.defaultConnection,
     permissions: { write, execute },
-    next: `${check}: wtctl ${selected ? "" : `--connection ${name} `}check`,
+    next: `${check}: wtctl ${configFlag}${needsConnectionFlag ? `--connection ${quoteArg(name)} ` : ""}check`,
   });
 }
 
 async function listConfigConnections(args: CliArguments, io: CliIo): Promise<OperationResult> {
   rejectPasswordStdin(args, "Ввод пароля не нужен для config list.");
-  allowOptions(args, []);
   exactPositionals(args, 2);
   const path = configPathOption(args);
   rejectOutputOnConfigPath(args, path);
@@ -264,19 +268,6 @@ async function setConfigConnection(args: CliArguments, io: CliIo): Promise<Opera
     args,
     "--password-stdin не нужен для config set: учётные данные меняет wtctl config init --force.",
   );
-  allowOptions(args, [
-    "write",
-    "execute",
-    "default",
-    "url",
-    "timeout-ms",
-    "max-response-bytes",
-    "output-limit-bytes",
-    "runtime-dir",
-    "results-max-bytes",
-    "results-max-age-days",
-    "journal-max-bytes",
-  ]);
   exactPositionals(args, 2, 3);
   const positionalName = args.positionals[2];
   const optionName = stringOption(args, "connection");
@@ -313,9 +304,86 @@ async function setConfigConnection(args: CliArguments, io: CliIo): Promise<Opera
   });
 }
 
+async function useConfigConnection(args: CliArguments, io: CliIo): Promise<OperationResult> {
+  if (stringOption(args, "output") !== undefined)
+    throw new CliInputError(
+      "wtctl config use не принимает --output: команда изменяет файл подключений, путь файла задаёт --config.",
+    );
+  rejectPasswordStdin(
+    args,
+    "--password-stdin не нужен для config use: команда только переключает подключение по умолчанию.",
+  );
+  exactPositionals(args, 3);
+  const name = requirePositional(args, 2, "аргумент ИМЯ подключения");
+  const path = configPathOption(args);
+  const { text: beforeText, document } = await readExistingConfig(path, io);
+  const updated = updateConnection(document, name, { makeDefault: true }, path);
+  await saveConfigDocument(io, path, beforeText, updated.document);
+  return frontendResult("cli.config.use", updated.connection.name, {
+    path,
+    defaultConnection: updated.defaultConnection ?? updated.connection.name,
+    connection: updated.connection,
+  });
+}
+
+async function removeConfigConnection(
+  args: CliArguments,
+  io: CliIo,
+): Promise<ConfigCommandOutcome> {
+  if (stringOption(args, "output") !== undefined)
+    throw new CliInputError(
+      "wtctl config remove не принимает --output: команда изменяет файл подключений, путь файла задаёт --config.",
+    );
+  rejectPasswordStdin(
+    args,
+    "--password-stdin не нужен для config remove: команда удаляет подключение из файла.",
+  );
+  exactPositionals(args, 3);
+  const name = requirePositional(args, 2, "аргумент ИМЯ подключения");
+  const path = configPathOption(args);
+  const { text: beforeText, document } = await readExistingConfig(path, io);
+  const removed = removeConnection(document, name, path);
+
+  if (args.options.yes !== true && isInteractiveConfirm(io)) {
+    const styler = createStyler(resolveColor(io, "stderr"));
+    const safeName = sanitizeTerminalText(removed.removed.name);
+    const safeUrl = sanitizeTerminalText(removed.removed.baseUrl);
+    const safePath = sanitizeTerminalText(path);
+    const lines = [
+      `${styler.dim("Подключение:")}  ${styler.bold(safeName)} (${safeUrl})`,
+      `${styler.dim("Файл:")}         ${safePath}`,
+    ];
+    if (removed.removed.default) {
+      lines.push(
+        removed.defaultConnection !== undefined
+          ? `${styler.dim("По умолчанию:")} станет ${sanitizeTerminalText(removed.defaultConnection)}`
+          : styler.yellow("Это последнее подключение в файле."),
+      );
+    }
+    await io.writeError(`${lines.join("\n")}\n`);
+    const confirmed = await io.confirm!("Удалить подключение из файла? [y/N] ");
+    if (!confirmed) {
+      await io.writeError("Отменено.\n");
+      return { kind: "cancelled", exitCode: 1 };
+    }
+  }
+
+  await saveConfigDocument(io, path, beforeText, removed.document);
+  return {
+    kind: "result",
+    result: frontendResult("cli.config.remove", removed.removed.name, {
+      path,
+      removed: removed.removed,
+      ...(removed.defaultConnection === undefined
+        ? {}
+        : { defaultConnection: removed.defaultConnection }),
+      remaining: removed.remaining,
+    }),
+  };
+}
+
 async function configPathCommand(args: CliArguments, io: CliIo): Promise<OperationResult> {
   rejectPasswordStdin(args, "Ввод пароля не нужен для config path.");
-  allowOptions(args, []);
   exactPositionals(args, 2);
   const path = configPathOption(args);
   rejectOutputOnConfigPath(args, path);
@@ -331,7 +399,6 @@ async function configPathCommand(args: CliArguments, io: CliIo): Promise<Operati
 
 function configExampleCommand(args: CliArguments): OperationResult {
   rejectPasswordStdin(args, "Ввод пароля не нужен для примера файла подключений.");
-  allowOptions(args, []);
   exactPositionals(args, 2);
   return frontendResult("cli.config.example", "unselected", configExample());
 }
@@ -341,11 +408,13 @@ export async function runConfigCommand(
   action: string | undefined,
   args: CliArguments,
   io: CliIo,
-): Promise<OperationResult | undefined> {
-  if (action === "init") return initConnection(args, io);
-  if (action === "list") return listConfigConnections(args, io);
-  if (action === "set") return setConfigConnection(args, io);
-  if (action === "path") return configPathCommand(args, io);
-  if (action === "example") return configExampleCommand(args);
+): Promise<ConfigCommandOutcome | undefined> {
+  if (action === "init") return { kind: "result", result: await initConnection(args, io) };
+  if (action === "list") return { kind: "result", result: await listConfigConnections(args, io) };
+  if (action === "set") return { kind: "result", result: await setConfigConnection(args, io) };
+  if (action === "use") return { kind: "result", result: await useConfigConnection(args, io) };
+  if (action === "remove" || action === "rm") return removeConfigConnection(args, io);
+  if (action === "path") return { kind: "result", result: await configPathCommand(args, io) };
+  if (action === "example") return { kind: "result", result: configExampleCommand(args) };
   return undefined;
 }

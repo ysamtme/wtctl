@@ -9,7 +9,6 @@ import { discoverOperations, operationHelp } from "../operation-help.js";
 import { VERSION } from "../version.js";
 import {
   CliInputError,
-  allowOptions,
   commandOf,
   enumOption,
   exactPositionals,
@@ -19,12 +18,33 @@ import {
   rejectPasswordStdin,
   requirePositional,
   stringOption,
+  usesLocalFormatArgv,
   type CliArguments,
 } from "./arguments.js";
 import { commandInvocation, type Invocation } from "./commands.js";
+import { generateCompletion, parseCompletionShell, runCompleteConnections } from "./completion.js";
 import { runConfigCommand } from "./config-commands.js";
 import { DeferredRuntime } from "./deferred-runtime.js";
+import { planEditCommand, runEditCommand, type EditPlan } from "./edit.js";
+import {
+  assertFormatSupported,
+  resolveErrorMode,
+  resolveOutputMode,
+  type OutputMode,
+} from "./format/index.js";
 import { cliHelp, cliHelpText, helpCommand } from "./help.js";
+import {
+  attachAgentRunLogs,
+  confirmDestructiveAction,
+  isInteractiveConfirm,
+} from "./interactive.js";
+import {
+  planLogExecution,
+  resolveLogFile,
+  runLogStream,
+  runLogTail,
+  type LogExecutionPlan,
+} from "./live-logs.js";
 import {
   emit,
   emitText,
@@ -34,6 +54,8 @@ import {
   safeDiagnostic,
   serializeResult,
 } from "./output.js";
+import { createProgress, type ProgressIndicator } from "./progress.js";
+import { queryAllOptions, runQueryAll, type QueryAllOptions } from "./query-all.js";
 import type { CliDependencies, CliIo, RuntimePort } from "./types.js";
 
 export { commandInvocation, serializeResult };
@@ -65,6 +87,9 @@ function withSettings(
   };
 }
 
+const TTY_DEFAULT_OUTPUT_LIMIT_BYTES = 256 * 1024;
+const JSON_OUTPUT_MODE: OutputMode = { requested: "json", format: "json", humanErrors: false };
+
 export async function runCli(
   argv: readonly string[],
   io: CliIo,
@@ -72,24 +97,43 @@ export async function runCli(
 ): Promise<number> {
   let runtime: RuntimePort | undefined;
   let parsed: CliArguments | undefined;
+  let progress: ProgressIndicator | undefined;
   try {
     parsed = parseArguments(argv);
     const [command, action] = parsed.positionals;
+    if (command === "__complete-connections") {
+      return await runCompleteConnections(parsed, io);
+    }
     if (!command || command === "help") {
       rejectPasswordStdin(parsed, "Ввод пароля не нужен для help.");
-      // КОМАНДА … --help: параметры, набранные до --help, относятся к команде и не проверяются.
-      if (!parsed.options.help) allowOptions(parsed, []);
-      // help logs search: справка группы покрывает её подкоманды.
       exactPositionals(parsed, 0, 3);
+      const subcommand = parsed.positionals[2];
+      if (action === "help" && subcommand !== undefined)
+        throw new CliInputError("Лишние аргументы команды.");
+      // У `result read --format text --help` флаг --format относился к подкоманде, а не к help.
+      const helpArgs =
+        parsed.options.help === true && usesLocalFormatArgv(argv)
+          ? { positionals: parsed.positionals, options: { ...parsed.options, format: false } }
+          : parsed;
+      if (helpArgs !== parsed) delete helpArgs.options.format;
+      const helpMode = resolveOutputMode(helpArgs, io);
+      if (helpMode.requested !== "auto") assertFormatSupported("cli.help", helpMode.format);
       const topic = action === "help" ? undefined : action;
-      if (parsed.options.json)
-        return await emit(frontendResult("cli.help", "unselected", cliHelp(topic)), parsed, io);
-      return await emitText(cliHelpText(topic), parsed, io);
+      if (helpMode.requested === "json")
+        return await emit(
+          frontendResult("cli.help", "unselected", cliHelp(topic, subcommand)),
+          parsed,
+          io,
+          undefined,
+          JSON_OUTPUT_MODE,
+        );
+      return await emitText(cliHelpText(topic, subcommand), parsed, io);
     }
+    const outputMode = command === "mcp" ? undefined : resolveOutputMode(parsed, io);
     if (command === "version") {
       rejectPasswordStdin(parsed, "Ввод пароля не нужен для version.");
-      allowOptions(parsed, []);
       exactPositionals(parsed, 1);
+      assertFormatSupported("cli.version", outputMode!.format);
       return await emit(
         frontendResult("cli.version", "unselected", {
           name: "wtctl",
@@ -98,27 +142,69 @@ export async function runCli(
         }),
         parsed,
         io,
+        undefined,
+        outputMode,
       );
     }
     if (command === "guide") {
       rejectPasswordStdin(parsed, "Ввод пароля не нужен для guide.");
-      allowOptions(parsed, []);
       exactPositionals(parsed, 1, 2);
+      if (outputMode!.requested !== "auto") assertFormatSupported("cli.guide", outputMode!.format);
       const page = await guide(action, withSettings(dependencies.local, parsed));
-      if (parsed.options.json)
-        return await emit(frontendResult("cli.guide", "unselected", page), parsed, io);
+      if (outputMode!.requested === "json")
+        return await emit(
+          frontendResult("cli.guide", "unselected", page),
+          parsed,
+          io,
+          undefined,
+          JSON_OUTPUT_MODE,
+        );
       return await emitText(`${page.text}\n`, parsed, io);
     }
+    if (command === "completion") {
+      rejectPasswordStdin(parsed, "Ввод пароля не нужен для completion.");
+      exactPositionals(parsed, 1, 2);
+      if (outputMode!.requested !== "auto")
+        assertFormatSupported("cli.completion", outputMode!.format);
+      const shell = parseCompletionShell(action);
+      const script = generateCompletion(shell);
+      if (outputMode!.requested === "json")
+        return await emit(
+          frontendResult("cli.completion", "unselected", { shell, script }),
+          parsed,
+          io,
+          undefined,
+          JSON_OUTPUT_MODE,
+        );
+      return await emitText(script, parsed, io);
+    }
     if (command === "config") {
-      const configResult = await runConfigCommand(action, parsed, io);
-      if (configResult) return await emit(configResult, parsed, io);
+      const configAction = action === "rm" ? "remove" : action;
+      if (
+        configAction === "init" ||
+        configAction === "list" ||
+        configAction === "set" ||
+        configAction === "use" ||
+        configAction === "remove" ||
+        configAction === "path" ||
+        configAction === "example"
+      ) {
+        assertFormatSupported(`cli.config.${configAction}`, outputMode!.format);
+      }
+      const configOutcome = await runConfigCommand(action, parsed, io);
+      if (configOutcome?.kind === "cancelled") return configOutcome.exitCode;
+      if (configOutcome?.kind === "result")
+        return await emit(configOutcome.result, parsed, io, undefined, outputMode);
     }
     // Полная команда и её локальные входные данные проверяются до открытия runtime.
+    const interactiveConfirm = isInteractiveConfirm(io);
     const discovery = command === "api" && (action === "list" || action === "describe");
     let discoveryFilter: OperationFilter = {};
     let invocation: Invocation | undefined;
+    let logPlan: LogExecutionPlan | undefined;
+    let queryAll: QueryAllOptions | undefined;
+    let editPlan: EditPlan | undefined;
     if (command === "mcp") {
-      allowOptions(parsed, []);
       exactPositionals(parsed, 1);
       if (parsed.options.output)
         throw new CliInputError("wtctl mcp не принимает --output: stdout занят протоколом MCP.");
@@ -127,13 +213,22 @@ export async function runCli(
         "--password-stdin несовместим с MCP: stdin занят протоколом.",
         "Для MCP пароль берётся из файла подключений или переменной окружения.",
       );
-    } else if (!discovery) invocation = await commandInvocation(parsed, io);
-    else if (action === "describe") {
-      allowOptions(parsed, ["offline"]);
+    } else if ((command === "files" || command === "object") && action === "edit") {
+      editPlan = planEditCommand(parsed, outputMode!, io);
+    } else if (!discovery) {
+      invocation = await commandInvocation(parsed, io, { interactive: interactiveConfirm });
+      if (command === "logs") {
+        logPlan = planLogExecution(parsed, invocation, outputMode!, io);
+      } else {
+        assertFormatSupported(invocation.operationId, outputMode!.format, invocation.args);
+        if (command === "query") queryAll = queryAllOptions(parsed);
+      }
+    } else if (action === "describe") {
       exactPositionals(parsed, 3);
+      assertFormatSupported("api.describe", outputMode!.format);
     } else {
-      allowOptions(parsed, ["query", "topic", "group", "effect", "cursor", "limit", "offline"]);
       exactPositionals(parsed, 2);
+      assertFormatSupported("api.list", outputMode!.format);
       const effect = enumOption(
         parsed,
         "effect",
@@ -157,7 +252,13 @@ export async function runCli(
         action === "describe"
           ? operationHelp(describeHcmOperation(requirePositional(parsed, 2, "ID операции")))
           : discoverOperations(listHcmOperations, discoveryFilter);
-      return await emit(frontendResult(`api.${action}`, "unselected", data), parsed, io);
+      return await emit(
+        frontendResult(`api.${action}`, "unselected", data),
+        parsed,
+        io,
+        undefined,
+        outputMode,
+      );
     }
     let password: string | undefined;
     if (parsed.options["password-stdin"]) {
@@ -166,11 +267,20 @@ export async function runCli(
         throw new CliInputError("Пароль из stdin должен быть одной непустой строкой до 64 КиБ.");
     }
     const selected = parsed;
+    const defaultOutputLimitBytes =
+      command !== "mcp" &&
+      ((io.stdoutIsTTY === true &&
+        outputMode !== undefined &&
+        (outputMode.format === "human" || outputMode.format === "table")) ||
+        logPlan?.kind === "stream")
+        ? TTY_DEFAULT_OUTPUT_LIMIT_BYTES
+        : undefined;
     const load = () =>
       dependencies.loadConfiguration({
         ...optional("configPath", stringOption(selected, "config")),
         ...optional("connection", stringOption(selected, "connection")),
         ...optional("password", password),
+        ...optional("defaultOutputLimitBytes", defaultOutputLimitBytes),
       });
     if (command === "mcp") {
       const served = async () => markServedByMcp(await load());
@@ -196,25 +306,183 @@ export async function runCli(
       await serving.close();
       return 0;
     }
+    const progressEnabled =
+      outputMode !== undefined &&
+      outputMode.format !== "json" &&
+      outputMode.requested !== "json" &&
+      parsed.options.quiet !== true &&
+      logPlan?.kind !== "stream";
+    progress = createProgress(io, { enabled: progressEnabled });
+    progress.start(queryAll ? "Запрос строк…" : editPlan ? "Чтение данных…" : "Выполнение…");
+
     const config = await load();
     runtime = dependencies.createRuntime(config);
-    if (!invocation) throw new CliInputError("Команда не определена.");
-    let result: OperationResult = await runtime.call(invocation.operationId, invocation.args);
-    const closing = runtime;
-    runtime = undefined;
-    try {
-      await closing.close();
-    } catch {
-      const cleanup = failure(
-        "cli.cleanup_failed",
-        "Основная операция завершилась, но закрыть подключение не удалось.",
-        "Результат основной операции сохранён в data/meta. Её из-за ошибки закрытия не повторять.",
+    if (!invocation && !editPlan) throw new CliInputError("Команда не определена.");
+
+    let closingRuntime: RuntimePort | undefined;
+    const closeRuntimeOnce = async (): Promise<{
+      readonly failed: boolean;
+      readonly diagnostic?: OperationResult;
+    }> => {
+      if (!runtime) return { failed: false };
+      const target = runtime;
+      runtime = undefined;
+      closingRuntime = target;
+      try {
+        await target.close();
+        return { failed: false };
+      } catch {
+        const cleanup = failure(
+          "cli.cleanup_failed",
+          "Основная операция завершилась, но закрыть подключение не удалось.",
+          "Результат основной операции сохранён в data/meta. Её из-за ошибки закрытия не повторять.",
+        );
+        await safeDiagnostic(io, cleanup, outputMode?.humanErrors ? "human" : "json");
+        return { failed: true, diagnostic: cleanup };
+      }
+    };
+
+    if (logPlan?.kind === "stream") {
+      await progress.stop();
+      return await runLogStream(
+        logPlan,
+        parsed,
+        io,
+        runtime,
+        outputMode!,
+        config.outputLimitBytes,
+        config.maxResponseBytes,
+        closeRuntimeOnce,
       );
-      await safeDiagnostic(io, cleanup);
-      result = frontendFailure(result, cleanup, "cleanupFailed");
     }
-    return await emit(result, parsed, io, closing);
+
+    let result: OperationResult;
+    let emitRequestArgs: Readonly<Record<string, unknown>> | undefined = invocation?.args;
+    if (editPlan) {
+      const outcome = await runEditCommand(
+        editPlan,
+        parsed,
+        config,
+        io,
+        runtime,
+        outputMode!,
+        progress,
+        closeRuntimeOnce,
+      );
+      if (outcome.handled) return outcome.exitCode;
+      result = outcome.result;
+      emitRequestArgs = outcome.requestArgs;
+    } else if (logPlan?.kind === "tail") {
+      const outcome = await runLogTail(
+        logPlan,
+        parsed,
+        io,
+        runtime,
+        outputMode!,
+        config.outputLimitBytes,
+        config.maxResponseBytes,
+        progress,
+        closeRuntimeOnce,
+      );
+      if (outcome.handled) return outcome.exitCode;
+      result = outcome.result;
+    } else if (queryAll) {
+      const outcome = await runQueryAll(
+        invocation!.args,
+        queryAll,
+        parsed,
+        config,
+        io,
+        runtime,
+        outputMode!,
+        progress,
+        closeRuntimeOnce,
+      );
+      if (outcome.handled) return outcome.exitCode;
+      result = outcome.result;
+    } else {
+      let callArgs = invocation!.args;
+      if (logPlan?.kind === "single" && logPlan.resolveType && typeof callArgs.file === "string") {
+        const resolved = await resolveLogFile(
+          callArgs.file,
+          runtime,
+          io,
+          outputMode!,
+          parsed.options.quiet === true,
+          progress,
+        );
+        if (!resolved.ok) {
+          result = resolved.result;
+          callArgs = {};
+        } else {
+          callArgs = { ...callArgs, file: resolved.file };
+          result = await runtime.call(invocation!.operationId, callArgs);
+        }
+      } else {
+        const confirmTarget =
+          interactiveConfirm && parsed.options.yes !== true
+            ? command === "object" && action === "delete" && parsed.options.permanent !== true
+              ? ("objects.delete" as const)
+              : command === "files" && action === "delete" && parsed.options.permanent !== true
+                ? ("files.delete" as const)
+                : command === "tasks" && action === "kill"
+                  ? ("web.spxml.killAsyncMethod" as const)
+                  : undefined
+            : undefined;
+        if (confirmTarget !== undefined) {
+          const confirmed = await confirmDestructiveAction(
+            confirmTarget,
+            callArgs,
+            config,
+            runtime,
+            io,
+            progress,
+          );
+          if (!confirmed) {
+            await closeRuntimeOnce();
+            return 1;
+          }
+          if (confirmTarget === "objects.delete") {
+            callArgs = { ...callArgs, permanent: true };
+          }
+          progress.start(
+            confirmTarget === "web.spxml.killAsyncMethod" ? "Остановка задачи…" : "Удаление…",
+          );
+        }
+        result = await runtime.call(invocation!.operationId, callArgs);
+        if (command === "agent" && action === "run" && parsed.options.logs === true && result.ok) {
+          result = await attachAgentRunLogs(
+            result,
+            runtime,
+            config,
+            progress,
+            stringOption(parsed, "output") !== undefined,
+          );
+        }
+      }
+    }
+
+    await progress.stop();
+    const closed = await closeRuntimeOnce();
+    if (closed.failed && closed.diagnostic) {
+      result = frontendFailure(result, closed.diagnostic, "cleanupFailed");
+    }
+    const requestedFields =
+      Array.isArray(invocation?.args.fields) &&
+      invocation.args.fields.every((item): item is string => typeof item === "string")
+        ? invocation.args.fields
+        : undefined;
+    return await emit(
+      result,
+      parsed,
+      io,
+      closingRuntime,
+      outputMode,
+      requestedFields,
+      emitRequestArgs,
+    );
   } catch (error) {
+    await progress?.stop();
     const result =
       error instanceof CliInputError
         ? failure(
@@ -235,9 +503,14 @@ export async function runCli(
               "Команда не завершена.",
               "Проверить подключение и api.describe; неизвестные ошибки не выводят реквизиты или серверный ответ.",
             );
-    await safeDiagnostic(io, errorInFrontendTerms(result, "cli"));
+    await safeDiagnostic(
+      io,
+      errorInFrontendTerms(result, "cli"),
+      resolveErrorMode(argv, parsed, io),
+    );
     return error instanceof CliInputError ? 2 : 1;
   } finally {
+    await progress?.stop();
     if (runtime) {
       try {
         await runtime.close();
@@ -245,6 +518,7 @@ export async function runCli(
         await safeDiagnostic(
           io,
           failure("cli.cleanup_failed", "Не удалось закрыть сессию подключения."),
+          resolveErrorMode(argv, parsed, io),
         );
       }
     }

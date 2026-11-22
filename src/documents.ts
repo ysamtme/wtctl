@@ -138,6 +138,20 @@ function semantic(nodes: Node[]): unknown {
       return out;
     });
 }
+function preserveComments(existing: Node[], next: Node[]): Node[] {
+  const hasComment = existing.some((node) => Object.hasOwn(node, "#comment"));
+  if (!hasComment) return next;
+  let splitIndex = existing.findIndex(
+    (node) =>
+      (Object.hasOwn(node, "#text") && String(node["#text"]).trim() !== "") ||
+      Object.hasOwn(node, "#cdata") ||
+      name(node) !== undefined,
+  );
+  if (splitIndex < 0) splitIndex = existing.length;
+  const before = existing.slice(0, splitIndex).filter((node) => Object.hasOwn(node, "#comment"));
+  const after = existing.slice(splitIndex).filter((node) => Object.hasOwn(node, "#comment"));
+  return [...before, ...next, ...after];
+}
 function encodeValue(key: string, value: unknown, depth = 0): Node {
   if (!IDENTIFIER.test(key) || depth > 64)
     throw new HcmError(
@@ -514,8 +528,14 @@ export class XmlDocument {
           )
             continue;
           if (chosen) {
-            if (chosen.node[":@"] !== undefined && replacement.length === 1)
-              replacement[0]![":@"] = chosen.node[":@"];
+            if (replacement.length === 1) {
+              if (chosen.node[":@"] !== undefined) replacement[0]![":@"] = chosen.node[":@"];
+              const nextChildren = preserveComments(
+                children(chosen.node),
+                children(replacement[0]!),
+              );
+              if (nextChildren !== children(replacement[0]!)) replacement[0]![field] = nextChildren;
+            }
             parent.splice(chosen.i, 1, ...replacement);
           } else {
             if (position !== undefined)

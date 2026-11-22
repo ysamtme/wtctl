@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, type ConnectionSettings } from "../src/config.js";
+import { loadConfig, removeConnection, type ConnectionSettings } from "../src/config.js";
 import { HcmError } from "../src/errors.js";
 import { ResultStore } from "../src/results.js";
 import type { ConnectionConfig } from "../src/contracts.js";
@@ -596,4 +596,114 @@ test("ResultStore.prune удаляет все просроченные файл�
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("removeConnection удаляет подключение, обновляет defaultConnection, не мутирует документ и не раскрывает пароли", () => {
+  const doc = {
+    defaultConnection: "dev",
+    comment: "keep-meta",
+    connections: {
+      dev: {
+        baseUrl: "http://dev.test/",
+        username: "dev-user",
+        password: "synthetic-dev-secret",
+        permissions: { write: true, execute: false },
+      },
+      stage: {
+        baseUrl: "https://stage.test/",
+        usernameEnv: "WTCTL_STAGE_USER",
+        passwordEnv: "WTCTL_STAGE_PASS",
+        permissions: { write: false, execute: true },
+      },
+      prod: {
+        baseUrl: "https://prod.test/",
+        username: "prod-user",
+        password: "synthetic-prod-secret",
+      },
+    },
+  };
+  const snapshot = JSON.stringify(doc);
+
+  // Удаление подключения по умолчанию переводит defaultConnection на первое оставшееся.
+  const first = removeConnection(doc, "dev", "c.json");
+  assert.equal(JSON.stringify(doc), snapshot, "исходный документ не должен мутироваться");
+  assert.equal(first.defaultConnection, "stage");
+  assert.deepEqual(first.remaining, ["stage", "prod"]);
+  assert.equal(first.removed.name, "dev");
+  assert.equal(first.removed.default, true);
+  assert.equal(first.removed.baseUrl, "http://dev.test/");
+  assert.doesNotMatch(JSON.stringify(first.removed), /synthetic-dev-secret/);
+  assert.equal(first.document.defaultConnection, "stage");
+  assert.equal(first.document.comment, "keep-meta");
+  assert.deepEqual(Object.keys(first.document.connections as object), ["stage", "prod"]);
+
+  // Удаление не-умолчательного подключения сохраняет прежний defaultConnection.
+  const second = removeConnection(first.document, "prod", "c.json");
+  assert.equal(second.defaultConnection, "stage");
+  assert.deepEqual(second.remaining, ["stage"]);
+  assert.equal(second.removed.default, false);
+
+  // Удаление последнего подключения удаляет поле defaultConnection из документа.
+  const last = removeConnection(second.document, "stage", "c.json");
+  assert.equal(last.defaultConnection, undefined);
+  assert.deepEqual(last.remaining, []);
+  assert.equal("defaultConnection" in last.document, false);
+  assert.deepEqual(last.document.connections, {});
+
+  // Неявное подключение по умолчанию "default" тоже переводит defaultConnection на следующее.
+  const implicit = removeConnection(
+    {
+      connections: {
+        default: { baseUrl: "http://a.test/" },
+        alt: { baseUrl: "http://b.test/" },
+      },
+    },
+    "default",
+    "c.json",
+  );
+  assert.equal(implicit.removed.default, true);
+  assert.equal(implicit.defaultConnection, "alt");
+  assert.equal(implicit.document.defaultConnection, "alt");
+
+  // Отказы: старый формат, неверное имя, отсутствующее подключение.
+  assert.throws(() => removeConnection({ baseUrl: "http://old.test/" }, "dev", "old.json"), {
+    code: "INVALID_CONFIG",
+  });
+  assert.throws(() => removeConnection(doc, "плохое имя", "c.json"), {
+    code: "INVALID_CONFIG",
+  });
+  assert.throws(
+    () => removeConnection(doc, "missing", "c.json"),
+    (error: unknown) => {
+      assert.ok(error instanceof HcmError);
+      assert.equal(error.code, "UNKNOWN_CONNECTION");
+      assert.match(error.hint ?? "", /dev, stage, prod/);
+      return true;
+    },
+  );
+});
+
+test("removeConnection сохраняет собственное свойство __proto__ и исправляет висячий defaultConnection", () => {
+  const protoDoc = JSON.parse(
+    '{"defaultConnection":"alt","connections":{"__proto__":{"baseUrl":"http://proto.test/"},"alt":{"baseUrl":"http://alt.test/"}}}',
+  ) as Record<string, unknown>;
+  const afterProto = removeConnection(protoDoc, "alt", "c.json");
+  assert.deepEqual(afterProto.remaining, ["__proto__"]);
+  assert.equal(afterProto.defaultConnection, "__proto__");
+  const serialized = JSON.stringify(afterProto.document);
+  assert.match(serialized, /"__proto__":\{"baseUrl":"http:\/\/proto\.test\/"\}/);
+
+  const dangling = removeConnection(
+    {
+      defaultConnection: "missing",
+      connections: {
+        one: { baseUrl: "http://one.test/" },
+        two: { baseUrl: "http://two.test/" },
+      },
+    },
+    "one",
+    "c.json",
+  );
+  assert.equal(dangling.defaultConnection, "two");
+  assert.equal(dangling.document.defaultConnection, "two");
 });

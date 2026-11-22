@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CliInputError, parseArguments } from "../src/cli/arguments.js";
+import { CliInputError, parseArguments, repeatedOption } from "../src/cli/arguments.js";
 import { commandInvocation, runCli } from "../src/cli/run.js";
 import type { CliDependencies, CliIo, RuntimePort } from "../src/cli/types.js";
 import type { ConnectionConfig, OperationDefinition, OperationResult } from "../src/contracts.js";
@@ -9,6 +9,7 @@ import { permissionHint } from "../src/config.js";
 import { describeHcmOperation, listHcmOperations } from "../src/catalog.js";
 import { discoverOperations, operationHelp } from "../src/operation-help.js";
 import { cliHelp } from "../src/cli/help.js";
+import { CLI_COMMANDS, GLOBAL_OPTIONS, type ParseRegistry } from "../src/cli/registry.js";
 import { NAMES } from "../src/frontend-names.js";
 import { ResultStore } from "../src/results.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -741,37 +742,103 @@ test("отказ до вызова операции называет коман�
   assert.match(badResult.error?.hint ?? "", /wtctl api describe/);
 });
 
-test("справка — текст для чтения: команды и параметры в колонках, использование и заметки команды по одной в строке", async () => {
+test("справка — текст для чтения: группы команд, параметры с короткими именами и точечная справка подкоманд", async () => {
   const top = (await offline([])).stdout;
   assert.equal((await offline(["help"])).stdout, top);
-  assert.ok(top.startsWith("wtctl [--config ФАЙЛ] [--connection ИМЯ] КОМАНДА …\n\nКоманды:\n"));
+  assert.ok(
+    top.startsWith(
+      "wtctl [--config ФАЙЛ] [-c ИМЯ] [--format ВИД | --json] КОМАНДА …\n\nПодключение и сервер:\n",
+    ),
+  );
+  for (const heading of [
+    "Подключение и сервер:",
+    "Данные и схема:",
+    "Код и библиотеки:",
+    "Файлы и логи:",
+    "Настройка и прочее:",
+  ]) {
+    assert.ok(top.includes(`\n${heading}\n`), heading);
+  }
   assert.match(
     top,
-    /\n {2}status {3}— Адрес и версия сервера, база данных, пользователь и права подключения.\n {2}check {4}— /,
+    /\n {2}status {6}— Адрес и версия сервера, база данных, пользователь и права подключения.\n {2}check {7}— /,
   );
   assert.match(top, /\n\nПараметры:\n {2}--config ФАЙЛ +— Файл подключений\.\n/);
-  assert.match(top, /\n\nАргументы и примеры команды: wtctl help КОМАНДА\.\n/);
-  assert.match(top, /help и guide печатают текст/);
+  assert.match(top, /\n {2}-c, --connection ИМЯ +— Подключение из файла\.\n/);
+  assert.match(top, /\n {2}-q, --quiet +— /);
+  assert.match(top, /\n {2}-y, --yes +— /);
+  assert.match(top, /\n\nАргументы и примеры команды: wtctl help КОМАНДА \[ПОДКОМАНДА\]\.\n/);
+  assert.match(top, /help, guide и completion без --json печатают текст/);
 
-  const query = cliHelp("query") as { usage: string[]; notes: string[] };
-  assert.equal(
-    (await offline(["query", "--help"])).stdout,
-    [
-      "wtctl query — Поиск в каталоге; запрос XQuery.",
-      "",
-      ...query.usage.map((line) => `  ${line}`),
-      "",
-      ...query.notes,
-      "",
-    ].join("\n"),
-  );
+  // Одиночная команда: использование, параметры с короткими флагами и заметки без отступа.
+  const queryText = (await offline(["query", "--help"])).stdout;
+  const query = cliHelp("query") as {
+    usage: string[];
+    options: Record<string, string>;
+    notes: string[];
+  };
+  assert.ok(queryText.startsWith("wtctl query — Поиск в каталоге; запрос XQuery.\n\n"));
+  assert.match(queryText, /\nПараметры:\n/);
+  assert.match(queryText, /\n {2}-w, --where УСЛОВИЕ +— /);
+  assert.match(queryText, /\n {2}-f, --fields ПОЛЯ +— /);
+  assert.match(queryText, /\n {2}-n, --limit N +— /);
+  assert.match(queryText, /\n {2}-i, --input-file ФАЙЛ +— /);
+  for (const line of [...query.usage.map((u) => `  ${u}`), ...query.notes])
+    assert.ok(queryText.split("\n").includes(line), line);
+
   assert.equal(
     (await offline(["help", "status"])).stdout,
     "wtctl status — Адрес и версия сервера, база данных, пользователь и права подключения.\n\n  wtctl status\n",
   );
+
+  // Обзор команды с подкомандами и точечная справка подкоманды различаются.
+  const objectOverview = (await offline(["help", "object"])).stdout;
+  assert.match(objectOverview, /\nПодкоманды:\n {2}get +— /);
+  assert.match(
+    objectOverview,
+    /\nПодробности и параметры подкоманды: wtctl help object ПОДКОМАНДА\.\n$/,
+  );
+  const patchHelp = (await offline(["help", "object", "patch"])).stdout;
+  assert.equal((await offline(["object", "patch", "--help"])).stdout, patchHelp);
   assert.equal(
-    (await offline(["help", "logs", "search"])).stdout,
-    (await offline(["help", "logs"])).stdout,
+    (await offline(["object", "patch", "0x1", "--preview", "--help"])).stdout,
+    patchHelp,
+  );
+  assert.notEqual(patchHelp, objectOverview);
+  assert.ok(patchHelp.startsWith("wtctl object patch — "));
+  assert.match(patchHelp, /\nПараметры:\n/);
+  assert.match(patchHelp, /\n {2}-i, --input-file ФАЙЛ +— /);
+  assert.match(patchHelp, /\n {2}--preview +— /);
+
+  const logsSearchHelp = (await offline(["help", "logs", "search"])).stdout;
+  assert.equal((await offline(["logs", "search", "--help"])).stdout, logsSearchHelp);
+  assert.notEqual(logsSearchHelp, (await offline(["help", "logs"])).stdout);
+  assert.ok(logsSearchHelp.startsWith("wtctl logs search — "));
+  assert.match(logsSearchHelp, /\n {2}-n, --limit N +— /);
+
+  // Для rpc list/describe — точечная справка, для прямого вызова — обзор rpc.
+  assert.equal(
+    (await offline(["rpc", "list", "--help"])).stdout,
+    (await offline(["help", "rpc", "list"])).stdout,
+  );
+  assert.equal(
+    (await offline(["rpc", "tools", "get_version", "--help"])).stdout,
+    (await offline(["help", "rpc"])).stdout,
+  );
+
+  for (const [cmd, sub] of [
+    ["config", "set"],
+    ["config", "use"],
+    ["config", "remove"],
+    ["files", "edit"],
+    ["object", "edit"],
+  ] as const) {
+    const subHelp = (await offline(["help", cmd, sub])).stdout;
+    assert.match(subHelp, /Общие параметры \(-c, --format, --json, -q, -y\): wtctl help\./);
+  }
+  assert.match(
+    (await offline(["help", "result", "read"])).stdout,
+    /Общие параметры \(-c, --json, -o, -q, -y\): wtctl help\./,
   );
 
   // Параметры, набранные перед --help, относятся к команде; help help — это главная справка.
@@ -798,16 +865,30 @@ test("JSON в аргументе справка пишет как '{\\\"…\\\"}
   }
 });
 
-test("help --json даёт ту же справку, что и обычный ответ", async () => {
-  for (const [argv, command] of [
-    [["--json"], undefined],
-    [["help", "--json"], undefined],
-    [["object", "--help", "--json"], "object"],
+test("help --json даёт ту же справку, что и обычный ответ, включая подкоманды", async () => {
+  for (const [argv, command, subcommand] of [
+    [["--json"], undefined, undefined],
+    [["help", "--json"], undefined, undefined],
+    [["object", "--help", "--json"], "object", undefined],
+    [["object", "patch", "--help", "--json"], "object", "patch"],
+    [["help", "object", "patch", "--json"], "object", "patch"],
   ] as const) {
     const result = JSON.parse((await offline([...argv])).stdout) as OperationResult;
     assert.equal(result.ok, true);
     assert.equal(result.meta.operationId, "cli.help");
-    assert.deepEqual(result.data, cliHelp(command));
+    assert.deepEqual(result.data, cliHelp(command, subcommand));
+  }
+  const topJson = JSON.parse((await offline(["help", "--json"])).stdout) as OperationResult;
+  const options = (topJson.data as { options: Record<string, string> }).options;
+  for (const legacyKey of [
+    "--config ФАЙЛ",
+    "--connection ИМЯ",
+    "--input-file ФАЙЛ | --stdin | --args JSON",
+    "--output ФАЙЛ",
+    "--json",
+    "--password-stdin",
+  ]) {
+    assert.equal(typeof options[legacyKey], "string", legacyKey);
   }
 });
 
@@ -838,7 +919,7 @@ test("--order сортирует поиск по каталогу; с текст
     assert.equal(f.state.loads, 0);
     assert.equal(
       JSON.parse(f.state.stderr).error.message,
-      "--order работает с --catalog; в тексте XQuery сортировку пишут сами: order by $e/поле",
+      "--order работает с каталогом (аргументом или --catalog); в тексте XQuery сортировку пишут сами: order by $e/поле",
     );
   }
 });
@@ -1193,7 +1274,8 @@ test("неверные команда, ввод и пределы отказыв
     ["result", "read", "id", "--format", "xml"],
     ["result", "read", "id", "--limit", "65537"],
     ["file", "upload"],
-    ["file", "upload", "synthetic.bin"],
+    ["file", "upload", "--name", "synthetic.bin"],
+    ["file", "upload", "--stdin"],
     ["file", "upload", "synthetic.bin", "--args", "{}"],
     ["file", "get", "synthetic.bin", "--content-type", "text/plain"],
     ["rpc", "describe"],
@@ -2491,4 +2573,347 @@ test("config init отклоняет --output на ту же цель через
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("короткие глобальные и контекстные флаги работают в формах -x val и -x=val, а повторы отклоняются", async () => {
+  // Глобальные короткие флаги и значения с дефисом через =.
+  assert.deepEqual(parseArguments(["-c", "dev", "-o=out.json", "-q", "-y", "status"]).options, {
+    connection: "dev",
+    output: "out.json",
+    quiet: true,
+    yes: true,
+  });
+  for (const argv of [
+    ["-c=dev", "status"],
+    ["--connection=dev", "status"],
+  ]) {
+    assert.equal(parseArguments(argv).options.connection, "dev");
+  }
+  for (const value of ["-h", "--dev"]) {
+    assert.equal(parseArguments([`--connection=${value}`, "status"]).options.connection, value);
+    assert.equal(parseArguments([`-c=${value}`, "status"]).options.connection, value);
+  }
+  assert.deepEqual(parseArguments(["-h"]).positionals, ["help"]);
+  assert.deepEqual(parseArguments(["-v"]).positionals, ["version"]);
+
+  // Контекстные короткие флаги для команд и подкоманд.
+  const shortCases: readonly [string[], string, Record<string, unknown>, string?][] = [
+    [["types", "-s", "collab", "-n", "5"], "schema.types", { search: "collab", limit: 5 }],
+    [
+      ["schema", "collaborator", "-s=name", "-n=10"],
+      "schema.get",
+      { type: "collaborator", search: "name", limit: 10 },
+    ],
+    [
+      ["query", "--catalog", "collaborators", "-w", '{"code":"a"}', "-f", "id,fullname", "-n", "7"],
+      "runtime.query",
+      { catalog: "collaborators", where: { code: "a" }, fields: ["id", "fullname"], limit: 7 },
+    ],
+    [
+      ["query", "--catalog", "collaborators", "-i", "where.json"],
+      "runtime.query",
+      { catalog: "collaborators", where: { code: "a" } },
+      '{"code":"a"}',
+    ],
+    [
+      ["object", "get", "0x1", "-f", "id,name"],
+      "objects.get",
+      { id: "0x1", fields: ["id", "name"] },
+    ],
+    [
+      ["object", "patch", "0x1", "-i", "patch.json"],
+      "objects.patch",
+      { id: "0x1", patch: { name: "New" } },
+      '{"name":"New"}',
+    ],
+    [
+      ["exec", "RESULT=[];", "-p", '{"id":"0x1"}'],
+      "execute.script",
+      { code: "RESULT=[];", params: { id: "0x1" } },
+    ],
+    [["rpc", "list", "-n", "12"], "rpc.list", { limit: 12 }],
+    [["logs", "list", "-n", "8"], "logs.list", { limit: 8 }],
+    [["logs", "search", "x.log", "-n", "4"], "logs.search", { file: "x.log", limit: 4 }],
+    [["result", "read", "r1", "-n", "25"], "results.read", { resultId: "r1", limit: 25 }],
+    [
+      ["files", "list", "x-local://wtv", "-s", "form"],
+      "files.list",
+      { url: "x-local://wtv", search: "form" },
+    ],
+    [
+      ["files", "upload", "report.txt", "-i", "report.txt"],
+      "web.pages.uploadFile",
+      { filename: "report.txt", data: { base64: "QQ==" } },
+      "A",
+    ],
+    [
+      ["file", "upload", "report.txt", "-i", "report.txt"],
+      "web.pages.uploadFile",
+      { filename: "report.txt", data: { base64: "QQ==" } },
+      "A",
+    ],
+    [
+      ["doc", "put", "x-local://wt_data/1.xml", "-i", "doc.xml"],
+      "native.lds.putDoc",
+      { url: "x-local://wt_data/1.xml", data: "<a/>" },
+      "<a/>",
+    ],
+    [
+      ["run", "-i", "batch.json"],
+      "runtime.batch",
+      { steps: [{ id: "runtime.status" }] },
+      '{"steps":[{"id":"runtime.status"}]}',
+    ],
+  ];
+  for (const [argv, operationId, expectedArgs, input] of shortCases) {
+    const f = fixture(input);
+    const invoked = await commandInvocation(parseArguments(argv), f.io);
+    assert.deepEqual(invoked, { operationId, args: expectedArgs }, argv.join(" "));
+  }
+  const apiShort = JSON.parse(
+    (await offline(["api", "list", "--effect", "read", "-n", "2"])).stdout,
+  ) as OperationResult;
+  assert.equal((apiShort.data as { operations: unknown[] }).operations.length, 2);
+
+  // Повтор неповторяемого флага через короткую и длинную формы.
+  for (const [argv, expected] of [
+    [["-c", "a", "--connection", "b", "status"], "Флаг --connection повторяется."],
+    [["--connection", "a", "-c=b", "status"], "Флаг --connection повторяется."],
+    [["types", "-n", "1", "--limit", "2"], "Флаг --limit повторяется."],
+    [["status", "-q", "--quiet"], "Флаг --quiet повторяется."],
+    [["-v", "--version"], "Флаг --version повторяется."],
+    [["status", "-q=true"], "Флаг --quiet пишется без значения."],
+  ] as const) {
+    assert.throws(
+      () => parseArguments([...argv]),
+      (error: unknown) => error instanceof CliInputError && error.message === expected,
+      argv.join(" "),
+    );
+  }
+});
+
+test("повторяемый флаг накапливает значения в repeatedOption, а обычный флаг по-прежнему отклоняет повтор", () => {
+  const customRegistry: ParseRegistry = {
+    globalOptions: GLOBAL_OPTIONS,
+    commands: [
+      {
+        name: "demo",
+        group: "data",
+        summary: "Проверка повторяемого флага.",
+        usage: ["wtctl demo"],
+        options: [
+          {
+            name: "where",
+            short: "w",
+            type: "string",
+            repeatable: true,
+            valueLabel: "УСЛОВИЕ",
+            description: "Условие отбора.",
+          },
+          {
+            name: "limit",
+            short: "n",
+            type: "string",
+            valueLabel: "N",
+            description: "Предел строк.",
+          },
+        ],
+      },
+    ],
+  };
+
+  const multi = parseArguments(
+    ["demo", "-w", "a=1", "--where", "b=2", "-w=c=3", "--where=d=4", "-n", "10"],
+    customRegistry,
+  );
+  assert.deepEqual(repeatedOption(multi, "where"), ["a=1", "b=2", "c=3", "d=4"]);
+  assert.deepEqual(repeatedOption(multi, "limit"), ["10"]);
+  assert.deepEqual(repeatedOption(multi, "missing"), []);
+
+  const single = parseArguments(["demo", "-w", "only=1"], customRegistry);
+  assert.deepEqual(repeatedOption(single, "where"), ["only=1"]);
+
+  assert.throws(
+    () => parseArguments(["demo", "-n", "1", "--limit", "2"], customRegistry),
+    (error: unknown) =>
+      error instanceof CliInputError && error.message === "Флаг --limit повторяется.",
+  );
+});
+
+test("неизвестные короткие флаги не раскрывают значения, а help с ошибочной подкомандой сообщает допустимые", async () => {
+  for (const [argv, expectedMessage] of [
+    [["status", "-z=synthetic-secret"], "Неизвестный флаг -z."],
+    [["status", "-z", "synthetic-secret"], "Неизвестный флаг -z."],
+    [["status", "-f=synthetic-secret"], "Неизвестный флаг -f."],
+    [["status", "-!=synthetic-secret"], "Неизвестный флаг."],
+    [["status", "-1=synthetic-secret"], "Неизвестный флаг."],
+    [["status", "-password=synthetic-secret"], "Неизвестный флаг -password."],
+  ] as const) {
+    const error = await refuse([...argv]);
+    assert.equal(error.message, expectedMessage, argv.join(" "));
+    assert.match(error.hint ?? "", /Справка: wtctl help status\.$/, argv.join(" "));
+  }
+  const secretShort = await refuse(["-c", "dev", "status", "-password=synthetic-secret"]);
+  assert.match(secretShort.hint ?? "", /Пароль в командной строке не принимается/);
+  assert.match(secretShort.hint ?? "", /Справка: wtctl help status\.$/);
+
+  const singleDashLong = await refuse(["status", "-json"]);
+  assert.equal(singleDashLong.message, "Неизвестный флаг -json.");
+  assert.equal(singleDashLong.hint, "Похожий: --json. Справка: wtctl help status.");
+
+  assert.equal(
+    (await refuse(["help", "object", "unknown"])).message,
+    "Команды wtctl object unknown нет: есть get, create, patch, edit, delete.",
+  );
+  assert.equal(
+    (await refuse(["help", "object", "synthetic-secret-1"])).message,
+    "Неизвестная команда после wtctl object: есть get, create, patch, edit, delete.",
+  );
+  assert.equal(
+    (await refuse(["help", "rpc", "foo"])).message,
+    "Команды wtctl rpc foo нет: есть list, describe или вызов БИБЛИОТЕКА ФУНКЦИЯ.",
+  );
+  assert.equal(
+    (await refuse(["help", "file", "get"])).message,
+    "Команды wtctl file get нет: есть upload.",
+  );
+  assert.equal((await refuse(["help", "query", "extra"])).message, "Лишние аргументы команды.");
+  assert.equal((await refuse(["help", "help", "extra"])).message, "Лишние аргументы команды.");
+  assert.equal(
+    (await refuse(["help", "object", "patch", "extra"])).message,
+    "Лишние аргументы команды.",
+  );
+  assert.ok((await offline(["help", "file", "upload"])).stdout.startsWith("wtctl file upload — "));
+});
+
+test("реестр команд не содержит конфликтов коротких и длинных флагов внутри областей видимости", () => {
+  const globalLong = new Set(GLOBAL_OPTIONS.map((o) => o.name));
+  const globalShort = new Set(GLOBAL_OPTIONS.map((o) => o.short).filter(Boolean));
+  assert.equal(globalLong.size, GLOBAL_OPTIONS.length);
+  assert.equal(globalShort.size, GLOBAL_OPTIONS.filter((o) => o.short).length);
+
+  for (const command of CLI_COMMANDS) {
+    const scopes = [
+      { label: command.name, options: command.options ?? [] },
+      ...(command.subcommands ?? []).map((sub) => ({
+        label: `${command.name} ${sub.name}`,
+        options: sub.options ?? [],
+      })),
+    ];
+    for (const { label, options } of scopes) {
+      const seenLong = new Set(globalLong);
+      const localLong = new Set<string>();
+      const seenShort = new Set(globalShort);
+      for (const option of options) {
+        if (option.overridesGlobal) {
+          assert.equal(
+            globalLong.has(option.name),
+            true,
+            `${label}: overridesGlobal без глобального --${option.name}`,
+          );
+          assert.equal(localLong.has(option.name), false, `${label}: дубль --${option.name}`);
+        } else {
+          assert.equal(seenLong.has(option.name), false, `${label}: дубль --${option.name}`);
+        }
+        localLong.add(option.name);
+        seenLong.add(option.name);
+        if (option.short) {
+          assert.equal(seenShort.has(option.short), false, `${label}: дубль -${option.short}`);
+          seenShort.add(option.short);
+        }
+      }
+    }
+  }
+});
+
+test("краевые случаи коротких флагов: поглощение -h, слитые значения, имена с дефисом, приоритет и смешанные типы", async () => {
+  // Короткий строковый флаг не поглощает отдельный -h, а -o=-h и отрицательные числа работают.
+  const missingVal = await refuse(["-o", "-h", "status"]);
+  assert.equal(missingVal.message, "Для --output требуется значение.");
+  assert.equal(parseArguments(["-o=-h", "status"]).options.output, "-h");
+  assert.equal(parseArguments(["types", "-n", "-1"]).options.limit, "-1");
+
+  // Слитое значение -cExampleValue не раскрывается в сообщении об ошибке.
+  const glued = await refuse(["status", "-cExampleValue"]);
+  assert.doesNotMatch(glued.message, /ExampleValue/);
+  assert.doesNotMatch(glued.hint ?? "", /ExampleValue/);
+
+  // Позиционный аргумент с дефисом (имя файла) работает без --.
+  const upload = fixture("A");
+  const uploadCode = await runCli(
+    ["files", "upload", "-report.txt", "--input-file", "report.txt"],
+    upload.io,
+    upload.dependencies,
+  );
+  assert.equal(uploadCode, 0, upload.state.stderr);
+  assert.equal(upload.state.calls[0]?.args.filename, "-report.txt");
+
+  // Конфликт источников ввода и --password-stdin + --stdin отклоняются и вместе с --help.
+  const conflictHelp = await refuse([
+    "query",
+    "--input-file",
+    "demo.json",
+    "--args",
+    "{}",
+    "--help",
+  ]);
+  assert.equal(
+    conflictHelp.message,
+    "Нужно выбрать один источник: --input-file, --stdin или --args.",
+  );
+  const stdinHelp = await refuse(["--password-stdin", "--stdin", "--help"]);
+  assert.equal(stdinHelp.message, "--password-stdin и --stdin вместе не работают: stdin один.");
+  assert.match(stdinHelp.hint ?? "", /--input-file/);
+
+  // commandOf и подсказка об ошибке видят ту же команду, что и парсер, включая локальные короткие флаги до команды.
+  const beforeCmd = await refuse(["-s", "schema", "types", "--bogus"]);
+  assert.equal(beforeCmd.hint, "Справка: wtctl help types.");
+
+  // При неизвестной подкоманде короткий и длинный флаги ведут к одной ошибке о подкоманде; --help даёт обзор.
+  const unknownSubShort = await refuse(["object", "unknown", "-n", "1"]);
+  const unknownSubLong = await refuse(["object", "unknown", "--limit", "1"]);
+  assert.equal(unknownSubShort.message, unknownSubLong.message);
+  assert.equal(
+    (await offline(["object", "unknown", "--help"])).stdout,
+    (await offline(["help", "object"])).stdout,
+  );
+
+  // Смешанный короткий флаг (-f как string у одной команды и boolean у другой) до команды.
+  const mixedRegistry: ParseRegistry = {
+    globalOptions: GLOBAL_OPTIONS,
+    commands: [
+      {
+        name: "object",
+        group: "data",
+        summary: "Объект.",
+        subcommands: [
+          {
+            name: "get",
+            summary: "Прочитать.",
+            usage: ["wtctl object get ID"],
+            options: [{ name: "fields", short: "f", type: "string", description: "Поля." }],
+          },
+        ],
+      },
+      {
+        name: "logs",
+        group: "files",
+        summary: "Логи.",
+        subcommands: [
+          {
+            name: "tail",
+            summary: "Хвост.",
+            usage: ["wtctl logs tail FILE"],
+            options: [{ name: "follow", short: "f", type: "boolean", description: "Следить." }],
+          },
+        ],
+      },
+    ],
+  };
+  const strBefore = parseArguments(["-f", "id", "object", "get", "0x1"], mixedRegistry);
+  assert.deepEqual(strBefore.positionals, ["object", "get", "0x1"]);
+  assert.equal(strBefore.options.fields, "id");
+  const boolBefore = parseArguments(["-f", "logs", "tail", "xhttp"], mixedRegistry);
+  assert.deepEqual(boolBefore.positionals, ["logs", "tail", "xhttp"]);
+  assert.equal(boolBefore.options.follow, true);
 });

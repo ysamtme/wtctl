@@ -265,6 +265,18 @@ function credential(
  * при ошибке в настройках.
  */
 export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
+  return loadConfigWithDefaults(options);
+}
+
+/**
+ * Загружает подключение с подстановкой локальных умолчаний CLI.
+ * Явные значения из settings, переменных окружения и файла подключений всегда сильнее.
+ * @internal
+ */
+export function loadConfigWithDefaults(
+  options: ConfigOptions = {},
+  defaults: { readonly outputLimitBytes?: number } = {},
+): ConnectionConfig {
   const settings = object(options.settings ?? {}, "settings");
   for (const key of Object.keys(settings))
     if (!Object.hasOwn(SETTINGS, key) && !(OWN_FIELDS as readonly string[]).includes(key))
@@ -371,10 +383,11 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
     profile.permissions === undefined ? {} : object(profile.permissions, "permissions");
   // Сообщение об ошибке называет и поле, и переменную: оно одно, откуда бы ни пришло значение.
   const values = Object.fromEntries(
-    Object.entries(SETTINGS).map(([field, [variable, parse]]) => [
-      field,
-      parse(settings[field] ?? process.env[variable] ?? profile[field], `${field} (${variable})`),
-    ]),
+    Object.entries(SETTINGS).map(([field, [variable, parse]]) => {
+      const explicitValue = settings[field] ?? process.env[variable] ?? profile[field];
+      const fallback = field === "outputLimitBytes" ? defaults.outputLimitBytes : undefined;
+      return [field, parse(explicitValue ?? fallback, `${field} (${variable})`)];
+    }),
   ) as { [K in SettingField]: ReturnType<(typeof SETTINGS)[K][1]> };
   const config: ConnectionConfig = {
     name,
@@ -747,5 +760,92 @@ export function updateConnection(
     document: nextDocument,
     connection: summary,
     ...(hasDefault ? { defaultConnection: effectiveDefault } : {}),
+  };
+}
+
+/**
+ * Удаление подключения из документа с обновлением defaultConnection и сохранением прочих полей.
+ * @internal
+ */
+export function removeConnection(
+  document: Record<string, unknown>,
+  name: string,
+  path: string,
+): {
+  readonly document: Record<string, unknown>;
+  readonly removed: ConnectionSummary;
+  readonly defaultConnection?: string;
+  readonly remaining: readonly string[];
+} {
+  if (document.connections === undefined)
+    throw new HcmError(
+      "INVALID_CONFIG",
+      "Файл подключений записан в старом виде, без списка connections.",
+      "Нужно перенести его содержимое в connections по образцу wtctl config example или указать другой файл.",
+    );
+  const connections = object(document.connections, "connections");
+  validateConnectionName(name);
+  if (!Object.hasOwn(connections, name) || connections[name] === undefined)
+    throw new HcmError(
+      "UNKNOWN_CONNECTION",
+      `В файле подключений ${path} нет подключения ${name}.`,
+      `Есть: ${Object.keys(connections).slice(0, 20).join(", ") || "ни одного"}.`,
+      { connection: name },
+    );
+  const existingDefault = string(document.defaultConnection, "defaultConnection");
+  const effectiveBefore = existingDefault ?? "default";
+  const wasDefault = effectiveBefore === name;
+  const removed = summarizeConnection(
+    name,
+    object(connections[name], `connections.${name}`),
+    wasDefault,
+  );
+  const nextConnections: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(connections)) {
+    if (key === name || value === undefined) continue;
+    if (key === "__proto__") {
+      Object.defineProperty(nextConnections, key, {
+        value,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    } else {
+      nextConnections[key] = value;
+    }
+  }
+  const remaining = Object.keys(nextConnections);
+  let nextDefault: string | undefined;
+  if (remaining.length === 0) {
+    nextDefault = undefined;
+  } else if (
+    (existingDefault !== undefined &&
+      (!Object.hasOwn(nextConnections, existingDefault) ||
+        nextConnections[existingDefault] === undefined)) ||
+    (existingDefault === undefined && name === "default")
+  ) {
+    nextDefault = remaining[0];
+  } else {
+    nextDefault = existingDefault;
+  }
+  const restDocument = Object.fromEntries(
+    Object.entries(document).filter(
+      ([key]) => key !== "defaultConnection" && key !== "connections",
+    ),
+  );
+  const nextDocument: Record<string, unknown> = {
+    ...(nextDefault === undefined ? {} : { defaultConnection: nextDefault }),
+    ...restDocument,
+    connections: nextConnections,
+  };
+  const effectiveDefault = nextDefault ?? "default";
+  const hasDefault =
+    Object.hasOwn(nextConnections, effectiveDefault) &&
+    nextConnections[effectiveDefault] !== undefined;
+  return {
+    document: nextDocument,
+    removed,
+    ...(hasDefault ? { defaultConnection: effectiveDefault } : {}),
+    remaining,
   };
 }

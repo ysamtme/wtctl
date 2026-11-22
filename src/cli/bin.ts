@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import process from "node:process";
-import { loadConfig } from "../config.js";
+import { loadConfigWithDefaults } from "../config.js";
 import { HcmRuntime } from "../runtime.js";
 import { runCli } from "./run.js";
 import { nodeIo } from "./node-io.js";
@@ -13,7 +13,13 @@ process.stderr.on("error", () => {
   /* Сбои диагностических потоков не должны раскрывать данные. */
 });
 process.exitCode = await runCli(process.argv.slice(2), nodeIo(), {
-  loadConfiguration: loadConfig,
+  loadConfiguration: ({ defaultOutputLimitBytes, ...options }) =>
+    loadConfigWithDefaults(
+      options,
+      defaultOutputLimitBytes === undefined
+        ? undefined
+        : { outputLimitBytes: defaultOutputLimitBytes },
+    ),
   createRuntime: (config) => new HcmRuntime(config),
   runMcp: async (runtime, connectionName, streams, local) => {
     const { runMcpStdio } = await import("../mcp/stdio.js");

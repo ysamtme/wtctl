@@ -190,6 +190,159 @@ function filename(value: unknown): string {
 export function logKind(name: string): string {
   return name.replace(/\.log$/i, "").replace(/[_-]?\d{4}-\d{2}-\d{2}.*$/, "") || name;
 }
+function decodeFollowCursor(token: string, expectedFile: unknown): FollowCursor {
+  try {
+    if (token.length > 8192 || !/^[A-Za-z0-9_-]+$/.test(token)) throw new Error();
+    const raw = inputObject(JSON.parse(Buffer.from(token, "base64url").toString("utf8")));
+    if (
+      raw.version !== 1 ||
+      typeof raw.file !== "string" ||
+      typeof raw.fingerprint !== "string" ||
+      !/^[0-9a-f]{16}$/.test(raw.fingerprint) ||
+      typeof raw.sizeBytes !== "string" ||
+      !/^\d+$/.test(raw.sizeBytes) ||
+      raw.sizeBytes.length > 20 ||
+      !Array.isArray(raw.anchors) ||
+      raw.anchors.length > 8 ||
+      raw.anchors.some((anchor) => typeof anchor !== "string" || !/^[0-9a-f]{16}$/.test(anchor))
+    )
+      throw new Error();
+    const cursor = raw as unknown as FollowCursor;
+    if (selectedName(cursor.file) !== selectedName(expectedFile)) throw new Error();
+    return cursor;
+  } catch {
+    throw new HcmError("INVALID_LOG_CURSOR", "cursor неверен или получен для другого файла лога.");
+  }
+}
+
+/**
+ * Вычисляет новые события после прежнего cursor и строит новый cursor по тому же алгоритму,
+ * что и Logs.follow. Используется и в Logs.follow, и в CLI при дочитывании omitted-пачки через logs.read.
+ * @internal
+ */
+export function diffEventsAfterCursor(
+  previous: FollowCursor | undefined,
+  fileName: string,
+  fingerprintFull: string,
+  sizeBytes: string | number | bigint,
+  events: readonly LogEvent[],
+): {
+  readonly events: readonly LogEvent[];
+  readonly cursor: string;
+  readonly changed: boolean;
+  readonly gapPossible: boolean;
+  readonly resetReason?: LogResetReason;
+} {
+  const hashes = events.map((event) => hash(event.text.replace(/\n+$/, "")).slice(0, 16));
+  const fingerprint = fingerprintFull.slice(0, 16);
+  const size = String(sizeBytes);
+  let start = 0;
+  let resetReason: LogResetReason | undefined;
+  const changed = !previous || previous.fingerprint !== fingerprint || previous.sizeBytes !== size;
+  if (previous) {
+    if (BigInt(size) < BigInt(previous.sizeBytes)) resetReason = "file-size-decreased";
+    else if (!changed) start = events.length;
+    else {
+      let matched = -1;
+      let ambiguous = false;
+      for (const anchor of [...previous.anchors].reverse()) {
+        const first = hashes.indexOf(anchor);
+        if (first < 0) continue;
+        if (first !== hashes.lastIndexOf(anchor)) {
+          ambiguous = true;
+          continue;
+        }
+        matched = first;
+        break;
+      }
+      if (matched >= 0) start = matched + 1;
+      else resetReason = ambiguous ? "ambiguous-overlap" : "overlap-not-found";
+    }
+  }
+  const encodedCursor = buildLogFollowCursorWithAnchors(
+    fileName,
+    fingerprintFull,
+    size,
+    hashes.slice(-8),
+  )!;
+  return {
+    events: events.slice(start),
+    cursor: encodedCursor,
+    changed,
+    gapPossible: !!resetReason,
+    ...(resetReason === undefined ? {} : { resetReason }),
+  };
+}
+
+/**
+ * То же по строковому токену cursor (возвращает undefined, если токен или отпечаток нестандартные).
+ * @internal
+ */
+export function sliceEventsAfterCursorToken(
+  cursorToken: string,
+  fileName: string,
+  fingerprintFull: string,
+  sizeBytes: string | number | bigint,
+  events: readonly LogEvent[],
+): ReturnType<typeof diffEventsAfterCursor> | undefined {
+  if (!canBuildFollowCursor(fileName, fingerprintFull, sizeBytes)) return undefined;
+  try {
+    const previous = decodeFollowCursor(cursorToken, fileName);
+    return diffEventsAfterCursor(previous, fileName, fingerprintFull, sizeBytes, events);
+  } catch {
+    return undefined;
+  }
+}
+
+function canBuildFollowCursor(
+  fileName: string,
+  fingerprint: string,
+  sizeBytes: string | number | bigint,
+): { readonly canonical: string; readonly shortFp: string; readonly size: string } | undefined {
+  const shortFp = fingerprint.slice(0, 16).toLowerCase();
+  const size = String(sizeBytes);
+  if (!/^[0-9a-f]{16}$/.test(shortFp) || !/^\d+$/.test(size) || size.length > 20) return undefined;
+  try {
+    return { canonical: canonicalUrl(selectedName(fileName)), shortFp, size };
+  } catch {
+    return undefined;
+  }
+}
+
+function buildLogFollowCursorWithAnchors(
+  fileName: string,
+  fingerprint: string,
+  sizeBytes: string | number | bigint,
+  anchors: readonly string[],
+): string | undefined {
+  const meta = canBuildFollowCursor(fileName, fingerprint, sizeBytes);
+  if (!meta) return undefined;
+  const cursor: FollowCursor = {
+    version: 1,
+    file: meta.canonical,
+    fingerprint: meta.shortFp,
+    sizeBytes: meta.size,
+    anchors: [...anchors],
+  };
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+/**
+ * Строит курсор logs.follow из снимка прочитанного лога (одно и то же чтение даёт и хвост, и курсор).
+ * @internal
+ */
+export function buildLogFollowCursor(
+  fileName: string,
+  fingerprint: string,
+  sizeBytes: string | number | bigint,
+  events: readonly LogEvent[],
+): string | undefined {
+  const anchors = events
+    .slice(-8)
+    .map((event) => hash(event.text.replace(/\n+$/, "")).slice(0, 16));
+  return buildLogFollowCursorWithAnchors(fileName, fingerprint, sizeBytes, anchors);
+}
+
 function canonicalUrl(name: string): string {
   return `x-local://Logs/${encodeURIComponent(name)}`;
 }
@@ -370,6 +523,14 @@ interface FollowCursor {
 }
 
 /**
+ * Максимальный размер окна tailBytes, который помещается в maxResponseBytes с учётом XML-экранирования.
+ * @internal
+ */
+export function maxLogTailBytes(maxResponseBytes: number): number {
+  return Math.max(1, Math.floor((maxResponseBytes - 512) / 6));
+}
+
+/**
  * Доступ к логам только удалённо: два существующих проверенных метода чтения платформы.
  * @internal
  */
@@ -384,7 +545,7 @@ export class LogReader {
     this.busyMs = options.logBusyMs ?? 5500;
     if (!Number.isSafeInteger(options.maxResponseBytes) || options.maxResponseBytes < 1024)
       throw new HcmError("INVALID_ARGUMENT", "maxResponseBytes: нужно целое число не меньше 1024.");
-    this.maxTailBytes = Math.max(1, Math.floor((options.maxResponseBytes - 512) / 6));
+    this.maxTailBytes = maxLogTailBytes(options.maxResponseBytes);
   }
   /**
    * Сервер держит файл лога за собой около пяти секунд после записи в него строки
@@ -615,85 +776,29 @@ export class LogReader {
     };
   }
   async follow(input: LogFollowInput): Promise<LogFollowData> {
-    let previous: FollowCursor | undefined;
-    if (input.cursor !== undefined) {
-      try {
-        if (input.cursor.length > 8192 || !/^[A-Za-z0-9_-]+$/.test(input.cursor)) throw new Error();
-        const raw = inputObject(
-          JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8")),
-        );
-        if (
-          raw.version !== 1 ||
-          typeof raw.file !== "string" ||
-          typeof raw.fingerprint !== "string" ||
-          !/^[0-9a-f]{16}$/.test(raw.fingerprint) ||
-          typeof raw.sizeBytes !== "string" ||
-          !/^\d+$/.test(raw.sizeBytes) ||
-          raw.sizeBytes.length > 20 ||
-          !Array.isArray(raw.anchors) ||
-          raw.anchors.length > 8 ||
-          raw.anchors.some((anchor) => typeof anchor !== "string" || !/^[0-9a-f]{16}$/.test(anchor))
-        )
-          throw new Error();
-        previous = raw as unknown as FollowCursor;
-        if (selectedName(previous.file) !== selectedName(input.file)) throw new Error();
-      } catch {
-        throw new HcmError(
-          "INVALID_LOG_CURSOR",
-          "cursor неверен или получен для другого файла лога.",
-        );
-      }
-    }
+    const previous =
+      input.cursor === undefined ? undefined : decodeFollowCursor(input.cursor, input.file);
     const read = await this.read(input);
     const events = parseLogEvents(read.text, read.file.dateHint, read.truncated);
     // Завершающий перевод строки файла при дозаписи становится разделителем перед новым событием.
     // В якорях перекрытия игнорируются лишь завершающие переводы строк; текст событий сохраняется.
     // Курсор ездит с каждым вызовом, поэтому несёт короткие метки: 64 бита различают
     // события одного окна, а для поиска перекрытия хватает последних восьми событий.
-    const hashes = events.map((event) => hash(event.text.replace(/\n+$/, "")).slice(0, 16));
-    const fingerprint = read.fingerprint.slice(0, 16);
-    let start = 0;
-    let resetReason: LogResetReason | undefined;
-    const changed =
-      !previous ||
-      previous.fingerprint !== fingerprint ||
-      previous.sizeBytes !== read.file.sizeBytes;
-    if (previous) {
-      if (BigInt(read.file.sizeBytes) < BigInt(previous.sizeBytes))
-        resetReason = "file-size-decreased";
-      else if (!changed) start = events.length;
-      else {
-        let matched = -1;
-        let ambiguous = false;
-        for (const anchor of [...previous.anchors].reverse()) {
-          const first = hashes.indexOf(anchor);
-          if (first < 0) continue;
-          if (first !== hashes.lastIndexOf(anchor)) {
-            ambiguous = true;
-            continue;
-          }
-          matched = first;
-          break;
-        }
-        if (matched >= 0) start = matched + 1;
-        else resetReason = ambiguous ? "ambiguous-overlap" : "overlap-not-found";
-      }
-    }
-    const cursor: FollowCursor = {
-      version: 1,
-      file: read.file.url,
-      fingerprint,
-      sizeBytes: read.file.sizeBytes,
-      anchors: hashes.slice(-8),
-    };
+    const diff = diffEventsAfterCursor(
+      previous,
+      read.file.url,
+      read.fingerprint,
+      read.file.sizeBytes,
+      events,
+    );
     return {
       file: read.file,
-      events: events.slice(start),
-      cursor: Buffer.from(JSON.stringify(cursor)).toString("base64url"),
-      changed,
-      gapPossible: !!resetReason,
+      events: diff.events,
+      cursor: diff.cursor,
+      changed: diff.changed,
+      gapPossible: diff.gapPossible,
       windowTruncated: read.truncated,
-      ...(resetReason === undefined ? {} : { resetReason }),
+      ...(diff.resetReason === undefined ? {} : { resetReason: diff.resetReason }),
     };
   }
 }

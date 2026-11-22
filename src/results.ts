@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -33,28 +34,73 @@ export interface ResultExportData {
   readonly items?: number;
 }
 
+/** Потоковая запись сохранённого результата-списка по элементам с O(1) памяти. @internal */
+export interface ListResultSaver {
+  writeItem(item: unknown): Promise<void>;
+  beginRawItem(): Promise<void>;
+  writeRawChunk(chunk: string): Promise<void>;
+  endRawItem(): Promise<void>;
+  commit(
+    extra?: Readonly<Record<string, unknown>>,
+  ): Promise<{ readonly resultId: string; readonly bytes: number; readonly rows: number }>;
+  abort(): Promise<void>;
+}
+
 /** Выбирает внешний массив или элемент-список ответа, не буферизуя даже одну полную строку. */
 async function* jsonLines(
   source: AsyncIterable<string>,
   count: { items: number },
   list = "items",
+  objectsOnly = false,
 ): AsyncGenerator<string> {
   // Ключ в том виде, в каком его пишет JSON-текст, с закрывающей кавычкой.
   const name = JSON.stringify(list).slice(1);
   let depth = 0,
     selected = -1,
+    singleObjectDepth = -1,
     quoted = 0,
     key = "",
-    row = false;
+    row = false,
+    itemKind: "none" | "object" | "skip" = "none";
   for await (const chunk of source) {
     let output = "";
     for (const char of chunk) {
-      if (selected > 0 && depth >= selected) {
+      if (singleObjectDepth > 0 && depth >= singleObjectDepth) {
+        output += char;
+        if (!quoted && depth === singleObjectDepth && char === "}") {
+          output += "\n";
+          count.items++;
+          singleObjectDepth = 0;
+        }
+      } else if (selected > 0 && depth >= selected) {
         const end = !quoted && depth === selected && (char === "," || char === "]");
-        output += end ? (row ? "\n" : "") : char;
-        if (end && row) count.items++;
-        row = !end;
-        if (end && char === "]") selected = 0;
+        if (end) {
+          if (row && (!objectsOnly || itemKind === "object")) {
+            output += "\n";
+            count.items++;
+          }
+          row = false;
+          itemKind = "none";
+          if (char === "]") selected = 0;
+        } else if (objectsOnly) {
+          if (
+            itemKind === "none" &&
+            !quoted &&
+            depth === selected &&
+            (char === " " || char === "\n" || char === "\r" || char === "\t")
+          ) {
+            // Пропускаем пробелы перед началом очередного элемента массива.
+          } else {
+            if (itemKind === "none") itemKind = !quoted && char === "{" ? "object" : "skip";
+            if (itemKind === "object") {
+              output += char;
+              row = true;
+            }
+          }
+        } else {
+          output += char;
+          row = true;
+        }
       }
       if (quoted) {
         if (depth === 1 && key.length < name.length) key += char;
@@ -63,8 +109,25 @@ async function* jsonLines(
         quoted = 1;
         key = "";
       } else {
-        if (char === "[" && selected < 0 && (!depth || (depth === 1 && key === name)))
+        if (
+          char === "[" &&
+          selected < 0 &&
+          singleObjectDepth < 0 &&
+          (!depth || (depth === 1 && key === name))
+        ) {
           selected = depth + 1;
+          itemKind = "none";
+        } else if (
+          objectsOnly &&
+          char === "{" &&
+          selected < 0 &&
+          singleObjectDepth < 0 &&
+          depth === 1 &&
+          key === name
+        ) {
+          singleObjectDepth = depth + 1;
+          output += char;
+        }
         if (char === "[" || char === "{") depth++;
         if (char === "]" || char === "}") depth--;
         if (char !== ":") key = "";
@@ -72,7 +135,7 @@ async function* jsonLines(
     }
     yield output;
   }
-  if (selected < 0) throw exportFormatError();
+  if (selected < 0 && singleObjectDepth < 0) throw exportFormatError();
 }
 
 const exportFormatError = () =>
@@ -336,6 +399,284 @@ export class ResultStore {
     );
     return { path, bytes, format, ...(format === "jsonl" ? count : {}) };
   }
+  /** Потоково декодирует верхнеуровневое поле base64 сохранённого результата прямо в файл (O(1) памяти). */
+  async exportBinary(
+    resultId: string,
+    path: string,
+    overwrite = false,
+  ): Promise<{ bytes: number }> {
+    const id = requiredString(resultId, "resultId");
+    const target = requiredString(path, "path");
+    const dataPath = this.payload(id, "data.json");
+    try {
+      await stat(this.path(id));
+      await stat(dataPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        throw new HcmError("RESULT_NOT_FOUND", `Сохранённый результат ${id} не найден.`);
+      throw error;
+    }
+    await mkdir(dirname(resolve(target)), { recursive: true });
+    const bytes = await saveLocalFile(target, overwrite, async (file) => {
+      const stream = createReadStream(dataPath, { encoding: "utf8", highWaterMark: 64 * 1024 });
+      let depth = 0;
+      let inString = false;
+      let escaped = false;
+      let readingKey = false;
+      let keyBuf = "";
+      let afterKey = false;
+      let expectBase64Value = false;
+      let readingBase64 = false;
+      let foundBase64 = false;
+      let pending = "";
+      const FLUSH_CHARS = 48 * 1024;
+
+      const flushPending = async (final: boolean): Promise<void> => {
+        const usable = final ? pending.length : pending.length - (pending.length % 4);
+        if (usable === 0) return;
+        const slice = pending.slice(0, usable);
+        pending = pending.slice(usable);
+        await writeAll(file, Buffer.from(slice, "base64"));
+      };
+
+      try {
+        for await (const chunk of stream) {
+          for (let i = 0; i < chunk.length; i++) {
+            const ch = chunk[i]!;
+            if (readingBase64) {
+              if (escaped) {
+                escaped = false;
+                continue;
+              }
+              if (ch === "\\") {
+                escaped = true;
+                continue;
+              }
+              if (ch === '"') {
+                readingBase64 = false;
+                await flushPending(true);
+                break;
+              }
+              pending += ch;
+              if (pending.length >= FLUSH_CHARS) await flushPending(false);
+              continue;
+            }
+            if (inString) {
+              if (escaped) {
+                escaped = false;
+                continue;
+              }
+              if (ch === "\\") {
+                escaped = true;
+                continue;
+              }
+              if (ch === '"') {
+                inString = false;
+                if (readingKey) {
+                  readingKey = false;
+                  afterKey = true;
+                }
+              } else if (readingKey && keyBuf.length < 16) {
+                keyBuf += ch;
+              }
+              continue;
+            }
+            if (ch === '"') {
+              if (expectBase64Value) {
+                expectBase64Value = false;
+                readingBase64 = true;
+                foundBase64 = true;
+              } else {
+                inString = true;
+                if (depth === 1 && !afterKey) {
+                  readingKey = true;
+                  keyBuf = "";
+                }
+              }
+              continue;
+            }
+            if (ch === ":" && depth === 1 && afterKey) {
+              afterKey = false;
+              expectBase64Value = keyBuf === "base64";
+              continue;
+            }
+            if (ch === "," && depth === 1) {
+              afterKey = false;
+              expectBase64Value = false;
+              continue;
+            }
+            if (ch === "{" || ch === "[") {
+              expectBase64Value = false;
+              depth++;
+            } else if (ch === "}" || ch === "]") {
+              expectBase64Value = false;
+              depth--;
+            }
+          }
+          if (foundBase64 && !readingBase64) break;
+        }
+      } finally {
+        stream.destroy();
+      }
+      if (!foundBase64 || readingBase64) throw exportFormatError();
+    });
+    return { bytes };
+  }
+  /** Потоково сохраняет список построчно (jsonl), а одиночный объект — одной строкой JSON (O(1) памяти). */
+  async exportJsonlAny(
+    resultId: string,
+    path: string,
+    overwrite = false,
+    listKey?: string,
+  ): Promise<{ bytes: number }> {
+    const id = requiredString(resultId, "resultId");
+    const target = requiredString(path, "path");
+    const dataPath = this.payload(id, "data.json");
+    try {
+      await stat(this.path(id));
+      await stat(dataPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        throw new HcmError("RESULT_NOT_FOUND", `Сохранённый результат ${id} не найден.`);
+      throw error;
+    }
+    await mkdir(dirname(resolve(target)), { recursive: true });
+    const resolvedList = listKey ?? (await this.listName(id));
+    const allowSingleObject = resolvedList === "Task";
+    try {
+      const count = { items: 0 };
+      const bytes = await saveLocalFile(target, overwrite, (file) =>
+        writeFile(
+          file,
+          jsonLines(
+            createReadStream(dataPath, { encoding: "utf8", highWaterMark: 64 * 1024 }),
+            count,
+            resolvedList,
+            allowSingleObject,
+          ),
+          "utf8",
+        ),
+      );
+      return { bytes };
+    } catch (error) {
+      if (!(error instanceof HcmError) || error.code !== "INVALID_RESULT_FORMAT") throw error;
+    }
+    if (allowSingleObject) {
+      const bytes = await saveLocalFile(target, overwrite, async () => {});
+      return { bytes };
+    }
+    const bytes = await saveLocalFile(target, overwrite, async (file) => {
+      const stream = createReadStream(dataPath, { highWaterMark: 64 * 1024 });
+      try {
+        for await (const chunk of stream) {
+          await writeAll(file, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        await writeAll(file, Buffer.from("\n"));
+      } finally {
+        stream.destroy();
+      }
+    });
+    return { bytes };
+  }
+  /** Потоково читает data.json сохранённого результата блоками по 64 КиБ (O(1) памяти). */
+  async *openJsonStream(resultId: string): AsyncGenerator<string> {
+    const id = requiredString(resultId, "resultId");
+    const dataPath = this.payload(id, "data.json");
+    try {
+      await stat(this.path(id));
+      await stat(dataPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        throw new HcmError("RESULT_NOT_FOUND", `Сохранённый результат ${id} не найден.`);
+      throw error;
+    }
+    const stream = createReadStream(dataPath, { encoding: "utf8", highWaterMark: 64 * 1024 });
+    try {
+      for await (const chunk of stream) {
+        yield typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      }
+    } finally {
+      stream.destroy();
+    }
+  }
+  /** Потоково читает элементы списка сохранённого результата по одному (O(1) памяти). */
+  async *openListItems(resultId: string, listKey?: string): AsyncGenerator<unknown> {
+    const id = requiredString(resultId, "resultId");
+    const dataPath = this.payload(id, "data.json");
+    try {
+      await stat(this.path(id));
+      await stat(dataPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        throw new HcmError("RESULT_NOT_FOUND", `Сохранённый результат ${id} не найден.`);
+      throw error;
+    }
+    const resolvedList = listKey ?? (await this.listName(id));
+    const allowSingleObject = resolvedList === "Task";
+    const count = { items: 0 };
+    const MAX_ITEM_CHARS = 8 * 1024 * 1024;
+    let buffer = "";
+    const stream = createReadStream(dataPath, { encoding: "utf8", highWaterMark: 64 * 1024 });
+    try {
+      for await (const chunk of jsonLines(stream, count, resolvedList, allowSingleObject)) {
+        let start = 0;
+        for (;;) {
+          const nl = chunk.indexOf("\n", start);
+          if (nl < 0) {
+            buffer += chunk.slice(start);
+            if (buffer.length > MAX_ITEM_CHARS) {
+              throw new HcmError(
+                "RESULT_TOO_LARGE_FOR_FORMAT",
+                "Отдельный элемент результата превышает 8 МиБ и не форматируется в таблице/CSV.",
+                `Сохранить потоково: wtctl result export ${id} --to ФАЙЛ --format jsonl (или json).`,
+              );
+            }
+            break;
+          }
+          const line = buffer + chunk.slice(start, nl);
+          buffer = "";
+          start = nl + 1;
+          if (line.trim()) yield JSON.parse(line);
+        }
+      }
+      if (buffer.trim()) yield JSON.parse(buffer);
+    } catch (error) {
+      if (
+        allowSingleObject &&
+        error instanceof HcmError &&
+        error.code === "INVALID_RESULT_FORMAT"
+      ) {
+        return;
+      }
+      throw error;
+    } finally {
+      stream.destroy();
+    }
+  }
+  /** Читает сохранённые данные результата целиком (до 8 МиБ), для табличного форматирования CLI в --output. */
+  async loadData(resultId: string): Promise<unknown> {
+    const id = requiredString(resultId, "resultId");
+    const info = await stat(this.payload(id, "data.json")).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT")
+        throw new HcmError("RESULT_NOT_FOUND", `Сохранённый результат ${id} не найден.`);
+      throw error;
+    });
+    const MAX_LOAD_BYTES = 8 * 1024 * 1024;
+    if (info.size > MAX_LOAD_BYTES) {
+      throw new HcmError(
+        "RESULT_TOO_LARGE_FOR_FORMAT",
+        "Сохранённый результат больше 8 МиБ и не форматируется в памяти целиком.",
+        `Сохранить потоково: wtctl result export ${id} --to ФАЙЛ --format jsonl (или json/text).`,
+      );
+    }
+    const chunks: string[] = [];
+    for (let offset: unknown = 0; offset !== undefined;) {
+      const page = await this.read(id, offset, 65536, "json");
+      chunks.push(String(page.text));
+      offset = page.nextOffset;
+    }
+    return JSON.parse(chunks.join(""));
+  }
   private async listName(id: string): Promise<string | undefined> {
     try {
       const manifest = this.path(id);
@@ -347,6 +688,144 @@ export class ResultStore {
     }
   }
   /**
+   * Открывает потоковую запись результата-списка по элементам (O(1) памяти):
+   * файлы data.json, data.idx и rows.idx пишутся сразу на диск.
+   * @internal
+   */
+  async openListSaver(listKey = "items"): Promise<ListResultSaver> {
+    const id = randomUUID();
+    const created: string[] = [];
+    const files: FileHandle[] = [];
+    const create = async (path: string): Promise<FileHandle> => {
+      const file = await open(`${path}.tmp`, "wx", 0o600);
+      files.push(file);
+      created.push(`${path}.tmp`);
+      return file;
+    };
+    const cleanup = async (): Promise<void> => {
+      await Promise.allSettled(files.map((file) => file.close()));
+      files.length = 0;
+      await Promise.allSettled(created.map((path) => unlink(path)));
+      created.length = 0;
+    };
+    try {
+      await mkdir(this.directory, { recursive: true });
+      const body = await create(this.payload(id, "data.json"));
+      const index = await create(this.payload(id, "data.idx"));
+      const rowsHandle = await create(this.payload(id, "rows.idx"));
+      const writer = new JsonWriter(body, index);
+      await writer.append(`{${JSON.stringify(listKey)}:[`);
+      let rowCount = 0;
+      let pendingIndex: Buffer[] = [];
+      let rawItemStartBytes = -1;
+      let finished = false;
+      const store = this;
+      const recordRow = async (startBytes: number, lengthBytes: number): Promise<void> => {
+        pendingIndex.push(record(startBytes, lengthBytes));
+        if (pendingIndex.length >= 4096) {
+          await writeAll(rowsHandle, Buffer.concat(pendingIndex));
+          pendingIndex = [];
+        }
+        rowCount++;
+      };
+      return {
+        async writeItem(item: unknown): Promise<void> {
+          if (finished) return;
+          if (rowCount > 0) await writer.append(",");
+          const startBytes = writer.bytes;
+          const serialised = JSON.stringify(item) ?? "null";
+          await writer.append(serialised);
+          await recordRow(startBytes, Buffer.byteLength(serialised));
+        },
+        async beginRawItem(): Promise<void> {
+          if (finished) return;
+          if (rowCount > 0) await writer.append(",");
+          rawItemStartBytes = writer.bytes;
+        },
+        async writeRawChunk(chunk: string): Promise<void> {
+          if (finished || !chunk) return;
+          await writer.append(chunk);
+        },
+        async endRawItem(): Promise<void> {
+          if (finished || rawItemStartBytes < 0) return;
+          const startBytes = rawItemStartBytes;
+          rawItemStartBytes = -1;
+          await recordRow(startBytes, writer.bytes - startBytes);
+        },
+        async commit(
+          extra?: Readonly<Record<string, unknown>>,
+        ): Promise<{ readonly resultId: string; readonly bytes: number; readonly rows: number }> {
+          if (finished) throw new Error("Запись результата уже завершена");
+          finished = true;
+          try {
+            if (pendingIndex.length > 0) {
+              await writeAll(rowsHandle, Buffer.concat(pendingIndex));
+              pendingIndex = [];
+            }
+            await writer.append("]");
+            if (extra) {
+              const rest = JSON.stringify({ ...extra, [listKey]: undefined });
+              if (rest && rest !== "{}") await writer.append(`,${rest.slice(1)}`);
+              else await writer.append("}");
+            } else {
+              await writer.append("}");
+            }
+            await writer.flush();
+            const metadata: Metadata = {
+              version: 2,
+              createdAt: new Date().toISOString(),
+              kind: "json",
+              jsonBytes: writer.bytes,
+              jsonChars: writer.chars,
+              checkpoints: writer.checkpoints,
+              rows: rowCount,
+              list: listKey,
+            };
+            await Promise.all(files.map((file) => file.close()));
+            files.length = 0;
+            for (const temporary of [...created]) {
+              const target = temporary.slice(0, -4);
+              await rename(temporary, target);
+              created.push(target);
+            }
+            const manifest = store.path(id);
+            const metadataFile = await create(manifest);
+            await writeAll(metadataFile, Buffer.from(JSON.stringify(metadata)));
+            await metadataFile.close();
+            files.length = 0;
+            await rename(`${manifest}.tmp`, manifest);
+            created.push(manifest);
+            await store.maybePrune(writer.bytes);
+            return { resultId: id, bytes: writer.bytes, rows: rowCount };
+          } catch (error) {
+            await cleanup();
+            if (error instanceof HcmError) throw error;
+            if (error instanceof TypeError)
+              throw new HcmError("RESULT_SERIALIZATION", "Результат нельзя записать как JSON.");
+            throw new HcmError(
+              "RESULT_WRITE_FAILED",
+              "Не удалось сохранить результат на этом компьютере.",
+              "Проверить права на папку runtimeDir и свободное место на диске.",
+            );
+          }
+        },
+        async abort(): Promise<void> {
+          if (finished) return;
+          finished = true;
+          await cleanup();
+        },
+      };
+    } catch (error) {
+      await cleanup();
+      if (error instanceof HcmError) throw error;
+      throw new HcmError(
+        "RESULT_WRITE_FAILED",
+        "Не удалось сохранить результат на этом компьютере.",
+        "Проверить права на папку runtimeDir и свободное место на диске.",
+      );
+    }
+  }
+  /**
    * Сохраняет результат и чистит папку подключения; сбой чистки ответа не меняет. list — поле,
    * которое операция называет своим списком; без него список угадывается по ответу.
    */
@@ -355,10 +834,14 @@ export class ResultStore {
     list?: string,
   ): Promise<{ resultId: string; bytes: number; list?: string }> {
     const saved = await this.write(data, list);
+    await this.maybePrune(saved.bytes);
+    return saved;
+  }
+  private async maybePrune(savedBytes: number): Promise<void> {
     const maxAge = (this.config.resultsMaxAgeDays ?? LOCAL_LIMITS.resultsMaxAgeDays) * DAY;
     const maxBytes = this.config.resultsMaxBytes ?? LOCAL_LIMITS.resultsMaxBytes;
-    if (!maxAge && !maxBytes) return saved;
-    this.bytesSincePrune += saved.bytes;
+    if (!maxAge && !maxBytes) return;
+    this.bytesSincePrune += savedBytes;
     const byteThreshold =
       maxBytes > 0
         ? Math.min(Math.floor(maxBytes / 4), ResultStore.PRUNE_MAX_ACCUMULATED_BYTES)
@@ -378,7 +861,6 @@ export class ResultStore {
         });
       await this.pruning;
     }
-    return saved;
   }
   /**
    * Удаляет результаты старше resultsMaxAgeDays, затем самые старые сверх resultsMaxBytes.

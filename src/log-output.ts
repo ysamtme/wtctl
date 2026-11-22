@@ -110,7 +110,8 @@ function summary(file: LogFile): LogFileSummary {
     ...(file.dateHint === undefined ? {} : { date: file.dateHint }),
   };
 }
-function entry(event: LogEvent): LogEntry {
+/** @internal */
+export function logEntry(event: LogEvent): LogEntry {
   return {
     sequence: event.sequence,
     ...(event.time === undefined ? {} : { time: event.time }),
@@ -154,7 +155,7 @@ function fitting(entries: readonly LogEntry[], budgetBytes: number, fromEnd: boo
 
 /** @internal */
 export function logMatches(data: LogSearchData, budgetBytes: number): LogMatches {
-  const events = data.events.map(entry);
+  const events = data.events.map(logEntry);
   const kept = fitting(events, budgetBytes, false);
   // Смещение читателя считает совпадения: короткая страница сдвигает следующее смещение назад.
   const offset = (data.nextOffset ?? data.matches) - events.length;
@@ -175,7 +176,7 @@ export function logMatches(data: LogSearchData, budgetBytes: number): LogMatches
  * @internal
  */
 export function logNews(data: LogFollowData, first: boolean, budgetBytes: number): LogNews {
-  const all = data.events.map(entry);
+  const all = data.events.map(logEntry);
   const recent = first ? all.slice(-10) : all;
   const events = recent.slice(recent.length - fitting(recent, budgetBytes, true));
   const omitted = first ? 0 : all.length - events.length;

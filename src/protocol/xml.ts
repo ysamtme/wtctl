@@ -355,3 +355,21 @@ export function findXmlNode(value: unknown, name: string): unknown {
   }
   return undefined;
 }
+
+/**
+ * Извлекает исходный XML документа из SOAP-ответа LoadDoc/GetDoc, сохраняя форматирование,
+ * комментарии и порядок тегов; если передан уже голый документ, возвращает его без изменений.
+ * @internal
+ */
+export function unwrapLoadDocSoapXml(rawXml: string): string | undefined {
+  const soapDataMatch =
+    /<(?:[A-Za-z0-9_-]+:)?(?:LoadDoc|GetDoc)Response(?:\s[^>]*)?>\s*<(?:[A-Za-z0-9_-]+:)?Data(?:\s[^>]*)?>([\s\S]*)<\/(?:[A-Za-z0-9_-]+:)?Data>\s*<\/(?:[A-Za-z0-9_-]+:)?(?:LoadDoc|GetDoc)Response>/i.exec(
+      rawXml,
+    );
+  if (soapDataMatch) {
+    const inner = soapDataMatch[1]!.trim();
+    if (inner) return inner;
+  }
+  const trimmed = rawXml.trim();
+  return trimmed || undefined;
+}
