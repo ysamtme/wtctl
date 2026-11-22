@@ -83,7 +83,7 @@ const TOPICS: readonly Topic[] = [
   {
     id: "basic",
     title:
-      "Основные операции. У каждой есть своя команда и свой инструмент; по ID они нужны в runtime.batch — несколько операций одним вызовом",
+      "Основные операции: по ID нужны в runtime.batch (несколько операций одним вызовом); у остальных есть свои команды и инструменты",
     operations: [],
     prefixes: ["runtime.", "objects.", "schema.", "logs.", "results.", "execute."],
   },
@@ -141,7 +141,7 @@ export function operationMap(): OperationMap {
         .map((effect) => [effect, operations.filter((item) => item.effect === effect).length])
         .filter(([, count]) => count),
     ),
-    hint: 'Операции темы с описаниями: список с topic; операции одного эффекта: query "read", "write", "execute" или "unknown". Эффект — право, которого операция требует: write может менять данные, но не обязана; unknown — зависит от аргументов (запрос, пакет). Аргументы одной операции: describe по её id.',
+    hint: 'Операции темы с описаниями: api.list с topic; операции одного эффекта: query "read", "write", "execute" или "unknown" (в CLI также --effect). Эффект — требуемое право (unknown зависит от аргументов: запрос, пакет). Аргументы и ограничения одной операции: api.describe по её id.',
   };
 }
 

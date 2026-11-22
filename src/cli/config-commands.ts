@@ -330,7 +330,7 @@ async function configPathCommand(args: CliArguments, io: CliIo): Promise<Operati
 }
 
 function configExampleCommand(args: CliArguments): OperationResult {
-  rejectPasswordStdin(args, "Ввод пароля не нужен для примера конфигурации.");
+  rejectPasswordStdin(args, "Ввод пароля не нужен для примера файла подключений.");
   allowOptions(args, []);
   exactPositionals(args, 2);
   return frontendResult("cli.config.example", "unselected", configExample());

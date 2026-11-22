@@ -32,7 +32,7 @@ export const fileOperations = [
       return typeof file === "string" || (inBatch && isStepReference(file));
     },
     description:
-      'Прочитать файл по адресу сервера: text, если содержимое — текст в UTF-8, иначе base64. encoding:"base64" отдаёт base64 и для текста. file — полный путь на этом компьютере: файл любого размера сохраняется туда байт в байт, overwrite заменяет существующий. Документы объектов читает objects.get.',
+      'Прочитать файл по адресу сервера: text, если содержимое — текст в UTF-8, иначе base64. encoding:"base64" отдаёт base64 и для текста. file — полный путь на этом компьютере: файл любого размера сохраняется туда байт в байт (право write сервера не нужно; в MCP вызывается через hcm_api_write), overwrite заменяет существующий. Документы объектов читает objects.get.',
     inputSchema: schema(
       {
         url: string,

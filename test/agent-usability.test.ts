@@ -613,6 +613,43 @@ test("описание одной операции говорит, как пер
     operationHelp(describeHcmOperation("native.lds.deleteDoc")).inputSchema,
     describeHcmOperation("native.lds.deleteDoc").inputSchema,
   );
+  // fields принимается только в objects.get; у results.export перечислены допустимые форматы.
+  assert.ok("fields" in properties("objects.get"));
+  assert.equal("fields" in properties("objects.patch"), false);
+  assert.equal("fields" in properties("objects.delete"), false);
+  assert.deepEqual(properties("results.export").format?.enum, ["json", "jsonl", "text"]);
+});
+
+test("objects.patch и objects.delete отвергают лишний аргумент fields, а подсказки api.list переводятся в имена MCP", async () => {
+  const { runtime } = fakeRuntime({}, { permissions: { write: true, execute: false } });
+  try {
+    const patch = await runtime.call("objects.patch", {
+      id: "1",
+      patch: { name: "N" },
+      fields: ["name"],
+    });
+    assert.equal(patch.ok, false);
+    assert.equal(patch.error?.code, "INVALID_ARGUMENT");
+    const removed = await runtime.call("objects.delete", {
+      id: "1",
+      permanent: true,
+      fields: ["name"],
+    });
+    assert.equal(removed.ok, false);
+    assert.equal(removed.error?.code, "INVALID_ARGUMENT");
+  } finally {
+    await runtime.close();
+  }
+  const f = tools();
+  const overview = mcpJson(await f.tools.invoke("hcm_api_list", {})).data as { hint: string };
+  assert.match(overview.hint, /hcm_api_list/);
+  assert.match(overview.hint, /hcm_api_describe/);
+  assert.doesNotMatch(overview.hint, /\bapi\.(?:list|describe)\b/);
+  const topic = mcpJson(await f.tools.invoke("hcm_api_list", { topic: "files" })).data as {
+    hint: string;
+  };
+  assert.match(topic.hint, /hcm_api_describe/);
+  assert.doesNotMatch(topic.hint, /\bapi\.describe\b/);
 });
 
 test("описания операций, инструментов MCP-сервера и тем гайда написаны по-русски", async () => {

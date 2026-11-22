@@ -118,14 +118,14 @@ export interface PatchOptions {
   readonly expectedFingerprint?: string;
   /** Только показать изменения, ничего не записывая. */
   readonly preview?: boolean;
-  /** Сохранить документ, даже если правка ничего не меняет: сервер заново заполняет вычисляемое. */
+  /** Сохранить документ, даже если правка ничего не меняет: сервер заново заполняет поля-копии из связанных объектов. */
   readonly resave?: boolean;
 }
 /** Аргументы delete помимо объекта. */
 export interface DeleteOptions {
   /** Обязателен: удаление безвозвратное, корзины нет. */
   readonly permanent: true;
-  /** Каталог объекта: проверить, что объект был в нём и после удаления исчез. */
+  /** Каталог объекта для проверки наличия и исчезновения; без него клиент выбирает каталог сам, если он у типа один (иначе verification:"server"). */
   readonly catalog?: string;
 }
 /** Значение в условии поиска. */
@@ -160,7 +160,7 @@ export interface QueryOptions {
 }
 /**
  * Поиск в каталоге (catalog, where, order) или запрос XQuery целиком (query, нужно право execute).
- * Запрос XQuery возвращает элементы каталога и заканчивается на return $elem; отдельные значения
+ * Запрос XQuery возвращает строки каталога целиком (например return $e); отдельные значения
  * возвращает низкоуровневая операция native.lds.xQuery.
  */
 export type QueryInput = QueryOptions &
@@ -175,7 +175,7 @@ export type QueryInput = QueryOptions &
         readonly query?: never;
       }
     | {
-        /** Запрос XQuery: for $elem in collaborators where … return $elem. */
+        /** Запрос XQuery: for $e in collaborators where … return $e. */
         readonly query: string;
         readonly catalog?: never;
         readonly where?: never;
@@ -251,7 +251,7 @@ export interface ResultReadInput {
   readonly resultId: string;
   /** С какого элемента списка или символа текста читать: nextOffset прошлой страницы. */
   readonly offset?: number;
-  /** Элементов на странице (по умолчанию 100, до 1000) или символов (по умолчанию 12000). */
+  /** Элементов на странице (по умолчанию 100, до 1000) или символов (по умолчанию 12000, до 65536). */
   readonly limit?: number;
   /**
    * auto — список по элементам, текст по символам (по умолчанию); json — любой результат
@@ -398,7 +398,7 @@ export interface GetManyData<T extends object = HcmData> {
         readonly id: string;
         /** Почему объект не прочитан. */
         readonly error: {
-          /** Код ошибки: NOT_FOUND, TYPE_MISMATCH… */
+          /** Код ошибки: PLATFORM_SOAP-FAULT, TYPE_MISMATCH… */
           readonly code: string;
           /** Что случилось. */
           readonly message: string;

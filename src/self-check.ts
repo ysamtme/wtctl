@@ -15,7 +15,7 @@ export interface CheckData {
   permissions: ConnectionConfig["permissions"];
   /** Шаги проверки по порядку. */
   checks: {
-    /** Шаг: login, version, query, document, schema, titles, libraries, logs, portal, execute. */
+    /** Шаг: login, version, appInfo, query, document, schema, titles, libraries, logs, portal, execute. */
     name: string;
     /** ok — прошёл, failed — не прошёл, skipped — не выполнялся. */
     result: "ok" | "failed" | "skipped";

@@ -725,6 +725,20 @@ test("отказ до вызова операции называет коман�
     error?.hint,
     "Похожие: objects.get, schema.get. Список операций показывает wtctl api list.",
   );
+  const overview = JSON.parse((await offline(["api", "list"])).stdout) as OperationResult;
+  assert.match((overview.data as { hint: string }).hint, /wtctl api list/);
+  assert.match((overview.data as { hint: string }).hint, /wtctl api describe/);
+  assert.doesNotMatch((overview.data as { hint: string }).hint, /\bapi\.(?:list|describe)\b/);
+  const topic = JSON.parse(
+    (await offline(["api", "list", "--topic", "files"])).stdout,
+  ) as OperationResult;
+  assert.match((topic.data as { hint: string }).hint, /wtctl api describe/);
+  assert.doesNotMatch((topic.data as { hint: string }).hint, /\bapi\.describe\b/);
+  // HcmError без собственного hint получает запасную подсказку с именем команды CLI.
+  const bad = fixture();
+  assert.equal(await runCli(["api", "describe", ".", "--offline"], bad.io, bad.dependencies), 1);
+  const badResult = JSON.parse(bad.state.stderr || bad.state.stdout) as OperationResult;
+  assert.match(badResult.error?.hint ?? "", /wtctl api describe/);
 });
 
 test("справка — текст для чтения: команды и параметры в колонках, использование и заметки команды по одной в строке", async () => {
@@ -733,7 +747,7 @@ test("справка — текст для чтения: команды и па�
   assert.ok(top.startsWith("wtctl [--config ФАЙЛ] [--connection ИМЯ] КОМАНДА …\n\nКоманды:\n"));
   assert.match(
     top,
-    /\n {2}status {3}— Адрес и версия сервера, пользователь и права подключения.\n {2}check {4}— /,
+    /\n {2}status {3}— Адрес и версия сервера, база данных, пользователь и права подключения.\n {2}check {4}— /,
   );
   assert.match(top, /\n\nПараметры:\n {2}--config ФАЙЛ +— Файл подключений\.\n/);
   assert.match(top, /\n\nАргументы и примеры команды: wtctl help КОМАНДА\.\n/);
@@ -753,7 +767,7 @@ test("справка — текст для чтения: команды и па�
   );
   assert.equal(
     (await offline(["help", "status"])).stdout,
-    "wtctl status — Адрес и версия сервера, пользователь и права подключения.\n\n  wtctl status\n",
+    "wtctl status — Адрес и версия сервера, база данных, пользователь и права подключения.\n\n  wtctl status\n",
   );
   assert.equal(
     (await offline(["help", "logs", "search"])).stdout,

@@ -13,16 +13,17 @@ import { identifier } from "../query.js";
 
 const patchEffect: EffectFor = (args) => (args.preview === true ? "read" : undefined);
 const dbName = { type: "string", description: "База сервера, если объект не в основной базе." };
-const address = { id: string, type: string, url: string, dbName, fields };
+const target = { id: string, type: string, url: string, dbName };
 
 export const objectOperations = [
   operation({
     id: "objects.get",
     effect: "read",
     description:
-      "Прочитать документ объекта по id или url; несколько объектов — ids (до 100), ответ — items, у непрочитанного в элементе error. fields — поля верхнего уровня. Повторяющийся элемент приходит списком и при одном значении. unknownFields — запрошенные имена, которых у типа нет; пустое поле в ответ не попадает.",
+      "Прочитать документ объекта по id или url; несколько объектов — ids (до 100), ответ — items, у непрочитанного в элементе error. fields — поля верхнего уровня. Повторяющийся элемент приходит списком и при одном значении. Из запрошенных полей: emptyFields — без значения (в data.data не попадают), fromCatalog — вычисляемые поля строки каталога, unknownFields — которых у типа нет.",
     inputSchema: schema({
-      ...address,
+      ...target,
+      fields,
       ids: { type: "array", items: string, minItems: 1, maxItems: 100 },
     }),
     usualCause:
@@ -91,7 +92,7 @@ export const objectOperations = [
     description:
       "Изменить поля объекта, сохранив остальное содержимое документа. patch — {путь: значение} или список {op:'set'|'remove', path, value}; remove — пути, которые удалить; путь, которого в документе нет, — отказ, ничего не записано. preview:true ничего не записывает. Правка, которая ничего не меняет, не записывается: в ответе noop:true; resave:true записывает документ и без правок — сервер при сохранении заново заполняет поля, которые берёт из связанных объектов. expectedFingerprint отклоняет запись, если объект изменился после чтения; это сверка перед записью, а не блокировка.",
     inputSchema: schema({
-      ...address,
+      ...target,
       patch: {},
       remove: { type: "array", items: string },
       expectedFingerprint: string,
@@ -105,8 +106,8 @@ export const objectOperations = [
     id: "objects.delete",
     effect: "write",
     description:
-      "Удалить документ объекта безвозвратно; permanent:true обязателен. catalog — проверить, что объект был в этом каталоге и исчез из него.",
-    inputSchema: schema({ ...address, permanent: boolean, catalog: string }),
+      'Удалить документ объекта безвозвратно; permanent:true обязателен. Если у типа один каталог, клиент сам проверяет наличие и исчезновение в нём (иначе verification:"server"); catalog задаёт каталог явно.',
+    inputSchema: schema({ ...target, permanent: boolean, catalog: string }),
     usualCause: "объекта с таким ID или адресом нет",
     run: (context, args, call) => context.objects.delete(args, call.outcome),
   }),

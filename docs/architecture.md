@@ -42,7 +42,7 @@ SDK, CLI и MCP-сервер вызывают одну и ту же функци
 | `src/sdk.ts`, `src/sdk-types.ts`, `src/cli/`, `src/mcp/` | SDK и его публичные типы, CLI (`run.ts`, `commands.ts`, `config-commands.ts`, `output.ts`), MCP-сервер |
 | `src/guide.ts`, `src/guide-topics.ts`, `src/guide-texts.ts` | гайд для `hcm_guide` и `wtctl guide`; список тем и тексты генерирует `npm run generate` из навыка |
 | `skills/` | навык: отсюда берутся тексты гайда |
-| `plugin.json`, `mcp.json`, `.claude-plugin/`, `.agents/plugins/`, `gemini-extension.json` | описания плагина для приложений: навык и MCP-сервер вместе. Списки плагинов (`marketplace.json`) в репозитории указывают на ветку `plugin`, где лежит собранный пакет |
+| `plugin.json`, `mcp.json`, `mcp_config.json`, `.claude-plugin/`, `.agents/plugins/` | описания плагина для приложений: навык и MCP-сервер вместе. Списки плагинов (`marketplace.json`) в репозитории указывают на ветку `plugin`, где лежит собранный пакет |
 | `scripts/build.mjs` | сборка CLI и SDK с общими модулями, типы TypeScript, лицензии встроенных пакетов |
 
 ## Операции

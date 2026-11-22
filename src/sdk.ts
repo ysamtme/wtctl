@@ -298,7 +298,7 @@ export class HcmClient {
   getMany<T extends object = HcmData>(input: GetManyInput): Promise<HcmResult<GetManyData<T>>> {
     return this.call("objects.get", { ...input });
   }
-  /** Связь с сервером: версия сервера и права подключения. Ничего не меняет. */
+  /** Связь с сервером: версия сервера, база данных (database), userId и права подключения. Ничего не меняет. */
   status(): Promise<HcmResult<StatusData>> {
     return callOperation(this, "runtime.status");
   }

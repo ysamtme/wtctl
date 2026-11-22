@@ -45,7 +45,7 @@ export interface LogListData {
 export interface LogReadInput {
   /** Имя файла лога из listLogs. */
   readonly file: string;
-  /** Сколько байт с конца файла читать; по умолчанию 512 КБ. Вместе с full не задаётся. */
+  /** Сколько байт с конца файла читать; по умолчанию: у readLog — сколько помещается в ответ, у searchLogs и followLog — до 512 КБ. Вместе с full не задаётся. */
   readonly tailBytes?: number;
   /** Читать весь файл, а не конец. */
   readonly full?: boolean;
@@ -128,7 +128,7 @@ export interface LogSearchData {
 }
 /** Аргументы followLog. */
 export interface LogFollowInput extends LogReadInput {
-  /** cursor прошлого ответа; без него — события в прочитанной части файла. */
+  /** cursor прошлого ответа; без него — последние 10 событий и новый cursor. */
   readonly cursor?: string;
 }
 /** @internal */

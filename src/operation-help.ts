@@ -49,8 +49,8 @@ export function compactOperationPage(page: OperationPage, cursor = 0): CompactOp
     ...(nextCursor === undefined ? {} : { nextCursor }),
     ...(bounded ? { cutBySize: true as const } : {}),
     hint: page.total
-      ? "Аргументы и ограничения одной операции: describe по её id."
-      : "Ничего не найдено: query — часть ID операции или слово из её описания, а не фраза. Карта тем — вызов без аргументов.",
+      ? "Аргументы и ограничения одной операции: api.describe по её id."
+      : "Ничего не найдено: query ищет точную подстроку в ID или описании, без разбивки на слова. Карта тем — вызов без аргументов.",
   };
 }
 

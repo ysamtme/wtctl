@@ -8,11 +8,16 @@ export const resultOperations = [
     effect: "read",
     writesLocalDisk: true,
     description:
-      "Сохранить большой результат целиком в файл на этом компьютере: json — как есть, jsonl — по строке на элемент списка ответа, text — текст лога или файла. Папка должна существовать.",
-    inputSchema: schema({ resultId: string, path: string, format: string, overwrite: boolean }, [
-      "resultId",
-      "path",
-    ]),
+      "Сохранить большой результат целиком в файл на этом компьютере: json — как есть, jsonl — по строке на элемент списка ответа, text — текст лога или файла. Папка должна существовать. Право write сервера не нужно (в MCP — hcm_result_export или hcm_api_write).",
+    inputSchema: schema(
+      {
+        resultId: string,
+        path: string,
+        format: { type: "string", enum: ["json", "jsonl", "text"] },
+        overwrite: boolean,
+      },
+      ["resultId", "path"],
+    ),
     run: (context, args) => context.results.export(args as unknown as ResultExportInput),
   }),
   operation({

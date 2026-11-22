@@ -8,7 +8,10 @@ const FORM = "x-local://wtv/wtv_remote_collection.xmd";
 
 /** Ответ execute. */
 export interface ScriptData<T = unknown> {
-  /** Массив RESULT из кода; числа, даты и логические значения — строками. */
+  /**
+   * Массив RESULT из кода; числа и логические значения приходят строками. Дату нужно приводить к
+   * строке в самом коде (StrDate, StrXmlDate): на части версий сервера она в ответ не попадает.
+   */
   readonly result: readonly T[];
   /** Описания столбцов, если сервер их вернул. */
   readonly columns?: readonly unknown[];

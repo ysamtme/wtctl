@@ -27,7 +27,7 @@ export const connectionOperations = [
     id: "server.info",
     effect: "read",
     description:
-      "Сведения, которые сервер отдаёт админке при запуске: версия, операционная система, маска возможностей, ограничения на число записей по типам объектов; в профиле native ещё папки: dataFolders принимают запись через LDS, codeFolders — только кодом на сервере. Маска — не права пользователя, ограничения — не список каталогов. profile: native (по умолчанию) или web.",
+      "Сведения, которые сервер отдаёт админке при запуске: версия, операционная система, маска возможностей, ограничения на число записей по типам объектов; в профиле native ещё папки: в dataFolders запись и удаление файлов идут под правом write, в codeFolders нужны права write и execute (удаление там идёт кодом на сервере). Маска — не права пользователя, ограничения — не список каталогов. profile: native (по умолчанию) или web.",
     inputSchema: schema({ profile: { type: "string", enum: ["native", "web"] } }),
     summary: "Версия, операционная система и ограничения сервера.",
     run: async (context, args) => {
@@ -39,7 +39,8 @@ export const connectionOperations = [
   operation({
     id: "runtime.status",
     effect: "read",
-    description: "Проверить связь: версия сервера и права подключения. Ничего не меняет.",
+    description:
+      "Проверить связь: версия сервера, база данных (database), userId и права подключения. Ничего не меняет.",
     inputSchema: schema({}),
     run: async (context) => {
       const version = await context.server.read("native.rpc.call", {

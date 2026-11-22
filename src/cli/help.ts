@@ -16,7 +16,7 @@ interface CommandHelp {
 
 const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   status: {
-    summary: "Адрес и версия сервера, пользователь и права подключения.",
+    summary: "Адрес и версия сервера, база данных, пользователь и права подключения.",
     usage: ["wtctl status"],
   },
   check: {
@@ -84,12 +84,12 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
       "ТИП перед ID не обязателен: с ним команда проверяет, что объект этого типа.",
       "patch.json — {путь: значение}, [{op:'set'|'remove', path, value}] или {patch:{…}, remove:[пути]}.",
       "Путь: name; a.b; items[0]; custom_elems.custom_elem[name=код].value.",
-      "JSON для create и patch принимается тремя способами: --input-file, --stdin, --args.",
+      "JSON для create и patch: --input-file, --stdin, --args.",
       "patch и delete принимают объект и по адресу: (--id ID | --url АДРЕС) [--type ТИП] вместо [ТИП] ID.",
       "--preview показывает изменения без записи.",
       "Правка, которая ничего не меняет, не записывается (noop:true).",
-      "--resave сохраняет документ и без правок — сервер заново заполняет поля, которые берёт из связанных объектов; --resave можно дать без JSON.",
-      "delete удаляет безвозвратно; --catalog проверяет, что объект был в каталоге и исчез.",
+      "--resave сохраняет и без правок (сервер обновляет поля-копии из связанных объектов); можно без JSON.",
+      "delete удаляет безвозвратно; каталог проверки выбирается по типу, если он один, --catalog задаёт его явно.",
       "--db-name задаёт базу, если не основная; create принимает ещё --form-url.",
       "Ответ create — id нового объекта и mutationOutcome; patch — changes и mutationOutcome; delete — mutationOutcome и verification.",
     ],
@@ -134,8 +134,8 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
       "wtctl logs list [--type xhttp] [--date ГГГГ-ММ-ДД] [--name-contains ТЕКСТ] [--start-date Д] [--end-date Д] [--offset N] [--limit N]",
       "wtctl logs read ФАЙЛ [--tail-bytes N | --full]",
       "wtctl logs tail ФАЙЛ [--tail-bytes N]",
-      "wtctl logs search ФАЙЛ [--text ТЕКСТ] [--level error] [--context ТЕКСТ] [--newest-first] [--full] [--offset N] [--limit N] [--expected-fingerprint ОТПЕЧАТОК]",
-      "wtctl logs follow ФАЙЛ [--cursor КУРСОР]",
+      "wtctl logs search ФАЙЛ [--text ТЕКСТ] [--level error] [--context ТЕКСТ] [--newest-first] [--tail-bytes N | --full] [--offset N] [--limit N] [--expected-fingerprint ОТПЕЧАТОК]",
+      "wtctl logs follow ФАЙЛ [--cursor КУРСОР] [--tail-bytes N | --full]",
     ],
     notes: [
       "list показывает сначала свежие файлы, по умолчанию 30; --type — имя лога без даты.",
@@ -233,7 +233,9 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   mcp: {
     summary: "MCP-сервер для агента (stdio).",
     usage: ["wtctl --config ФАЙЛ --connection ИМЯ mcp"],
-    notes: ["Пароль задаётся переменной окружения из подключения: stdin занят протоколом."],
+    notes: [
+      "Пароль берётся из файла подключений или переменной окружения: stdin занят протоколом.",
+    ],
   },
   config: {
     summary: "Файл подключений: init, list, set, path, example.",
@@ -286,6 +288,7 @@ const NOTES: readonly string[] = [
   "Код выхода: 0 — успех, 1 — ошибка операции, 2 — ошибка аргументов, 3 — ответ не поместился и сохранён локально: result read, result export или --output.",
   "С --output при ошибке операции в сводке есть error, в файле — полный ответ с ok:false; ошибка аргументов или настроек подключения печатается в stderr, файл не создаётся.",
   "ID передаётся строкой: 0x… или десятичной записью.",
+  String.raw`Короткий JSON в примерах записан как '{\"…\"}' для совместимости с PowerShell и bash; длинный передаётся через --input-file.`,
   "При коде 3 операция выполнена, в ответе meta.truncated и meta.resultId: запись или код не повторять.",
   "При error.mutationOutcome = indeterminate запись могла пройти: перед повтором проверить объект.",
 ];

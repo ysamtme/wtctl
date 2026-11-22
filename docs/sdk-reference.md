@@ -141,7 +141,7 @@ client.getMany<T extends object = HcmData>(input: GetManyInput): Promise<HcmResu
 client.status(): Promise<HcmResult<StatusData>>
 ```
 
-Связь с сервером: версия сервера и права подключения. Ничего не меняет.
+Связь с сервером: версия сервера, база данных (database), userId и права подключения. Ничего не меняет.
 
 Типы: [StatusData](#statusdata).
 
@@ -659,7 +659,7 @@ error ответа, как его вернула операция.
 | `language?` | `string` | Язык интерфейса сервера: ru, en… |
 | `permissions` | `ConnectionConfig["permissions"]` | Права подключения. |
 | `checks` | `{…}[]` | Шаги проверки по порядку. |
-| `checks[].name` | `string` | Шаг: login, version, query, document, schema, titles, libraries, logs, portal, execute. |
+| `checks[].name` | `string` | Шаг: login, version, appInfo, query, document, schema, titles, libraries, logs, portal, execute. |
 | `checks[].result` | `"ok" \| "failed" \| "skipped"` | ok — прошёл, failed — не прошёл, skipped — не выполнялся. |
 | `checks[].reason?` | `string` | Почему шаг не прошёл или пропущен. |
 | `summary` | `{…}` | Сколько шагов в каждом исходе. |
@@ -787,7 +787,7 @@ CreateInput<T extends object = HcmData>
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `permanent` | `true` | Обязателен: удаление безвозвратное, корзины нет. |
-| `catalog?` | `string` | Каталог объекта: проверить, что объект был в нём и после удаления исчез. |
+| `catalog?` | `string` | Каталог объекта для проверки наличия и исчезновения; без него клиент выбирает каталог сам, если он у типа один (иначе verification:"server"). |
 
 ### FileDeleteData
 
@@ -939,7 +939,7 @@ GetManyData<T extends object = HcmData>
 | `items` | `(ObjectData<T> \| {…} )[]` | Объекты в порядке ids; непрочитанный — {id, error}. |
 | `items[].id` | `string` | ID непрочитанного объекта. |
 | `items[].error` | `{…}` | Почему объект не прочитан. |
-| `items[].error.code` | `string` | Код ошибки: NOT_FOUND, TYPE_MISMATCH… |
+| `items[].error.code` | `string` | Код ошибки: PLATFORM_SOAP-FAULT, TYPE_MISMATCH… |
 | `items[].error.message` | `string` | Что случилось. |
 | `total` | `number` | Сколько объектов запрошено. |
 | `failed?` | `number` | Сколько объектов не прочитано. |
@@ -1057,9 +1057,9 @@ type JsonSchema = Readonly<Record<string, unknown>>
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `cursor?` | `string` | cursor прошлого ответа; без него — события в прочитанной части файла. |
+| `cursor?` | `string` | cursor прошлого ответа; без него — последние 10 событий и новый cursor. |
 | `file` | `string` | Имя файла лога из listLogs. |
-| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию 512 КБ. Вместе с full не задаётся. |
+| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию: у readLog — сколько помещается в ответ, у searchLogs и followLog — до 512 КБ. Вместе с full не задаётся. |
 | `full?` | `boolean` | Читать весь файл, а не конец. |
 
 ### LogLevel
@@ -1120,7 +1120,7 @@ type LogLevel = "normal" | "debug" | "info" | "warning" | "error" | "critical"
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `file` | `string` | Имя файла лога из listLogs. |
-| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию 512 КБ. Вместе с full не задаётся. |
+| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию: у readLog — сколько помещается в ответ, у searchLogs и followLog — до 512 КБ. Вместе с full не задаётся. |
 | `full?` | `boolean` | Читать весь файл, а не конец. |
 
 ### LogResetReason
@@ -1146,7 +1146,7 @@ type LogResetReason = "overlap-not-found" | "file-size-decreased" | "ambiguous-o
 | `newestFirst?` | `boolean` | Сначала новейшие совпадения; offset тогда считается с конца файла. |
 | `expectedFingerprint?` | `string` | fingerprint прошлой страницы: если файл изменился, ошибка LOG_CHANGED. |
 | `file` | `string` | Имя файла лога из listLogs. |
-| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию 512 КБ. Вместе с full не задаётся. |
+| `tailBytes?` | `number` | Сколько байт с конца файла читать; по умолчанию: у readLog — сколько помещается в ответ, у searchLogs и followLog — до 512 КБ. Вместе с full не задаётся. |
 | `full?` | `boolean` | Читать весь файл, а не конец. |
 
 ### LogText
@@ -1238,8 +1238,8 @@ ObjectData<T extends object = HcmData>
 ### OperationEffect
 
 Что операция делает с сервером: read — читает, write — записывает, execute — выполняет код
-на сервере. unknown — эффект зависит от аргументов (HTTP-запрос с любым методом): права
-проверяются по самим аргументам.
+на сервере. unknown — эффект зависит от аргументов (запрос к каталогу или XQuery, пакет
+операций): права проверяются по самим аргументам.
 
 ```ts
 type OperationEffect = "read" | "write" | "execute" | "unknown"
@@ -1251,7 +1251,7 @@ type OperationEffect = "read" | "write" | "execute" | "unknown"
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `code` | `string` | Код ошибки: WRITE_DISABLED, NOT_FOUND… Программа сравнивает его, а не текст. |
+| `code` | `string` | Код ошибки: WRITE_DISABLED, UNKNOWN_CATALOG, FILE_NOT_FOUND… Программа сравнивает его, а не текст. |
 | `message` | `string` | Что случилось. |
 | `hint?` | `string` | Что сделать дальше. |
 | `retryable?` | `boolean` | Можно ли повторить вызов без изменений. |
@@ -1264,7 +1264,7 @@ type OperationEffect = "read" | "write" | "execute" | "unknown"
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `query?` | `string` | Слова в ID, названии и описании; read, write, execute или unknown целиком — операции с этим эффектом. |
+| `query?` | `string` | Точная подстрока в ID, названии или описании (ищется целиком, без разбивки на слова); read, write, execute или unknown целиком — операции с этим эффектом. |
 | `topic?` | `string` | Тема обзора: functions, tasks, agents, files, documents… Неизвестная тема — UNKNOWN_TOPIC. |
 | `group?` | `string` | Группа операций: objects, lds, files… |
 | `effect?` | `OperationEffect` | Только операции с этим эффектом. |
@@ -1353,7 +1353,7 @@ type OperationEffect = "read" | "write" | "execute" | "unknown"
 | `remove?` | `readonly string[]` | Пути, которые удалить из документа. |
 | `expectedFingerprint?` | `string` | fingerprint из чтения: если объект с тех пор изменился, запись отклоняется с CONFLICT. |
 | `preview?` | `boolean` | Только показать изменения, ничего не записывая. |
-| `resave?` | `boolean` | Сохранить документ, даже если правка ничего не меняет: сервер заново заполняет вычисляемое. |
+| `resave?` | `boolean` | Сохранить документ, даже если правка ничего не меняет: сервер заново заполняет поля-копии из связанных объектов. |
 
 ### PatchPreviewData
 
@@ -1387,7 +1387,7 @@ QueryData<T = HcmData>
 ### QueryInput
 
 Поиск в каталоге (catalog, where, order) или запрос XQuery целиком (query, нужно право execute).
-Запрос XQuery возвращает элементы каталога и заканчивается на return $elem; отдельные значения
+Запрос XQuery возвращает строки каталога целиком (например return $e); отдельные значения
 возвращает низкоуровневая операция native.lds.xQuery.
 
 Вариант 1:
@@ -1408,7 +1408,7 @@ QueryData<T = HcmData>
 | `fields?` | `readonly string[]` | Поля строки, в этом порядке; без fields — все поля каталога. |
 | `limit?` | `number` | Строк на странице, 1–1000; по умолчанию 20. |
 | `startPosition?` | `number` | С какой строки читать: nextStartPosition прошлой страницы; до 1000000. |
-| `query` | `string` | Запрос XQuery: for $elem in collaborators where … return $elem. |
+| `query` | `string` | Запрос XQuery: for $e in collaborators where … return $e. |
 
 ### QueryOptions
 
@@ -1495,7 +1495,7 @@ ResultPage<T = unknown>
 | --- | --- | --- |
 | `resultId` | `string` | ID сохранённого результата: meta.resultId ответа. |
 | `offset?` | `number` | С какого элемента списка или символа текста читать: nextOffset прошлой страницы. |
-| `limit?` | `number` | Элементов на странице (по умолчанию 100, до 1000) или символов (по умолчанию 12000). |
+| `limit?` | `number` | Элементов на странице (по умолчанию 100, до 1000) или символов (по умолчанию 12000, до 65536). |
 | `format?` | `"auto" \| "json" \| "text"` | auto — список по элементам, текст по символам (по умолчанию); json — любой результат как текст JSON по частям; text — только сохранённый текст. |
 
 ### RpcArgument
@@ -1660,7 +1660,7 @@ RpcValueData<T = unknown>
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `type?` | `string` | Тип объекта: collaborator, group…; вместо него можно url. |
-| `url?` | `string` | Адрес документа: поля типа этого объекта. |
+| `url?` | `string` | Адрес формы вместо типа: x-local://…. |
 | `search?` | `string` | Слова в пути, заголовке или каталоге ссылки, на любой глубине; все слова — в одном поле. |
 | `path?` | `string` | Структура, чьи поля показать: access, custom_elems. |
 | `deep?` | `boolean` | Вложенные поля всех глубин одним списком, а не по уровню за вызов. |
@@ -1725,7 +1725,7 @@ ScriptData<T = unknown>
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `result` | `readonly T[]` | Массив RESULT из кода; числа, даты и логические значения — строками. |
+| `result` | `readonly T[]` | Массив RESULT из кода; числа и логические значения приходят строками. Дату нужно приводить к строке в самом коде (StrDate, StrXmlDate): на части версий сервера она в ответ не попадает. |
 | `columns?` | `readonly unknown[]` | Описания столбцов, если сервер их вернул. |
 | `data?` | `Readonly<Record<string, unknown>>` | Дополнительные данные коллекции, если сервер их вернул. |
 | `executionId` | `string` | Имя несохранённой коллекции, несшей код; оно попадает в строки лога сервера. |

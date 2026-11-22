@@ -125,7 +125,7 @@ export async function runCli(
       rejectPasswordStdin(
         parsed,
         "--password-stdin несовместим с MCP: stdin занят протоколом.",
-        "Для MCP пароль задаётся через переменную окружения из конфигурации.",
+        "Для MCP пароль берётся из файла подключений или переменной окружения.",
       );
     } else if (!discovery) invocation = await commandInvocation(parsed, io);
     else if (action === "describe") {
@@ -224,17 +224,16 @@ export async function runCli(
           )
         : error instanceof HcmError
           ? {
-              ...failure(
-                error.code,
-                error.message,
-                error.hint ?? "Проверить конфигурацию и api describe.",
-              ),
-              error: error.toJSON(),
+              ...failure(error.code, error.message),
+              error: {
+                hint: "Проверить подключение и api.describe.",
+                ...error.toJSON(),
+              },
             }
           : failure(
               "cli.failed",
               "Команда не завершена.",
-              "Проверить конфигурацию и api describe; неизвестные ошибки не выводят реквизиты или серверный ответ.",
+              "Проверить подключение и api.describe; неизвестные ошибки не выводят реквизиты или серверный ответ.",
             );
     await safeDiagnostic(io, errorInFrontendTerms(result, "cli"));
     return error instanceof CliInputError ? 2 : 1;
