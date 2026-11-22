@@ -283,3 +283,46 @@ export function jsonObject(text: string): Record<string, unknown> {
   }
   return value as Record<string, unknown>;
 }
+
+const COMMON_OPTIONS = ["config", "connection", "json", "output", "help", "password-stdin"];
+
+export function allowOptions(args: CliArguments, allowed: readonly string[]): void {
+  const set = new Set([...COMMON_OPTIONS, ...allowed]);
+  const extra = Object.keys(args.options).filter((key) => !set.has(key));
+  if (!extra.length) return;
+  const [first] = args.positionals;
+  const command = first && first !== "help" ? ` ${first}` : "";
+  throw new CliInputError(
+    `Команда${command} не принимает: ${extra.map((key) => `--${key}`).join(", ")}.`,
+  );
+}
+
+export function exactPositionals(args: CliArguments, minimum: number, maximum = minimum): void {
+  if (args.positionals.length < minimum || args.positionals.length > maximum) {
+    if (args.positionals.length < minimum)
+      throw new CliInputError("Не хватает аргументов команды.");
+    throw new CliInputError(
+      "Лишние аргументы команды.",
+      "Текст с пробелами, например запрос XQuery, берут в кавычки целиком.",
+    );
+  }
+}
+
+export function optional(key: string, value: unknown): Record<string, unknown> {
+  return value === undefined ? {} : { [key]: value };
+}
+
+export function enumOption<T extends string>(
+  args: CliArguments,
+  name: string,
+  allowed: readonly T[],
+  message: string,
+): T | undefined {
+  const value = stringOption(args, name);
+  if (value !== undefined && !allowed.includes(value as T)) throw new CliInputError(message);
+  return value as T | undefined;
+}
+
+export function rejectPasswordStdin(args: CliArguments, message: string, hint?: string): void {
+  if (args.options["password-stdin"]) throw new CliInputError(message, hint);
+}

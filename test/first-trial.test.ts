@@ -16,7 +16,7 @@ import { HcmMcpTools } from "../src/mcp/server.js";
 import { escapeXml, findXmlNode, parseXml } from "../src/protocol/xml.js";
 import { ResultStore } from "../src/results.js";
 import { HcmRuntime } from "../src/runtime.js";
-import { withRepeated } from "../src/schema.js";
+import { withRepeated } from "../src/schema-form.js";
 import type { ConnectionConfig, OperationResult } from "../src/contracts.js";
 import type { RuntimePort } from "../src/cli/types.js";
 import { fakeRuntime, refusal, type Answer, scratchRuntimeDir } from "./fake-server.js";

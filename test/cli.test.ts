@@ -1172,6 +1172,9 @@ test("неверные команда, ввод и пределы отказыв
     ["mcp", "--password-stdin"],
     ["status", "--password-stdin", "--stdin"],
     ["help", "--password-stdin"],
+    ["version", "--password-stdin"],
+    ["guide", "--password-stdin"],
+    ["config", "path", "--password-stdin"],
     ["run"],
     ["result", "read", "id", "--format", "xml"],
     ["result", "read", "id", "--limit", "65537"],
@@ -2427,6 +2430,50 @@ test("подсказка прав для файла с connections называ�
         flaggedHint,
       );
     }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("config init отклоняет --output на ту же цель через симлинк папки, когда подпапки ещё нет", async (t) => {
+  const { mkdir, mkdtemp, rm, symlink } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "wtctl-init-link-"));
+  try {
+    const real = join(dir, "real");
+    const alias = join(dir, "alias");
+    await mkdir(real, { recursive: true });
+    try {
+      await symlink(real, alias, "dir");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EPERM") {
+        t.skip("ОС не разрешает создание симлинков без прав");
+        return;
+      }
+      throw error;
+    }
+    const f = fixture();
+    const code = await runCli(
+      [
+        "config",
+        "init",
+        "--config",
+        join(alias, "new", "connections.json"),
+        "--output",
+        join(real, "new", "connections.json"),
+        "--url",
+        "http://dev.test/",
+        "--username",
+        "u",
+        "--password-env",
+        "WTCTL_PASS",
+      ],
+      f.io,
+      f.dependencies,
+    );
+    assert.equal(code, 2);
+    assert.equal(f.state.files.size, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

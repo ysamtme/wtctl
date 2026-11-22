@@ -2,11 +2,20 @@ import { HcmError, boundedInteger, isSimilarName, requiredString, similarHint } 
 import { identifier } from "./query.js";
 import { XmlDocument } from "./documents.js";
 import {
-  createPlatformXmlParser,
-  parseValidatedXml,
-  validatePlatformXmlSource,
-} from "./protocol/xml.js";
-import { normalizeFormParams } from "./protocol/library-functions.js";
+  extractCatalogFields,
+  extractDocumentForm,
+  extractDocumentShape,
+  extractFormFields,
+  extractRowType,
+  findFormRoot,
+  formIncludeUrls,
+  nodeAttr,
+  nodeName,
+  parseForm,
+  registerFormSamples,
+  type DataShape,
+  type FormNode,
+} from "./schema-form.js";
 
 /** Аргументы schema: тип или url и отбор полей. */
 export interface SchemaInput {
@@ -121,51 +130,7 @@ export interface SchemaTypesResult {
   /** Пояснения к списку. */
   notes?: string[];
 }
-/**
- * Чтобы привести данные к одному виду: имена полей верхнего уровня и повторяющиеся элементы.
- * @internal
- */
-export interface DataShape {
-  readonly fields: Set<string>;
-  /** Пути элементов, объявленных формой повторяющимися, например collaborators.collaborator. */
-  readonly repeated: Set<string>;
-  /** TYPE полей формы по пути, на любой глубине; у поля без TYPE — пустая строка. */
-  readonly types: Map<string, string>;
-  /** Пути структур, у которых форма объявила хранимые дочерние поля. */
-  readonly parents?: Set<string>;
-  /** Поля, которые вычисляет сервер (по пути): записанное в них значение не сохраняется. */
-  readonly computed?: Set<string>;
-  /**
-   * Поля верхнего уровня, которые код формы перед сохранением и заполняет, и очищает сам: копии
-   * полей связанных объектов. Узнаются по тексту кода, бывают и лишние — годятся только для пометки.
-   */
-  readonly serverFilled?: Set<string>;
-  /** Базовый тип формы не найден, поэтому имена полей — не все. */
-  partial?: boolean;
-}
-/**
- * Повторяющийся элемент — список и тогда, когда в данных один пункт.
- * @internal
- */
-export function withRepeated(value: unknown, repeated: ReadonlySet<string>, prefix = ""): unknown {
-  if (Array.isArray(value)) return value.map((item) => withRepeated(item, repeated, prefix));
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value).map(([key, child]) => {
-      const path = prefix ? `${prefix}.${key}` : key;
-      const shaped = withRepeated(child, repeated, path);
-      return [key, repeated.has(path) && !Array.isArray(shaped) ? [shaped] : shaped];
-    }),
-  );
-}
 type Data = Record<string, unknown>;
-type Node = Record<string, unknown>;
-const parser = createPlatformXmlParser({
-  preserveOrder: true,
-  ignoreAttributes: false,
-  parseTagValue: false,
-  parseAttributeValue: false,
-});
 const list = (value: unknown): Data[] =>
   (Array.isArray(value) ? value : [value]).filter((v): v is Data => !!v && typeof v === "object");
 const data = (value: unknown): Data => list(value)[0] ?? {};
@@ -179,18 +144,6 @@ export function serverDatabases(info: Data): { id: string; catalogs: Data[] }[] 
   );
 }
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
-const name = (node: Node): string => Object.keys(node).find((key) => !/^[#?:]/.test(key)) ?? "";
-const children = (node: Node): Node[] =>
-  Array.isArray(node[name(node)]) ? (node[name(node)] as Node[]) : [];
-const attr = (node: Node, key: string): string => text(data(node[":@"])[`@_${key}`]);
-const find = (nodes: Node[], target: string): Node | undefined => {
-  for (const node of nodes) {
-    if (name(node) === target) return node;
-    const found = find(children(node), target);
-    if (found) return found;
-  }
-  return undefined;
-};
 const languages: Record<string, string> = {
   ru: "russian",
   en: "english",
@@ -257,7 +210,7 @@ function remembered<V>(
  */
 export class SchemaReader {
   private static readonly TTL_MS = 60_000;
-  private forms = new Map<string, Timed<Node[]>>();
+  private forms = new Map<string, Timed<FormNode[]>>();
   private shapes = new Map<string, Timed<DataShape>>();
   private dictionaries = new Map<string, Timed<Map<string, string>>>();
   private documents = new Map<string, Timed<Data>>();
@@ -305,49 +258,16 @@ export class SchemaReader {
   private rememberFormUrl(key: string, url: string): void {
     this.formUrls.set(key, { expires: this.now() + this.ttlMs, value: url });
   }
-  private form(url: string): Promise<Node[]> {
-    return this.cached(this.forms, url, () =>
-      this.fetchForm(url).then((source) => {
-        const normalized = normalizeFormParams(source);
-        try {
-          validatePlatformXmlSource(normalized);
-          const root = find(parseValidatedXml(parser, normalized) as Node[], "SPXML-FORM");
-          if (root) return children(root).filter((node) => name(node));
-        } catch {
-          throw new HcmError("FORM_RESPONSE", "Сервер вернул форму с ошибкой в XML.");
-        }
-        throw new HcmError("FORM_RESPONSE", "В ответе сервера нет формы (SPXML-FORM).");
-      }),
-    );
+  private form(url: string): Promise<FormNode[]> {
+    return this.cached(this.forms, url, () => this.fetchForm(url).then(parseForm));
   }
   /**
    * Типы полей для проверки после записи. Базовый тип отдаёт свои поля тому месту, которое его
    * называет: без них логическое true, отправленное серверу, не равнялось бы хранимому им 1.
    */
   async documentForm(url: string): Promise<{ roots: string[]; fields: unknown[] }> {
-    const samples = new Map<string, Node>();
-    const roots = (await this.samples(url, samples)).filter(
-      (node) => !/^(USE|INCLUDE|On|METHOD|PROPERTY|SCRIPT)/.test(name(node)),
-    );
-    const fields = (nodes: Node[], prefix = "", stack: string[] = [], depth = 0): unknown[] => {
-      if (depth > 32) return [];
-      return nodes.flatMap((node) => {
-        const key = name(node);
-        const base = attr(node, "TYPE");
-        const sample = samples.has(base) && !stack.includes(base) ? samples.get(base) : undefined;
-        const inherited = sample ? [...stack, base] : stack;
-        if (key === "INHERIT")
-          return sample ? fields(children(sample), prefix, inherited, depth + 1) : [];
-        if (!key || ["OnBeforeSave", "OnCreate"].includes(key)) return [];
-        const path = prefix ? `${prefix}.${key}` : key;
-        return [
-          { path, type: base || "element", multiple: attr(node, "MULTIPLE") === "1" },
-          ...(sample ? fields(children(sample), path, inherited, depth + 1) : []),
-          ...fields(children(node), path, stack, depth + 1),
-        ];
-      });
-    };
-    return { roots: roots.map(name), fields: roots.flatMap((root) => fields(children(root))) };
+    const samples = new Map<string, FormNode>();
+    return extractDocumentForm(await this.samples(url, samples), samples);
   }
   private shared(info: Data, id: string): Promise<Data> {
     const url = text(list(info.shared_docs).find((item) => item.id === id)?.url);
@@ -459,11 +379,7 @@ export class SchemaReader {
   private async rowType(catalog: Data): Promise<string> {
     const named = text(catalog.object_type);
     if (named || !text(catalog.form_url)) return named;
-    const root = (await this.form(text(catalog.form_url))).find(
-      (node) => name(node) === catalog.id,
-    );
-    const row = root && children(root).find((node) => attr(node, "MULTIPLE") === "1");
-    return row ? name(row) : "";
+    return extractRowType(await this.form(text(catalog.form_url)), text(catalog.id));
   }
   /**
    * Каталоги, строки которых — объекты этого типа. У некоторых типов (event) сервер оставляет
@@ -538,62 +454,28 @@ export class SchemaReader {
   }
   private async samples(
     url: string,
-    samples: Map<string, Node>,
+    samples: Map<string, FormNode>,
     visited = new Set<string>(),
-  ): Promise<Node[]> {
+  ): Promise<FormNode[]> {
     if (visited.has(url)) return [];
     if (visited.size >= 64)
       throw new HcmError("FORM_DEPTH_LIMIT", "Форма подключает больше 64 других форм.");
     visited.add(url);
     const nodes = await this.form(url);
-    for (const node of nodes) {
-      if (["USE", "INCLUDE"].includes(name(node)) && attr(node, "FORM")) {
-        const target = attr(node, "FORM");
-        await this.samples(
-          target.startsWith("//") ? `x-local:${target}` : new URL(target, url).href,
-          samples,
-          visited,
-        );
-      }
-    }
-    // Включённые формы тоже показывают именованные типы без SAMPLE, замечено на 2025.2.1535.
-    for (const node of nodes)
-      if (!/^(USE|INCLUDE|On|DocDesc)/.test(name(node))) samples.set(name(node), node);
+    for (const targetUrl of formIncludeUrls(nodes, url))
+      await this.samples(targetUrl, samples, visited);
+    registerFormSamples(nodes, samples);
     return nodes;
   }
   /** Поля одной строки каталога по пути, прочитанные из формы каталога. */
   private async catalogFields(
     catalog: Data | undefined,
     type: string,
-    samples: Map<string, Node>,
-  ): Promise<Map<string, Node>> {
-    const query = new Map<string, Node>();
-    if (!catalog || !text(catalog.form_url)) return query;
+    samples: Map<string, FormNode>,
+  ): Promise<Map<string, FormNode>> {
+    if (!catalog || !text(catalog.form_url)) return new Map();
     const catalogRoots = await this.samples(text(catalog.form_url), samples);
-    const roots = catalogRoots.filter((node) => attr(node, "SAMPLE") !== "1");
-    // Строка обычно названа по типу объекта; если нет, это список под каталогом.
-    const own = roots.find((node) => name(node) === text(catalog.id));
-    const record =
-      find(roots, type) ??
-      (own ? children(own).find((node) => attr(node, "MULTIPLE") === "1") : undefined);
-    const collect = (nodes: Node[], prefix = "", stack: string[] = []): void => {
-      for (const node of nodes) {
-        const key = name(node);
-        const base = attr(node, "TYPE");
-        if (key === "INHERIT") {
-          if (samples.has(base) && !stack.includes(base))
-            collect(children(samples.get(base)!), prefix, [...stack, base]);
-        } else if (key && !/^(On|DocDesc)/.test(key)) {
-          const path = prefix ? `${prefix}.${key}` : key;
-          query.set(path, node);
-          if (samples.has(base) && !stack.includes(base))
-            collect(children(samples.get(base)!), path, [...stack, base]);
-          collect(children(node), path, stack);
-        }
-      }
-    };
-    if (record) collect(children(record));
-    return query;
+    return extractCatalogFields(catalogRoots, text(catalog.id), type, samples);
   }
   /**
    * Адрес формы документа типа: обычный, а если такой формы нет — тот, что сервер объявляет для
@@ -620,66 +502,9 @@ export class SchemaReader {
   async documentShape(type: string, url?: string): Promise<DataShape> {
     const formUrl = url ?? (await this.typeFormUrl(type));
     return this.cached(this.shapes, `${formUrl}#${type}`, async () => {
-      const samples = new Map<string, Node>();
+      const samples = new Map<string, FormNode>();
       const roots = await this.samples(formUrl, samples);
-      const root = roots.find((node) => name(node) === type && attr(node, "SAMPLE") !== "1");
-      const parents = new Set<string>();
-      const computed = new Set<string>();
-      const stored = new Set<string>();
-      const serverFilled = new Set<string>();
-      const shape: DataShape = {
-        fields: new Set(),
-        repeated: new Set(),
-        types: new Map(),
-        parents,
-        computed,
-        serverFilled,
-      };
-      const collect = (nodes: Node[], prefix = "", stack: string[] = []): void => {
-        if (stack.length > 64) {
-          shape.partial = true;
-          return;
-        }
-        for (const node of nodes) {
-          const key = name(node);
-          const base = attr(node, "TYPE");
-          const sample = samples.has(base) && !stack.includes(base) ? samples.get(base) : undefined;
-          if (key === "INHERIT") {
-            if (sample) collect(children(sample), prefix, [...stack, base]);
-            else if (!stack.includes(base)) shape.partial = true;
-            continue;
-          }
-          if (!key || /^(On|DocDesc)/.test(key)) continue;
-          const path = prefix ? `${prefix}.${key}` : key;
-          const isComputed = attr(node, "PROPERTY") === "1";
-          if (!prefix) shape.fields.add(key);
-          if (prefix && !isComputed) parents.add(prefix);
-          (isComputed ? computed : stored).add(path);
-          shape.types.set(path, base);
-          if (attr(node, "MULTIPLE") === "1") shape.repeated.add(path);
-          if (sample) collect(children(sample), path, [...stack, base]);
-          else if (
-            base &&
-            !stack.includes(base) &&
-            !/^(string|integer|real|bool|date|variant|record|attr)$/.test(base)
-          )
-            shape.partial = true;
-          collect(children(node), path, stack);
-        }
-      };
-      if (root) collect(children(root));
-      // Имя, которое вычисляет базовый тип, а сам тип хранит, — хранимое поле.
-      for (const path of stored) computed.delete(path);
-      const onSave = roots.find((node) => name(node) === "OnBeforeSave");
-      const code = onSave ? attr(onSave, "EXPR") : "";
-      for (const path of stored)
-        if (
-          !path.includes(".") &&
-          code.includes(`TopElem.${path}.Clear()`) &&
-          new RegExp(String.raw`TopElem\.${path}\s*=(?!=)`).test(code)
-        )
-          serverFilled.add(path);
-      return shape;
+      return extractDocumentShape(roots, type, samples);
     });
   }
   /** Структура одной строки каталога; каталог назван или находится по типу объекта его строк. */
@@ -703,8 +528,8 @@ export class SchemaReader {
       };
       for (const [path, node] of known) {
         if (!path.includes(".")) shape.fields.add(path);
-        shape.types.set(path, attr(node, "TYPE"));
-        if (attr(node, "MULTIPLE") === "1") shape.repeated.add(path);
+        shape.types.set(path, nodeAttr(node, "TYPE"));
+        if (nodeAttr(node, "MULTIPLE") === "1") shape.repeated.add(path);
       }
       return shape;
     });
@@ -771,23 +596,15 @@ export class SchemaReader {
       // Имя каталога, а не типа: обычный адрес для него больше не читается.
       if (this.unknownType(info, byType, declared)) this.rememberFormUrl(byType, formUrl);
     }
-    const samples = new Map<string, Node>();
+    const samples = new Map<string, FormNode>();
     const roots = await this.samples(formUrl, samples);
-    const candidates = roots.filter(
-      (node) => attr(node, "SAMPLE") !== "1" && !/^(USE|INCLUDE|On|DocDesc)/.test(name(node)),
-    );
-    const root =
-      requestedType === undefined
-        ? candidates.length === 1
-          ? candidates[0]
-          : undefined
-        : candidates.find((node) => name(node) === requestedType);
+    const root = findFormRoot(roots, requestedType);
     if (!root)
       throw new HcmError(
         "FORM_TYPE_MISMATCH",
         "Тип объекта в форме не определён: запрошенного типа в ней нет, или типов несколько, а type не задан.",
       );
-    const type = name(root);
+    const type = nodeName(root);
     const catalog = (await this.catalogsOf(info, type))[0];
     const mistaken = requestedType === undefined ? undefined : this.catalog(info, requestedType);
     const rows = mistaken ? await this.rowType(mistaken).catch(() => "") : "";
@@ -801,83 +618,13 @@ export class SchemaReader {
           : `${requestedType} — имя каталога; поля его объектов показывает тип ${rows}, поля строки каталога — path:"${rows}".`,
       );
     const query = await this.catalogFields(catalog, type, samples);
-    const fields = new Map<string, SchemaField>();
-    const methods = new Map<string, { name: string; parameters: string[] }>();
-    const baseType = (base: string, stack: string[], inherit = false): Node | undefined => {
-      if (stack.includes(base))
-        throw new HcmError(
-          "FORM_INHERITANCE",
-          "Базовые типы формы ссылаются друг на друга по кругу.",
-        );
-      const sample = samples.get(base);
-      if (
-        !sample &&
-        (inherit || (base && !/^(string|integer|real|bool|date|variant|record|attr)$/.test(base)))
-      ) {
-        const note = `Базовый тип ${base} не найден: его поля в ответ не попали.`;
-        if (!notes.includes(note)) notes.push(note);
-      }
-      return sample;
-    };
-    const walk = (nodes: Node[], prefix = "", origin = "own", stack: string[] = []): void => {
-      if (stack.length > 64)
-        throw new HcmError("FORM_DEPTH_LIMIT", "Наследование в форме глубже 64 уровней.");
-      for (const node of nodes) {
-        const key = name(node);
-        const base = attr(node, "TYPE");
-        if (key === "INHERIT") {
-          const sample = baseType(base, stack, true);
-          if (sample)
-            walk(children(sample), prefix, origin === "own" ? `inherited:${base}` : origin, [
-              ...stack,
-              base,
-            ]);
-          continue;
-        }
-        if (!key || /^(On|DocDesc)$|^On/.test(key) || attr(node, "TEMP") === "1") continue;
-        const path = prefix ? `${prefix}.${key}` : key;
-        const catalogNode = query.get(path);
-        const parameters = Object.entries(data(node[":@"]))
-          .filter(([key]) => /^@_PARAM__\d+$/.test(key))
-          .map(([, value]) => text(value));
-        const computed = attr(node, "PROPERTY") === "1";
-        if (computed && (parameters.length || (!attr(node, "TITLE") && !catalogNode))) {
-          methods.set(path, { name: path, parameters });
-          continue;
-        }
-        const title = this.title(
-          attr(node, "TITLE") || (catalogNode ? attr(catalogNode, "TITLE") : ""),
-          dictionary,
-        );
-        const sample = baseType(base, stack);
-        const field: SchemaField = {
-          path,
-          type:
-            (sample ? "" : base) ||
-            (!children(node).some((child) => name(child)) && catalogNode
-              ? attr(catalogNode, "TYPE")
-              : "") ||
-            "element",
-          origin,
-        };
-        if (title) field.title = title;
-        if (attr(node, "FOREIGN-ARRAY")) field.references = attr(node, "FOREIGN-ARRAY");
-        if (attr(node, "MULTIPLE") === "1") field.multiple = true;
-        if (attr(node, "NOT-NULL") === "1") field.required = true;
-        if (attr(node, "PRIMARY-KEY")) field.key = attr(node, "PRIMARY-KEY");
-        if (computed) field.computed = true;
-        if (catalogNode) field.query = true;
-        fields.set(path, field);
-        if (sample) {
-          walk(children(sample), path, origin === "own" ? `inherited:${base}` : origin, [
-            ...stack,
-            base,
-          ]);
-        }
-        walk(children(node), path, origin, stack);
-      }
-    };
-    walk(children(root));
+    const { fields, methods } = extractFormFields(
+      root,
+      samples,
+      query,
+      (raw) => this.title(raw, dictionary),
+      notes,
+    );
     // Поля строки каталога, запрошенного по имени, — то, по чему идёт поиск.
     if (byCatalog)
       for (const key of (await this.catalogFields(mistaken, rows, samples)).keys()) {
@@ -887,15 +634,15 @@ export class SchemaReader {
     // У строки каталога есть и поля, которых нет у документа; по ним можно искать, но не писать.
     for (const [path, node] of query) {
       if (path.includes(".") || fields.has(path) || methods.has(path)) continue;
-      const property = attr(node, "PROPERTY") === "1";
-      const title = this.title(attr(node, "TITLE"), dictionary);
+      const property = nodeAttr(node, "PROPERTY") === "1";
+      const title = this.title(nodeAttr(node, "TITLE"), dictionary);
       fields.set(path, {
         path,
-        type: attr(node, "TYPE") || "string",
+        type: nodeAttr(node, "TYPE") || "string",
         origin: "catalog",
         ...(title ? { title } : {}),
-        ...(attr(node, "FOREIGN-ARRAY") ? { references: attr(node, "FOREIGN-ARRAY") } : {}),
-        ...(attr(node, "MULTIPLE") === "1" ? { multiple: true } : {}),
+        ...(nodeAttr(node, "FOREIGN-ARRAY") ? { references: nodeAttr(node, "FOREIGN-ARRAY") } : {}),
+        ...(nodeAttr(node, "MULTIPLE") === "1" ? { multiple: true } : {}),
         ...(property ? { computed: true } : { query: true }),
       });
     }

@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const ts = require(process.env.WTCTL_TYPESCRIPT_PATH ?? "typescript");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const protocol = path.join(root, "src/protocol");
-const files = ["api.ts", "types.ts", "physical-documents.ts"];
+const files = ["api.ts", "web-pages.ts", "types.ts", "physical-documents.ts"];
 const declarations = new Map();
 for (const name of files) {
   const text = readFileSync(path.join(protocol, name), "utf8");

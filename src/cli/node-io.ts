@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { MAX_CONFIG_BYTES } from "../config.js";
 import { HcmError } from "../errors.js";
-import { saveLocalFile } from "../results.js";
+import { saveLocalFile } from "../local-file.js";
 import type { Readable } from "node:stream";
 import { CliInputError } from "./arguments.js";
 import type { CliIo } from "./types.js";
@@ -55,6 +55,22 @@ const CONFIG_CONFLICT_HINT = "Повторить команду, чтобы не
 const CONFIG_LOCK_HINT =
   "Повторить команду. Если другой процесс не запущен, удалить оставшийся файл блокировки .lock рядом с файлом подключений.";
 
+async function resolveAncestor(path: string): Promise<string> {
+  const tail: string[] = [];
+  let current = path;
+  for (;;) {
+    try {
+      const real = await realpath(current);
+      return tail.length ? join(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return path;
+      tail.push(basename(current));
+      current = parent;
+    }
+  }
+}
+
 async function resolveConfigPath(path: string): Promise<string> {
   let current = resolve(path);
   for (let hop = 0; hop < 32; hop++) {
@@ -66,18 +82,13 @@ async function resolveConfigPath(path: string): Promise<string> {
     try {
       const info = await lstat(current);
       if (info.isSymbolicLink()) {
-        const baseDir = await realpath(dirname(current)).catch(() => dirname(current));
-        current = resolve(baseDir, await readlink(current));
+        current = resolve(await resolveAncestor(dirname(current)), await readlink(current));
         continue;
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    try {
-      return join(await realpath(dirname(current)), basename(current));
-    } catch {
-      return current;
-    }
+    return resolveAncestor(current);
   }
   throw Object.assign(new Error(`Слишком много уровней символических ссылок: ${path}`), {
     code: "ELOOP",

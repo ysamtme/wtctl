@@ -6,7 +6,7 @@ import { permissionHint } from "./config.js";
 import type { ConnectionConfig } from "./contracts.js";
 import { freezeRegistry } from "./immutable.js";
 import type { HcmServer } from "./hcm-server.js";
-import { saveLocalFile } from "./results.js";
+import { saveLocalFile } from "./local-file.js";
 import type { WriteOutcome } from "./write-outcome.js";
 import { prepareScript, type ScriptData } from "./scripts.js";
 import { parsePhysicalDocumentId } from "./protocol/physical-documents.js";

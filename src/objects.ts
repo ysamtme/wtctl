@@ -26,7 +26,8 @@ import {
   queryPage,
   withoutFalseOffset,
 } from "./query.js";
-import { serverDatabases, withRepeated, type DataShape, type SchemaReader } from "./schema.js";
+import { serverDatabases, type SchemaReader } from "./schema.js";
+import { withRepeated, type DataShape } from "./schema-form.js";
 import { readServerInfo } from "./server-info.js";
 import { isServerDate, verifyFields, verifyRemovals } from "./verification.js";
 import type { BinaryResult } from "./contracts.js";

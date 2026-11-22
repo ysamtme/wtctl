@@ -22,7 +22,7 @@ import {
   withoutFalseOffset,
   xqueryNames,
 } from "../query.js";
-import { withRepeated, type DataShape } from "../schema.js";
+import { withRepeated, type DataShape } from "../schema-form.js";
 
 /** Запрос с query или со ссылкой $ref выполняет код на сервере; запрос по каталогу читает. */
 const queryEffect: EffectFor = (args) =>

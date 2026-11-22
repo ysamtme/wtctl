@@ -22,7 +22,7 @@ SDK, CLI и MCP-сервер вызывают одну и ту же функци
 
 | Модуль | За что отвечает |
 | --- | --- |
-| `src/protocol/` | HTTP, сессии, SOAP, XML, вложения, WebSocket |
+| `src/protocol/` | HTTP, сессии, SOAP/HTTP-обёртки (`wire.ts`), API протокола (`api.ts`), страничные службы загрузки (`web-pages.ts`), XML, вложения, WebSocket |
 | `src/native/` | вызовы API сервера по одному: описание, проверка аргументов, сессии; право каждой операции объявлено строкой в `src/native/metadata.ts` |
 | `src/operation.ts`, `src/operations/` | определение операции одним объектом: ID, эффект и правило эффекта по аргументам, описание, схема аргументов, правила ответа, обработчик; файл на семейство операций |
 | `src/operations.ts`, `src/catalog.ts` | реестр: порядок семейств и поиск по ID; список и описание без подключения |
@@ -33,13 +33,13 @@ SDK, CLI и MCP-сервер вызывают одну и ту же функци
 | `src/reply.ts` | общий вид ответа: предел размера, сохранение целиком, текст ошибки без пароля и путей сервера |
 | `src/query.ts` | условия поиска, страницы |
 | `src/objects.ts`, `src/documents.ts`, `src/verification.ts` | объекты: чтение, создание, правка XML документа, удаление, сверка после записи |
-| `src/schema.ts` | типы объектов и поля из форм сервера |
+| `src/schema.ts`, `src/schema-form.ts` | типы объектов, кэш схем и разбор форм XMD с обходом наследования |
 | `src/scripts.ts`, `src/rpc-catalog.ts` | выполнение кода, функции библиотек |
 | `src/server-value.ts` | значение с типом для функций библиотек: кодирование аргумента, разбор ответа |
 | `src/logs.ts`, `src/log-output.ts` | логи: чтение, события, слежение, размер ответа |
-| `src/files.ts`, `src/server-info.ts`, `src/self-check.ts` | файлы, сведения о сервере, проверка подключения |
+| `src/files.ts`, `src/local-file.ts`, `src/server-info.ts`, `src/self-check.ts` | файлы, атомарная запись локального файла, сведения о сервере, проверка подключения |
 | `src/results.ts` | локальное хранение больших ответов и чтение частями |
-| `src/sdk.ts`, `src/cli/`, `src/mcp/` | SDK, CLI и MCP-сервер |
+| `src/sdk.ts`, `src/sdk-types.ts`, `src/cli/`, `src/mcp/` | SDK и его публичные типы, CLI (`run.ts`, `commands.ts`, `config-commands.ts`, `output.ts`), MCP-сервер |
 | `src/guide.ts`, `src/guide-topics.ts`, `src/guide-texts.ts` | гайд для `hcm_guide` и `wtctl guide`; список тем и тексты генерирует `npm run generate` из навыка |
 | `skills/` | навык: отсюда берутся тексты гайда |
 | `plugin.json`, `mcp.json`, `.claude-plugin/`, `.agents/plugins/`, `gemini-extension.json` | описания плагина для приложений: навык и MCP-сервер вместе. Списки плагинов (`marketplace.json`) в репозитории указывают на ветку `plugin`, где лежит собранный пакет |

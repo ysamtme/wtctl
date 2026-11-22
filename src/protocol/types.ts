@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import type { RawXml, XmlObject } from "./xml.js";
 
 /** Публичный интерфейс сокета для доверенного коннектора в процессе; типы ws наружу не попадают. */
 export interface WebSocketConnection extends EventEmitter {
@@ -113,3 +114,8 @@ export class WsHcmBinaryResponse {
     this.body = response.body;
   }
 }
+
+/** Буферизованный разобранный результат SOAP с точными байтами ответа. */
+export type SoapResult = WsHcmResponse<XmlObject>;
+/** Точные данные внешней части MIME; строки и RawXml кодируются как UTF-8. */
+export type SoapAttachment = RawXml | string | Uint8Array | ArrayBuffer;
