@@ -72,6 +72,8 @@ export const connectionOperations = [
     inputSchema: schema({}),
     reply: { store: "never", failed: checkFailed },
     run: (context) =>
-      checkServer(context.config, (id, input) => context.pipeline.invoke(id, input)),
+      checkServer(context.config, (id, input, signal) =>
+        context.pipeline.invoke(id, input, signal),
+      ),
   }),
 ] as const;

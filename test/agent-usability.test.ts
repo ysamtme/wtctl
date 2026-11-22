@@ -133,6 +133,9 @@ test("правка принимает простой {path: value} и списо
   // Сама операция принимает remove, поэтому его могут передать и программа, и шаг из нескольких операций.
   const { runtime } = fakeRuntime(
     {
+      "native.spxml2.getAppInfo": {},
+      "native.spxml2.getForm":
+        '<SPXML-FORM><group><id TYPE="integer"/><name TYPE="string"/><comment TYPE="string"/><code TYPE="string"/></group></SPXML-FORM>',
       "native.lds.loadDoc": {
         kind: "binary",
         bytes: new TextEncoder().encode(
@@ -356,6 +359,72 @@ test("ID, переданный строкой 0x, сравнивается ка�
     catalogQuery("collaborators", { org_id: { in: ["0x10", "0xFFFFFFFFFFFFFFFF"] }, code: "0x" }),
     "for $elem in collaborators where (($elem/org_id = 16 or $elem/org_id = 0xFFFFFFFFFFFFFFFF)) and ($elem/code = '0x') return $elem",
   );
+});
+
+test("строковые 0, отрицательные целые и вещественные попадают в числовые поля без кавычек, а в строковые — в кавычках", async () => {
+  const types = new Map([
+    ["position_id", "integer"],
+    ["offset", "integer"],
+    ["score", "real"],
+    ["code", "string"],
+  ]);
+  assert.equal(
+    catalogQuery(
+      "collaborators",
+      {
+        position_id: "0",
+        offset: { in: ["-1", "-9223372036854775808", "9223372036854775807"] },
+        score: { gte: "1.5", lt: "-0.25" },
+        code: "0",
+      },
+      undefined,
+      types,
+    ),
+    "for $elem in collaborators where ($elem/position_id = 0)" +
+      " and (($elem/offset = -1 or $elem/offset = -9223372036854775808 or $elem/offset = 9223372036854775807))" +
+      " and ($elem/score >= 1.5) and ($elem/score < -0.25) and ($elem/code = '0') return $elem",
+  );
+  // Вне диапазона int64 и с ведущим нулём остаются строкой.
+  assert.equal(
+    catalogQuery(
+      "collaborators",
+      { position_id: "9223372036854775808", offset: "00" },
+      undefined,
+      types,
+    ),
+    "for $elem in collaborators where ($elem/position_id = '9223372036854775808') and ($elem/offset = '00') return $elem",
+  );
+  // runtime.query подгружает форму каталога и для "0" / "-1" / "1.5".
+  let sentQuery = "";
+  const { runtime } = fakeRuntime({
+    "native.spxml2.getAppInfo": {
+      default_db_name: "wt_data",
+      databases: [
+        {
+          id: "wt_data",
+          catalogs: [{ id: "items", object_type: "item", form_url: "x-local://wtv/wtv_items.xmd" }],
+        },
+      ],
+    },
+    "native.spxml2.getForm":
+      '<SPXML-FORM><items><item MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><score TYPE="real"/><code TYPE="string"/></item></items></SPXML-FORM>',
+    "native.lds.xQuery": (args) => {
+      sentQuery = String(args.query);
+      return { Data: "", TotalCount: "0", EOF: "true" };
+    },
+  });
+  try {
+    await runtime.call("runtime.query", {
+      catalog: "items",
+      where: { id: "0", score: "-1.5", code: "0" },
+    });
+    assert.equal(
+      sentQuery,
+      "for $elem in items where ($elem/id = 0) and ($elem/score = -1.5) and ($elem/code = '0') return $elem",
+    );
+  } finally {
+    await runtime.close();
+  }
 });
 
 test("неверный оператор условия получает подсказку, а «начинается с» — что его нет и чем обойтись", () => {

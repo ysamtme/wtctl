@@ -101,10 +101,10 @@ export class NativeSession {
     this.experimental = new NativeExperimentalApi(transport);
   }
 
-  static async open(defaults: ClientDefaults): Promise<NativeSession> {
+  static async open(defaults: ClientDefaults, options?: RequestOptions): Promise<NativeSession> {
     const http = transport(defaults);
     try {
-      const opened = await openLdsSession(http, "native", true);
+      const opened = await openLdsSession(http, "native", true, options);
       return new NativeSession(http, opened.sessionId);
     } catch (error) {
       try {
@@ -174,10 +174,13 @@ export class NativeSession {
 function extractWebUploadToken(html: string): string | undefined {
   const assignments: RegExpExecArray[] = [];
   // Намеренно узкое чтение штатного встроенного присваивания, а не интерпретатор
-  // JavaScript. Разметка, комментарии и строковые литералы кодом не считаются.
-  const markup = html.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
-  for (const script of markup.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
-    const attributes = script[1]!;
+  // JavaScript. HTML-комментарии вне <script> пропускаются в том же проходе, чтобы
+  // строковый литерал с "<!--" внутри <script> не обрывал разбор скрипта.
+  for (const script of html.matchAll(
+    /<!--[\s\S]*?(?:-->|$)|<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi,
+  )) {
+    if (script[1] === undefined) continue;
+    const attributes = script[1];
     const scriptType = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attributes);
     if (
       /\bsrc\s*=/i.test(attributes) ||
@@ -254,34 +257,6 @@ function extractWebUploadToken(html: string): string | undefined {
     return undefined;
   }
   return typeof token === "string" && /^[\x21-\x7E]{1,256}$/.test(token) ? token : undefined;
-}
-
-/** HTML начальной загрузки читается ради закрытого токена; возвращённый скрипт не выполняется. */
-async function boundedWebBootstrap(response: Response, maximumBytes: number): Promise<string> {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    for (;;) {
-      const part = await reader.read();
-      if (part.done) break;
-      length += part.value.byteLength;
-      if (length > maximumBytes)
-        throw new WsHcmApiError("protocol", "Стартовая страница web превышает предел размера HTML");
-      chunks.push(part.value.slice());
-    }
-    const bytes = new Uint8Array(length);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return new TextDecoder().decode(bytes);
-  } finally {
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
 }
 
 /** Страница, начальная загрузка и выход web Administrator; привязаны к одному хранилищу cookie. */
@@ -406,10 +381,10 @@ export class WebSession {
     this.experimental = new WebExperimentalApi(transport);
   }
 
-  static async open(defaults: ClientDefaults): Promise<WebSession> {
+  static async open(defaults: ClientDefaults, options?: RequestOptions): Promise<WebSession> {
     const http = transport(defaults, true);
     try {
-      const main = await http.send("/spxml_web/main.htm", {}, { basic: true });
+      const main = await http.send("/spxml_web/main.htm", {}, { ...options, basic: true });
       if (!main.ok) {
         await main.body?.cancel();
         throw new WsHcmApiError("http", `HTTP ${main.status}`, {
@@ -417,10 +392,11 @@ export class WebSession {
           status: main.status,
         });
       }
-      const html = await boundedWebBootstrap(main, defaults.maxResponseBytes);
+      // Предел размера ответа уже применил HttpTransport.send() через limitResponse.
+      const html = await main.text();
       if (http.cookie.value === undefined)
         throw new WsHcmApiError("protocol", "Стартовая страница web не вернула cookie SessionID");
-      const opened = await openLdsSession(http, "web");
+      const opened = await openLdsSession(http, "web", false, options);
       return new WebSession(
         http,
         opened.sessionId,
@@ -543,12 +519,12 @@ export class WsHcmClient {
   }
 
   /** Открыть сессию native. Ею владеет вызывающий, он обязан вызвать `close()`. */
-  openNativeSession(): Promise<NativeSession> {
-    return NativeSession.open(this.#defaults);
+  openNativeSession(options?: RequestOptions): Promise<NativeSession> {
+    return NativeSession.open(this.#defaults, options);
   }
   /** Открыть сессию web Administrator. Ею владеет вызывающий, он обязан вызвать `close()`. */
-  openWebSession(): Promise<WebSession> {
-    return WebSession.open(this.#defaults);
+  openWebSession(options?: RequestOptions): Promise<WebSession> {
+    return WebSession.open(this.#defaults, options);
   }
   /** Выполнить действие в сессии native и закрыть её в `finally`; главная — ошибка операции. */
   async withNativeSession<T>(action: (session: NativeSession) => Promise<T>): Promise<T> {

@@ -68,7 +68,7 @@ RESULT = [{ id: doc.DocID + '', lastname: doc.TopElem.lastname + '' }];
 | `status` | версия сервера и права подключения |
 | `check` | проверка подключения по шагам |
 | `types` | типы объектов и их каталоги |
-| `schema ТИП` | поля типа |
+| `schema (ТИП \| --url АДРЕС)` | поля типа или формы |
 | `query` | поиск в каталоге; запрос XQuery |
 | `object get`, `create`, `patch`, `delete` | работа с объектом |
 | `exec` | код на сервере |
@@ -318,7 +318,7 @@ wtctl exec --input-file examples/script-params.js --params-file params.json
 
 ## Список операций без подключения
 
-`wtctl api list --offline` и `wtctl api describe ОПЕРАЦИЯ --offline` читают список операций из пакета и не обращаются к серверу.
+`wtctl api list` и `wtctl api describe ОПЕРАЦИЯ` читают список операций из пакета без настроек подключения и не обращаются к серверу (флаг `--offline` сохранён для совместимости).
 
 ## Гайд по задачам
 

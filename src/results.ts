@@ -163,7 +163,11 @@ function textOf(data: unknown): string | undefined {
  * имена неизвестных полей рядом с длинным документом — не то, за чем пришёл вызывающий.
  * Список, который назвала сама операция (named), засчитывается при любой длине.
  */
-function listOf(data: unknown, named?: string): { key: string; items: unknown[] } | undefined {
+function listOf(
+  data: unknown,
+  named?: string,
+  maxItemBytes?: number,
+): { key: string; items: unknown[] } | undefined {
   if (data === null || typeof data !== "object" || Array.isArray(data)) return undefined;
   const own = named === undefined ? undefined : (data as Record<string, unknown>)[named];
   if (Array.isArray(own)) return { key: named!, items: own };
@@ -171,6 +175,13 @@ function listOf(data: unknown, named?: string): { key: string; items: unknown[] 
   let found: { key: string; items: unknown[]; bytes: number } | undefined;
   for (const [key, value] of Object.entries(data)) {
     if (!Array.isArray(value) || value.length < 2 || key.length > 256) continue;
+    // Если первый элемент уже не помещается на страницу, эвристика «списка» только заблокирует
+    // чтение по умолчанию на blockedItem (как databases в getAppInfo): лучше читать JSON целиком.
+    if (
+      maxItemBytes !== undefined &&
+      (maxItemBytes <= 0 || Buffer.byteLength(JSON.stringify(value[0]) ?? "null") > maxItemBytes)
+    )
+      continue;
     const bytes = Buffer.byteLength(JSON.stringify(value));
     if (bytes > (found?.bytes ?? 0)) found = { key, items: value, bytes };
   }
@@ -333,8 +344,16 @@ async function appendJson(writer: JsonWriter, value: unknown, nested = false): P
  * указывают только на полные локальные payload.
  */
 export class ResultStore {
+  private static readonly PRUNE_INTERVAL_MS = 60_000;
+  private static readonly PRUNE_MAX_ACCUMULATED_BYTES = 4 * 1024 * 1024;
   readonly directory: string;
-  constructor(readonly config: ConnectionConfig) {
+  private lastPrunedAt: number | undefined;
+  private bytesSincePrune = 0;
+  private pruning: Promise<void> | undefined;
+  constructor(
+    readonly config: ConnectionConfig,
+    private readonly now: () => number = Date.now,
+  ) {
     const scope = createHash("sha256")
       .update(`${config.name}\n${config.baseUrl}\n${config.username ?? "anonymous"}`)
       .digest("hex")
@@ -404,7 +423,29 @@ export class ResultStore {
     list?: string,
   ): Promise<{ resultId: string; bytes: number; list?: string }> {
     const saved = await this.write(data, list);
-    await this.prune().catch(() => {});
+    const maxAge = (this.config.resultsMaxAgeDays ?? LOCAL_LIMITS.resultsMaxAgeDays) * DAY;
+    const maxBytes = this.config.resultsMaxBytes ?? LOCAL_LIMITS.resultsMaxBytes;
+    if (!maxAge && !maxBytes) return saved;
+    this.bytesSincePrune += saved.bytes;
+    const byteThreshold =
+      maxBytes > 0
+        ? Math.min(Math.floor(maxBytes / 4), ResultStore.PRUNE_MAX_ACCUMULATED_BYTES)
+        : ResultStore.PRUNE_MAX_ACCUMULATED_BYTES;
+    const now = this.now();
+    const due =
+      this.lastPrunedAt === undefined ||
+      now - this.lastPrunedAt >= ResultStore.PRUNE_INTERVAL_MS ||
+      this.bytesSincePrune >= byteThreshold;
+    if (due && !this.pruning) {
+      this.lastPrunedAt = now;
+      this.bytesSincePrune = 0;
+      this.pruning = this.prune()
+        .catch(() => {})
+        .finally(() => {
+          this.pruning = undefined;
+        });
+      await this.pruning;
+    }
     return saved;
   }
   /**
@@ -435,7 +476,7 @@ export class ResultStore {
       .flatMap(([id, { time, ...files }]) => (time === undefined ? [] : [{ id, time, ...files }]))
       .sort((left, right) => left.time - right.time);
     let total = results.reduce((sum, result) => sum + result.bytes, 0);
-    const now = Date.now();
+    const now = this.now();
     for (const { id, time, payloads, bytes } of results) {
       const age = now - time;
       if (age < HOUR || ((!maxAge || age <= maxAge) && (!maxBytes || total <= maxBytes))) break;
@@ -478,7 +519,7 @@ export class ResultStore {
         jsonChars: 0,
         checkpoints: 0,
       };
-      const list = listOf(data, named);
+      const list = listOf(data, named, Math.floor(this.config.outputLimitBytes / 2) - 128);
       const elements = Array.isArray(data) ? data : list?.items;
       if (elements) {
         const rows = await create(this.payload(id, "rows.idx"));

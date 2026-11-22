@@ -29,7 +29,7 @@ type Context = {
   socketClosed: boolean;
 };
 
-async function fixture(mode: "reply" | "silent" = "reply") {
+async function fixture(mode: "reply" | "silent" | "expire-once" = "reply") {
   const directory = await mkdtemp(join(tmpdir(), "hcm-ws-Рус😀 ' "));
   const contexts: Context[] = [];
   const errors: string[] = [];
@@ -119,6 +119,10 @@ async function fixture(mode: "reply" | "silent" = "reply") {
       );
       assert.ok(context);
       assert.equal(context.opens, 1);
+      if (mode === "expire-once" && context === contexts[0]) {
+        socket.end("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
+        return;
+      }
       assert.equal(context.upgrades++, 0);
       ws.handleUpgrade(request, socket, head, (connection) => {
         context.socket = connection;
@@ -135,7 +139,7 @@ async function fixture(mode: "reply" | "silent" = "reply") {
             return;
           }
           context.messages.push(bytes.toString());
-          if (mode === "reply") connection.send("$ok");
+          if (mode === "reply" || mode === "expire-once") connection.send("$ok");
         });
       });
     } catch (error) {
@@ -415,6 +419,26 @@ test(
       }
       assert.deepEqual(f.requests, []);
       assert.deepEqual(f.contexts, []);
+    } finally {
+      await client.close();
+      await f.close();
+    }
+  },
+);
+
+test(
+  "web.websocket.heartbeat переоткрывает протухшую сессию web при отказе 401 и повторяет проверку",
+  { timeout: 15000 },
+  async () => {
+    const f = await fixture("expire-once");
+    const client = new HcmClient(f.config);
+    try {
+      // Открываем сессию web заранее, чтобы она уже существовала до heartbeat.
+      const opened = await client.call("web.session.open");
+      assert.equal(opened.ok, true, JSON.stringify(opened));
+      const beat = await client.heartbeat({ timeoutMs: 1000 });
+      success(beat);
+      assert.equal(f.contexts.length, 2);
     } finally {
       await client.close();
       await f.close();

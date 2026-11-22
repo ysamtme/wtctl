@@ -368,7 +368,7 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
       ? "environment"
       : { listed: !globalOverrides, named: explicit !== undefined };
   origins.set(config, origin);
-  copies.set(copyKey(config), origin);
+  rememberCopy(copyKey(config), origin);
   return config;
 }
 
@@ -379,8 +379,17 @@ export function loadConfig(options: ConfigOptions = {}): ConnectionConfig {
  */
 type Origin = "settings" | "environment" | { readonly listed: boolean; readonly named: boolean };
 const origins = new WeakMap<ConnectionConfig, Origin>();
+const MAX_COPIES = 256;
 const copies = new Map<string, Origin>();
 const copyKey = (config: ConnectionConfig): string => `${config.name}\n${config.baseUrl}`;
+function rememberCopy(key: string, origin: Origin): void {
+  copies.delete(key);
+  copies.set(key, origin);
+  if (copies.size > MAX_COPIES) {
+    const oldest = copies.keys().next().value;
+    if (oldest !== undefined) copies.delete(oldest);
+  }
+}
 /** Подключения, которыми работает MCP-сервер: правку настроек он видит только после перезапуска. */
 const servedByMcp = new WeakSet<ConnectionConfig>();
 export function markServedByMcp(config: ConnectionConfig): ConnectionConfig {

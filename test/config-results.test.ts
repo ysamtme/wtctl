@@ -521,3 +521,54 @@ test("журнал записей больше journalMaxBytes становит�
     await rm(runtimeDir, { recursive: true, force: true });
   }
 });
+
+test("эвристика списков ResultStore не выбирает массив с гигантским первым элементом вроде databases в getAppInfo", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "hcm-results-list-"));
+  try {
+    const store = new ResultStore({ ...config(directory), outputLimitBytes: 1024 });
+    const appInfo = {
+      default_db_name: "wt_data",
+      databases: [
+        { id: "wt_data", catalogs: Array.from({ length: 40 }, (_, i) => ({ id: `cat_${i}` })) },
+        { id: "other", catalogs: [] },
+      ],
+    };
+    const saved = await store.put(appInfo);
+    assert.equal(saved.list, undefined);
+    const page = await store.read(saved.resultId);
+    assert.equal(page.format, "json");
+    assert.equal(page.blockedItem, undefined);
+    assert.ok(typeof page.text === "string" && page.text.includes("wt_data"));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("ResultStore не чистит папку результатов на каждом мелком put до истечения интервала или порога байт", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "hcm-results-throttle-"));
+  try {
+    let clock = Date.now();
+    const store = new ResultStore(
+      { ...config(directory), resultsMaxAgeDays: 7, resultsMaxBytes: 16 * 1024 },
+      () => clock,
+    );
+    const first = await store.put({ v: 1 });
+    // Искусственно состариваем первый результат после первичной чистки.
+    await age(store.directory, first.resultId, 8 * 24 * HOUR);
+    // Следующий мелкий put через секунду не запускает prune — старый файл пока на месте.
+    clock += 1000;
+    await store.put({ v: 2 });
+    assert.ok(await store.read(first.resultId));
+    // Накопление байт сверх четверти resultsMaxBytes запускает prune и внутри 60-секундного окна.
+    clock += 1000;
+    const second = await store.put({ payload: "x".repeat(5000) });
+    await assert.rejects(store.read(first.resultId), { code: "RESULT_NOT_FOUND" });
+    // Повторное состаривание и срабатывание по истечении 60-секундного интервала.
+    await age(store.directory, second.resultId, 8 * 24 * HOUR);
+    clock += 60_000;
+    await store.put({ v: 3 });
+    await assert.rejects(store.read(second.resultId), { code: "RESULT_NOT_FOUND" });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

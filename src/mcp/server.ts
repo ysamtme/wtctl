@@ -5,7 +5,8 @@ import {
   type CallToolResult,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { readFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { OperationFilter, OperationResult } from "../contracts.js";
 import { HcmError, isSimilarName, similarHint } from "../errors.js";
@@ -14,6 +15,8 @@ import { discoverOperations, operationHelp } from "../operation-help.js";
 import { errorInFrontendTerms } from "../frontend-names.js";
 import { guide, guideTopics, type GuidePage, type LocalInstall } from "../guide.js";
 import { VERSION } from "../version.js";
+
+const MAX_SCRIPT_FILE_BYTES = 16 * 1024 * 1024;
 
 type JsonSchema = Record<string, unknown>;
 type Field = { validator: z.ZodTypeAny; schema: JsonSchema; required: boolean };
@@ -156,9 +159,10 @@ export class HcmMcpTools {
         this.runtime.call(id, args);
     const given = (value: unknown): boolean => typeof value === "string";
     const target: Fields = {
-      id: text("ID объекта строкой: 0x… или десятичный."),
-      url: text("Адрес документа вместо ID."),
-      type: text("Ожидаемый тип; несовпадение — ошибка."),
+      id: text("ID строкой: 0x… или десятичный."),
+      url: text("Адрес документа вместо id."),
+      type: text("Ожидаемый тип."),
+      dbName: text("База, если не основная."),
     };
     const targetRule = {
       test: (args: Arguments) => given(args.id) || given(args.url),
@@ -242,6 +246,8 @@ export class HcmMcpTools {
       limit: integer("Строк на странице: по умолчанию 20, до 1000.", 1000, 1),
       startPosition: integer("nextStartPosition из прошлого ответа.", 1_000_000),
     };
+    const orderItem = z.string().min(1).max(256);
+    const orderList = z.array(orderItem).min(1).max(5);
     register(
       "hcm_query",
       "Поиск в каталоге",
@@ -249,7 +255,37 @@ export class HcmMcpTools {
       {
         catalog: text("Каталог, например collaborators; имена — в hcm_types.", true),
         where: record("Условия по полям каталога."),
-        order: names("Сортировка: поля каталога; по убыванию — «поле desc»."),
+        order: {
+          required: false,
+          // Runtime принимает и одну строку, и массив до 5 полей; в схеме без комбинаторов.
+          // superRefine сохраняет точные причины ошибок ветвей (too_big/too_small/path).
+          validator: z
+            .unknown()
+            .superRefine((value, ctx) => {
+              if (value === undefined) return;
+              const checked =
+                typeof value === "string"
+                  ? orderItem.safeParse(value)
+                  : Array.isArray(value)
+                    ? orderList.safeParse(value)
+                    : undefined;
+              if (!checked) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.invalid_type,
+                  expected: "array",
+                  received: z.getParsedType(value),
+                });
+                return;
+              }
+              if (!checked.success) for (const issue of checked.error.issues) ctx.addIssue(issue);
+            })
+            .optional(),
+          schema: {
+            type: "array",
+            items: { type: "string" },
+            description: "Сортировка: поля каталога; по убыванию — «поле desc».",
+          },
+        },
         ...rows,
       },
       "read",
@@ -261,8 +297,8 @@ export class HcmMcpTools {
       "Прочитать документ объекта по id или url; несколько объектов — ids, ответ items. Из запрошенных полей emptyFields — без значения, unknownFields — которых у типа нет.",
       {
         ...target,
-        ids: names("ID нескольких объектов строками, 0x… или десятичные, до 100."),
-        fields: names("Оставить только эти поля верхнего уровня."),
+        ids: names("Несколько ID строками, до 100."),
+        fields: names("Поля верхнего уровня."),
       },
       "read",
       call("objects.get"),
@@ -281,7 +317,7 @@ export class HcmMcpTools {
         type: text("Тип объекта.", true),
         data: record("Поля нового объекта, без id.", true),
         formUrl: text("Адрес формы, если она не стандартная."),
-        dbName: text("База данных; по умолчанию wt_data."),
+        dbName: text("База, если не основная."),
       },
       "write",
       call("objects.create"),
@@ -311,13 +347,9 @@ export class HcmMcpTools {
           schema: { type: "object", description: "Что записать: {путь: значение}." },
         },
         remove: names("Пути, которые удалить.", 4096),
-        expectedFingerprint: text(
-          "fingerprint из чтения: запись отклоняется, если объект с тех пор изменился.",
-        ),
+        expectedFingerprint: text("fingerprint из чтения для проверки изменений."),
         preview: boolean("Показать изменения без записи."),
-        resave: boolean(
-          "Сохранить и без изменений: сервер обновит поля, взятые из связанных объектов.",
-        ),
+        resave: boolean("Сохранить без изменений: обновить вычисляемые поля."),
       },
       "write",
       (args) => this.runtime.call("objects.patch", args),
@@ -336,7 +368,7 @@ export class HcmMcpTools {
       "Удалить объект безвозвратно, без корзины. Укажи id или url и permanent:true.",
       {
         ...target,
-        catalog: text("Каталог объекта: тогда проверяется, что объект был в нём и исчез."),
+        catalog: text("Каталог: проверить наличие и исчезновение."),
         permanent: {
           required: true,
           validator: z.literal(true),
@@ -359,16 +391,60 @@ export class HcmMcpTools {
       "execute",
       async ({ file, ...args }) => {
         if (file === undefined) return this.runtime.call("execute.script", args);
+        const filePath = file as string;
+        if (!isAbsolute(filePath) || filePath.includes("\0"))
+          return this.error(
+            "hcm_script",
+            "mcp.file_unreadable",
+            "Путь к файлу с кодом должен быть полным.",
+            "Задай полный путь к файлу на компьютере, где запущен MCP-сервер.",
+          );
         let bytes: Buffer;
+        let handle: Awaited<ReturnType<typeof open>> | undefined;
         try {
-          bytes = await readFile(file as string);
+          handle = await open(filePath, "r");
+          const info = await handle.stat();
+          if (!info.isFile())
+            return this.error(
+              "hcm_script",
+              "mcp.file_unreadable",
+              "По этому пути не файл с кодом.",
+              "Укажи полный путь к обычному файлу с кодом.",
+            );
+          if (info.size > MAX_SCRIPT_FILE_BYTES)
+            return this.error(
+              "hcm_script",
+              "mcp.file_too_large",
+              "Файл с кодом превышает предел 16 МиБ.",
+              "Уменьши файл с кодом или раздели обработку на несколько вызовов.",
+            );
+          // Читаем ограниченными порциями: файл, выросший между stat и чтением, не займёт лишнюю память.
+          const chunks: Buffer[] = [];
+          let total = 0;
+          const scratch = Buffer.allocUnsafe(65536);
+          for (;;) {
+            const { bytesRead } = await handle.read(scratch, 0, scratch.length, null);
+            if (bytesRead === 0) break;
+            total += bytesRead;
+            if (total > MAX_SCRIPT_FILE_BYTES)
+              return this.error(
+                "hcm_script",
+                "mcp.file_too_large",
+                "Файл с кодом превышает предел 16 МиБ.",
+                "Уменьши файл с кодом или раздели обработку на несколько вызовов.",
+              );
+            chunks.push(Buffer.from(scratch.subarray(0, bytesRead)));
+          }
+          bytes = Buffer.concat(chunks, total);
         } catch {
           return this.error(
             "hcm_script",
             "mcp.file_unreadable",
             "Файл с кодом не прочитан.",
-            "Проверь путь: он задаётся полным, файл читается на компьютере, где запущен сервер MCP.",
+            "Проверь путь: он задаётся полным, файл читается на компьютере, где запущен MCP-сервер.",
           );
+        } finally {
+          await handle?.close().catch(() => undefined);
         }
         let code: string;
         try {
@@ -471,8 +547,8 @@ export class HcmMcpTools {
         offset: integer("С какого элемента или символа.", Number.MAX_SAFE_INTEGER),
         limit: integer("Элементов массива (до 1000) или символов текста (до 65536).", 65536, 1),
         format: enumeration(
-          ["auto", "json"],
-          "json — читать как текст JSON частями, когда отдельный элемент слишком велик.",
+          ["auto", "json", "text"],
+          "auto, json (текст JSON частями) или text (сохранённый текст).",
         ),
       },
       "read",
@@ -613,6 +689,16 @@ export class HcmMcpTools {
       const bound = validation.find((issue) => issue.maximum !== undefined);
       // То же с правилом самого инструмента: какие его аргументы обязательны.
       const rule = validation.find((issue) => issue.code === "custom" && issue.message);
+      const idTypeIssue = parsed.error.issues.some(
+        (issue) =>
+          issue.code === "invalid_type" &&
+          issue.expected === "string" &&
+          issue.received !== "undefined" &&
+          (issue.path[0] === "id" ||
+            issue.path[0] === "ids" ||
+            issue.path[0] === "kind" ||
+            issue.path[0] === "resultId"),
+      );
       const failed = this.error(
         name,
         "mcp.invalid_arguments",
@@ -623,7 +709,7 @@ export class HcmMcpTools {
             : rule
               ? `Аргументы не подходят инструменту. ${rule.message}`
               : "Аргументы не подходят инструменту.",
-        `Причины — в details.validation.${bound?.path === "limit" ? " Остальное читается следующими страницами." : ""}${parsed.error.issues.some((issue) => issue.code === "invalid_type") ? " ID передавай строкой." : ""}`,
+        `Причины — в details.validation.${bound?.path === "limit" ? " Остальное читается следующими страницами." : ""}${idTypeIssue ? " ID передавай строкой." : ""}`,
       );
       return mcpResult({ ...failed, error: { ...failed.error!, details: { validation } } });
     }

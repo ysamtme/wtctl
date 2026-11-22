@@ -63,7 +63,6 @@ const VALUE_OPTIONS = new Set([
   "url",
   "library",
   "method",
-  "result-id",
   "catalog",
   "where",
   "format",

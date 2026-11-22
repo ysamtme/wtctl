@@ -647,6 +647,15 @@ test("ошибка называет инструмент MCP или команд
     closing("См. schema.types.extra и schema.types.", "cli"),
     "См. schema.types.extra и wtctl types.",
   );
+  // Операции с собственной CLI-командой, но без отдельного MCP-инструмента.
+  assert.equal(
+    closing("files.read, rpc.list, rpc.call, server.info, runtime.batch", "cli"),
+    "wtctl files read, wtctl rpc list, wtctl rpc, wtctl server info, wtctl run",
+  );
+  assert.equal(
+    closing("files.read, rpc.list, rpc.call, server.info, runtime.batch", "mcp"),
+    "files.read, rpc.list, rpc.call, server.info, runtime.batch",
+  );
 });
 
 test("неизвестный ID и похожие на него показываются как ID операций, а api.list — как вход вызывающего", async () => {
@@ -678,7 +687,8 @@ test("каждая строка словаря имён входов назыв�
     // Эти две операции отвечают сами входы, в реестре их нет.
     if (id !== "api.list" && id !== "api.describe")
       assert.ok(operationDefinition(id), `${id}: нет в реестре`);
-    assert.ok(tools.has(tool), `${id}: MCP-сервер не знает инструмента ${tool}`);
+    if (tool !== undefined)
+      assert.ok(tools.has(tool), `${id}: MCP-сервер не знает инструмента ${tool}`);
     const usage = (cliHelp(command.split(" ")[1]).usage ?? []) as string[];
     assert.ok(
       usage.some((line) => line === command || line.startsWith(`${command} `)),

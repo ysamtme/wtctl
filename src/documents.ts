@@ -5,6 +5,7 @@ import {
   assertXmlCharacters as assertPlatformXmlCharacters,
   createPlatformXmlParser,
   createPlatformXmlBuilder,
+  parseValidatedXml,
   validatePlatformXmlSource,
 } from "./protocol/xml.js";
 
@@ -196,9 +197,32 @@ function sameKey(stored: unknown, key: string, type: string | undefined): boolea
       BigInt(text) === BigInt(key))
   );
 }
+/** Глубокое равенство данных без зависимости от порядка ключей объектов. */
+export function sameData(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object")
+    return false;
+  if (Array.isArray(left) || Array.isArray(right))
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((item, index) => sameData(item, right[index]))
+    );
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.hasOwn(right, key) &&
+        sameData((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]),
+    )
+  );
+}
 /**
  * Записываемое значение совпадает с хранимым: ID в другой записи, логическое значение,
- * которое сервер хранит как 0 или 1, дата без смещения.
+ * которое сервер хранит как 0 или 1, дата без смещения, структура с любым порядком ключей.
  */
 function sameValue(
   stored: unknown,
@@ -211,11 +235,11 @@ function sameValue(
     return (
       typeof stored === "string" && sameKey(stored, String(withoutFalseOffset(String(value))), type)
     );
-  return (
-    replacement.length === 1 &&
-    JSON.stringify(withoutFalseOffset(compact(children(replacement[0]!)))) ===
-      JSON.stringify(stored)
-  );
+  const encoded =
+    replacement.length === 1
+      ? withoutFalseOffset(compact(children(replacement[0]!)))
+      : replacement.map((node) => withoutFalseOffset(compact(children(node))));
+  return sameData(encoded, stored);
 }
 /** Запись изменения показывает скалярные значения и поля структуры; глубже — называет поля и считает списки. */
 function brief(value: unknown, nested = false): unknown {
@@ -263,7 +287,7 @@ export class XmlDocument {
     assertXml(source);
     let nodes: Node[];
     try {
-      nodes = parser.parse(source) as Node[];
+      nodes = parseValidatedXml(parser, source) as Node[];
     } catch {
       throw new HcmError(
         "INVALID_XML",
@@ -322,6 +346,7 @@ export class XmlDocument {
     before: DocumentSnapshot;
     after: DocumentSnapshot;
     changes: PatchChange[];
+    written: { path: string; value: unknown }[];
   } {
     const before = this.snapshot();
     const workingRoot = structuredClone(this.root);
@@ -335,6 +360,7 @@ export class XmlDocument {
     if (operations.length > 1000)
       throw new HcmError("PATCH_LIMIT", "В одном patch не больше 1000 изменений.");
     const changes: PatchChange[] = [];
+    const written: { path: string; value: unknown }[] = [];
     for (const raw of operations) {
       const operation = inputObject(raw, "элемент patch");
       const path = requiredString(operation.path, "path");
@@ -502,10 +528,11 @@ export class XmlDocument {
           ...(stored === undefined ? {} : { before: brief(stored) }),
           ...(operation.op === "set" ? { after: brief(operation.value) } : {}),
         });
+        if (operation.op === "set") written.push({ path, value: operation.value });
       }
     }
     const after = new XmlDocument(workingRoot).snapshot();
     this.root = workingRoot;
-    return { before, after, changes };
+    return { before, after, changes, written };
   }
 }

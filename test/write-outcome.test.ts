@@ -187,4 +187,15 @@ test("код, выполняемый на сервере, записывает �
   const bare = new WriteOutcome();
   await server.runCode(script, bare);
   assert.equal(bare.verdict("execute").sent, true);
+
+  const unsent = new WriteOutcome();
+  const broken = new HcmServer(
+    fakeServer({
+      "web.rpc.call": () => {
+        throw new WsHcmApiError("protocol", "not sent", { requestSent: false });
+      },
+    }),
+  );
+  await assert.rejects(broken.runCode(script, unsent));
+  assert.equal(unsent.verdict("execute").sent, false);
 });

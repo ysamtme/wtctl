@@ -273,3 +273,31 @@ test("слишком большая ошибка сохраняет коротк
   assert.equal(long.meta.connection, "[omitted]");
   assert.equal(long.meta.connectionOmitted, true);
 });
+
+test("короткий пароль не портит русские тексты HcmError, но password=… и Basic по-прежнему маскируются", () => {
+  const config: ConnectionConfig = {
+    name: "t",
+    baseUrl: "http://fixture.invalid/",
+    username: "user1",
+    password: "1",
+    timeoutMs: 1000,
+    maxResponseBytes: 1024 * 1024,
+    outputLimitBytes: 65536,
+    runtimeDir: scratchRuntimeDir,
+    permissions: { write: true, execute: true },
+  };
+  const packer = new ReplyPacker(config, {
+    put: async () => ({ resultId: "stored-id", bytes: 1 }),
+  });
+  const basic = Buffer.from("user1:1").toString("base64");
+  const error = new HcmError(
+    "SCRIPT_FAILED",
+    "Ошибка в строке 1: параметр 10 не подходит.",
+    "Проверить значение 1 или password=1 в настройке.",
+    { scriptError: `Строка 1, заголовок ${basic}, Basic ${basic}` },
+  );
+  const reply = fail(packer, error);
+  assert.equal(failed(reply).message, "Ошибка в строке 1: параметр 10 не подходит.");
+  assert.equal(failed(reply).hint, "Проверить значение 1 или password=[redacted] в настройке.");
+  assert.equal(detailsOf(reply).scriptError, "Строка 1, заголовок [redacted], Basic [redacted]");
+});

@@ -622,6 +622,9 @@ test("адрес документа объекта files.delete и files.write �
     "x-local://trash/objects/607999b973ffe0/4a.XML",
     "x-local://share/objects/607999B973FFE0/44.Xml",
     "x-local://wt/objects/607999B973FFE0/44.xml",
+    "x-local://wt_data/objects/0000/01.xml",
+    "x-local://wt_data/objects/0000/41.XML",
+    "x-local://trash/objects/39999999/99.xml",
   ]) {
     const write = await runtime.call("files.write", { url, text: "<x/>" });
     const gone = await runtime.call("files.delete", { url });
@@ -650,9 +653,10 @@ test("адрес документа объекта files.delete и files.write �
     url: "x-local://wt_data/objects/607999B973FFE0/44.xml",
   });
   assert.equal((read.data as { text?: string }).text, "<x/>");
-  // Сервер разбирает только objects строчными первой частью пути и 14 и 2 цифры с .xml в конце.
+  // Сервер разбирает только objects строчными первой частью пути и допустимую раскладку ID с .xml в конце.
   for (const url of [
     "x-local://wt_data/objects/1/2.xml",
+    "x-local://wt_data/objects/40000000/00.xml",
     "x-local://wt_data/OBJECTS/607999B973FFE0/44.xml",
     "x-local://wt_data/a/objects/607999B973FFE0/44.xml",
     "x-local://wt_data/objects/607999B973FFE0/55.xml.bak",

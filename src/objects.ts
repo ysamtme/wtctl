@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { patchSegments, XmlDocument, type PatchChange } from "./documents.js";
+import { patchSegments, sameData, XmlDocument, type PatchChange } from "./documents.js";
 import {
   HcmError,
   inputObject,
@@ -11,11 +11,12 @@ import {
   similarHint,
 } from "./errors.js";
 import type { HcmServer } from "./hcm-server.js";
-import type { WriteOutcome } from "./write-outcome.js";
+import { WriteOutcome } from "./write-outcome.js";
 import { findXmlNode, buildXml, type XmlObject } from "./protocol/xml.js";
 import {
   parsePhysicalDocumentId,
   resolvePhysicalDocumentLocation,
+  validateDbName,
 } from "./protocol/physical-documents.js";
 import {
   cleanXmlValue,
@@ -25,7 +26,7 @@ import {
   queryPage,
   withoutFalseOffset,
 } from "./query.js";
-import { serverDatabases, withRepeated, type SchemaReader } from "./schema.js";
+import { serverDatabases, withRepeated, type DataShape, type SchemaReader } from "./schema.js";
 import { readServerInfo } from "./server-info.js";
 import { isServerDate, verifyFields, verifyRemovals } from "./verification.js";
 import type { BinaryResult } from "./contracts.js";
@@ -180,14 +181,41 @@ export class ServerObjects {
       ...(snapshot.formUrl === undefined ? {} : { formUrl: snapshot.formUrl }),
     };
   }
+  private async resolveDbName(dbName: unknown, info?: Record<string, unknown>): Promise<string> {
+    if (dbName !== undefined) return validateDbName(requiredString(dbName, "dbName"), "dbName");
+    const appInfo = info ?? (await this.server.applicationInfo().catch(() => undefined));
+    return typeof appInfo?.default_db_name === "string" && appInfo.default_db_name
+      ? validateDbName(appInfo.default_db_name, "default_db_name")
+      : "wt_data";
+  }
   async load(
     args: Record<string, unknown>,
   ): Promise<{ document: XmlDocument; url: string; id: string | undefined }> {
-    const requested =
-      args.id === undefined && args.url !== undefined
+    const explicitDb =
+      args.dbName === undefined
         ? undefined
-        : resolvePhysicalDocumentLocation(requiredString(args.id, "id"));
-    const url = args.url === undefined ? requested!.url : requiredString(args.url, "url");
+        : validateDbName(requiredString(args.dbName, "dbName"), "dbName");
+    if (args.url !== undefined && explicitDb !== undefined)
+      throw new HcmError(
+        "INVALID_ARGUMENT",
+        "dbName не задаётся вместе с url: адрес уже называет базу.",
+      );
+    let requested: ReturnType<typeof resolvePhysicalDocumentLocation> | undefined;
+    let url: string;
+    if (args.url !== undefined) {
+      requested =
+        args.id === undefined
+          ? undefined
+          : resolvePhysicalDocumentLocation(requiredString(args.id, "id"));
+      url = requiredString(args.url, "url");
+    } else {
+      const idLexeme = requiredString(args.id, "id");
+      // Проверка формата ID до сетевого запроса за именем основной базы.
+      resolvePhysicalDocumentLocation(idLexeme);
+      const dbName = await this.resolveDbName(explicitDb);
+      requested = resolvePhysicalDocumentLocation(idLexeme, dbName);
+      url = requested.url;
+    }
     const response = await this.server.call("native.lds.loadDoc", {
       url,
       useBinaryResponse: true,
@@ -328,22 +356,98 @@ export class ServerObjects {
   private async requireFields(
     type: string,
     formUrl: string | undefined,
-    data: Record<string, unknown>,
-    names: readonly string[],
+    entries: readonly {
+      path: string;
+      value: unknown;
+      keys?: readonly { path: string; value: string }[];
+    }[],
+    givenShape?: DataShape,
   ): Promise<Map<string, string | undefined>> {
     const filled = new Map<string, string | undefined>();
-    const shape = await this.schema.documentShape(type, formUrl).catch(() => undefined);
+    const shape =
+      givenShape ?? (await this.schema.documentShape(type, formUrl).catch(() => undefined));
     if (!shape) return filled;
-    const written = [...new Set(names)];
-    const unknown =
-      shape.fields.size && !shape.partial ? written.filter((name) => !shape.fields.has(name)) : [];
+    const unknownSet = new Set<string>();
+    const computedSet = new Set<string>();
+    const wrongDates = new Set<string>();
+    const topNames = new Set<string>();
+
+    const checkPath = (path: string): boolean => {
+      const parts = path.split(".");
+      const top = parts[0]!;
+      topNames.add(top);
+      if (shape.fields.size && !shape.partial && !shape.fields.has(top)) {
+        unknownSet.add(top);
+        return false;
+      }
+      if (shape.computed?.has(top)) computedSet.add(top);
+      for (let i = 1; i < parts.length; i++) {
+        const parent = parts.slice(0, i).join(".");
+        const current = `${parent}.${parts[i]!}`;
+        if (shape.parents?.has(parent) && !shape.partial && !shape.types.has(current)) {
+          unknownSet.add(current);
+          return false;
+        }
+        if (shape.computed?.has(current)) computedSet.add(current);
+      }
+      return true;
+    };
+
+    const checkValue = (path: string, value: unknown): void => {
+      if (!checkPath(path)) return;
+      if (Array.isArray(value)) {
+        for (const item of value) checkValue(path, item);
+        return;
+      }
+      if (shape.types.get(path) === "date") {
+        if (
+          value !== null &&
+          value !== undefined &&
+          value !== "" &&
+          (typeof value !== "string" || !isServerDate(value))
+        )
+          wrongDates.add(path);
+        return;
+      }
+      if (value !== null && typeof value === "object") {
+        for (const [childKey, childValue] of Object.entries(value))
+          checkValue(`${path}.${childKey}`, childValue);
+      }
+    };
+
+    for (const entry of entries) {
+      if (entry.keys) for (const key of entry.keys) checkValue(key.path, key.value);
+      checkValue(entry.path, entry.value);
+    }
+
+    const unknown = [...unknownSet];
     if (unknown.length) {
       // schema.get показывает и поля строки каталога (origin:"catalog"): в документе их нет.
-      const rows = await this.schema.catalogShape({ type }).catch(() => undefined);
-      const rowOnly = unknown.filter((name) => rows?.fields.has(name));
-      const near = [...shape.fields].filter((field) =>
-        unknown.some((name) => isSimilarName(field, name)),
-      );
+      const topUnknown = unknown.filter((name) => !name.includes("."));
+      const rows = topUnknown.length
+        ? await this.schema.catalogShape({ type }).catch(() => undefined)
+        : undefined;
+      const rowOnly = topUnknown.filter((name) => rows?.fields.has(name));
+      const near: string[] = [];
+      for (const name of unknown) {
+        const dot = name.lastIndexOf(".");
+        if (dot === -1) {
+          for (const field of shape.fields)
+            if (!shape.computed?.has(field) && isSimilarName(field, name)) near.push(field);
+        } else {
+          const parent = name.slice(0, dot);
+          const leaf = name.slice(dot + 1);
+          const prefix = `${parent}.`;
+          for (const candidate of shape.types.keys())
+            if (
+              !shape.computed?.has(candidate) &&
+              candidate.startsWith(prefix) &&
+              !candidate.slice(prefix.length).includes(".") &&
+              isSimilarName(candidate.slice(prefix.length), leaf)
+            )
+              near.push(candidate);
+        }
+      }
       throw new HcmError(
         "UNKNOWN_FIELD",
         `У типа ${type} нет поля: ${unknown.join(", ")}.`,
@@ -351,7 +455,7 @@ export class ServerObjects {
         { fields: unknown },
       );
     }
-    const computed = written.filter((name) => shape.computed?.has(name));
+    const computed = [...computedSet];
     if (computed.length)
       throw new HcmError(
         "INVALID_ARGUMENT",
@@ -359,15 +463,7 @@ export class ServerObjects {
         "Менять нужно поля, из которых сервер его складывает. Вычисляемые поля в schema.get помечены computed:true.",
         { fields: computed },
       );
-    const wrong = written.filter((name) => {
-      const value = data[name];
-      return (
-        shape.types.get(name) === "date" &&
-        typeof value === "string" &&
-        value &&
-        !isServerDate(value)
-      );
-    });
+    const wrong = [...wrongDates];
     if (wrong.length)
       throw new HcmError(
         "INVALID_ARGUMENT",
@@ -377,7 +473,7 @@ export class ServerObjects {
       );
     // Копия названия хранится рядом со ссылкой: position_name — у position_id. Ссылка, которую
     // сервер тоже заполняет сам (position_parent_id), не советуется.
-    for (const name of written.filter((name) => shape.serverFilled?.has(name))) {
+    for (const name of [...topNames].filter((name) => shape.serverFilled?.has(name))) {
       const source = name.replace(/_name$/, "_id");
       const usable =
         source !== name && shape.fields.has(source) && !shape.serverFilled?.has(source);
@@ -408,10 +504,14 @@ export class ServerObjects {
     const form = await this.schema.documentForm(formUrl);
     if (!Array.isArray(form.roots) || !form.roots.includes(type))
       throw new HcmError("FORM_TYPE_MISMATCH", "В форме нет запрошенного типа объекта.");
-    await this.requireFields(type, formUrl, data, Object.keys(data));
-    const dbName = args.dbName === undefined ? "wt_data" : identifier(args.dbName, "dbName");
+    await this.requireFields(
+      type,
+      formUrl,
+      Object.entries(data).map(([path, value]) => ({ path, value })),
+    );
     // На базу, которой нет, сервер выдаёт ID, а запись отвечает HTTP 500 с неясным исходом.
     const info = await this.server.applicationInfo().catch(() => undefined);
+    const dbName = await this.resolveDbName(args.dbName, info);
     const databases = serverDatabases(info ?? {}).map((db) => db.id);
     if (databases.length && !databases.includes(dbName))
       throw new HcmError(
@@ -422,7 +522,12 @@ export class ServerObjects {
     const mutationId = randomUUID();
     out.note({ mutationId });
     await this.journal({ mutationId, operation: "objects.create", stage: "allocating", type });
-    const allocated = await this.server.call("native.lds.getNewObjectId", { dbName }, out);
+    // Исход вызова решает PutDoc: выделение ID документ ещё не создало.
+    const allocated = await this.server.call(
+      "native.lds.getNewObjectId",
+      { dbName },
+      new WriteOutcome(),
+    );
     const location = resolvePhysicalDocumentLocation(
       scalar(findXmlNode(allocated, "ObjectID"), "ObjectID"),
       dbName,
@@ -475,18 +580,12 @@ export class ServerObjects {
     args: Record<string, unknown>,
     out: WriteOutcome,
   ): Promise<PatchedObjectData | PatchPreviewData> {
+    const operations = patchInput(args.patch, args.remove, args.resave === true);
     const loaded = await this.load(args);
-    // Форма отличает целое поле, где 0x1F и 31 — один ID, от строкового.
+    // Форма отличает целое поле, где 0x1F и 31 — один ID, от строкового, и проверяет имена и даты.
     const { type, formUrl } = loaded.document.form();
-    let unread: unknown;
-    const shape = await this.schema.documentShape(type, formUrl).catch((error: unknown) => {
-      unread = error;
-      return undefined;
-    });
-    const changes = loaded.document.patch(
-      patchInput(args.patch, args.remove, args.resave === true),
-      shape?.types.size ? shape.types : undefined,
-    );
+    const shape = await this.schema.documentShape(type, formUrl);
+    const changes = loaded.document.patch(operations, shape.types.size ? shape.types : undefined);
     if (
       args.expectedFingerprint !== undefined &&
       args.expectedFingerprint !== changes.before.fingerprint
@@ -497,13 +596,27 @@ export class ServerObjects {
         "Прочитать объект заново и составить изменение по его текущему состоянию.",
       );
     // Проверяется и перед предпросмотром: он не должен обещать то, от чего запись откажется.
+    const writtenEntries = changes.written.map(({ path, value }) => {
+      const segments = patchSegments(path);
+      const keys: { path: string; value: string }[] = [];
+      for (let i = 0; i < segments.length; i++) {
+        const key = segments[i]![3];
+        if (key !== undefined)
+          keys.push({
+            path: `${segments
+              .slice(0, i + 1)
+              .map((part) => part[1]!)
+              .join(".")}.${key}`,
+            value: segments[i]![4]!,
+          });
+      }
+      return { path: segments.map((part) => part[1]!).join("."), value, keys };
+    });
     const filled = await this.requireFields(
       changes.before.type,
       changes.before.formUrl,
-      changes.after.data,
-      changes.changes
-        .filter((change) => change.op === "set")
-        .map((change) => patchSegments(change.path)[0]![1]!),
+      writtenEntries,
+      shape,
     );
     const noop = changes.before.fingerprint === changes.after.fingerprint;
     // Нечего менять — ничего не отправляется, если только вызывающий не просит сохранить документ
@@ -516,11 +629,6 @@ export class ServerObjects {
         fingerprint: changes.before.fingerprint,
         ...(filled.size ? { serverFilled: [...filled.keys()] } : {}),
       };
-    const current = await this.load(args);
-    if (current.document.snapshot().fingerprint !== changes.before.fingerprint)
-      throw new HcmError("CONFLICT", "Объект изменился, пока готовилась запись.");
-    // Правка посчитана без формы: её не записать, даже если позже в этом вызове форма прочиталась.
-    if (unread !== undefined) throw unread;
     const form = await this.schema.documentForm(
       changes.before.formUrl ?? (await this.schema.typeFormUrl(changes.before.type)),
     );
@@ -542,7 +650,11 @@ export class ServerObjects {
       { url: loaded.url, data: changes.after.xml, writeDocInfo: true },
       out,
     );
-    const verified = await this.load(args);
+    const verified = await this.load({
+      url: loaded.url,
+      ...(args.id === undefined ? {} : { id: args.id }),
+      ...(args.type === undefined ? {} : { type: args.type }),
+    });
     const snapshot = verified.document.snapshot();
     try {
       verifyFields(changes.after.data, snapshot.data, form.fields, branches, changes.before.xml);
@@ -575,7 +687,7 @@ export class ServerObjects {
       (key) =>
         key !== "doc_info" &&
         !branches.includes(key) &&
-        JSON.stringify(changes.after.data[key]) !== JSON.stringify(snapshot.data[key]),
+        !sameData(changes.after.data[key], snapshot.data[key]),
     );
     return {
       ...(verified.id === undefined ? {} : { id: verified.id }),

@@ -10,21 +10,55 @@ import { WriteOutcome } from "../write-outcome.js";
 
 /** Сырой ответ протокола несёт форматирование XML: отступы между элементами и атрибут xmlns. */
 export function withoutXmlFormatting(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withoutXmlFormatting);
+  if (Array.isArray(value)) {
+    let copy: unknown[] | undefined;
+    for (let i = 0; i < value.length; i++) {
+      const item = value[i];
+      const next = withoutXmlFormatting(item);
+      if (copy !== undefined) {
+        copy[i] = next;
+      } else if (next !== item) {
+        copy = value.slice(0, i);
+        copy.push(next);
+      }
+    }
+    return copy ?? value;
+  }
   if (!value || typeof value !== "object" || value instanceof Uint8Array) return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(
-        ([key, child]) =>
-          key !== "@_xmlns" &&
-          !(key === "#text" && typeof child === "string" && child.trim() === ""),
-      )
-      .map(([key, child]) => [
-        key,
-        // Перевод строки и отступ закрывающего тега — форматирование пустого элемента.
-        typeof child === "string" && /^\s*\n[ \t]+$/.test(child) ? "" : withoutXmlFormatting(child),
-      ]),
-  );
+  const record = value as Record<string, unknown>;
+  let copy: Record<string, unknown> | undefined;
+  const keys = Object.keys(record);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]!;
+    const child = record[key];
+    if (
+      key === "@_xmlns" ||
+      (key === "#text" && typeof child === "string" && child.trim() === "")
+    ) {
+      if (copy === undefined) {
+        copy = {};
+        for (let j = 0; j < i; j++) {
+          const prevKey = keys[j]!;
+          copy[prevKey] = record[prevKey];
+        }
+      }
+      continue;
+    }
+    // Перевод строки и отступ закрывающего тега — форматирование пустого элемента.
+    const next =
+      typeof child === "string" && /^\s*\n[ \t]+$/.test(child) ? "" : withoutXmlFormatting(child);
+    if (copy !== undefined) {
+      copy[key] = next;
+    } else if (next !== child) {
+      copy = {};
+      for (let j = 0; j < i; j++) {
+        const prevKey = keys[j]!;
+        copy[prevKey] = record[prevKey];
+      }
+      copy[key] = next;
+    }
+  }
+  return copy ?? value;
 }
 
 /**

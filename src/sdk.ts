@@ -98,6 +98,8 @@ export type ObjectTarget =
       readonly type?: string;
       /** ID объекта, строкой: 0x… или десятичная запись. */
       readonly id?: string;
+      /** База сервера, если объект задан через id и лежит не в основной базе. */
+      readonly dbName?: string;
     }
   | {
       /** ID объекта, строкой: 0x… или десятичная запись. */
@@ -106,6 +108,8 @@ export type ObjectTarget =
       readonly type?: string;
       /** Адрес документа: url из ответа get. */
       readonly url?: string;
+      /** База сервера, если объект лежит не в основной базе. */
+      readonly dbName?: string;
     };
 /** Что прочитать у объекта. */
 export interface GetOptions {
@@ -118,7 +122,7 @@ export interface CreateInput<T extends object = HcmData> {
   readonly type: string;
   /** Поля нового объекта; id выдаёт сервер. */
   readonly data: T;
-  /** База сервера для объекта; по умолчанию wt_data. */
+  /** База сервера для объекта; по умолчанию основная база сервера (обычно wt_data). */
   readonly dbName?: string;
   /** Адрес формы типа; по умолчанию — та, что сервер объявляет для типа, как в schema.get. */
   readonly formUrl?: string;
@@ -245,6 +249,20 @@ export interface RpcInput {
   readonly arguments?: readonly RpcArgument[];
   /** Запустить фоновой задачей: в ответе TrackingID вместо значения. */
   readonly async?: boolean;
+}
+/**
+ * Ответ синхронного вызова функции библиотеки (rpc без async:true). Если функция вернула
+ * нетипизированный XML (документ или элемент формы), в ответе приходит сырой разобранный объект
+ * сервера без поля value.
+ */
+export interface RpcValueData<T = unknown> {
+  /** Значение, которое вернула функция (простое значение, массив, объект или null). */
+  readonly value: T;
+}
+/** Ответ асинхронного вызова функции библиотеки (rpc с async:true). */
+export interface RpcAsyncData {
+  /** ID фоновой задачи на сервере для проверки статуса и получения результата. */
+  readonly TrackingID: string;
 }
 /** Шаг batch: операция и её аргументы. */
 export interface BatchStep {
@@ -400,6 +418,8 @@ export interface GetManyInput {
   readonly ids: readonly string[];
   /** Ожидаемый тип объектов. */
   readonly type?: string;
+  /** База сервера, если объекты лежат не в основной базе. */
+  readonly dbName?: string;
   /** Поля верхнего уровня; без fields — документы целиком. */
   readonly fields?: readonly string[];
 }
@@ -573,6 +593,46 @@ function storedResultId(result: OperationResult): string | undefined {
     return result.data.resultId;
   return undefined;
 }
+
+async function readStoredQueryPage<T>(
+  client: HcmClient,
+  result: HcmResult<QueryData<T>>,
+  resultId: string,
+): Promise<QueryData<T>> {
+  let offset: number | undefined = 0;
+  let text = "";
+  while (offset !== undefined) {
+    const chunk = await client.readResult({ resultId, offset, limit: 65536, format: "json" });
+    if (!chunk.ok) throw new HcmStoredResultError(result, resultId);
+    const data =
+      chunk.data && typeof chunk.data === "object"
+        ? (chunk.data as { text?: unknown; format?: unknown; nextOffset?: unknown })
+        : undefined;
+    if (data?.format !== "json" || typeof data.text !== "string")
+      throw new HcmStoredResultError(result, resultId);
+    text += data.text;
+    if (data.nextOffset === undefined) {
+      offset = undefined;
+    } else if (Number.isSafeInteger(data.nextOffset) && (data.nextOffset as number) > offset) {
+      offset = data.nextOffset as number;
+    } else {
+      throw new HcmStoredResultError(result, resultId);
+    }
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new HcmStoredResultError(result, resultId);
+  }
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    !Array.isArray((parsed as { items?: unknown }).items)
+  )
+    throw new HcmStoredResultError(result, resultId);
+  return parsed as QueryData<T>;
+}
 /**
  * data ответа. Бросает HcmOperationError при ok:false и HcmStoredResultError, если ответ сохранён
  * локально (meta.truncated).
@@ -693,14 +753,16 @@ export class HcmClient {
   }
   /**
    * Строки каталога или запроса XQuery со всех страниц по порядку; страницы листает сам.
-   * Аргументы те же, что у query. Неполная страница (incomplete) — ошибка QUERY_INCOMPLETE
-   * после её строк, большой ответ — HcmStoredResultError, как в unwrap.
+   * Аргументы те же, что у query. Страницу, которая не поместилась в outputLimitBytes и
+   * сохранилась локально, дочитывает через readResult. Неполная страница (incomplete) —
+   * ошибка QUERY_INCOMPLETE после её строк.
    */
   async *queryRows<T = HcmData>(input: QueryInput): AsyncGenerator<T, void, undefined> {
     let args: QueryInput = input;
     for (;;) {
       const result = await this.query<T>(args);
-      const page = unwrap(result);
+      const storedId = result.ok && result.meta.truncated ? storedResultId(result) : undefined;
+      const page = storedId ? await readStoredQueryPage<T>(this, result, storedId) : unwrap(result);
       yield* page.items;
       if (page.incomplete)
         throw new HcmOperationError(result, {
@@ -747,8 +809,23 @@ export class HcmClient {
   types(input: SchemaTypesInput = {}): Promise<HcmResult<SchemaTypesResult>> {
     return callOperation(this, "schema.types", { ...input });
   }
-  /** Вызывает функцию библиотеки сервера. Нужно право execute; функция может менять данные. */
-  rpc<T = unknown>(input: RpcInput): Promise<HcmResult<T>> {
+  /** Запускает функцию библиотеки сервера фоновой задачей; в ответе TrackingID. Нужно право execute. */
+  rpc(
+    input: RpcInput & {
+      /** Запустить фоновой задачей. */
+      readonly async: true;
+    },
+  ): Promise<HcmResult<RpcAsyncData>>;
+  /** Вызывает функцию библиотеки сервера синхронно; типизированное значение приходит в data.value (нетипизированный XML — сырым ответом сервера). Нужно право execute; функция может менять данные. */
+  rpc<T = unknown>(
+    input: RpcInput & {
+      /** Выполнить синхронно (по умолчанию false). */
+      readonly async?: false;
+    },
+  ): Promise<HcmResult<RpcValueData<T>>>;
+  /** Вызывает функцию библиотеки сервера синхронно или фоновой задачей по полю async. Нужно право execute. */
+  rpc<T = unknown>(input: RpcInput): Promise<HcmResult<RpcValueData<T> | RpcAsyncData>>;
+  rpc<T = unknown>(input: RpcInput): Promise<HcmResult<RpcValueData<T> | RpcAsyncData>> {
     return this.call("rpc.call", { ...input });
   }
   /** Функции библиотек сервера по странице: имя и параметры. Сами функции не вызываются. */

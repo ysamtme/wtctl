@@ -7,7 +7,7 @@ import type { ConnectionConfig, OperationDefinition, OperationResult } from "../
 import { HcmError } from "../src/errors.js";
 import { permissionHint } from "../src/config.js";
 import { describeHcmOperation, listHcmOperations } from "../src/catalog.js";
-import { operationHelp } from "../src/operation-help.js";
+import { discoverOperations, operationHelp } from "../src/operation-help.js";
 import { cliHelp } from "../src/cli/help.js";
 import { ResultStore } from "../src/results.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -810,21 +810,25 @@ test("--order сортирует поиск по каталогу; с текст
   }
 });
 
-test("обзор api сохраняет точные описания операций и фильтры страниц", async () => {
+test("обзор api работает без настроек подключения и сохраняет точные описания операций и фильтры страниц", async () => {
   const f = fixture();
+  f.dependencies.loadConfiguration = () => {
+    f.state.loads++;
+    throw new HcmError("NOT_CONFIGURED", "Подключение не настроено.");
+  };
   assert.equal(
     await runCli(
       [
         "api",
         "list",
         "--effect",
-        "unknown",
+        "read",
         "--query",
-        "load",
+        "loadDoc",
         "--group",
         "lds",
         "--cursor",
-        "5",
+        "0",
         "--limit",
         "20",
       ],
@@ -833,13 +837,51 @@ test("обзор api сохраняет точные описания опера
     ),
     0,
   );
-  assert.deepEqual(f.state.filters, [
-    { effect: "unknown", query: "load", group: "lds", cursor: 5, limit: 20 },
-  ]);
+  const listed = JSON.parse(f.state.stdout);
+  assert.equal(listed.ok, true);
+  assert.equal(listed.meta.connection, "unselected");
+  assert.ok(
+    listed.data.operations.some((item: { id: string }) => item.id === "native.lds.loadDoc"),
+  );
+  assert.equal(f.state.loads, 0);
   assert.equal(f.state.calls.length, 0);
+
   const g = fixture();
-  assert.equal(await runCli(["api", "describe", operation.id], g.io, g.dependencies), 0);
-  assert.deepEqual(JSON.parse(g.state.stdout).data, operationHelp(operation));
+  g.dependencies.loadConfiguration = () => {
+    g.state.loads++;
+    throw new HcmError("NOT_CONFIGURED", "Подключение не настроено.");
+  };
+  assert.equal(await runCli(["api", "describe", "objects.get"], g.io, g.dependencies), 0);
+  assert.deepEqual(
+    JSON.parse(g.state.stdout).data,
+    operationHelp(describeHcmOperation("objects.get")),
+  );
+  assert.equal(g.state.loads, 0);
+
+  // wtctl schema принимает --url вместо или вместе с позиционным типом.
+  const byUrl = await commandInvocation(
+    parseArguments(["schema", "--url", "x-local://wtv/wtv_collaborator.xmd", "--deep"]),
+    f.io,
+  );
+  assert.deepEqual(byUrl, {
+    operationId: "schema.get",
+    args: { url: "x-local://wtv/wtv_collaborator.xmd", deep: true },
+  });
+  const byBoth = await commandInvocation(
+    parseArguments(["schema", "collaborator", "--url", "x-local://wtv/wtv_collaborator.xmd"]),
+    f.io,
+  );
+  assert.deepEqual(byBoth, {
+    operationId: "schema.get",
+    args: { type: "collaborator", url: "x-local://wtv/wtv_collaborator.xmd" },
+  });
+  await assert.rejects(commandInvocation(parseArguments(["schema"]), f.io), CliInputError);
+  await assert.rejects(commandInvocation(parseArguments(["schema", ""]), f.io), CliInputError);
+  await assert.rejects(
+    commandInvocation(parseArguments(["schema", "--url", "   "]), f.io),
+    CliInputError,
+  );
+  assert.throws(() => parseArguments(["result", "read", "--result-id", "abc"]), CliInputError);
 });
 
 test("обзор с --offline читает точные метаданные из пакета без настроек и учётных данных", async () => {
@@ -984,27 +1026,11 @@ test("--offline отклоняет несовместимые команды, в
 });
 
 test("компактный обзор проходит каждую операцию по страницам один раз, не встраивая огромные схемы", async () => {
-  const definitions: OperationDefinition[] = Array.from({ length: 80 }, (_, index) => ({
-    ...operation,
-    id: "native.synthetic.read_" + index,
-    title: "Synthetic operation " + index,
-    description: "Проверенный договор операции. ".repeat(100),
-    inputSchema: {
-      type: "object",
-      properties: { value: { const: "synthetic-schema-only-".repeat(10000) } },
-    },
-  }));
+  const all = listHcmOperations({ limit: 1000 });
   const visited: string[] = [];
   let cursor = 0;
   for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
     const f = fixture();
-    f.runtime.listOperations = (filter) => ({
-      operations: definitions.slice(
-        filter?.cursor ?? 0,
-        (filter?.cursor ?? 0) + (filter?.limit ?? 30),
-      ),
-      total: definitions.length,
-    });
     assert.equal(
       await runCli(
         ["api", "list", "--limit", "100", "--cursor", String(cursor)],
@@ -1014,13 +1040,12 @@ test("компактный обзор проходит каждую операц
       0,
     );
     assert.ok(Buffer.byteLength(f.state.stdout) < 16500);
-    assert.doesNotMatch(f.state.stdout, /synthetic-schema-only/);
     const page = JSON.parse(f.state.stdout).data as {
       operations: { id: string; inputSchema?: unknown }[];
       total: number;
       nextCursor?: number;
     };
-    assert.equal(page.total, definitions.length);
+    assert.equal(page.total, all.total);
     assert.ok(page.operations.length > 0);
     for (const card of page.operations) {
       assert.equal(card.inputSchema, undefined);
@@ -1032,8 +1057,31 @@ test("компактный обзор проходит каждую операц
   }
   assert.deepEqual(
     visited,
-    definitions.map((item) => item.id),
+    all.operations.map((item) => item.id),
   );
+  // Проверка обрезки страниц на подставных длинных описаниях с гигантской схемой.
+  const definitions: OperationDefinition[] = Array.from({ length: 80 }, (_, index) => ({
+    ...operation,
+    id: "native.synthetic.read_" + index,
+    title: "Synthetic operation " + index,
+    description: "Проверенный договор операции. ".repeat(100),
+    inputSchema: {
+      type: "object",
+      properties: { value: { const: "synthetic-schema-only-".repeat(10000) } },
+    },
+  }));
+  const synthetic = discoverOperations(
+    (filter) => ({
+      operations: definitions.slice(
+        filter?.cursor ?? 0,
+        (filter?.cursor ?? 0) + (filter?.limit ?? 30),
+      ),
+      total: definitions.length,
+    }),
+    { limit: 100, cursor: 0 },
+  );
+  assert.ok(Buffer.byteLength(JSON.stringify(synthetic)) < 16500);
+  assert.doesNotMatch(JSON.stringify(synthetic), /synthetic-schema-only/);
 });
 
 test("неверные фильтры api list отказывают до пароля, настроек и runtime", async () => {

@@ -148,7 +148,10 @@ async function soapMultipartCall(
         ? new Uint8Array(external.data)
         : external.data;
   const suffix = new TextEncoder().encode(`\r\n--${boundary}--\r\n`);
-  const body = appendBytes(appendBytes(prefix, data), suffix);
+  const body = new Uint8Array(prefix.byteLength + data.byteLength + suffix.byteLength);
+  body.set(prefix, 0);
+  body.set(data, prefix.byteLength);
+  body.set(suffix, prefix.byteLength + data.byteLength);
   const response = await transport.send(
     path,
     {
@@ -287,6 +290,7 @@ export async function openLdsSession(
   transport: HttpTransport,
   profile: SoapProfile,
   basic = false,
+  options?: RequestOptions,
 ): Promise<OpenSessionResult> {
   const response = await soapCall(
     transport,
@@ -294,7 +298,7 @@ export async function openLdsSession(
     withRnd("/services/LdsService"),
     "OpenSession",
     [["InstallationID", ""]],
-    { basic },
+    { ...options, basic },
   );
   const sessionId = xmlText(response.data, "SessionID");
   if (sessionId === undefined || !/^\d+$/.test(sessionId)) {
@@ -1071,16 +1075,6 @@ export class WebSpXml2Api extends SpXml2Base {
       await this.transport.send(query("/api/spxml2/std_encrypt", { text }), {}, options),
     );
   }
-}
-
-function appendBytes(
-  left: Uint8Array<ArrayBufferLike>,
-  right: Uint8Array<ArrayBufferLike>,
-): Uint8Array<ArrayBuffer> {
-  const result = new Uint8Array(left.length + right.length);
-  result.set(left);
-  result.set(right, left.length);
-  return result;
 }
 
 /** Часть штатной загрузки по выбору вызывающего; offset и totalBytes — в декодированных байтах. */

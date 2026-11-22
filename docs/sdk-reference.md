@@ -252,8 +252,9 @@ client.queryRows<T = HcmData>(input: QueryInput): AsyncGenerator<T, void, undefi
 ```
 
 Строки каталога или запроса XQuery со всех страниц по порядку; страницы листает сам.
-Аргументы те же, что у query. Неполная страница (incomplete) — ошибка QUERY_INCOMPLETE
-после её строк, большой ответ — HcmStoredResultError, как в unwrap.
+Аргументы те же, что у query. Страницу, которая не поместилась в outputLimitBytes и
+сохранилась локально, дочитывает через readResult. Неполная страница (incomplete) —
+ошибка QUERY_INCOMPLETE после её строк.
 
 Типы: [QueryInput](#queryinput).
 
@@ -322,12 +323,36 @@ client.types(input?: SchemaTypesInput): Promise<HcmResult<SchemaTypesResult>>
 #### client.rpc
 
 ```ts
-client.rpc<T = unknown>(input: RpcInput): Promise<HcmResult<T>>
+client.rpc(input: RpcInput & { readonly async: true; }): Promise<HcmResult<RpcAsyncData>>
 ```
 
-Вызывает функцию библиотеки сервера. Нужно право execute; функция может менять данные.
+Запускает функцию библиотеки сервера фоновой задачей; в ответе TrackingID. Нужно право execute.
 
-Типы: [RpcInput](#rpcinput).
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `input.async` | `true` | Запустить фоновой задачей. |
+
+Типы: [RpcInput](#rpcinput), [RpcAsyncData](#rpcasyncdata).
+
+```ts
+client.rpc<T = unknown>(input: RpcInput & { readonly async?: false; }): Promise<HcmResult<RpcValueData<T>>>
+```
+
+Вызывает функцию библиотеки сервера синхронно; типизированное значение приходит в data.value (нетипизированный XML — сырым ответом сервера). Нужно право execute; функция может менять данные.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `input.async?` | `false` | Выполнить синхронно (по умолчанию false). |
+
+Типы: [RpcInput](#rpcinput), [RpcValueData](#rpcvaluedata).
+
+```ts
+client.rpc<T = unknown>(input: RpcInput): Promise<HcmResult<RpcAsyncData | RpcValueData<T>>>
+```
+
+Вызывает функцию библиотеки сервера синхронно или фоновой задачей по полю async. Нужно право execute.
+
+Типы: [RpcInput](#rpcinput), [RpcAsyncData](#rpcasyncdata), [RpcValueData](#rpcvaluedata).
 
 #### client.listRpc
 
@@ -740,7 +765,7 @@ CreateInput<T extends object = HcmData>
 | --- | --- | --- |
 | `type` | `string` | Тип объекта: collaborator, group… |
 | `data` | `T` | Поля нового объекта; id выдаёт сервер. |
-| `dbName?` | `string` | База сервера для объекта; по умолчанию wt_data. |
+| `dbName?` | `string` | База сервера для объекта; по умолчанию основная база сервера (обычно wt_data). |
 | `formUrl?` | `string` | Адрес формы типа; по умолчанию — та, что сервер объявляет для типа, как в schema.get. |
 
 ### DeletedObjectData
@@ -928,6 +953,7 @@ GetManyData<T extends object = HcmData>
 | --- | --- | --- |
 | `ids` | `readonly string[]` | ID объектов, до 100. |
 | `type?` | `string` | Ожидаемый тип объектов. |
+| `dbName?` | `string` | База сервера, если объекты лежат не в основной базе. |
 | `fields?` | `readonly string[]` | Поля верхнего уровня; без fields — документы целиком. |
 
 ### GetOptions
@@ -1185,6 +1211,7 @@ ObjectData<T extends object = HcmData>
 | `url` | `string` | Адрес документа: url из ответа get. |
 | `type?` | `string` | Ожидаемый тип объекта. |
 | `id?` | `string` | ID объекта, строкой: 0x… или десятичная запись. |
+| `dbName?` | `string` | База сервера, если объект задан через id и лежит не в основной базе. |
 
 Вариант 2:
 
@@ -1193,6 +1220,7 @@ ObjectData<T extends object = HcmData>
 | `id` | `string` | ID объекта, строкой: 0x… или десятичная запись. |
 | `type?` | `string` | Ожидаемый тип объекта. |
 | `url?` | `string` | Адрес документа: url из ответа get. |
+| `dbName?` | `string` | База сервера, если объект лежит не в основной базе. |
 
 ### OperationDefinition
 
@@ -1482,6 +1510,14 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 
 Типы: [RpcTypedArgument](#rpctypedargument), [RpcXmlArgument](#rpcxmlargument).
 
+### RpcAsyncData
+
+Ответ асинхронного вызова функции библиотеки (rpc с async:true).
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `TrackingID` | `string` | ID фоновой задачи на сервере для проверки статуса и получения результата. |
+
 ### RpcCatalogFilter
 
 Аргументы listRpc.
@@ -1566,6 +1602,20 @@ type RpcArgument = string | boolean | number | null | RpcTypedArgument | RpcXmlA
 | `valueType` | `string` | Тип значения сервера: date, integer, real, string, bool… |
 | `lexicalValue` | `string \| {…}` | Значение в записи сервера: "2026-10-01T00:00:00", "6148914691236517121"; XML — {xml}. |
 | `lexicalValue.xml` | `string` | Текст XML. |
+
+### RpcValueData
+
+Ответ синхронного вызова функции библиотеки (rpc без async:true). Если функция вернула
+нетипизированный XML (документ или элемент формы), в ответе приходит сырой разобранный объект
+сервера без поля value.
+
+```ts
+RpcValueData<T = unknown>
+```
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `value` | `T` | Значение, которое вернула функция (простое значение, массив, объект или null). |
 
 ### RpcXmlArgument
 

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { NativeGateway } from "../src/native/index.js";
-import { WsHcmApiError, isTransportFailure } from "../src/protocol/error.js";
-import { limitResponse } from "../src/protocol/transport.js";
+import { ArgumentError, WsHcmApiError, isTransportFailure } from "../src/protocol/error.js";
+import { HttpTransport, limitResponse } from "../src/protocol/transport.js";
 
 function oversizedResponse(maxBytes: number, cancellationError?: Error) {
   let cancelCalls = 0;
@@ -188,3 +188,82 @@ for (const variant of [
     await assert.rejects(gateway.close());
     assert.equal(requests.length, completedRequests, "skipped contexts stay locally closed");
   });
+
+test("потоковый ответ без предела байт использует idle-таймаут между чанками, а не общее время загрузки", async () => {
+  // Живой поток идёт дольше timeoutMs (4 чанка по 30 мс при timeoutMs 70 мс) — завершается успешно.
+  const slow = new HttpTransport({
+    baseUrl: "http://stream-fixture.invalid/",
+    timeoutMs: 70,
+    fetch: async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          async start(controller) {
+            for (const part of ["a", "b", "c", "d"]) {
+              await new Promise((resolve) => setTimeout(resolve, 30));
+              controller.enqueue(new TextEncoder().encode(part));
+            }
+            controller.close();
+          },
+        }),
+      ),
+  });
+  const ok = await slow.send("/file", {}, { maxResponseBytes: Infinity });
+  assert.equal(await ok.text(), "abcd");
+  slow.dispose();
+
+  // Зависший поток без новых чанков дольше timeoutMs обрывается с network: timeout.
+  const stalled = new HttpTransport({
+    baseUrl: "http://stream-fixture.invalid/",
+    timeoutMs: 40,
+    fetch: async (_input, init) =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("first"));
+            init?.signal?.addEventListener("abort", () => controller.error(init.signal!.reason), {
+              once: true,
+            });
+          },
+        }),
+      ),
+  });
+  const response = await stalled.send("/stalled", {}, { maxResponseBytes: Infinity });
+  await assert.rejects(
+    async () => {
+      for await (const _ of response.body as unknown as AsyncIterable<Uint8Array>) {
+        // ждём следующего чанка
+      }
+    },
+    (error: unknown) =>
+      error instanceof WsHcmApiError &&
+      error.kind === "http" &&
+      error.details?.network === "timeout",
+  );
+  stalled.dispose();
+});
+
+test("HttpTransport.send проверяет options.timeoutMs и классифицирует отмену с произвольной причиной", async () => {
+  const transport = new HttpTransport({
+    baseUrl: "http://stream-fixture.invalid/",
+    timeoutMs: 500,
+    fetch: async (_input, init) =>
+      new Promise((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+      }),
+  });
+  await assert.rejects(
+    transport.send("/bad", {}, { timeoutMs: 0 }),
+    (error: unknown) => error instanceof ArgumentError,
+  );
+  const controller = new AbortController();
+  const pending = transport.send("/cancel", {}, { signal: controller.signal });
+  controller.abort(new Error("пользовательская причина"));
+  await assert.rejects(
+    pending,
+    (error: unknown) =>
+      error instanceof WsHcmApiError &&
+      error.kind === "http" &&
+      error.details?.network === "aborted",
+  );
+  transport.dispose();
+});

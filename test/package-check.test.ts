@@ -73,16 +73,11 @@ if ((process.argv[1] ?? '').endsWith(require('node:path').join('dist', 'cli', 'b
       preloadControl.stderr,
       "synthetic ambient Node preload reached package CLI smoke\n",
     );
-    const profileControl = await runNode(bin, { ...env, NODE_OPTIONS: "" }, root, [
-      "api",
-      "list",
-      "--limit",
-      "1",
-    ]);
+    const profileControl = await runNode(bin, { ...env, NODE_OPTIONS: "" }, root, ["status"]);
     assert.notEqual(
       profileControl.code,
       0,
-      "an unisolated discovery must actually select the invalid profile",
+      "команда без изоляции должна выбрать неверный профиль из окружения",
     );
 
     const { code, stdout, stderr } = await runNode(

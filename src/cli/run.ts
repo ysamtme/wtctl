@@ -33,7 +33,7 @@ import type { CliDependencies, CliIo, RuntimePort } from "./types.js";
 
 const COMMON = ["config", "connection", "json", "output", "help", "password-stdin"];
 const INPUT = ["input-file", "stdin", "args"];
-const OBJECT_TARGET = ["id", "url", "type"];
+const OBJECT_TARGET = ["id", "url", "type", "db-name"];
 type Invocation = { operationId: string; args: Record<string, unknown> };
 
 function frontendResult(operationId: string, connection: string, data: unknown): OperationResult {
@@ -192,9 +192,10 @@ function objectTarget(args: CliArguments): Record<string, unknown> {
   const id = stringOption(args, "id");
   const url = stringOption(args, "url");
   const type = stringOption(args, "type");
-  for (const value of [id, url, type])
+  const dbName = stringOption(args, "db-name");
+  for (const value of [id, url, type, dbName])
     if (value !== undefined && !value.trim())
-      throw new CliInputError("Адрес и тип объекта должны быть непустыми строками.");
+      throw new CliInputError("Адрес, база и тип объекта должны быть непустыми строками.");
   if (id === undefined && url === undefined) {
     if (args.positionals.length === 2)
       throw new CliInputError("Не задан объект: ID, ТИП ID, --id ID или --url АДРЕС.");
@@ -211,13 +212,21 @@ function objectTarget(args: CliArguments): Record<string, unknown> {
     return {
       id: given,
       ...optional("type", typed ? requirePositional(args, 2, "тип объекта") : type),
+      ...optional("dbName", dbName),
     };
   }
   if (args.positionals.length !== 2)
     throw new CliInputError("Объект задан и аргументом, и через --id или --url.");
   if (id !== undefined && url !== undefined)
     throw new CliInputError("Нужен один из --id и --url, а не оба.");
-  return { ...optional("id", id), ...optional("url", url), ...optional("type", type) };
+  if (url !== undefined && dbName !== undefined)
+    throw new CliInputError("--db-name не нужен вместе с --url: адрес уже называет базу.");
+  return {
+    ...optional("id", id),
+    ...optional("url", url),
+    ...optional("type", type),
+    ...optional("dbName", dbName),
+  };
 }
 
 /** Команда настройки целиком: у MCP-сервера от хоста агента wtctl может не быть в PATH. */
@@ -462,10 +471,24 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       if (action === "get") {
         allowOptions(args, [...OBJECT_TARGET, "ids", "fields"]);
         const ids = listOption(args, "ids");
-        if (ids !== undefined && (args.positionals.length !== 2 || stringOption(args, "id")))
-          throw new CliInputError("--ids задаётся без [ТИП] ID и без --id.");
+        if (
+          ids !== undefined &&
+          (args.positionals.length !== 2 ||
+            stringOption(args, "id") !== undefined ||
+            stringOption(args, "url") !== undefined)
+        )
+          throw new CliInputError("--ids задаётся без [ТИП] ID, --id и --url.");
         const type = stringOption(args, "type");
-        const target = ids === undefined ? objectTarget(args) : { ids, ...optional("type", type) };
+        const dbName = stringOption(args, "db-name");
+        if (ids !== undefined) {
+          for (const value of [type, dbName])
+            if (value !== undefined && !value.trim())
+              throw new CliInputError("База и тип объекта должны быть непустыми строками.");
+        }
+        const target =
+          ids === undefined
+            ? objectTarget(args)
+            : { ids, ...optional("type", type), ...optional("dbName", dbName) };
         return {
           operationId: "objects.get",
           args: { ...target, ...optional("fields", listOption(args, "fields")) },
@@ -691,33 +714,49 @@ export async function commandInvocation(args: CliArguments, io: CliIo): Promise<
       };
     }
     case "schema":
-    case "types":
+    case "types": {
       allowOptions(args, [
         "search",
         "limit",
         "cursor",
-        ...(command === "schema" ? ["path", "origin", "kind", "include", "language", "deep"] : []),
+        ...(command === "schema"
+          ? ["url", "path", "origin", "kind", "include", "language", "deep"]
+          : []),
       ]);
-      exactPositionals(args, command === "schema" ? 2 : 1);
+      exactPositionals(args, 1, command === "schema" ? 2 : 1);
+      if (command === "types") {
+        return {
+          operationId: "schema.types",
+          args: {
+            ...optional("search", stringOption(args, "search")),
+            ...optional("limit", integerOption(args, "limit", 1, 1000)),
+            ...optional("cursor", integerOption(args, "cursor", 0, Number.MAX_SAFE_INTEGER)),
+          },
+        };
+      }
+      const type = args.positionals[1];
+      const url = stringOption(args, "url");
+      if (type !== undefined && !type.trim()) throw new CliInputError("Не задан тип объекта.");
+      if (url !== undefined && !url.trim()) throw new CliInputError("Не задан --url.");
+      if (type === undefined && url === undefined)
+        throw new CliInputError("Не задан тип объекта или --url.");
       return {
-        operationId: command === "schema" ? "schema.get" : "schema.types",
+        operationId: "schema.get",
         args: {
+          ...optional("type", type),
+          ...optional("url", url),
           ...optional("search", stringOption(args, "search")),
           ...optional("limit", integerOption(args, "limit", 1, 1000)),
           ...optional("cursor", integerOption(args, "cursor", 0, Number.MAX_SAFE_INTEGER)),
-          ...(command === "schema"
-            ? {
-                type: requirePositional(args, 1, "тип объекта"),
-                ...optional("path", stringOption(args, "path")),
-                ...(args.options.deep ? { deep: true } : {}),
-                ...optional("origin", listOption(args, "origin")),
-                ...optional("kind", stringOption(args, "kind")),
-                ...optional("include", listOption(args, "include")),
-                ...optional("language", stringOption(args, "language")),
-              }
-            : {}),
+          ...optional("path", stringOption(args, "path")),
+          ...(args.options.deep ? { deep: true } : {}),
+          ...optional("origin", listOption(args, "origin")),
+          ...optional("kind", stringOption(args, "kind")),
+          ...optional("include", listOption(args, "include")),
+          ...optional("language", stringOption(args, "language")),
         },
       };
+    }
     case "logs": {
       if (action === "list") {
         allowOptions(args, [
@@ -1087,9 +1126,11 @@ export async function runCli(
         ...optional("limit", integerOption(parsed, "limit", 1, 100)),
       };
     }
-    if (discovery && parsed.options.offline) {
+    // api list и api describe читают статический реестр пакета без настроек подключения;
+    // флаг --offline сохранён для обратной совместимости.
+    if (discovery) {
       if (parsed.options["password-stdin"])
-        throw new CliInputError("Пароль с --offline не нужен: команда не обращается к серверу.");
+        throw new CliInputError("Пароль не нужен: команда не обращается к серверу.");
       const data =
         action === "describe"
           ? operationHelp(describeHcmOperation(requirePositional(parsed, 2, "ID операции")))
@@ -1135,23 +1176,8 @@ export async function runCli(
     }
     const config = await load();
     runtime = dependencies.createRuntime(config);
-    let result: OperationResult;
-    if (discovery && action === "describe")
-      result = frontendResult(
-        "api.describe",
-        config.name,
-        operationHelp(runtime.describe(requirePositional(parsed, 2, "ID операции"))),
-      );
-    else if (discovery) {
-      result = frontendResult(
-        "api.list",
-        config.name,
-        discoverOperations((filter) => runtime!.listOperations(filter), discoveryFilter),
-      );
-    } else {
-      if (!invocation) throw new CliInputError("Команда не определена.");
-      result = await runtime.call(invocation.operationId, invocation.args);
-    }
+    if (!invocation) throw new CliInputError("Команда не определена.");
+    let result: OperationResult = await runtime.call(invocation.operationId, invocation.args);
     const closing = runtime;
     runtime = undefined;
     try {

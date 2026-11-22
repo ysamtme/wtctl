@@ -444,14 +444,32 @@ export class LogReader {
       error.requestSent !== false &&
       !isTransportFailure(error);
     // Размер и диапазон заново на каждой попытке: отклонённое чтение пишет в лог свою строку.
-    const attempt = async () => {
-      const file = (await this.allFiles()).find((item) => item.name === name);
-      if (!file)
-        throw new HcmError(
-          "LOG_NOT_FOUND",
-          "Такого файла нет среди логов сервера.",
-          "Имена файлов показывает logs.list. Файлы вне списка логов не читаются.",
+    // Ожидание занятости нужно только для актуального файла своего типа лога, а не для архивных дат.
+    const attempt = async (retry: boolean) => {
+      const locate = async () => {
+        const files = await this.allFiles();
+        const found = files.find((item) => item.name === name);
+        if (!found)
+          throw new HcmError(
+            "LOG_NOT_FOUND",
+            "Такого файла нет среди логов сервера.",
+            "Имена файлов показывает logs.list. Файлы вне списка логов не читаются.",
+          );
+        return { files, file: found };
+      };
+      let { files, file } = await locate();
+      const isArchived =
+        file.dateHint !== undefined &&
+        files.some(
+          (other) =>
+            other.type === file.type &&
+            other.dateHint !== undefined &&
+            other.dateHint > file.dateHint!,
         );
+      if (!retry && !isArchived && this.busyUntil > Date.now()) {
+        await this.whileBusy();
+        ({ file } = await locate());
+      }
       const sizeBefore = BigInt(file.sizeBytes);
       if (input.full && sizeBefore > BigInt(this.maxTailBytes))
         throw new HcmError(
@@ -477,14 +495,13 @@ export class LogReader {
         return { refusal: error };
       }
     };
-    await this.whileBusy();
-    let read = await attempt();
+    let read = await attempt(false);
     if ("refusal" in read) {
       const first = read.refusal;
       // Отклонённое чтение само пишется в лог сервера, поэтому ожидание идёт заново отсюда.
       this.serverWroteLog();
       await this.whileBusy();
-      read = await attempt();
+      read = await attempt(true);
       if ("refusal" in read) {
         const unavailable = new LogReadUnavailableError();
         for (const error of [first, read.refusal])
@@ -520,7 +537,7 @@ export class LogReader {
         "Лог изменился или исчез, пока читался.",
         "Чтение нужно повторить: прочитанный текст отброшен. Список файлов покажет logs.list.",
       );
-    const body = notice ? returned.slice(notice[0].length) : returned;
+    const body = returned.slice(notice[0].length);
     if (effectiveTailBytes === 0 && body !== "")
       throw new HcmError("LOG_RESPONSE_INVALID", "Сервер вернул текст, хотя файл лога пуст.");
     return {
@@ -531,7 +548,7 @@ export class LogReader {
       effectiveTailBytes,
       sizeBytesBefore: file.sizeBytes,
       sizeBytesAfter: after.sizeBytes,
-      serverTailNotice: !!notice,
+      serverTailNotice: true,
       truncated:
         sizeBefore > BigInt(effectiveTailBytes) ||
         BigInt(after.sizeBytes) > BigInt(effectiveTailBytes),

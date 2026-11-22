@@ -288,21 +288,76 @@ test("дата подтверждается временем суток и от�
   }
 });
 
-test("база, которой нет на сервере, отклоняется до выдачи ID", async () => {
+test("база по умолчанию берётся из default_db_name, а несуществующая отклоняется до выдачи ID", async () => {
   const { runtime, server } = fakeRuntime(schemaAnswers);
   try {
-    for (const dbName of ["wt_dta", undefined]) {
-      const created = await runtime.call("objects.create", {
+    const missing = await runtime.call("objects.create", {
+      type: "event",
+      data: { name: "x" },
+      dbName: "wt_dta",
+    });
+    assert.equal(missing.error?.code, "INVALID_ARGUMENT");
+    assert.equal(missing.error?.message, "dbName: базы wt_dta на сервере нет.");
+    assert.equal(missing.error?.hint, "Базы сервера: sample.");
+    assert.equal(missing.error?.mutationOutcome, "not_sent");
+    assert.equal(server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length, 0);
+
+    // Без default_db_name и без wt_data в списке баз создание отклоняется до выдачи ID.
+    const noDefault = fakeRuntime({
+      ...schemaAnswers,
+      "native.spxml2.getAppInfo": { ...info, default_db_name: undefined },
+    });
+    try {
+      const refused = await noDefault.runtime.call("objects.create", {
         type: "event",
         data: { name: "x" },
-        ...(dbName ? { dbName } : {}),
       });
-      assert.equal(created.error?.code, "INVALID_ARGUMENT");
-      assert.equal(created.error?.message, `dbName: базы ${dbName ?? "wt_data"} на сервере нет.`);
-      assert.equal(created.error?.hint, "Базы сервера: sample.");
-      assert.equal(created.error?.mutationOutcome, "not_sent");
+      assert.equal(refused.error?.code, "INVALID_ARGUMENT");
+      assert.equal(refused.error?.message, "dbName: базы wt_data на сервере нет.");
+      assert.equal(refused.error?.mutationOutcome, "not_sent");
+      assert.equal(
+        noDefault.server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length,
+        0,
+      );
+    } finally {
+      await noDefault.runtime.close();
     }
-    assert.equal(server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length, 0);
+
+    // При наличии default_db_name: "sample" операции objects.* без dbName идут в sample, а явный dbName переопределяет её.
+    const dbCalls: string[] = [];
+    const customDb = fakeRuntime({
+      ...schemaAnswers,
+      "native.lds.loadDoc": (args) => {
+        dbCalls.push(String(args.url));
+        return {
+          kind: "binary",
+          bytes: new TextEncoder().encode("<event><id>1</id><name>E</name></event>"),
+        };
+      },
+    });
+    try {
+      const byDefault = await customDb.runtime.call("objects.get", { id: "1" });
+      assert.equal(byDefault.ok, true);
+      const byExplicit = await customDb.runtime.call("objects.get", { id: "1", dbName: "wt-2.db" });
+      assert.equal(byExplicit.ok, true);
+      const conflict = await customDb.runtime.call("objects.get", {
+        url: "x-local://sample/objects/0000/01.xml",
+        dbName: "trash",
+      });
+      assert.equal(conflict.error?.code, "INVALID_ARGUMENT");
+      const badManyDb = await customDb.runtime.call("objects.get", {
+        ids: ["1"],
+        dbName: "..",
+      });
+      assert.equal(badManyDb.ok, false);
+      assert.equal(badManyDb.error?.code, "INVALID_ARGUMENT");
+      assert.deepEqual(dbCalls, [
+        "x-local://sample/objects/0000/01.xml",
+        "x-local://wt-2.db/objects/0000/01.xml",
+      ]);
+    } finally {
+      await customDb.runtime.close();
+    }
   } finally {
     await runtime.close();
   }
@@ -399,5 +454,93 @@ test("поле, которое сервер заполняет при сохра
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("вложенные поля и даты проверяются до записи, разный порядок ключей — noop, verifyFields устойчив к <?xml?>", async () => {
+  const nestedForm =
+    '<SPXML-FORM><item><id TYPE="integer"/><access><level TYPE="string"/><expire_date TYPE="date"/><secret TYPE="string" PROPERTY="1" EXPR="level"/></access><entries><entry MULTIPLE="1" PRIMARY-KEY="name"><name TYPE="string"/><value TYPE="string"/></entry></entries><free/></item></SPXML-FORM>';
+  const stored =
+    "<item><id>1</id><access><level>admin</level><expire_date>2026-12-05T00:00:00+00:00</expire_date></access></item>";
+  const { runtime, server } = fakeRuntime({
+    "native.spxml2.getAppInfo": {
+      default_db_name: "sample",
+      databases: [{ id: "sample", catalogs: [{ id: "items", object_type: "item" }] }],
+    },
+    "native.spxml2.getForm": nestedForm,
+    "native.lds.loadDoc": { kind: "binary", bytes: new TextEncoder().encode(stored) },
+  });
+  try {
+    // Неизвестное вложенное поле и опечатка в ключе элемента отклоняются до записи и в предпросмотре.
+    const badNested = await runtime.call("objects.patch", {
+      id: "1",
+      patch: { "access.levle": "user" },
+      preview: true,
+    });
+    assert.equal(badNested.error?.code, "UNKNOWN_FIELD");
+    assert.deepEqual(badNested.error?.details, { fields: ["access.levle"] });
+    assert.match(badNested.error!.hint!, /access\.level/);
+
+    const badKey = await runtime.call("objects.patch", {
+      id: "1",
+      patch: { "entries.entry[nmae=k].value": "v" },
+      preview: true,
+    });
+    assert.equal(badKey.error?.code, "UNKNOWN_FIELD");
+    assert.deepEqual(badKey.error?.details, { fields: ["entries.entry.nmae"] });
+
+    // Вложенная кривая дата (в том числе числом и в ключе) и вычисляемое поле отклоняются.
+    for (const patch of [
+      { "access.expire_date": "05.12.2026" },
+      { "access.expire_date": 20261205 },
+      { "entries.entry[name=k].value": "v", "access.expire_date": { bad: 1 } },
+    ]) {
+      const badDate = await runtime.call("objects.patch", { id: "1", patch, preview: true });
+      assert.equal(badDate.error?.code, "INVALID_ARGUMENT");
+      assert.match(badDate.error!.message, /^access\.expire_date: дата записана не так/);
+    }
+
+    const badCreateDate = await runtime.call("objects.create", {
+      type: "item",
+      data: { access: { expire_date: "05.12.2026" } },
+    });
+    assert.equal(badCreateDate.error?.code, "INVALID_ARGUMENT");
+    assert.match(badCreateDate.error!.message, /^access\.expire_date: дата записана не так/);
+
+    const badComputed = await runtime.call("objects.patch", {
+      id: "1",
+      patch: { "access.secret": "x" },
+      preview: true,
+    });
+    assert.equal(badComputed.error?.code, "INVALID_ARGUMENT");
+    assert.match(badComputed.error!.message, /^access\.secret: значение вычисляет сервер/);
+
+    // Свободный контейнер без объявленных детей принимает произвольные дочерние ключи.
+    const openContainer = await runtime.call("objects.patch", {
+      id: "1",
+      patch: { free: { anything: "ok" } },
+      preview: true,
+    });
+    assert.equal(openContainer.ok, true, JSON.stringify(openContainer));
+
+    // Разный порядок ключей во вложенной структуре распознаётся как noop.
+    const reordered = await runtime.call("objects.patch", {
+      id: "1",
+      patch: { access: { expire_date: "2026-12-05T00:00:00", level: "admin" } },
+    });
+    assert.equal(reordered.ok, true, JSON.stringify(reordered));
+    assert.equal((reordered.data as { noop: boolean }).noop, true);
+    assert.equal(server.calls.filter(({ id }) => /putDoc|getNewObjectId/.test(id)).length, 0);
+
+    // verifyFields не ломается на объявлении <?xml …?> и комментарии перед корнем original.
+    verifyFields(
+      { note: "" },
+      { note: "" },
+      [],
+      ["note"],
+      '<?xml version="1.0" encoding="utf-8"?><!-- comment --><item><note>   </note></item>',
+    );
+  } finally {
+    await runtime.close();
   }
 });

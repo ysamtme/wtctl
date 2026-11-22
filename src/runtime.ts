@@ -11,9 +11,10 @@ import { LogReader } from "./logs.js";
 import { RpcCatalog } from "./rpc-catalog.js";
 import { ServerFiles } from "./files.js";
 import { ServerObjects } from "./objects.js";
-import { HcmServer, type ServerPort } from "./hcm-server.js";
+import { HcmServer, withRequestSignal, type ServerPort } from "./hcm-server.js";
 import { WriteOutcome } from "./write-outcome.js";
 import { ReplyPacker } from "./reply.js";
+import { parsePhysicalDocumentId } from "./protocol/physical-documents.js";
 import type { RuntimePort } from "./runtime-port.js";
 import type {
   ConnectionConfig,
@@ -51,7 +52,7 @@ export class HcmRuntime implements RuntimePort {
     this.logs = new LogReader({ call: (id, args) => this.server.read(id, args) }, config);
     this.files = new ServerFiles(this.server, config);
     this.rpcCatalog = new RpcCatalog(
-      () => this.server.applicationInfo(),
+      (fresh) => this.server.applicationInfo(fresh),
       (url) => this.server.call("native.lds.loadUrl", { url }),
     );
     this.schemaReader = new SchemaReader(
@@ -80,11 +81,13 @@ export class HcmRuntime implements RuntimePort {
         failure: (id, error) => this.failure(id, performance.now(), error, this.unsent(id)),
         step: (id, args, call) => this.perform(id, args, performance.now(), false, call),
         // async: и отказ до первого запроса приходит отклонённым промисом, а не исключением.
-        invoke: async (id, args) =>
-          this.operation(id).run(this.context, args, {
-            outcome: new WriteOutcome(),
-            effect: "read",
-          }),
+        invoke: async (id, args, signal) =>
+          withRequestSignal(signal, () =>
+            this.operation(id).run(this.context, args, {
+              outcome: new WriteOutcome(),
+              effect: "read",
+            }),
+          ),
       },
     };
   }
@@ -130,7 +133,8 @@ export class HcmRuntime implements RuntimePort {
         ),
       );
     }
-    const run = this.queue.then(() => this.perform(id, snapshot, start));
+    // durationMs измеряет фактическое выполнение вызова, а не время ожидания в очереди.
+    const run = this.queue.then(() => this.perform(id, snapshot, performance.now()));
     this.queue = run.catch(() => undefined);
     return run;
   }
@@ -152,6 +156,35 @@ export class HcmRuntime implements RuntimePort {
         permissionHint(this.config, "execute"),
       );
   }
+  private invalidateAfterWrite(
+    id: string,
+    args: Record<string, unknown>,
+    state: OperationCall,
+    error?: unknown,
+  ): void {
+    const verdict = state.outcome.verdict(state.effect, error);
+    if (
+      !verdict.sent ||
+      verdict.mutationOutcome === "not_sent" ||
+      id === "files.list" ||
+      id === "runtime.batch" ||
+      ((id === "native.lds.xQuery" || id === "web.lds.xQuery") &&
+        typeof args.query === "string" &&
+        !/^\s*sql\s*:/i.test(args.query))
+    )
+      return;
+    // Обычная запись документа объекта не меняет формы и библиотеки, но может затронуть общие документы.
+    if (
+      (id === "objects.create" || id === "objects.patch" || id === "objects.delete") &&
+      (typeof args.url !== "string" || parsePhysicalDocumentId(args.url) !== undefined)
+    ) {
+      this.schemaReader.invalidateDocuments();
+      return;
+    }
+    this.server.invalidateApplicationInfo();
+    this.schemaReader.invalidate();
+    this.rpcCatalog.invalidate();
+  }
   private async perform(
     id: string,
     args: Record<string, unknown>,
@@ -159,6 +192,7 @@ export class HcmRuntime implements RuntimePort {
     boundOutput = true,
     state: OperationCall = { outcome: new WriteOutcome(), effect: "read" },
   ): Promise<OperationResult> {
+    let caughtError: unknown;
     try {
       const operation = this.operation(id);
       state.effect = operation.effect;
@@ -168,7 +202,10 @@ export class HcmRuntime implements RuntimePort {
       const value = await operation.run(this.context, args, state);
       return await this.replies.success(id, start, value, boundOutput);
     } catch (error) {
+      caughtError = error;
       return this.failure(id, start, error, state);
+    } finally {
+      this.invalidateAfterWrite(id, args, state, caughtError);
     }
   }
   private failure(

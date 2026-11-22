@@ -110,6 +110,13 @@ function equivalent(
   return String(expected) === String(actual) || differ();
 }
 
+/** Корневой элемент XML без объявления <?xml …?> и комментариев. */
+function xmlRoot(source: string): Record<string, unknown> {
+  const entry = Object.entries(parseXml(source)).find(
+    ([key]) => !key.startsWith("?") && !key.startsWith("#"),
+  );
+  return record(entry?.[1]) ? entry[1] : {};
+}
 /** Проверяет запрошенные ветки чтением обратно, допуская только известную нормализацию XMD. */
 export function verifyFields(
   expected: Record<string, unknown>,
@@ -118,9 +125,7 @@ export function verifyFields(
   names = Object.keys(expected),
   original?: string,
 ): void {
-  const reference = original
-    ? (Object.values(parseXml(original))[0] as Record<string, unknown>)
-    : expected;
+  const reference = original ? xmlRoot(original) : expected;
   const fields = new Map<string, Field>();
   if (Array.isArray(descriptors))
     for (const field of descriptors)

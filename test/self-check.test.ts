@@ -220,3 +220,75 @@ test("runtime.check: запрос, который отвергла база, —
     await runtime.close();
   }
 });
+
+test("checkServer передаёт AbortSignal и отменяет зависшую пробу при таймауте", async () => {
+  let aborted = false;
+  const report = await checkServer({ ...config, timeoutMs: 30 }, async (id, _args, signal) => {
+    if (id === "native.session.open") return { opened: true };
+    if (id === "runtime.status") {
+      return new Promise((_, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            reject(new Error("aborted"));
+          },
+          { once: true },
+        );
+      });
+    }
+    throw new Error("skip");
+  });
+  assert.equal(aborted, true);
+  assert.equal(
+    report.checks.find((check) => check.name === "version")?.reason,
+    "превышено время проверки",
+  );
+});
+
+test("runtime.check сквозно передаёт AbortSignal через withRequestSignal до порта сервера", async () => {
+  const seenSignals: AbortSignal[] = [];
+  let versionAborted = false;
+  const runtime = new HcmRuntime(
+    { ...config, timeoutMs: 30 },
+    {
+      call: async (id, _args, signal) => {
+        if (signal) seenSignals.push(signal);
+        if (id === "native.session.open") return { opened: true };
+        if (id === "native.rpc.call") {
+          return new Promise((_, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => {
+                versionAborted = true;
+                reject(
+                  new WsHcmApiError("http", "HTTP-запрос прерван", {
+                    details: { network: "aborted" },
+                  }),
+                );
+              },
+              { once: true },
+            );
+          });
+        }
+        throw new WsHcmApiError("protocol", "пропуск");
+      },
+      stream: async () => {
+        throw new WsHcmApiError("protocol", "пропуск");
+      },
+    },
+  );
+  try {
+    const result = await runtime.call("runtime.check", {});
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "CHECK_FAILED");
+    assert.ok(seenSignals.length >= 2);
+    assert.equal(versionAborted, true);
+    assert.equal(
+      (result.data as CheckData).checks.find((check) => check.name === "version")?.reason,
+      "превышено время проверки",
+    );
+  } finally {
+    await runtime.close();
+  }
+});

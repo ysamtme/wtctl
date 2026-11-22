@@ -9,6 +9,7 @@ import type { HcmServer } from "./hcm-server.js";
 import { saveLocalFile } from "./results.js";
 import type { WriteOutcome } from "./write-outcome.js";
 import { prepareScript, type ScriptData } from "./scripts.js";
+import { parsePhysicalDocumentId } from "./protocol/physical-documents.js";
 import { exactKeys, isType, rpcArgument, strictResponse } from "./server-value.js";
 
 /** Аргументы fileExists. */
@@ -199,10 +200,12 @@ function fileTarget(value: unknown, listing = false): { url: string; folder: str
 
 /**
  * Адрес, который сервер (2025.1.1171 — 2025.2.1535) передаёт как документ объекта: objects строчными
- * и первой частью пути, цифры и .xml в любом регистре. Удаление по нему кладёт объект в корзину мимо objects.delete,
- * запись меняет документ, но не строку каталога.
+ * и первой частью пути, раскладка 14/2 hex или десятичного ID (< 4 000 000 000) с .xml в любом регистре.
+ * Удаление по нему кладёт объект в корзину мимо objects.delete, запись меняет документ, но не строку каталога.
  */
-const DOCUMENT_URL = /^x-local:\/\/[^/]+\/objects\/[\da-fA-F]{14}\/[\da-fA-F]{2}\.[xX][mM][lL]$/;
+function isDocumentUrl(url: string): boolean {
+  return /^x-local:\/\/[^/]+\/objects\//.test(url) && parsePhysicalDocumentId(url) !== undefined;
+}
 const DOCUMENT_REFUSALS: Record<"delete" | "write", [message: string, hint: string]> = {
   delete: [
     "Адрес — документ объекта: files.delete его не удаляет.",
@@ -214,7 +217,7 @@ const DOCUMENT_REFUSALS: Record<"delete" | "write", [message: string, hint: stri
   ],
 };
 function assertNotDocument(url: string, action: "delete" | "write"): void {
-  if (DOCUMENT_URL.test(url)) throw new HcmError("FILE_IS_DOCUMENT", ...DOCUMENT_REFUSALS[action]);
+  if (isDocumentUrl(url)) throw new HcmError("FILE_IS_DOCUMENT", ...DOCUMENT_REFUSALS[action]);
 }
 
 /** Вид папки по спискам сервера, до отправки; undefined — сервер не сообщил списков. */

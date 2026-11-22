@@ -162,3 +162,59 @@ test("ручные перенаправления фиксируют удале�
   assert.deepEqual(f.cookies(), ["SessionID=owned-manual", null]);
   assert.ok(f.requests.every((request) => request.redirect === "manual"));
 });
+
+test("хранилище cookies сессии сохраняет sticky cookies балансировщика и удаляет только истёкшую cookie", async () => {
+  const sent: (string | null)[] = [];
+  let step = 0;
+  const transport = new HttpTransport({
+    baseUrl: "http://fixture.invalid/",
+    timeoutMs: 1000,
+    fetch: async (_input, init) => {
+      sent.push(new Headers(init?.headers).get("cookie"));
+      step++;
+      if (step === 1) {
+        const headers = new Headers();
+        headers.append("set-cookie", "SessionID=s1; Path=/");
+        headers.append("set-cookie", "AWSALB=node-a; Path=/");
+        return new Response("ok", { status: 200, headers });
+      }
+      if (step === 2) {
+        return new Response("ok", {
+          status: 200,
+          headers: { "set-cookie": "AWSALB=; Max-Age=0; Path=/" },
+        });
+      }
+      return new Response("ok", { status: 200 });
+    },
+  });
+  await transport.send("/a");
+  await transport.send("/b");
+  await transport.send("/c");
+  assert.deepEqual(sent, [null, "SessionID=s1; AWSALB=node-a", "SessionID=s1"]);
+  assert.equal(transport.cookie.value, "s1");
+  transport.dispose();
+  assert.equal(transport.cookie.value, undefined);
+  assert.equal(transport.cookie.header(), undefined);
+});
+
+test("хранилище cookies учитывает Expires и приоритет Max-Age над Expires", async () => {
+  const transport = new HttpTransport({
+    baseUrl: "http://fixture.invalid/",
+    timeoutMs: 1000,
+    fetch: async () => new Response("ok"),
+  });
+  const first = new Headers();
+  first.append("set-cookie", "SessionID=s1; Path=/");
+  // Max-Age положительный, Expires в прошлом — по RFC 6265 §5.3 приоритет у Max-Age.
+  first.append("set-cookie", "AWSALB=keep; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+  first.append("set-cookie", "OLD=drop; Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+  first.append("set-cookie", "bad name=ignored; Path=/");
+  transport.cookie.capture(first);
+  assert.equal(transport.cookie.header(), "SessionID=s1; AWSALB=keep");
+
+  const second = new Headers();
+  second.append("set-cookie", "AWSALB=x; Max-Age=0 ; Path=/");
+  transport.cookie.capture(second);
+  assert.equal(transport.cookie.header(), "SessionID=s1");
+  transport.dispose();
+});

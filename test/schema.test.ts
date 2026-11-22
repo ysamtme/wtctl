@@ -435,7 +435,7 @@ test("разбор форм отклоняет неверный XML и цикл�
   }
 });
 
-test("формы, язык и common живут, пока жив reader; настраиваемые поля обновляются через 60 секунд", async (t) => {
+test("формы, язык, common и настраиваемые поля обновляются через 60 секунд и сбрасываются при invalidate", async (t) => {
   let now = 1000;
   t.mock.method(Date, "now", () => now);
   const { reader, formCalls, documentCalls } = fixture({
@@ -453,10 +453,13 @@ test("формы, язык и common живут, пока жив reader; нас�
   now += 1001;
   await reader.get({ type: "person" });
   await reader.types();
-  assert.deepEqual(formCalls, beforeForms);
-  for (const url of [languageUrl, commonUrl])
-    assert.equal([...formCalls, ...documentCalls].filter((value) => value === url).length, 1);
-  assert.equal(documentCalls.filter((url) => url === customUrl).length, 2);
+  assert.equal(formCalls.length, beforeForms.length * 2);
+  for (const url of [languageUrl, commonUrl, customUrl])
+    assert.equal([...formCalls, ...documentCalls].filter((value) => value === url).length, 2, url);
+  // Явный сброс перечитывает метаданные сразу, не дожидаясь TTL.
+  reader.invalidate();
+  await reader.get({ type: "person" });
+  assert.equal(formCalls.filter((url) => url === personUrl).length, 3);
 });
 
 test("повторные вызовы schema.get в runtime читают каждую форму и языковой файл один раз за процесс", async () => {
@@ -699,5 +702,95 @@ test("форма каталога с необычным адресом запо�
     assert.equal(server.calls.filter((call) => call.args.url === usual).length, 1);
   } finally {
     await runtime.close();
+  }
+});
+
+test("запись в runtime сбрасывает кэш метаданных, и следующий schema.get читает обновлённую форму", async () => {
+  let version = 1;
+  const { runtime } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": {
+        default_db_name: "sample",
+        databases: [{ id: "sample", catalogs: [{ id: "items", object_type: "item" }] }],
+      },
+      "native.spxml2.getForm": () =>
+        version === 1
+          ? '<SPXML-FORM><item><id TYPE="integer"/><name TYPE="string"/></item></SPXML-FORM>'
+          : version === 2
+            ? '<SPXML-FORM><item><id TYPE="integer"/><name TYPE="string"/><added TYPE="string"/></item></SPXML-FORM>'
+            : '<SPXML-FORM><item><id TYPE="integer"/><name TYPE="string"/><added TYPE="string"/><sql_added TYPE="string"/></item></SPXML-FORM>',
+      "native.lds.putDoc": () => {
+        version = 2;
+        return { completed: true };
+      },
+      "native.lds.xQuery": () => {
+        version = 3;
+        return { Data: "", TotalCount: "0", EOF: "true" };
+      },
+      "native.lds.loadDoc": (_, id) => {
+        throw refusal(id);
+      },
+    },
+    { permissions: { write: true, execute: true } },
+  );
+  try {
+    const first = (await runtime.call("schema.get", { type: "item" })).data as SchemaResult;
+    assert.deepEqual(
+      first.fields.map((f) => f.path),
+      ["id", "name"],
+    );
+    const put = await runtime.call("native.lds.putDoc", {
+      url: "x-local://wtv/wtv_item.xmd",
+      data: "<SPXML-FORM/>",
+    });
+    assert.equal(put.ok, true, JSON.stringify(put));
+    const second = (await runtime.call("schema.get", { type: "item" })).data as SchemaResult;
+    assert.deepEqual(
+      second.fields.map((f) => f.path),
+      ["id", "name", "added"],
+    );
+    // sql:-запрос в runtime.query тоже может менять сервер и сбрасывает кэш метаданных.
+    const sql = await runtime.call("runtime.query", { query: "sql: select 1" });
+    assert.equal(sql.ok, true, JSON.stringify(sql));
+    const third = (await runtime.call("schema.get", { type: "item" })).data as SchemaResult;
+    assert.deepEqual(
+      third.fields.map((f) => f.path),
+      ["id", "name", "added", "sql_added"],
+    );
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("schema.get в runtime подстраивает размер страницы под outputLimitBytes и не уходит в ResultStore", async () => {
+  const wideFields = Array.from(
+    { length: 120 },
+    (_, i) => `<f${i} TYPE="string" TITLE="${"Поле ".repeat(20)}${i}"/>`,
+  ).join("");
+  const script = {
+    "native.spxml2.getAppInfo": { default_db_name: "wt_data", databases: [] },
+    "native.spxml2.getForm": wrap(
+      `<wide><nested><a TYPE="string"/><b TYPE="string"/></nested>${wideFields}</wide>`,
+    ),
+  };
+  const small = fakeRuntime(script, { outputLimitBytes: 2048 }).runtime;
+  const large = fakeRuntime(script, { outputLimitBytes: 65536 }).runtime;
+  try {
+    const smallReply = await small.call("schema.get", { type: "wide", limit: 120 });
+    assert.equal(smallReply.ok, true);
+    assert.equal(smallReply.meta.truncated, undefined);
+    const smallPage = smallReply.data as SchemaResult;
+    assert.equal(smallPage.cutBySize, true);
+    assert.equal(smallPage.fields.find((f) => f.path === "nested")?.children, 2);
+    assert.ok(Buffer.byteLength(JSON.stringify(smallPage), "utf8") <= Math.floor(2048 * 0.6));
+
+    const largeReply = await large.call("schema.get", { type: "wide", limit: 120 });
+    assert.equal(largeReply.ok, true);
+    assert.equal(largeReply.meta.truncated, undefined);
+    const largePage = largeReply.data as SchemaResult;
+    assert.ok(largePage.fields.length > smallPage.fields.length);
+    assert.ok(Buffer.byteLength(JSON.stringify(largePage), "utf8") > 16 * 1024);
+  } finally {
+    await Promise.all([small.close(), large.close()]);
   }
 });

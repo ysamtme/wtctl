@@ -77,7 +77,7 @@ export const rpcOperations = [
     }),
     summary:
       "Найти функции, разрешённые для вызова с клиента: query, library, method; all:true — вместе с функциями только для кода на сервере.",
-    run: (context, args) => context.rpcCatalog.list(args),
+    run: (context, args) => context.rpcCatalog.list(args, context.pageBytes),
   }),
   operation({
     id: "rpc.describe",

@@ -517,3 +517,60 @@ test("конструктор типизированной сводки проп�
   assert.ok(Object.isFrozen(error.receipt));
   assert.ok(Object.isFrozen(error.receipt.limits));
 });
+
+test("webSocketHeartbeat передаёт все cookies сессии в рукопожатие и отклоняет слишком длинный заголовок Cookie", async () => {
+  const http = new HttpTransport({
+    baseUrl: "http://invalid.example/prefix",
+    timeoutMs: 500,
+    fetch: async () => new Response(""),
+  });
+  const headers = new Headers();
+  headers.append("set-cookie", "SessionID=ws-1; Path=/");
+  headers.append("set-cookie", "AWSALB=node-a; Path=/");
+  http.cookie.capture(headers);
+  let sentCookie: string | undefined;
+  class CookieSocket extends EventEmitter implements WebSocketConnection {
+    readyState: number = WebSocket.CONNECTING;
+    send(data: string, callback: (error?: Error) => void): void {
+      assert.equal(data, "$hbt");
+      callback();
+      queueMicrotask(() => this.emit("message", Buffer.from("$ok"), false));
+    }
+    close(): void {
+      this.readyState = WebSocket.CLOSED;
+      queueMicrotask(() => this.emit("close", 1000, Buffer.alloc(0)));
+    }
+    pong(): void {}
+    terminate(): void {}
+  }
+  const socket = new CookieSocket();
+  await webSocketHeartbeat(
+    http,
+    (_url, options) => {
+      sentCookie = options.headers.Cookie;
+      queueMicrotask(() => {
+        socket.readyState = WebSocket.OPEN;
+        socket.emit("open");
+      });
+      return socket;
+    },
+    { timeoutMs: 250 },
+  );
+  assert.equal(sentCookie, "SessionID=ws-1; AWSALB=node-a");
+
+  const huge = new Headers();
+  huge.append("set-cookie", `EXTRA=${"x".repeat(4100)}; Path=/`);
+  http.cookie.capture(huge);
+  await assert.rejects(
+    webSocketHeartbeat(
+      http,
+      () => {
+        throw new Error("фабрика не должна вызываться");
+      },
+      { timeoutMs: 250 },
+    ),
+    (error: unknown) =>
+      error instanceof WebSocketHeartbeatError && error.errorCode === "WS_UNAVAILABLE",
+  );
+  http.dispose();
+});

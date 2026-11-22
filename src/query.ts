@@ -19,9 +19,22 @@ export function identifier(value: unknown, field: string): string {
 export function looksLikeDate(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}(?:$|[T ]\d{2}:\d{2})/.test(value);
 }
-/** ID в десятичной записи, как сам сервер возвращает новый. */
-export function looksLikeDecimalId(value: unknown): value is string {
-  return typeof value === "string" && /^[1-9]\d{0,18}$/.test(value);
+const MIN_INT64 = -(1n << 63n);
+const MAX_INT64 = (1n << 63n) - 1n;
+
+/** Целое число в десятичной записи (включая 0 и отрицательные, в пределах 64-битного знакового). */
+export function looksLikeInteger(value: unknown): value is string {
+  if (typeof value !== "string" || !/^(?:0|-?[1-9]\d{0,18})$/.test(value)) return false;
+  const parsed = BigInt(value);
+  return parsed >= MIN_INT64 && parsed <= MAX_INT64;
+}
+/** Вещественное число в десятичной записи. */
+export function looksLikeReal(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 40 &&
+    /^(?:(?:0|-?[1-9]\d*)(?:\.\d+)?|-0\.\d+)$/.test(value)
+  );
 }
 /** ID в записи 0x…, как его отдают каталоги. */
 export function looksLikeHexId(value: unknown): value is string {
@@ -32,8 +45,9 @@ export function looksLikeHexId(value: unknown): value is string {
  * или поля в ней нет, и тогда 0x… считается ID по виду значения.
  */
 function literal(value: unknown, type?: string): string {
-  // Число в кавычках на PostgreSQL никогда не равно целому полю: сервер отклоняет запрос.
-  if (type === "integer" && looksLikeDecimalId(value)) return value;
+  // Число в кавычках на PostgreSQL никогда не равно числовому полю: сервер отклоняет запрос.
+  if (type === "integer" && looksLikeInteger(value)) return value;
+  if (type === "real" && looksLikeReal(value)) return value;
   // Поле даты, сравнённое со строкой в кавычках, на PostgreSQL ничего не находит без ошибки;
   // date('…') понимает любая база, с которой работает сервер.
   if (type === "date" && looksLikeDate(value) && value.length <= 40 && !value.includes("'"))

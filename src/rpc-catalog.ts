@@ -121,10 +121,17 @@ function unknownTarget(
 export class RpcCatalog {
   private readonly reader: LibraryReader | undefined;
   constructor(
-    applicationInfo?: () => Promise<Record<string, unknown>>,
+    applicationInfo?: (fresh?: boolean) => Promise<Record<string, unknown>>,
     readFile?: (url: string) => Promise<unknown>,
+    ttlMs?: number,
+    now?: () => number,
   ) {
-    if (applicationInfo && readFile) this.reader = new LibraryReader(applicationInfo, readFile);
+    if (applicationInfo && readFile)
+      this.reader = new LibraryReader(applicationInfo, readFile, ttlMs, now);
+  }
+  /** Сбросить кэш прочитанных библиотек сервера. */
+  invalidate(): void {
+    this.reader?.invalidate();
   }
   private async catalog(
     builtIn: unknown,
@@ -141,7 +148,8 @@ export class RpcCatalog {
   }
   /** Почему сервер отказал в вызове, если это объясняет его собственный список функций. */
   async refusal(targetId: string): Promise<HcmError | undefined> {
-    const server = await this.reader?.read(targetId.split(".")[0]);
+    // После HTTP 500 библиотека читается заново: устаревший кэш не должен выдавать сбой функции за её отсутствие.
+    const server = await this.reader?.read(targetId.split(".")[0], { fresh: true });
     if (!server) return undefined;
     const target = server.targets.find((item) => item.id === targetId);
     // Функции нет, только если её библиотека прочитана целиком или её нет среди общих документов.
@@ -157,7 +165,10 @@ export class RpcCatalog {
       `Вызывать её нужно из кода на сервере: execute.script, например r = ${library}.${method}(…); RESULT = [r + '']; — массив обойти циклом, из объекта взять нужные поля.`,
     );
   }
-  async list(filter: RpcCatalogFilter = {}): Promise<RpcCatalogPage> {
+  async list(
+    filter: RpcCatalogFilter = {},
+    pageBytes = RPC_CATALOG_PAGE_MAX_BYTES,
+  ): Promise<RpcCatalogPage> {
     const args = input("rpc.list", filter);
     const query = filter.query?.trim().toLowerCase();
     const cursor = boundedInteger(args.cursor, 0, Number.MAX_SAFE_INTEGER, "cursor");
@@ -182,20 +193,25 @@ export class RpcCatalog {
           hint: "serverOnlyHidden — сколько подходящих функций не показано: они вызываются только из кода на сервере. all:true (в CLI --all) добавит их в список.",
         }
       : {};
+    const limitBytes = Math.max(256, pageBytes);
+    const emptyBytes = Buffer.byteLength(
+      JSON.stringify({ ...metadata, targets: [], total, ...serverOnlyHidden }, null, 2),
+      "utf8",
+    );
+    let cardsBytes = 0;
     const selected: RpcTargetCard[] = [];
     for (const { id, parameters, allowed, serverOnly } of filtered.slice(cursor, cursor + limit)) {
       const target = { id, parameters, allowed, ...(serverOnly ? { serverOnly } : {}) };
-      const candidate = [...selected, target];
-      const nextCursor = cursor + candidate.length;
-      const page = {
-        ...metadata,
-        targets: candidate,
-        total,
-        ...serverOnlyHidden,
-        ...(nextCursor < total ? { nextCursor } : {}),
-      };
+      const card = JSON.stringify(target, null, 2);
+      let lines = 1;
+      for (let i = 0; i < card.length; i++) if (card.charCodeAt(i) === 10) lines++;
+      const itemBytes = Buffer.byteLength(card, "utf8") + 4 * lines;
+      const wrapperDelta = selected.length === 0 ? 4 : 2;
+      const nextCursor = cursor + selected.length + 1;
+      const cursorBytes =
+        nextCursor < total ? Buffer.byteLength(`,\n  "nextCursor": ${nextCursor}`, "utf8") : 0;
       // Не продвигаться за карточку, которая не выдана, когда бюджет в байтах сокращает страницу.
-      if (Buffer.byteLength(JSON.stringify(page, null, 2), "utf8") > RPC_CATALOG_PAGE_MAX_BYTES) {
+      if (emptyBytes + cardsBytes + wrapperDelta + itemBytes + cursorBytes > limitBytes) {
         if (selected.length === 0)
           throw new HcmError(
             "RPC_METADATA_TOO_LARGE",
@@ -206,6 +222,7 @@ export class RpcCatalog {
         break;
       }
       selected.push(target);
+      cardsBytes += wrapperDelta + itemBytes;
     }
     const nextCursor = cursor + selected.length;
     return freezeRegistry({

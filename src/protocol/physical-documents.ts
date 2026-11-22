@@ -103,9 +103,10 @@ export function parsePhysicalDocumentId(url: string): string | undefined {
   return id < 4_000_000_000n ? id.toString() : undefined;
 }
 
-function validateDbName(dbName: string): void {
-  if (!/^[A-Za-z0-9_.-]+$/.test(dbName))
-    throw new ArgumentError("dbName: нужно имя базы из латинских букв, цифр и знаков . _ -");
+export function validateDbName(dbName: string, label = "dbName"): string {
+  if (!/^[A-Za-z0-9_.-]+$/.test(dbName) || /^\.+$/.test(dbName))
+    throw new ArgumentError(`${label}: нужно имя базы из латинских букв, цифр и знаков . _ -`);
+  return dbName;
 }
 
 /** Запросы LDS, из которых складывается создание документа; ответ несёт разобранные данные. */

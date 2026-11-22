@@ -182,24 +182,24 @@ test("сводки сбоя сохраняют точные ID подготов�
   }
 });
 
-test("неудачные записи документов сохраняют UUID из журнала записей и числовой ID объекта, несмотря на совпадение с коротким паролем", async () => {
+test("неудачные записи документов сохраняют UUID из журнала записей и числовой ID объекта, несмотря на совпадение с паролем", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hcm-review-"));
   const { runtime } = fakeRuntime(
     {
-      "native.lds.loadDoc": doc("<fixture><id>41</id><name>before</name></fixture>"),
+      "native.lds.loadDoc": doc("<fixture><id>414141</id><name>before</name></fixture>"),
       "native.spxml2.getForm": fixtureForm,
       "native.lds.putDoc": () => {
-        throw new HcmError("SYNTHETIC_WRITE_FAILED", "Synthetic 4 diagnostic.", undefined, {
-          mutationId: "untrusted-4",
-          objectId: "untrusted-4",
-          diagnostic: "untrusted-4",
+        throw new HcmError("SYNTHETIC_WRITE_FAILED", "Synthetic 414141 diagnostic.", undefined, {
+          mutationId: "untrusted-414141",
+          objectId: "untrusted-414141",
+          diagnostic: "untrusted-414141",
         });
       },
     },
-    { runtimeDir: directory, outputLimitBytes: 1024, username: "synthetic", password: "4" },
+    { runtimeDir: directory, outputLimitBytes: 1024, username: "synthetic", password: "414141" },
   );
   try {
-    const result = await runtime.call("objects.patch", { id: "41", patch: { name: "after" } });
+    const result = await runtime.call("objects.patch", { id: "414141", patch: { name: "after" } });
     const journal = JSON.parse(
       (await readFile(join(runtime.results.directory, "mutations.jsonl"), "utf8")).trim(),
     ) as { mutationId: string };
@@ -209,7 +209,7 @@ test("неудачные записи документов сохраняют UU
       journal.mutationId,
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-    assert.equal(result.error?.details?.objectId, "41");
+    assert.equal(result.error?.details?.objectId, "414141");
     assert.equal(result.error?.details?.diagnostic, "untrusted-[redacted]");
     assert.equal(result.error?.message, "Synthetic [redacted] diagnostic.");
     assert.ok(Buffer.byteLength(JSON.stringify(result)) <= runtime.config.outputLimitBytes);
@@ -460,11 +460,8 @@ test("аргументы в очереди сохраняют намерение
       await wait;
       return doc("<fixture><id>41</id><name>original</name></fixture>");
     },
-    // Форма читается для проверки имён полей; в этом подставном ответе их нет.
     "native.spxml2.getAppInfo": {},
-    "native.spxml2.getForm": () => {
-      throw new Error("Fixture form is unavailable");
-    },
+    "native.spxml2.getForm": fixtureForm,
     "*": () => {
       writes++;
       throw new Error("A preview may not send another operation");
@@ -823,7 +820,7 @@ test("отказ на входе после принятой записи — in
     fixture(
       {
         "native.lds.loadDoc": () => {
-          if (door === "load" && ++loads === 3) throw unauthorized();
+          if (door === "load" && ++loads === 2) throw unauthorized();
           return doc("<fixture><id>41</id><name>before</name></fixture>");
         },
         "native.spxml2.getForm": fixtureForm,
@@ -840,6 +837,7 @@ test("отказ на входе после принятой записи — in
           assert.equal(result.error?.mutationOutcome, "not_sent");
           assert.doesNotMatch(result.error?.hint ?? "", readBackHint);
         } else {
+          assert.equal(loads, 2);
           assert.equal(result.error?.mutationOutcome, "indeterminate");
           assert.match(result.error?.hint ?? "", readBackHint);
         }
@@ -849,12 +847,28 @@ test("отказ на входе после принятой записи — in
   await patch("put");
 });
 
-test("создание, для которого выдан ID и запись которого отклонена на входе, — indeterminate", async () => {
+test("создание, для которого выдан ID: отказ PutDoc на входе — not_sent, отказ проверочного LoadDoc — indeterminate", async () => {
   await fixture(
     {
       "native.spxml2.getForm": '<SPXML-FORM><fixture><name TYPE="string"/></fixture></SPXML-FORM>',
       "native.lds.getNewObjectId": { ObjectID: "0x1000000000000029" },
       "native.lds.putDoc": () => {
+        throw unauthorized();
+      },
+    },
+    async (runtime) => {
+      const result = await runtime.call("objects.create", { type: "fixture", data: { name: "n" } });
+      assert.equal(result.error?.mutationOutcome, "not_sent");
+      assert.doesNotMatch(result.error?.hint ?? "", readBackHint);
+      assert.equal(result.error?.details?.objectId, "0x1000000000000029");
+    },
+  );
+  await fixture(
+    {
+      "native.spxml2.getForm": '<SPXML-FORM><fixture><name TYPE="string"/></fixture></SPXML-FORM>',
+      "native.lds.getNewObjectId": { ObjectID: "0x1000000000000029" },
+      "native.lds.putDoc": { completed: true },
+      "native.lds.loadDoc": () => {
         throw unauthorized();
       },
     },
@@ -937,8 +951,14 @@ test("0x… в условии запроса — число у целого по
   });
 });
 
-test("если форма не читается, 0x… — ID по виду значения, как прежде", async () => {
+test("если форма не читается, objects.patch отказывает и в предпросмотре, а поиск сохраняет 0x… как ID", async () => {
   const source = "<fixture><id>41</id><items><item><code>31</code></item></items></fixture>";
+  // Сам документ без сведений о типах по-прежнему узнаёт 0x… как ID по виду значения.
+  assert.equal(
+    XmlDocument.parse(source).patch([{ op: "remove", path: "items.item[code=0x1F]" }]).changes
+      .length,
+    1,
+  );
   const script: Script = {
     "native.lds.loadDoc": () => doc(source),
     "native.spxml2.getForm": refuse(),
@@ -951,17 +971,16 @@ test("если форма не читается, 0x… — ID по виду зн
   await fixture(
     script,
     async (runtime, server) => {
-      // Без формы запись отказывает до отправки, а предпросмотр показывает, что правка нашла.
-      const removed = await runtime.call("objects.patch", {
-        id: "41",
-        remove: ["items.item[code=0x1F]"],
-        preview: true,
-      });
-      assert.equal(
-        (removed.data as { changes?: unknown[] }).changes?.length,
-        1,
-        JSON.stringify(removed),
-      );
+      // Без формы отказывают и запись, и предпросмотр: предпросмотр не обещает то, от чего откажется запись.
+      for (const preview of [true, false]) {
+        const removed = await runtime.call("objects.patch", {
+          id: "41",
+          remove: ["items.item[code=0x1F]"],
+          preview,
+        });
+        assert.equal(removed.ok, false, String(preview));
+        assert.equal(removed.error?.mutationOutcome, preview ? undefined : "not_sent");
+      }
       await runtime.call("runtime.query", { catalog: "events", where: { name: "0x10" } });
       const sent = server.calls.findLast(({ id }) => id === "native.lds.xQuery")!.args.query;
       assert.match(String(sent), /\$elem\/name = 16/);
@@ -995,5 +1014,24 @@ test("правка, посчитанная без формы, не записы�
     });
     assert.equal(result.ok, false, JSON.stringify(result));
     assert.equal(writes, 0);
+  });
+});
+
+test("durationMs измеряет фактическое время выполнения вызова, а не ожидание в очереди", async () => {
+  let calls = 0;
+  const script: Script = {
+    "native.spxml2.getAppInfo": async () => {
+      if (++calls === 1) await new Promise((resolve) => setTimeout(resolve, 120));
+      return { ok: true };
+    },
+  };
+  await fixture(script, async (runtime) => {
+    const first = runtime.call("native.spxml2.getAppInfo", {});
+    const second = runtime.call("native.spxml2.getAppInfo", {});
+    const [r1, r2] = await Promise.all([first, second]);
+    assert.equal(r1.ok, true);
+    assert.equal(r2.ok, true);
+    assert.ok(r1.meta.durationMs >= 100);
+    assert.ok(r2.meta.durationMs < 80, `второй вызов показал durationMs=${r2.meta.durationMs}`);
   });
 });

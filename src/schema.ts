@@ -1,7 +1,11 @@
 import { HcmError, boundedInteger, isSimilarName, requiredString, similarHint } from "./errors.js";
 import { identifier } from "./query.js";
 import { XmlDocument } from "./documents.js";
-import { createPlatformXmlParser, validatePlatformXmlSource } from "./protocol/xml.js";
+import {
+  createPlatformXmlParser,
+  parseValidatedXml,
+  validatePlatformXmlSource,
+} from "./protocol/xml.js";
 import { normalizeFormParams } from "./protocol/library-functions.js";
 
 /** Аргументы schema: тип или url и отбор полей. */
@@ -124,7 +128,9 @@ export interface DataShape {
   readonly repeated: Set<string>;
   /** TYPE полей формы по пути, на любой глубине; у поля без TYPE — пустая строка. */
   readonly types: Map<string, string>;
-  /** Поля верхнего уровня, которые вычисляет сервер: записанное в них значение не сохраняется. */
+  /** Пути структур, у которых форма объявила хранимые дочерние поля. */
+  readonly parents?: Set<string>;
+  /** Поля, которые вычисляет сервер (по пути): записанное в них значение не сохраняется. */
   readonly computed?: Set<string>;
   /**
    * Поля верхнего уровня, которые код формы перед сохранением и заполняет, и очищает сам: копии
@@ -216,43 +222,70 @@ const pageSize = (value: unknown): number => Buffer.byteLength(JSON.stringify(va
 const usualFormUrl = (type: string): string => `x-local://wtv/wtv_${type}.xmd`;
 const customUnreadable =
   "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет.";
-/** Чтение из кэша: отказ не запоминается, и следующий вызов читает заново. */
+type Timed<V> = { expires: number; value: Promise<V> };
+/** Чтение из кэша с TTL: отказ не запоминается, и следующий вызов читает заново. */
 function remembered<V>(
-  cache: Map<string, Promise<V>>,
+  cache: Map<string, Timed<V>>,
   key: string,
+  ttlMs: number,
+  now: () => number,
   read: () => Promise<V>,
 ): Promise<V> {
   const cached = cache.get(key);
-  if (cached) return cached;
+  if (cached && cached.expires > now()) return cached.value;
   const reading = read();
-  cache.set(key, reading);
+  cache.set(key, { expires: now() + ttlMs, value: reading });
   reading.catch(() => {
-    if (cache.get(key) === reading) cache.delete(key);
+    if (cache.get(key)?.value === reading) cache.delete(key);
   });
   return reading;
 }
 
 /** Читает живые метаданные через фиксированные операции чтения runtime; все кэши — в памяти. */
 export class SchemaReader {
-  private forms = new Map<string, Promise<Node[]>>();
-  private shapes = new Map<string, Promise<DataShape>>();
-  private dictionaries = new Map<string, Promise<Map<string, string>>>();
-  private documents = new Map<string, Promise<Data>>();
-  private customExpires = 0;
+  private static readonly TTL_MS = 60_000;
+  private forms = new Map<string, Timed<Node[]>>();
+  private shapes = new Map<string, Timed<DataShape>>();
+  private dictionaries = new Map<string, Timed<Map<string, string>>>();
+  private documents = new Map<string, Timed<Data>>();
   /** Найденный адрес формы по имени типа или каталога; ненайденный следующий вызов ищет заново. */
-  private formUrls = new Map<string, string>();
+  private formUrls = new Map<string, { expires: number; value: string }>();
   constructor(
     private applicationInfo: () => Promise<Data>,
     private readForm: (url: string) => Promise<string>,
     private readDocument: (url: string) => Promise<Data>,
+    private readonly ttlMs = SchemaReader.TTL_MS,
+    private readonly now: () => number = Date.now,
   ) {}
+  /** Сбросить кэши форм, структур, словарей и общих документов. */
+  invalidate(): void {
+    this.forms.clear();
+    this.shapes.clear();
+    this.dictionaries.clear();
+    this.documents.clear();
+    this.formUrls.clear();
+  }
+  /** Сбросить кэш общих документов (common, custom_templates) после записи объекта. */
+  invalidateDocuments(): void {
+    this.documents.clear();
+  }
+  private cached<V>(cache: Map<string, Timed<V>>, key: string, read: () => Promise<V>): Promise<V> {
+    return remembered(cache, key, this.ttlMs, this.now, read);
+  }
+  private knownFormUrl(key: string): string | undefined {
+    const cached = this.formUrls.get(key);
+    return cached && cached.expires > this.now() ? cached.value : undefined;
+  }
+  private rememberFormUrl(key: string, url: string): void {
+    this.formUrls.set(key, { expires: this.now() + this.ttlMs, value: url });
+  }
   private form(url: string): Promise<Node[]> {
-    return remembered(this.forms, url, () =>
+    return this.cached(this.forms, url, () =>
       this.readForm(url).then((source) => {
         const normalized = normalizeFormParams(source);
         try {
           validatePlatformXmlSource(normalized);
-          const root = find(parser.parse(normalized) as Node[], "SPXML-FORM");
+          const root = find(parseValidatedXml(parser, normalized) as Node[], "SPXML-FORM");
           if (root) return children(root).filter((node) => name(node));
         } catch {
           throw new HcmError("FORM_RESPONSE", "Сервер вернул форму с ошибкой в XML.");
@@ -301,7 +334,7 @@ export class SchemaReader {
       : this.readDocument(url);
   }
   private commonData(info: Data): Promise<Data> {
-    return remembered(this.documents, "common", () => this.shared(info, "common"));
+    return this.cached(this.documents, "common", () => this.shared(info, "common"));
   }
   /** Типы объектов, которые объявляет сервер; пустой список, если объявление не читается. */
   private async declaredTypes(info: Data): Promise<Data[]> {
@@ -309,17 +342,13 @@ export class SchemaReader {
     return list(data(common.exchange_object_types).exchange_object_type);
   }
   private customData(info: Data): Promise<Data> {
-    if (this.customExpires <= Date.now()) {
-      this.documents.delete("custom_templates");
-      this.customExpires = Date.now() + 60000;
-    }
-    return remembered(this.documents, "custom_templates", () =>
+    return this.cached(this.documents, "custom_templates", () =>
       this.shared(info, "custom_templates"),
     );
   }
   private language(info: Data, language: string | undefined): Promise<Map<string, string>> {
     const url = languageFileUrl(info.ui_lang_id, language);
-    return remembered(this.dictionaries, url, async () => {
+    return this.cached(this.dictionaries, url, async () => {
       const value = await this.readDocument(url);
       return new Map(
         list(data(value.items).item ?? value.item).map((item) => [text(item.id), text(item.val)]),
@@ -459,7 +488,7 @@ export class SchemaReader {
   }
   private typeTranslations(info: Data): Promise<Map<string, string>> {
     const url = `x-local://i18n/common/${identifier(info.ui_lang_id ?? "ru", "ui_lang_id")}/const.json`;
-    return remembered(this.dictionaries, url, async () => {
+    return this.cached(this.dictionaries, url, async () => {
       const source = await this.readForm(url);
       return new Map(
         Object.entries(data(JSON.parse(source))).map(([key, value]) => [key, text(value)]),
@@ -546,7 +575,7 @@ export class SchemaReader {
    * нашлась ни та, ни другая, отказ — тот, что дало чтение обычной формы.
    */
   async typeFormUrl(type: string): Promise<string> {
-    const known = this.formUrls.get(type);
+    const known = this.knownFormUrl(type);
     if (known) return known;
     const usual = usualFormUrl(type);
     let url = usual;
@@ -558,16 +587,17 @@ export class SchemaReader {
       url = text(declared.find((item) => item.name === type)?.form_url);
       if (!url) throw error;
     }
-    this.formUrls.set(type, url);
+    this.rememberFormUrl(type, url);
     return url;
   }
   /** Структура документа одного типа с унаследованными полями; читается один раз на форму. */
   async documentShape(type: string, url?: string): Promise<DataShape> {
     const formUrl = url ?? (await this.typeFormUrl(type));
-    return remembered(this.shapes, `${formUrl}#${type}`, async () => {
+    return this.cached(this.shapes, `${formUrl}#${type}`, async () => {
       const samples = new Map<string, Node>();
       const roots = await this.samples(formUrl, samples);
       const root = roots.find((node) => name(node) === type && attr(node, "SAMPLE") !== "1");
+      const parents = new Set<string>();
       const computed = new Set<string>();
       const stored = new Set<string>();
       const serverFilled = new Set<string>();
@@ -575,11 +605,15 @@ export class SchemaReader {
         fields: new Set(),
         repeated: new Set(),
         types: new Map(),
+        parents,
         computed,
         serverFilled,
       };
       const collect = (nodes: Node[], prefix = "", stack: string[] = []): void => {
-        if (stack.length > 64) return;
+        if (stack.length > 64) {
+          shape.partial = true;
+          return;
+        }
         for (const node of nodes) {
           const key = name(node);
           const base = attr(node, "TYPE");
@@ -591,25 +625,34 @@ export class SchemaReader {
           }
           if (!key || /^(On|DocDesc)/.test(key)) continue;
           const path = prefix ? `${prefix}.${key}` : key;
+          const isComputed = attr(node, "PROPERTY") === "1";
           if (!prefix) shape.fields.add(key);
-          if (!prefix) (attr(node, "PROPERTY") === "1" ? computed : stored).add(key);
+          if (prefix && !isComputed) parents.add(prefix);
+          (isComputed ? computed : stored).add(path);
           shape.types.set(path, base);
           if (attr(node, "MULTIPLE") === "1") shape.repeated.add(path);
           if (sample) collect(children(sample), path, [...stack, base]);
+          else if (
+            base &&
+            !stack.includes(base) &&
+            !/^(string|integer|real|bool|date|variant|record|attr)$/.test(base)
+          )
+            shape.partial = true;
           collect(children(node), path, stack);
         }
       };
       if (root) collect(children(root));
       // Имя, которое вычисляет базовый тип, а сам тип хранит, — хранимое поле.
-      for (const key of stored) computed.delete(key);
+      for (const path of stored) computed.delete(path);
       const onSave = roots.find((node) => name(node) === "OnBeforeSave");
       const code = onSave ? attr(onSave, "EXPR") : "";
-      for (const key of stored)
+      for (const path of stored)
         if (
-          code.includes(`TopElem.${key}.Clear()`) &&
-          new RegExp(String.raw`TopElem\.${key}\s*=(?!=)`).test(code)
+          !path.includes(".") &&
+          code.includes(`TopElem.${path}.Clear()`) &&
+          new RegExp(String.raw`TopElem\.${path}\s*=(?!=)`).test(code)
         )
-          serverFilled.add(key);
+          serverFilled.add(path);
       return shape;
     });
   }
@@ -625,7 +668,7 @@ export class SchemaReader {
         : [this.catalog(info, selector.catalog)].filter((item) => item !== undefined);
     if (catalogs.length !== 1) return undefined;
     const catalog = catalogs[0]!;
-    return remembered(this.shapes, `catalog#${text(catalog.id)}`, async () => {
+    return this.cached(this.shapes, `catalog#${text(catalog.id)}`, async () => {
       const known = await this.catalogFields(catalog, await this.rowType(catalog), new Map());
       const shape: DataShape = {
         fields: new Set(),
@@ -679,7 +722,7 @@ export class SchemaReader {
       { fields: unknown },
     );
   }
-  async get(input: SchemaInput): Promise<SchemaResult> {
+  async get(input: SchemaInput, pageBytes = 16 * 1024): Promise<SchemaResult> {
     const limit = boundedInteger(input.limit, 80, 1000, "limit");
     const cursor = boundedInteger(input.cursor, 0, Number.MAX_SAFE_INTEGER, "cursor");
     const requestedType = input.type === undefined ? undefined : identifier(input.type, "type");
@@ -700,7 +743,7 @@ export class SchemaReader {
       formUrl = alternative;
       await this.form(formUrl);
       // Имя каталога, а не типа: обычный адрес для него больше не читается.
-      if (this.unknownType(info, byType, declared)) this.formUrls.set(byType, formUrl);
+      if (this.unknownType(info, byType, declared)) this.rememberFormUrl(byType, formUrl);
     }
     const samples = new Map<string, Node>();
     const roots = await this.samples(formUrl, samples);
@@ -830,12 +873,17 @@ export class SchemaReader {
         ...(property ? { computed: true } : { query: true }),
       });
     }
-    for (const field of fields.values()) {
-      const count = [...fields.keys()].filter(
-        (path) =>
-          path.startsWith(`${field.path}.`) && !path.slice(field.path.length + 1).includes("."),
-      ).length;
-      if (count) field.children = count;
+    const childCounts = new Map<string, number>();
+    for (const path of fields.keys()) {
+      const dot = path.lastIndexOf(".");
+      if (dot > 0) {
+        const parent = path.slice(0, dot);
+        childCounts.set(parent, (childCounts.get(parent) ?? 0) + 1);
+      }
+    }
+    for (const [path, count] of childCounts) {
+      const parent = fields.get(path);
+      if (parent) parent.children = count;
     }
     const template = data(custom?.[type]);
     const templateField = text(template.template_field);
@@ -927,22 +975,30 @@ export class SchemaReader {
       notes,
     };
     if (found) result.methods = found;
+    const limitBytes = Math.max(256, pageBytes);
+    const baseBytes = pageSize(result);
+    let fieldsBytes = 0;
     for (const field of selected.slice(cursor, cursor + limit)) {
-      result.fields.push(field);
-      result.nextCursor = cursor + result.fields.length;
-      if (result.nextCursor >= selected.length) delete result.nextCursor;
+      const itemBytes = pageSize(field);
+      const nextLen = result.fields.length + 1;
+      const nextCursor = cursor + nextLen;
+      const sep = result.fields.length > 0 ? 1 : 0;
+      const cursorOverhead =
+        nextCursor < selected.length ? Buffer.byteLength(`,"nextCursor":${nextCursor}`) : 0;
       // Оставляется место под отметку страницы, обрезанной по размеру.
-      if (pageSize(result) > 16 * 1024 - 32) {
-        result.fields.pop();
+      const cutOverhead = nextCursor < selected.length && nextLen < limit ? 17 : 0;
+      if (baseBytes + fieldsBytes + sep + itemBytes + cursorOverhead + cutOverhead > limitBytes) {
         break;
       }
+      result.fields.push(field);
+      fieldsBytes += sep + itemBytes;
     }
     if (cursor + result.fields.length < selected.length) {
       result.nextCursor = cursor + result.fields.length;
       if (result.fields.length < limit) result.cutBySize = true;
-    } else delete result.nextCursor;
+    }
     if (
-      pageSize(result) > 16 * 1024 ||
+      pageSize(result) > limitBytes ||
       (!result.fields.length && cursor < selected.length && limit > 0)
     )
       throw new HcmError(

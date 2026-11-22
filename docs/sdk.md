@@ -79,7 +79,7 @@ for await (const row of rows) handle(row);
 `queryRows` принимает те же аргументы, что `query`, и сам листает страницы: `limit` — размер страницы, а не число строк. Запрос XQuery перебирается так же: `client.queryRows({ query: "for $e in … return $e", fields: ["id"] })`. Все строки массивом — `await Array.fromAsync(client.queryRows(…))`.
 
 - Страница с `incomplete: true` — это не конец данных, а запрос, который отвергла база данных. `queryRows` выдаёт её строки, затем бросает `HcmOperationError` с кодом `QUERY_INCOMPLETE` и подсказкой сервера.
-- Страница больше `outputLimitBytes` бросает `HcmStoredResultError`, как `unwrap`: см. [большие ответы](#большие-ответы).
+- Страница больше `outputLimitBytes` сохраняется на диск, и `queryRows` дочитывает её через `readResult` (поднятие `outputLimitBytes` и выбор `fields` ускоряют обход, см. [большие ответы](#большие-ответы)). Если сохранённый результат недоступен, бросается `HcmStoredResultError`.
 - Страницы не дают снимка: если данные меняются во время чтения, строка может повториться или потеряться.
 
 Одна страница — `query`: `nextStartPosition` в её ответе приходит, пока строки не кончились, и передаётся в `startPosition` следующего вызова.

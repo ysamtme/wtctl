@@ -30,8 +30,10 @@ const reservedXmlNames = new Set([
 
 // Проверка символов XML исключает этот маркер из любого исходного имени.
 const xmlNameMarker = "\u0001";
-const protectXmlName = (name: string): string =>
-  reservedXmlNames.has(name) ? xmlNameMarker + name : name;
+const rawParsers = new WeakMap<
+  XMLParser,
+  (text: string, validation?: Parameters<XMLParser["parse"]>[1]) => unknown
+>();
 function restoreXmlNames(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(restoreXmlNames);
   if (value === null || typeof value !== "object") return value;
@@ -131,21 +133,41 @@ function assertSafe(source: string): void {
  */
 export function createPlatformXmlParser(options: X2jOptions = {}): XMLParser {
   const attributePrefix = options.attributeNamePrefix ?? "@_";
+  let protectedName = false;
+  const protect = (name: string): string => {
+    if (!reservedXmlNames.has(name)) return name;
+    protectedName = true;
+    return xmlNameMarker + name;
+  };
   const result = new XMLParser({
     ...options,
     htmlEntities: true,
     transformTagName: (name) =>
-      protectXmlName(options.transformTagName ? options.transformTagName(name) : name),
+      protect(options.transformTagName ? options.transformTagName(name) : name),
     transformAttributeName: (name) => {
       const transformed = options.transformAttributeName
         ? options.transformAttributeName(name)
         : name;
       return transformed.startsWith(attributePrefix)
-        ? attributePrefix + protectXmlName(transformed.slice(attributePrefix.length))
-        : protectXmlName(transformed);
+        ? attributePrefix + protect(transformed.slice(attributePrefix.length))
+        : protect(transformed);
     },
   });
   const parse = result.parse.bind(result);
+  const parseChecked = (text: string, validation?: Parameters<XMLParser["parse"]>[1]): unknown => {
+    protectedName = false;
+    // Закреплённый fast-xml-parser 5.11.2 использует однопроходный EntityDecoder, в том числе для
+    // числовых ссылок. Его имена HTML исключены проверкой assertSafe выше.
+    try {
+      const parsed = parse(text, validation ?? false);
+      return protectedName ? restoreXmlNames(parsed) : parsed;
+    } catch {
+      throw new WsHcmApiError("protocol", "XML не удалось разобрать в поддерживаемых пределах.");
+    } finally {
+      protectedName = false;
+    }
+  };
+  rawParsers.set(result, parseChecked);
   result.parse = (
     source: string | Uint8Array,
     validation?: Parameters<XMLParser["parse"]>[1],
@@ -155,13 +177,7 @@ export function createPlatformXmlParser(options: X2jOptions = {}): XMLParser {
         ? source
         : new TextDecoder("utf-8", { fatal: true }).decode(source);
     assertSafe(text);
-    // Закреплённый fast-xml-parser 5.11.2 использует однопроходный EntityDecoder, в том числе для
-    // числовых ссылок. Его имена HTML исключены проверкой assertSafe выше.
-    try {
-      return restoreXmlNames(parse(text, validation ?? false));
-    } catch {
-      throw new WsHcmApiError("protocol", "XML не удалось разобрать в поддерживаемых пределах.");
-    }
+    return parseChecked(text, validation);
   };
   return result;
 }
@@ -199,14 +215,19 @@ export function validatePlatformXmlSource(source: string): void {
   assertWellFormed(source);
 }
 
+/** Разбирает уже проверенный через `validatePlatformXmlSource` XML без повторной проверки `assertSafe`. @internal */
+export function parseValidatedXml(instance: XMLParser, source: string): unknown {
+  const checked = rawParsers.get(instance);
+  return checked ? checked(source) : instance.parse(source);
+}
+
 /**
  * Разбирает один корректный документ XML, не приводя значения к типам.
  * Префиксы пространств имён и атрибуты сохраняются; объявления DTD и сущностей отклоняются.
  */
 export function parseXml(source: string): XmlObject {
-  assertSafe(source);
-  assertWellFormed(source);
-  return parser.parse(source) as XmlObject;
+  validatePlatformXmlSource(source);
+  return parseValidatedXml(parser, source) as XmlObject;
 }
 
 /**
@@ -269,9 +290,8 @@ export function assembledXml(source: string): RawXml {
 /** Ровно один дочерний элемент, как требует нетипизированный структурный аргумент XmElem RPC. */
 export function rawXmlElement(source: string): RawXml {
   assertDeclarationFirst(source);
-  assertSafe(source);
-  assertWellFormed(source);
-  const value = topLevelParser.parse(source) as XmlObject;
+  validatePlatformXmlSource(source);
+  const value = parseValidatedXml(topLevelParser, source) as XmlObject;
   const elements = Object.keys(value).filter(
     (key) => !key.startsWith("?") && !key.startsWith("@_") && key !== "#text",
   );

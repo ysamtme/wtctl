@@ -223,7 +223,9 @@ test("отсутствующий, неверный, неоднозначный �
 });
 
 test("токен CodeLiteral в одинарных кавычках и экранирование декодируются без выполнения скрипта", async () => {
-  const f = fixture("<script>gFaApp.webSessionToken = '\\x73ynthetic_upload_token_01';</script>");
+  const f = fixture(
+    "<script>var comment = '<!-- не комментарий HTML';\ngFaApp.webSessionToken = '\\x73ynthetic_upload_token_01';</script>",
+  );
   try {
     const session = await f.client.openWebSession();
     try {

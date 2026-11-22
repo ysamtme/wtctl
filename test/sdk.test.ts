@@ -14,7 +14,7 @@ import {
 } from "../src/sdk.js";
 import { HcmError } from "../src/errors.js";
 import type { ConnectionConfig, OperationDefinition, OperationResult } from "../src/contracts.js";
-import { scratchRuntimeDir } from "./fake-server.js";
+import { fakeRuntime, scratchRuntimeDir } from "./fake-server.js";
 
 const config: ConnectionConfig = {
   name: "synthetic",
@@ -417,7 +417,7 @@ test("queryRows выдаёт строки всех страниц по поря�
   assert.deepEqual(starts, [undefined, 2]);
 });
 
-test("queryRows бросает ошибку на неполной странице и на сохранённом ответе, как unwrap", async () => {
+test("queryRows бросает ошибку на неполной странице и когда сохранённый ответ недоступен", async () => {
   const incomplete = pagedClient({
     0: page({ items: [{ id: "1" }], nextStartPosition: 1 }),
     1: page({ items: [], incomplete: true, hint: "Подсказка сервера." }),
@@ -434,16 +434,106 @@ test("queryRows бросает ошибку на неполной страниц
       error.hint === "Подсказка сервера.",
   );
   assert.deepEqual(rows, [{ id: "1" }]);
-  const stored = pagedClient({
-    0: {
-      ok: true,
-      data: { preview: [], resultId: "synthetic-id" },
-      meta: { ...meta, truncated: true, resultId: "synthetic-id" },
-    },
+  const missingStored = new HcmClient({
+    ...fixture().runtime,
+    call: async (id) =>
+      id === "results.read"
+        ? {
+            ok: false,
+            error: { code: "RESULT_NOT_FOUND", message: "Нет результата." },
+            meta: { ...meta, operationId: id },
+          }
+        : {
+            ok: true,
+            data: { preview: [], resultId: "synthetic-id" },
+            meta: { ...meta, truncated: true, resultId: "synthetic-id" },
+          },
   });
   await assert.rejects(
-    stored.client.queryRows({ catalog: "collaborators" }).next(),
+    missingStored.queryRows({ catalog: "collaborators" }).next(),
     HcmStoredResultError,
+  );
+});
+
+test("queryRows прозрачно дочитывает сохранённую в ResultStore страницу и продолжает обход", async () => {
+  const wide = "w".repeat(600);
+  const { runtime } = fakeRuntime(
+    {
+      "native.lds.xQuery": (args) => {
+        const start = Number(args.startPos ?? 0);
+        if (start === 0) {
+          return {
+            Data: {
+              collaborator: [
+                { id: "1", note: wide },
+                { id: "2", note: wide },
+              ],
+            },
+            TotalCount: "3",
+            EOF: "false",
+          };
+        }
+        return {
+          Data: { collaborator: [{ id: "3", note: "short" }] },
+          TotalCount: "3",
+          EOF: "true",
+        };
+      },
+    },
+    { outputLimitBytes: 1024 },
+  );
+  const client = new HcmClient(runtime);
+  try {
+    // Прямой query уходит в ResultStore, а queryRows дочитывает все три строки без ошибки.
+    const raw = await client.query({ catalog: "collaborators", limit: 2 });
+    assert.equal(raw.meta.truncated, true);
+    const rows: { id: string; note: string }[] = [];
+    for await (const row of client.queryRows<{ id: string; note: string }>({
+      catalog: "collaborators",
+      limit: 2,
+    })) {
+      rows.push(row);
+    }
+    assert.deepEqual(
+      rows.map((r) => r.id),
+      ["1", "2", "3"],
+    );
+  } finally {
+    await client.close();
+  }
+});
+
+test("client.rpc типизирует синхронный ответ как { value: T } и асинхронный как { TrackingID }", async () => {
+  const client = new HcmClient({
+    ...fixture().runtime,
+    call: async (_id, args = {}) => ({
+      ok: true,
+      data: args.async ? { TrackingID: "t-42" } : { value: "2025.1.1171" },
+      meta,
+    }),
+  });
+  const syncResult = unwrap(
+    await client.rpc<string>({ library: "tools", method: "get_version", arguments: ["wtv"] }),
+  );
+  const version: string = syncResult.value;
+  assert.equal(version, "2025.1.1171");
+  const explicitSync = unwrap(
+    await client.rpc<string>({ library: "tools", method: "get_version", async: false }),
+  );
+  const explicitVersion: string = explicitSync.value;
+  assert.equal(explicitVersion, "2025.1.1171");
+  const asyncResult = unwrap(await client.rpc({ library: "tools", method: "heavy", async: true }));
+  const trackingId: string = asyncResult.TrackingID;
+  assert.equal(trackingId, "t-42");
+  const dynamicInput: { library: string; method: string; async?: boolean } = {
+    library: "tools",
+    method: "get_version",
+    async: false,
+  };
+  const dynamicResult = unwrap(await client.rpc<string>(dynamicInput));
+  assert.equal(
+    "value" in dynamicResult ? dynamicResult.value : dynamicResult.TrackingID,
+    "2025.1.1171",
   );
 });
 

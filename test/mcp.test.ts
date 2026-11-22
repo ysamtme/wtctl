@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -457,7 +457,84 @@ test("hcm_script читает код из локального файла и п�
   ]);
   const missing = structured(await f.tools.invoke("hcm_script", { file: `${file}.absent` }));
   assert.equal(missing.error?.code, "mcp.file_unreadable");
+  const relative = structured(
+    await f.tools.invoke("hcm_script", { file: "examples/script-params.js" }),
+  );
+  assert.equal(relative.error?.code, "mcp.file_unreadable");
+  assert.match(relative.error?.message ?? "", /полным/);
+  const directory = mkdtempSync(join(tmpdir(), "hcm-script-size-"));
+  try {
+    const dirResult = structured(await f.tools.invoke("hcm_script", { file: directory }));
+    assert.equal(dirResult.error?.code, "mcp.file_unreadable");
+    const huge = join(directory, "huge.js");
+    writeFileSync(huge, "");
+    truncateSync(huge, 16 * 1024 * 1024 + 1);
+    const tooLarge = structured(await f.tools.invoke("hcm_script", { file: huge }));
+    assert.equal(tooLarge.error?.code, "mcp.file_too_large");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
   assert.equal(f.calls.length, 1);
+});
+
+test("hcm_query.order принимает строку или массив до 5 полей, hcm_result_read.format принимает text, а подсказка про ID даётся только для ID", async () => {
+  const f = fixture();
+  assert.equal(
+    structured(
+      await f.tools.invoke("hcm_query", { catalog: "collaborators", order: "fullname desc" }),
+    ).ok,
+    true,
+  );
+  assert.equal(
+    structured(
+      await f.tools.invoke("hcm_query", {
+        catalog: "collaborators",
+        order: ["a", "b", "c", "d", "e"],
+      }),
+    ).ok,
+    true,
+  );
+  const tooManyOrders = structured(
+    await f.tools.invoke("hcm_query", {
+      catalog: "collaborators",
+      order: ["a", "b", "c", "d", "e", "f"],
+    }),
+  );
+  assert.equal(tooManyOrders.error?.code, "mcp.invalid_arguments");
+  assert.match(tooManyOrders.error?.message ?? "", /order — не больше 5/);
+  const emptyOrder = structured(
+    await f.tools.invoke("hcm_query", { catalog: "collaborators", order: ["a", ""] }),
+  );
+  assert.equal(emptyOrder.error?.code, "mcp.invalid_arguments");
+  assert.deepEqual(emptyOrder.error?.details, {
+    validation: [
+      {
+        path: "order.1",
+        code: "too_small",
+        minimum: 1,
+        message: "Пустая строка: убери аргумент.",
+      },
+    ],
+  });
+  assert.equal(
+    structured(await f.tools.invoke("hcm_result_read", { resultId: "r1", format: "text" })).ok,
+    true,
+  );
+  // Подсказка про ID выдаётся только при ошибке типа строки в поле ID.
+  const badId = structured(await f.tools.invoke("hcm_object_get", { id: 123 }));
+  assert.match(badId.error?.hint ?? "", /ID передавай строкой\./);
+  const badIdsItem = structured(await f.tools.invoke("hcm_object_get", { ids: [123] }));
+  assert.match(badIdsItem.error?.hint ?? "", /ID передавай строкой\./);
+  const badKind = structured(await f.tools.invoke("hcm_schema", { type: "x", kind: 123 }));
+  assert.match(badKind.error?.hint ?? "", /ID передавай строкой\./);
+  const missingResultId = structured(await f.tools.invoke("hcm_result_read", {}));
+  assert.doesNotMatch(missingResultId.error?.hint ?? "", /ID передавай строкой\./);
+  const stringIds = structured(await f.tools.invoke("hcm_object_get", { ids: "0x123" }));
+  assert.doesNotMatch(stringIds.error?.hint ?? "", /ID передавай строкой\./);
+  const badLimit = structured(await f.tools.invoke("hcm_types", { limit: "10" }));
+  assert.doesNotMatch(badLimit.error?.hint ?? "", /ID передавай строкой\./);
+  const badType = structured(await f.tools.invoke("hcm_schema", { type: 42 }));
+  assert.doesNotMatch(badType.error?.hint ?? "", /ID передавай строкой\./);
 });
 
 test("hcm_script не отправляет файл не в UTF-8, а BOM из файла убирает", async () => {

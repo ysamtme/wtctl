@@ -1,4 +1,4 @@
-import { HcmError } from "../errors.js";
+import { HcmError, requiredString } from "../errors.js";
 import {
   boolean,
   fields,
@@ -8,9 +8,12 @@ import {
   string,
   type EffectFor,
 } from "../operation.js";
+import { validateDbName } from "../protocol/physical-documents.js";
+import { identifier } from "../query.js";
 
 const patchEffect: EffectFor = (args) => (args.preview === true ? "read" : undefined);
-const address = { id: string, type: string, url: string, fields };
+const dbName = { type: "string", description: "База сервера, если объект не в основной базе." };
+const address = { id: string, type: string, url: string, dbName, fields };
 
 export const objectOperations = [
   operation({
@@ -37,11 +40,24 @@ export const objectOperations = [
         ids.some((id) => typeof id !== "string")
       )
         throw new HcmError("INVALID_ARGUMENT", "ids: список от 1 до 100 ID, каждый строкой.");
+      // Общие аргументы проверяются один раз до цикла, иначе их ошибка маскировалась бы под отказ каждого ID.
+      const checkedType = args.type === undefined ? undefined : identifier(args.type, "type");
+      const checkedDb =
+        args.dbName === undefined
+          ? undefined
+          : validateDbName(requiredString(args.dbName, "dbName"), "dbName");
       const items: unknown[] = [];
       let failed = 0;
       for (const id of ids as string[]) {
         try {
-          items.push(await context.objects.get({ type: args.type, fields: args.fields, id }));
+          items.push(
+            await context.objects.get({
+              ...(checkedType === undefined ? {} : { type: checkedType }),
+              fields: args.fields,
+              ...(checkedDb === undefined ? {} : { dbName: checkedDb }),
+              id,
+            }),
+          );
         } catch (error) {
           const refusal = context.pipeline.failure("objects.get", error).error!;
           // Сервер, который не отвечает или отклоняет вход, — это не про один объект.
@@ -64,10 +80,7 @@ export const objectOperations = [
     effect: "write",
     description:
       "Создать объект типа type с полями data. ID выдаёт сервер; после записи объект перечитывается и сверяется с запросом. Обработчики, которые админка выполняет при создании, не запускаются.",
-    inputSchema: schema({ type: string, data: object, dbName: string, formUrl: string }, [
-      "type",
-      "data",
-    ]),
+    inputSchema: schema({ type: string, data: object, dbName, formUrl: string }, ["type", "data"]),
     usualCause: "значение, которое тип объекта не принимает",
     run: (context, args, call) => context.objects.create(args, call.outcome),
   }),

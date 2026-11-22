@@ -188,7 +188,15 @@ export async function webSocketHeartbeat(
   assertWebSocketAvailable(factory);
   const timeoutMs = timeout(input);
   const cookie = http.cookie.value;
-  if (cookie === undefined || cookie.length > 1024 || /[\x00-\x20\x7f-\uffff;,"\\]/.test(cookie))
+  const cookieHeader = http.cookie.header();
+  if (
+    cookie === undefined ||
+    cookieHeader === undefined ||
+    cookie.length > 1024 ||
+    /[\x00-\x20\x7f-\uffff;,"\\]/.test(cookie) ||
+    cookieHeader.length > 4096 ||
+    /[\x00-\x1f\x7f-\uffff]/.test(cookieHeader)
+  )
     throw new WebSocketHeartbeatError("WS_UNAVAILABLE", emptyReceipt(timeoutMs), {
       requestSent: false,
     });
@@ -317,7 +325,7 @@ export async function webSocketHeartbeat(
       ws = factory(
         url.href,
         Object.freeze({
-          headers: Object.freeze({ Cookie: `SessionID=${cookie}` }),
+          headers: Object.freeze({ Cookie: cookieHeader }),
           origin,
           handshakeTimeout: timeoutMs,
           closeTimeout: timeoutMs,

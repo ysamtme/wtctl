@@ -75,7 +75,7 @@ export interface OperationContext {
     /** Шаг пакета: весь конвейер для другой операции со своим вызовом, ответ без предела размера. */
     step(id: string, args: Record<string, unknown>, call: OperationCall): Promise<OperationResult>;
     /** Обработчик другой операции без проверок и упаковки, со своим вызовом. */
-    invoke(id: string, args: Record<string, unknown>): Promise<unknown>;
+    invoke(id: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
   };
 }
 

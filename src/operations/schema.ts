@@ -24,7 +24,7 @@ export const schemaOperations = [
       language: string,
     }),
     usualCause: "формы по этому адресу нет",
-    run: (context, args) => context.schema.get(args as SchemaInput),
+    run: (context, args) => context.schema.get(args as SchemaInput, context.pageBytes),
   }),
   operation({
     id: "schema.types",

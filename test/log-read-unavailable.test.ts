@@ -369,3 +369,29 @@ test("весь лог при повторе читается с тем разм�
   assert.equal(read.text, "text");
   assert.equal(read.sizeBytesBefore, "140");
 });
+
+test("после serverWroteLog чтение архивного лога за прошлую дату не ждёт logBusyMs", async () => {
+  const older = "xhttp_2026-09-29.log";
+  const newer = "xhttp_2026-09-30.log";
+  const twoFiles = `<data><rs>${[
+    ["Основной журнал", "29.09.2026", older, size, "xhttp", "false", `x-local://Logs/${older}`],
+    ["Основной журнал", "30.09.2026", newer, size, "xhttp", "false", `x-local://Logs/${newer}`],
+  ]
+    .map((cells) => `<r><cs>${cells.map((v) => `<c><t>${escapeXml(v)}</t></c>`).join("")}</cs></r>`)
+    .join("")}</rs></data>`;
+  const reader = new LogReader(
+    {
+      call: async (_id, args) => ({
+        valueType: "string",
+        lexicalValue:
+          String(args.target) === "tools_report.server_log_report" ? twoFiles : notice + "text",
+      }),
+    },
+    { maxResponseBytes: 65536, logBusyMs: 200 },
+  );
+  reader.serverWroteLog();
+  const started = Date.now();
+  const read = await reader.read({ file: older, tailBytes: 512 });
+  assert.equal(read.text, "text");
+  assert.ok(Date.now() - started < 120, "архивный файл не должен ждать busyMs");
+});

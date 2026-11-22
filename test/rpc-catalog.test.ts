@@ -6,6 +6,7 @@ import {
   type RpcCatalogFilter,
 } from "../src/rpc-catalog.js";
 import { HcmError } from "../src/errors.js";
+import { WsHcmApiError } from "../src/protocol/error.js";
 import { fakeRuntime } from "./fake-server.js";
 
 const library = `<SPXML-INLINE-FORM><tools>
@@ -225,13 +226,16 @@ test("runtime читает отфильтрованные файлы библи�
     assert.equal(calls().filter((url) => url === "x-local://libs/tools.xml").length, 1);
     const complete = calls().length;
     assert.deepEqual((await runtime.call("rpc.list")).data, all.data);
-    assert.deepEqual(calls().slice(complete), ["x-local://libs/missing.xml"]);
+    assert.deepEqual(calls().slice(complete), [
+      "x-local://libs/malformed.xml",
+      "x-local://libs/missing.xml",
+    ]);
   } finally {
     await runtime.close();
   }
 });
 
-test("чтение всех библиотек обходится не более чем четырьмя запросами; усечение исходного кода сохраняет UTF-8 и не пропускает годные карточки", async () => {
+test("чтение библиотек идёт по одному запросу; усечение исходного кода сохраняет UTF-8 и не пропускает годные карточки", async () => {
   let active = 0;
   let maximum = 0;
   const shared_docs = Array.from({ length: 9 }, (_, index) => ({
@@ -249,7 +253,7 @@ test("чтение всех библиотек обходится не боле�
     },
   );
   const page = await catalog.list();
-  assert.equal(maximum, 4);
+  assert.equal(maximum, 1);
   assert.equal(page.total, 27);
   const full = await catalog.describe("lib0.echo", { source: true });
   assert.equal(full.code, 'return "Привет & мир &nbsp;";');
@@ -367,5 +371,114 @@ test("файл библиотеки читается в кодировке по 
     );
   } finally {
     await runtime.close();
+  }
+});
+
+test("библиотеки обновляются по TTL и после сбоя разбора; HTTP 500 в rpc.call перечитывает библиотеку свежо", async () => {
+  let now = 1000;
+  let source = "<SPXML-INLINE-FORM><tools>";
+  let reads = 0;
+  const catalog = new RpcCatalog(
+    async () => ({ shared_docs: [{ id: "tools", url: "x-local://libs/tools.xml" }] }),
+    async () => {
+      reads++;
+      return response(source);
+    },
+    60_000,
+    () => now,
+  );
+  // Неразобранный файл не кэшируется как undefined: после исправления сразу читается заново.
+  assert.deepEqual((await catalog.list({ library: "tools" })).skipped, ["tools"]);
+  source =
+    '<SPXML-INLINE-FORM><tools><ping ALLOW-CALL-FROM-CLIENT="1"/></tools></SPXML-INLINE-FORM>';
+  assert.deepEqual(
+    (await catalog.list({ library: "tools" })).targets.map((item) => item.id),
+    ["tools.ping"],
+  );
+  const afterFix = reads;
+  now += 59_000;
+  await catalog.list({ library: "tools" });
+  assert.equal(reads, afterFix);
+  // Через 60 секунд файл перечитывается по TTL.
+  source =
+    '<SPXML-INLINE-FORM><tools><ping ALLOW-CALL-FROM-CLIENT="1"/><added ALLOW-CALL-FROM-CLIENT="1"/></tools></SPXML-INLINE-FORM>';
+  now += 2_000;
+  assert.deepEqual(
+    (await catalog.list({ library: "tools" })).targets.map((item) => item.id),
+    ["tools.added", "tools.ping"],
+  );
+
+  // В runtime: добавленная на сервере функция, упавшая с HTTP 500, не подменяется устаревшим кэшем на UNKNOWN_RPC_TARGET.
+  let libXml =
+    '<SPXML-INLINE-FORM><tools><old_fn ALLOW-CALL-FROM-CLIENT="1"/></tools></SPXML-INLINE-FORM>';
+  let libLoads = 0;
+  const { runtime } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": {
+        shared_docs: [{ id: "tools", url: "x-local://libs/tools.xml" }],
+      },
+      "native.lds.loadUrl": () => {
+        libLoads++;
+        return response(libXml);
+      },
+      "native.rpc.call": () => {
+        throw new WsHcmApiError("http", "Internal Server Error", { status: 500 });
+      },
+    },
+    { permissions: { write: true, execute: true } },
+  );
+  try {
+    await runtime.call("rpc.list", { library: "tools" });
+    libXml =
+      '<SPXML-INLINE-FORM><tools><old_fn ALLOW-CALL-FROM-CLIENT="1"/><new_fn ALLOW-CALL-FROM-CLIENT="1"/></tools></SPXML-INLINE-FORM>';
+    const failed = await runtime.call("rpc.call", { library: "tools", method: "new_fn" });
+    assert.equal(failed.error?.code, "PLATFORM_HTTP");
+    assert.equal(failed.error?.mutationOutcome, "indeterminate");
+    // При отказе UNKNOWN_RPC_TARGET (not_sent) свежий кэш библиотеки, прочитанный в refusal(), сохраняется.
+    const missing = await runtime.call("rpc.call", { library: "tools", method: "no_such" });
+    assert.equal(missing.error?.code, "UNKNOWN_RPC_TARGET");
+    assert.equal(missing.error?.mutationOutcome, "not_sent");
+    const afterRefusal = libLoads;
+    await runtime.call("rpc.list", { library: "tools" });
+    assert.equal(libLoads, afterRefusal);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("rpc.list в runtime соблюдает outputLimitBytes без сохранения в ResultStore и расширяет страницу при большом лимите", async () => {
+  const methods = Array.from(
+    { length: 100 },
+    (_, i) =>
+      `<fn_${i} ALLOW-CALL-FROM-CLIENT="1" PARAM="param_alpha_${i}" PARAM="param_beta_${i}" PARAM="param_gamma_${i}" PARAM="param_delta_${i}" EXPR="return 1;"/>`,
+  ).join("");
+  const script = {
+    "native.spxml2.getAppInfo": {
+      shared_docs: [{ id: "big", url: "x-local://libs/big.xml" }],
+    },
+    "native.lds.loadUrl": response(`<SPXML-INLINE-FORM><big>${methods}</big></SPXML-INLINE-FORM>`),
+  };
+  const small = fakeRuntime(script, { outputLimitBytes: 2048 }).runtime;
+  const large = fakeRuntime(script, { outputLimitBytes: 65536 }).runtime;
+  try {
+    const smallReply = await small.call("rpc.list", { library: "big", limit: 100 });
+    assert.equal(smallReply.ok, true);
+    assert.equal(smallReply.meta.truncated, undefined);
+    const smallPage = smallReply.data as { targets: unknown[]; nextCursor?: number };
+    assert.ok(smallPage.targets.length > 0 && smallPage.targets.length < 100);
+    assert.ok(smallPage.nextCursor !== undefined);
+    assert.ok(
+      Buffer.byteLength(JSON.stringify(smallPage, null, 2), "utf8") <= Math.floor(2048 * 0.6),
+    );
+
+    const largeReply = await large.call("rpc.list", { library: "big", limit: 100 });
+    assert.equal(largeReply.ok, true);
+    assert.equal(largeReply.meta.truncated, undefined);
+    const largePage = largeReply.data as { targets: unknown[]; nextCursor?: number };
+    assert.equal(largePage.targets.length, 100);
+    assert.equal(largePage.nextCursor, undefined);
+    assert.ok(Buffer.byteLength(JSON.stringify(largePage, null, 2), "utf8") > 16 * 1024);
+  } finally {
+    await Promise.all([small.close(), large.close()]);
   }
 });

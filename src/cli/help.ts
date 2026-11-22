@@ -40,7 +40,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
   schema: {
     summary: "Поля типа объекта.",
     usage: [
-      "wtctl schema ТИП [--search ТЕКСТ] [--path ПУТЬ] [--deep] [--origin own,inherited,custom,catalog] [--kind ID] [--include methods] [--language ЯЗЫК] [--limit N] [--cursor N]",
+      "wtctl schema (ТИП | --url АДРЕС) [--search ТЕКСТ] [--path ПУТЬ] [--deep] [--origin own,inherited,custom,catalog] [--kind ID] [--include methods] [--language ЯЗЫК] [--limit N] [--cursor N]",
     ],
     notes: [
       "Без --search показывает верхний уровень, с ним ищет на любой глубине.",
@@ -90,7 +90,7 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
       "Правка, которая ничего не меняет, не записывается (noop:true).",
       "--resave сохраняет документ и без правок — сервер заново заполняет поля, которые берёт из связанных объектов; --resave можно дать без JSON.",
       "delete удаляет безвозвратно; --catalog проверяет, что объект был в каталоге и исчез.",
-      "create принимает ещё --form-url и --db-name.",
+      "--db-name задаёт базу, если не основная; create принимает ещё --form-url.",
       "Ответ create — id нового объекта и mutationOutcome; patch — changes и mutationOutcome; delete — mutationOutcome и verification.",
     ],
   },
@@ -206,14 +206,14 @@ const COMMANDS: Readonly<Record<string, CommandHelp>> = {
     summary: "Остальные операции: list (карта по темам), describe, call.",
     commands: ["list", "describe", "call"],
     usage: [
-      "wtctl api list [--offline]",
-      "wtctl api list --topic ТЕМА | --query ТЕКСТ [--effect read|write|execute|unknown] [--limit N] [--cursor N] [--offline]",
-      "wtctl api describe ОПЕРАЦИЯ [--offline]",
+      "wtctl api list",
+      "wtctl api list --topic ТЕМА | --query ТЕКСТ [--effect read|write|execute|unknown] [--limit N] [--cursor N]",
+      "wtctl api describe ОПЕРАЦИЯ",
       String.raw`wtctl api call ОПЕРАЦИЯ (--input-file args.json | --stdin | --args '{\"id\":\"…\"}')`,
     ],
     notes: [
       "list без фильтров показывает темы и ID операций.",
-      "--offline читает список из пакета без подключения к серверу.",
+      "list и describe читают список из пакета без настроек подключения и обращения к серверу.",
     ],
   },
   run: {

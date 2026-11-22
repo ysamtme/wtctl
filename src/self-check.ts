@@ -32,7 +32,7 @@ export interface CheckData {
     skipped: number;
   };
 }
-type Invoke = (id: string, args: Record<string, unknown>) => Promise<unknown>;
+type Invoke = (id: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
 /** Шаг не прошёл по причине, которую проба называет сама. */
 class CheckFailure extends Error {}
 
@@ -67,17 +67,20 @@ export async function checkServer(config: ConnectionConfig, invoke: Invoke): Pro
       report.checks.push({ name, result: "skipped", reason: skipped });
       return;
     }
-    // Каждый запрос уже ограничен транспортом; это ограничивает пробу из нескольких запросов.
+    // Каждый запрос уже ограничен транспортом; это ограничивает пробу из нескольких запросов
+    // и отменяет зависший сетевой запрос, чтобы не держать очередь шлюза.
+    const controller = new AbortController();
     let late = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           late = true;
+          controller.abort();
           reject(new Error());
         }, config.timeoutMs);
       });
-      const pending = invoke(id, args);
+      const pending = invoke(id, args, controller.signal);
       pending.catch(() => {});
       accept(await Promise.race([pending, timeout]));
       report.checks.push({ name, result: "ok" });

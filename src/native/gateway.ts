@@ -1,6 +1,7 @@
 import type { NativeConfig, NativeOperation } from "../contracts.js";
 import { WsHcmClient, type NativeSession, type WebSession } from "../protocol/client.js";
-import { WsHcmBinaryResponse } from "../protocol/types.js";
+import { WsHcmBinaryResponse, type RequestOptions } from "../protocol/types.js";
+import { WebSocketHeartbeatError } from "../protocol/websocket.js";
 import {
   ArgumentError,
   WsHcmApiError,
@@ -26,7 +27,7 @@ managed.push({
     effect: "read",
     inputSchema: empty,
   },
-  invoke: async (gateway) => gateway.client.diagnostics.portal(),
+  invoke: async (gateway, _args, options) => gateway.client.diagnostics.portal(options),
 });
 managed.push({
   operation: {
@@ -45,9 +46,9 @@ managed.push({
       additionalProperties: false,
     },
   },
-  invoke: async (gateway, args) => {
+  invoke: async (gateway, args, options) => {
     gateway.client.assertWebSocketAvailable();
-    return (await gateway.web()).heartbeat(args);
+    return (await gateway.web(options)).heartbeat(args);
   },
 });
 const sessionDescriptions = {
@@ -70,9 +71,9 @@ for (const profile of ["native", "web"] as const) {
       },
       invoke:
         method === "open"
-          ? async (gateway) => {
-              if (profile === "native") await gateway.native();
-              else await gateway.web();
+          ? async (gateway, _args, options) => {
+              if (profile === "native") await gateway.native(options);
+              else await gateway.web(options);
               return { opened: true, profile };
             }
           : async (gateway) => {
@@ -84,10 +85,10 @@ for (const profile of ["native", "web"] as const) {
 }
 /** Чтение, чей двоичный ответ шлюз отдаёт потоком без предела maxResponseBytes: тело читает вызывающий. */
 const streams: Readonly<Record<string, NativeEntry["invoke"]>> = {
-  "native.lds.loadUrl": async (gateway, args) =>
-    (await gateway.native()).lds.loadUrl(
+  "native.lds.loadUrl": async (gateway, args, options) =>
+    (await gateway.native(options)).lds.loadUrl(
       { url: args.url as string, useBinaryResponse: true },
-      { maxResponseBytes: Infinity },
+      { ...options, maxResponseBytes: Infinity },
     ),
 };
 
@@ -120,6 +121,13 @@ export function loginFailed(error: unknown): boolean {
   return typeof error === "object" && error !== null && failedLogins.has(error);
 }
 
+function abortedError(): WsHcmApiError {
+  return new WsHcmApiError("http", "HTTP-запрос прерван", {
+    requestSent: false,
+    details: { network: "aborted" },
+  });
+}
+
 /** Владелец состояния для SDK, MCP и CLI. Вызовы идут по очереди: сессия и курсор не путаются. */
 export class NativeGateway {
   readonly client: WsHcmClient;
@@ -149,17 +157,17 @@ export class NativeGateway {
   private assertOpen(): void {
     if (this.closed) throw new WsHcmApiError("protocol", "Шлюз закрыт");
   }
-  native(): Promise<NativeSession> {
+  native(options?: RequestOptions): Promise<NativeSession> {
     this.assertOpen();
-    return (this.nativeSession ??= this.client.openNativeSession().catch((error) => {
+    return (this.nativeSession ??= this.client.openNativeSession(options).catch((error) => {
       this.nativeSession = undefined;
       if (error instanceof Error) failedLogins.add(error);
       throw error;
     }));
   }
-  web(): Promise<WebSession> {
+  web(options?: RequestOptions): Promise<WebSession> {
     this.assertOpen();
-    return (this.webSession ??= this.client.openWebSession().catch((error) => {
+    return (this.webSession ??= this.client.openWebSession(options).catch((error) => {
       this.webSession = undefined;
       if (error instanceof Error) failedLogins.add(error);
       throw error;
@@ -175,12 +183,14 @@ export class NativeGateway {
     const session = this.takeProfile(profile);
     if (session) await (await session).close();
   }
-  call(id: string, args: Record<string, unknown>): Promise<unknown> {
+  call(id: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    if (signal?.aborted) return Promise.reject(abortedError());
+    const options = signal === undefined ? undefined : { signal };
     return this.enqueue(id, args, async (entry, snapshot) => {
       let failed = false;
       let operationError: unknown;
       try {
-        return await this.output(await this.invoke(entry, snapshot));
+        return await this.output(await this.invoke(entry, snapshot, options));
       } catch (error) {
         failed = true;
         operationError = error;
@@ -209,11 +219,14 @@ export class NativeGateway {
     id: string,
     args: Record<string, unknown>,
     read: (body: AsyncIterable<Uint8Array>) => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T> {
+    if (signal?.aborted) return Promise.reject(abortedError());
     if (!Object.hasOwn(streams, id))
       return Promise.reject(new WsHcmApiError("protocol", "Операция не отдаёт ответ потоком"));
+    const options = signal === undefined ? undefined : { signal };
     return this.enqueue(id, args, async (entry, snapshot) => {
-      const response = await this.invoke({ ...entry, invoke: streams[id]! }, snapshot);
+      const response = await this.invoke({ ...entry, invoke: streams[id]! }, snapshot, options);
       if (!(response instanceof WsHcmBinaryResponse))
         throw new WsHcmApiError("protocol", "Ответ сервера — не поток байт");
       const body = response.body ?? new ReadableStream({ start: (stream) => stream.close() });
@@ -255,20 +268,27 @@ export class NativeGateway {
    * поэтому повтор не может выполнить что-либо дважды. Операции из нескольких запросов
    * собираются выше, в runtime: так повторяется только отклонённый запрос.
    */
-  private async invoke(entry: NativeEntry, args: Record<string, unknown>): Promise<unknown> {
+  private async invoke(
+    entry: NativeEntry,
+    args: Record<string, unknown>,
+    options?: RequestOptions,
+  ): Promise<unknown> {
+    if (options?.signal?.aborted) throw abortedError();
     const profile = entry.operation.profile;
     const session =
       profile === "native" ? this.nativeSession : profile === "web" ? this.webSession : undefined;
     try {
-      return await entry.invoke(this, args);
+      return await entry.invoke(this, args, options);
     } catch (error) {
       // Без предыдущей сессии это был сам вход: его отказ окончателен.
+      const authExpired =
+        (error instanceof WsHcmApiError && error.kind === "auth" && error.status === 401) ||
+        (error instanceof WebSocketHeartbeatError &&
+          error.errorCode === "WS_AUTHENTICATION_REQUIRED");
       if (
         session === undefined ||
         profile === "anonymous" ||
-        !(error instanceof WsHcmApiError) ||
-        error.kind !== "auth" ||
-        error.status !== 401 ||
+        !authExpired ||
         /[.](?:session|lifecycle)[.]/.test(entry.operation.id)
       )
         throw error;
@@ -277,7 +297,8 @@ export class NativeGateway {
         this.takeProfile(profile);
         (await session).disposeLocal();
       }
-      return entry.invoke(this, args);
+      if (options?.signal?.aborted) throw abortedError();
+      return entry.invoke(this, args, options);
     }
   }
   private async output(result: unknown): Promise<unknown> {

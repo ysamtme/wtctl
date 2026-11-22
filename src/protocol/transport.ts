@@ -18,28 +18,56 @@ export interface SendOptions extends RequestOptions {
   redirect?: RequestRedirect;
 }
 
-export class SessionCookie {
-  #value: string | undefined;
+const COOKIE_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
+export class SessionCookie {
+  readonly #cookies = new Map<string, { name: string; value: string }>();
+
+  /** Значение cookie SessionID; undefined, если сессия ещё не выдала SessionID. */
   get value(): string | undefined {
-    return this.#value;
+    return this.#cookies.get("sessionid")?.value;
+  }
+
+  /** Все активные cookies сессии в виде заголовка Cookie. */
+  header(): string | undefined {
+    if (this.#cookies.size === 0) return undefined;
+    return [...this.#cookies.values()].map(({ name, value }) => `${name}=${value}`).join("; ");
   }
 
   capture(headers: Headers): void {
     const values =
       headers.getSetCookie?.() ?? (headers.get("set-cookie") ? [headers.get("set-cookie")!] : []);
-    for (const value of values) {
-      const first = value.split(";", 1)[0] ?? "";
+    for (const raw of values) {
+      const first = raw.split(";", 1)[0] ?? "";
       const equals = first.indexOf("=");
-      if (equals < 0 || first.slice(0, equals).trim().toLowerCase() !== "sessionid") continue;
+      if (equals <= 0) continue;
+      const name = first.slice(0, equals).trim();
       const cookieValue = first.slice(equals + 1).trim();
-      const deleted = /(?:^|;)\s*max-age=0(?:;|$)/i.test(value) || cookieValue === "";
-      this.#value = deleted ? undefined : cookieValue;
+      if (!COOKIE_NAME_PATTERN.test(name) || /[\x00-\x1f\x7f-\uffff]/.test(cookieValue)) continue;
+      const key = name.toLowerCase();
+      const attrs = raw.slice(first.length);
+      let deleted = cookieValue === "";
+      if (!deleted) {
+        // По RFC 6265 §5.3 атрибут Max-Age имеет приоритет над Expires.
+        const maxAge = /;\s*max-age\s*=\s*(-?\d+)\s*(?:;|$)/i.exec(attrs);
+        if (maxAge !== null) {
+          deleted = Number(maxAge[1]) <= 0;
+        } else {
+          const expires = /;\s*expires\s*=\s*([^;]+)/i.exec(attrs);
+          if (expires?.[1]) {
+            const time = Date.parse(expires[1].trim());
+            if (Number.isFinite(time) && time <= Date.now()) deleted = true;
+          }
+        }
+      }
+      if (deleted) this.#cookies.delete(key);
+      else this.#cookies.set(key, { name, value: cookieValue });
     }
   }
 
   clear(): void {
-    this.#value = undefined;
+    this.#cookies.clear();
   }
 }
 
@@ -72,7 +100,11 @@ export class HttpTransport {
     this.baseUrl = baseUrl;
     this.#auth = options.auth;
     this.#timeoutMs = options.timeoutMs;
-    if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1)
+    if (
+      !Number.isSafeInteger(this.#timeoutMs) ||
+      this.#timeoutMs < 1 ||
+      this.#timeoutMs > MAX_TIMEOUT_MS
+    )
       throw new ArgumentError("timeoutMs: нужно положительное целое число");
     this.#fetch = options.fetch;
     this.#webHeaders = options.webHeaders ?? false;
@@ -126,8 +158,11 @@ export class HttpTransport {
         `Basic ${Buffer.from(`${this.#auth.username}:${this.#auth.password}`, "utf8").toString("base64")}`,
       );
     }
-    let ownsCookieHeader = this.cookie.value !== undefined;
-    if (ownsCookieHeader) headers.set("Cookie", `SessionID=${this.cookie.value}`);
+    const callerCookie = headers.has("cookie");
+    const initialCookie =
+      !callerCookie || this.cookie.value !== undefined ? this.cookie.header() : undefined;
+    let ownsCookieHeader = initialCookie !== undefined;
+    if (initialCookie !== undefined) headers.set("Cookie", initialCookie);
     if (this.#webHeaders) headers.set("X-SpXml-Client", "SP-XML Web client 1.0");
 
     const maxResponseBytes = options.maxResponseBytes ?? this.#maxResponseBytes;
@@ -137,7 +172,13 @@ export class HttpTransport {
     )
       throw new ArgumentError("maxResponseBytes: нужно положительное целое число или Infinity");
     const timeoutMs = options.timeoutMs ?? this.#timeoutMs;
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS)
+      throw new ArgumentError("timeoutMs: нужно положительное целое число");
+    const streaming = maxResponseBytes === Infinity;
+    const streamController = streaming ? new AbortController() : undefined;
+    const timeoutSignal = streamController
+      ? streamController.signal
+      : AbortSignal.timeout(timeoutMs);
     const signal =
       options.signal === undefined
         ? timeoutSignal
@@ -153,6 +194,15 @@ export class HttpTransport {
     };
     let requestUrl = this.resolve(path);
     let response: Response;
+    // Для потокового чтения ограничивается ожидание заголовков, затем — простой между чанками.
+    let headerTimer: ReturnType<typeof setTimeout> | undefined;
+    if (streamController) {
+      headerTimer = setTimeout(() => {
+        streamController.abort(
+          new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+        );
+      }, timeoutMs);
+    }
     try {
       response = await this.#fetch(requestUrl, { ...requestInit, redirect: "manual" });
       this.cookie.capture(response.headers);
@@ -176,11 +226,15 @@ export class HttpTransport {
           } catch {
             throw new WsHcmApiError("http", "Перенаправление ведёт на другой сервер", redirected);
           }
-          if (this.cookie.value !== undefined) {
-            headers.set("Cookie", `SessionID=${this.cookie.value}`);
+          const nextCookie =
+            ownsCookieHeader || !callerCookie || this.cookie.value !== undefined
+              ? this.cookie.header()
+              : undefined;
+          if (nextCookie !== undefined) {
+            headers.set("Cookie", nextCookie);
             ownsCookieHeader = true;
           } else if (ownsCookieHeader) {
-            // Перенаправление может сделать SessionID недействительным. Свой заголовок клиент
+            // Перенаправление может очистить cookies сессии. Свой заголовок клиент
             // убирает, а Cookie опытного вызывающего, который клиент не ставил, сохраняет.
             headers.delete("Cookie");
           }
@@ -190,8 +244,14 @@ export class HttpTransport {
       }
     } catch (error) {
       if (error instanceof WsHcmApiError) throw error;
-      const timedOut = error instanceof DOMException && error.name === "TimeoutError";
-      const aborted = error instanceof DOMException && error.name === "AbortError";
+      const reason = timeoutSignal.aborted ? timeoutSignal.reason : undefined;
+      const timedOut =
+        (error instanceof DOMException && error.name === "TimeoutError") ||
+        (reason instanceof DOMException && reason.name === "TimeoutError");
+      const aborted =
+        !timedOut &&
+        ((error instanceof DOMException && error.name === "AbortError") ||
+          Boolean(options.signal?.aborted));
       const network = timedOut ? "timeout" : aborted ? "aborted" : networkFailure(error);
       throw new WsHcmApiError(
         "http",
@@ -202,12 +262,21 @@ export class HttpTransport {
             : "HTTP-запрос не выполнен",
         { details: { network } },
       );
+    } finally {
+      clearTimeout(headerTimer);
     }
-    this.cookie.capture(response.headers);
+    const wrap = (res: Response): Response =>
+      limitResponse(
+        res,
+        maxResponseBytes,
+        streaming ? timeoutMs : undefined,
+        streamController ? (error) => streamController.abort(error) : undefined,
+        options.signal,
+      );
 
     if (options.allowStatuses !== undefined) {
       if (options.allowStatuses === "any" || options.allowStatuses.includes(response.status))
-        return limitResponse(response, maxResponseBytes);
+        return wrap(response);
       await response.body?.cancel();
       if (response.status === 401)
         throw new WsHcmApiError("auth", "Отказ во входе или сессия недействительна", {
@@ -225,7 +294,7 @@ export class HttpTransport {
       await response.body?.cancel();
       throw new WsHcmApiError("permission", "Доступ запрещён", { status: 403 });
     }
-    return limitResponse(response, maxResponseBytes);
+    return wrap(response);
   }
 }
 
@@ -268,14 +337,43 @@ function networkFailure(error: unknown): NetworkFailure {
  * Ограничивает число байтов до того, как потребитель сможет буферизовать недоверенный ответ.
  * Сбой чтения тела — WsHcmApiError с причиной, и при пределе Infinity тоже.
  */
-export function limitResponse(response: Response, maxBytes: number): Response {
+export function limitResponse(
+  response: Response,
+  maxBytes: number,
+  idleTimeoutMs?: number,
+  onIdleTimeout?: (error: DOMException) => void,
+  externalSignal?: AbortSignal,
+): Response {
   if (response.body === null) return response;
   const reader = response.body.getReader();
   let read = 0;
+  const readChunk = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    if (idleTimeoutMs === undefined) return reader.read();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const timeoutError = new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        );
+        onIdleTimeout?.(timeoutError);
+        reject(timeoutError);
+      }, idleTimeoutMs);
+      reader.read().then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  };
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await reader.read();
+        const result = await readChunk();
         if (result.done) {
           controller.close();
           reader.releaseLock();
@@ -307,15 +405,19 @@ export function limitResponse(response: Response, maxBytes: number): Response {
       } catch (error) {
         await reader.cancel().catch(() => undefined);
         reader.releaseLock();
+        const network =
+          error instanceof DOMException && error.name === "TimeoutError"
+            ? "timeout"
+            : (error instanceof DOMException && error.name === "AbortError") ||
+                Boolean(externalSignal?.aborted)
+              ? "aborted"
+              : undefined;
         controller.error(
           error instanceof WsHcmApiError
             ? error
             : new WsHcmApiError("http", "Не удалось прочитать тело HTTP-ответа", {
                 cause: error,
-                // Время запроса истекает и посреди тела: большой файл читается дольше timeoutMs.
-                ...(error instanceof DOMException && error.name === "TimeoutError"
-                  ? { details: { network: "timeout" } }
-                  : {}),
+                ...(network === undefined ? {} : { details: { network } }),
               }),
         );
       }

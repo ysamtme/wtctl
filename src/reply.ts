@@ -20,9 +20,41 @@ function jsonSafe(value: unknown): unknown {
   if (typeof value === "bigint") return value.toString();
   if (value instanceof Uint8Array)
     return { base64: Buffer.from(value).toString("base64"), bytes: value.length };
-  if (Array.isArray(value)) return value.map(jsonSafe);
-  if (value && typeof value === "object")
-    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSafe(child)]));
+  if (Array.isArray(value)) {
+    let copy: unknown[] | undefined;
+    for (let i = 0; i < value.length; i++) {
+      const item = value[i];
+      const next = jsonSafe(item);
+      if (copy !== undefined) {
+        copy[i] = next;
+      } else if (next !== item) {
+        copy = value.slice(0, i);
+        copy.push(next);
+      }
+    }
+    return copy ?? value;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    let copy: Record<string, unknown> | undefined;
+    const keys = Object.keys(record);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i]!;
+      const child = record[key];
+      const next = jsonSafe(child);
+      if (copy !== undefined) {
+        copy[key] = next;
+      } else if (next !== child) {
+        copy = {};
+        for (let j = 0; j < i; j++) {
+          const prevKey = keys[j]!;
+          copy[prevKey] = record[prevKey];
+        }
+        copy[key] = next;
+      }
+    }
+    return copy ?? value;
+  }
   return value;
 }
 const jsonBytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value) ?? "null");
@@ -127,6 +159,7 @@ export class ReplyPacker {
       const whole = list === undefined ? [] : (data as Record<string, unknown[]>)[list]!;
       const shown = list === undefined ? undefined : (preview as Record<string, unknown>)[list];
       const result = outcome(true);
+      const durationMs = Math.round(performance.now() - start);
       const reply = (): OperationResult => ({
         ...result,
         data: {
@@ -141,21 +174,36 @@ export class ReplyPacker {
         meta: {
           operationId: id,
           connection: this.config.name,
-          durationMs: Math.round(performance.now() - start),
+          durationMs,
           truncated: true,
           resultId: stored.resultId,
           resultBytes: stored.bytes,
         },
       });
       // Строки об элементах добавляются, пока превью в своей доле лимита, а весь ответ — в лимите.
-      if (own && preview !== fitted && Array.isArray(shown))
+      if (own && preview !== fitted && Array.isArray(shown)) {
+        let previewBytes = jsonBytes(preview);
+        let replyBytes = jsonBytes(reply());
+        const totalStr = String(whole.length);
+        const hintSuffixBytes = (count: number): number =>
+          count < whole.length
+            ? Buffer.byteLength(` (в preview первые ${count} из ${totalStr})`)
+            : 0;
+        let prevHintBytes = hintSuffixBytes(shown.length);
         for (const item of whole) {
-          shown.push(own.summary(item));
-          if (jsonBytes(preview) > budget || jsonBytes(reply()) > this.config.outputLimitBytes) {
-            shown.pop();
-            break;
-          }
+          const summary = own.summary(item);
+          const step = jsonBytes(summary) + (shown.length > 0 ? 1 : 0);
+          const nextHintBytes = hintSuffixBytes(shown.length + 1);
+          const nextPreviewBytes = previewBytes + step;
+          const nextReplyBytes = replyBytes + step + (nextHintBytes - prevHintBytes);
+          if (nextPreviewBytes > budget || nextReplyBytes > this.config.outputLimitBytes) break;
+          shown.push(summary);
+          previewBytes = nextPreviewBytes;
+          replyBytes = nextReplyBytes;
+          prevHintBytes = nextHintBytes;
         }
+        while (shown.length > 0 && jsonBytes(reply()) > this.config.outputLimitBytes) shown.pop();
+      }
       return reply();
     }
     // Текст лога или файла сохраняется, даже если помещается: results.export пишет его в файл.
@@ -199,17 +247,21 @@ export class ReplyPacker {
     };
     const receipts = data.receipts as Record<string, unknown>[];
     const budget = Math.floor(this.config.outputLimitBytes / 3);
+    let used = jsonBytes(data);
+    let prevOmittedDigits = String(data.omittedReceipts).length;
     for (const receipt of recovery.receipts) {
       const compact = { ...receipt };
       // Длинные URL проверяемы по исходному вводу пакета; сокращённый URL не выдумывается.
       if (typeof compact.url === "string" && compact.url.length > 256) delete compact.url;
+      const step = jsonBytes(compact) + (receipts.length > 0 ? 1 : 0);
+      const nextOmitted = recovery.receipts.length - (receipts.length + 1);
+      const nextOmittedDigits = String(nextOmitted).length;
+      const nextUsed = used + step + (nextOmittedDigits - prevOmittedDigits);
+      if (nextUsed > budget) break;
       receipts.push(compact);
-      data.omittedReceipts = recovery.receipts.length - receipts.length;
-      if (jsonBytes(data) > budget) {
-        receipts.pop();
-        data.omittedReceipts = recovery.receipts.length - receipts.length;
-        break;
-      }
+      data.omittedReceipts = nextOmitted;
+      used = nextUsed;
+      prevOmittedDigits = nextOmittedDigits;
     }
     return data;
   }
@@ -230,7 +282,9 @@ export class ReplyPacker {
           ? Buffer.from(`${this.config.username}:${this.config.password}`).toString("base64")
           : undefined,
       ])
-        if (secret) safe = safe.replaceAll(secret, "[redacted]");
+        // Короткие пароли (короче 6 знаков) не вырезаются слепой заменой подстроки, чтобы
+        // не портить русские сообщения; пары password=… и Basic … закрывает redactCredentials.
+        if (secret && secret.length >= 6) safe = safe.replaceAll(secret, "[redacted]");
       safe = redactCredentials(safe.replace(/\b[A-Za-z]:[\\/][^\r\n<>"']*/g, "[server-path]"));
       return bound(safe, limit);
     };
@@ -294,7 +348,7 @@ export class ReplyPacker {
         );
       return value;
     };
-    // Точные ID ставятся поверх маскирования: пароль может законно совпасть с цифрой или
+    // Точные ID ставятся поверх маскирования: пароль может законно совпасть с числом или
     // префиксом UUID.
     let details: Record<string, unknown> = {
       ...(trim({

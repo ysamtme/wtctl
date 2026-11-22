@@ -3,30 +3,47 @@ import type { OperationResult } from "./contracts.js";
 
 // Тексты ошибок пишутся один раз, в runtime, с ID операций. Вызывающий MCP-сервер знает
 // инструменты, вызывающий команду — подкоманды: каждый интерфейс показывает свои имена.
-export const NAMES: Readonly<Record<string, readonly [tool: string, command: string]>> = {
-  "runtime.status": ["hcm_status", "wtctl status"],
-  "runtime.check": ["hcm_check", "wtctl check"],
-  "runtime.query": ["hcm_query", "wtctl query"],
-  "schema.types": ["hcm_types", "wtctl types"],
-  "schema.get": ["hcm_schema", "wtctl schema"],
-  "objects.get": ["hcm_object_get", "wtctl object get"],
-  "objects.create": ["hcm_object_create", "wtctl object create"],
-  "objects.patch": ["hcm_object_patch", "wtctl object patch"],
-  "objects.delete": ["hcm_object_delete", "wtctl object delete"],
-  "execute.script": ["hcm_script", "wtctl exec"],
-  "logs.list": ["hcm_logs_list", "wtctl logs list"],
-  "logs.read": ["hcm_logs_read", "wtctl logs read"],
-  "logs.search": ["hcm_logs_search", "wtctl logs search"],
-  "logs.follow": ["hcm_logs_follow", "wtctl logs follow"],
-  "results.read": ["hcm_result_read", "wtctl result read"],
-  "results.export": ["hcm_result_export", "wtctl result export"],
-  "api.list": ["hcm_api_list", "wtctl api list"],
-  "api.describe": ["hcm_api_describe", "wtctl api describe"],
-};
+// undefined у MCP значит, что отдельного инструмента нет и операция вызывается по ID через hcm_api_*.
+export const NAMES: Readonly<Record<string, readonly [tool: string | undefined, command: string]>> =
+  {
+    "runtime.status": ["hcm_status", "wtctl status"],
+    "runtime.check": ["hcm_check", "wtctl check"],
+    "runtime.query": ["hcm_query", "wtctl query"],
+    "runtime.batch": [undefined, "wtctl run"],
+    "server.info": [undefined, "wtctl server info"],
+    "schema.types": ["hcm_types", "wtctl types"],
+    "schema.get": ["hcm_schema", "wtctl schema"],
+    "objects.get": ["hcm_object_get", "wtctl object get"],
+    "objects.create": ["hcm_object_create", "wtctl object create"],
+    "objects.patch": ["hcm_object_patch", "wtctl object patch"],
+    "objects.delete": ["hcm_object_delete", "wtctl object delete"],
+    "files.read": [undefined, "wtctl files read"],
+    "files.exists": [undefined, "wtctl files exists"],
+    "files.list": [undefined, "wtctl files list"],
+    "files.write": [undefined, "wtctl files write"],
+    "files.delete": [undefined, "wtctl files delete"],
+    "web.pages.uploadFile": [undefined, "wtctl file upload"],
+    "native.lds.loadDoc": [undefined, "wtctl doc get"],
+    "native.lds.putDoc": [undefined, "wtctl doc put"],
+    "native.lds.deleteDoc": [undefined, "wtctl doc delete"],
+    "rpc.list": [undefined, "wtctl rpc list"],
+    "rpc.describe": [undefined, "wtctl rpc describe"],
+    "rpc.call": [undefined, "wtctl rpc"],
+    "execute.script": ["hcm_script", "wtctl exec"],
+    "logs.list": ["hcm_logs_list", "wtctl logs list"],
+    "logs.read": ["hcm_logs_read", "wtctl logs read"],
+    "logs.search": ["hcm_logs_search", "wtctl logs search"],
+    "logs.follow": ["hcm_logs_follow", "wtctl logs follow"],
+    "results.read": ["hcm_result_read", "wtctl result read"],
+    "results.export": ["hcm_result_export", "wtctl result export"],
+    "web.websocket.heartbeat": [undefined, "wtctl ws heartbeat"],
+    "api.list": ["hcm_api_list", "wtctl api list"],
+    "api.describe": ["hcm_api_describe", "wtctl api describe"],
+  };
 // ID внутри длинного имени через точку не трогается; точка в конце предложения — не часть имени.
 const PATTERN = new RegExp(
   `(?<![\\w.])(?:${Object.keys(NAMES)
-    .map((id) => id.replace(".", "\\."))
+    .map((id) => id.replaceAll(".", "\\."))
     .join("|")})(?!\\w|\\.\\w)`,
   "g",
 );
@@ -34,7 +51,7 @@ const PATTERN = new RegExp(
 export type Frontend = "mcp" | "cli";
 
 function name(id: string, frontend: Frontend): string {
-  return NAMES[id]?.[frontend === "mcp" ? 0 : 1] ?? id;
+  return Object.hasOwn(NAMES, id) ? (NAMES[id]?.[frontend === "mcp" ? 0 : 1] ?? id) : id;
 }
 
 function renamed(text: string, frontend: Frontend): string {

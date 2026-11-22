@@ -5,8 +5,8 @@ import {
   catalogQuery,
   hasStructure,
   looksLikeDate,
-  looksLikeDecimalId,
   looksLikeHexId,
+  looksLikeReal,
   orderFields,
   projectFields,
   queryPage,
@@ -24,8 +24,8 @@ const queryEffect: EffectFor = (args) => {
 
 /**
  * Типы полей каталога, которые читаются, только когда условие содержит значение, записанное
- * как дата или как ID: такое значение должно дойти до поля даты как date('…'), до целого поля —
- * как число, а до строкового — строкой, и отличить их может только форма.
+ * как дата, число или ID: такое значение должно дойти до поля даты как date('…'), до числового
+ * поля — без кавычек, а до строкового — строкой, и отличить их может только форма.
  */
 async function fieldTypes(
   catalogShape: () => Promise<DataShape | undefined>,
@@ -37,9 +37,7 @@ async function fieldTypes(
     condition && typeof condition === "object" ? Object.values(condition).flat() : [condition],
   );
   if (
-    !values.some(
-      (value) => looksLikeDate(value) || looksLikeDecimalId(value) || looksLikeHexId(value),
-    )
+    !values.some((value) => looksLikeDate(value) || looksLikeReal(value) || looksLikeHexId(value))
   )
     return undefined;
   const shape = await catalogShape();
