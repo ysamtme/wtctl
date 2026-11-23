@@ -31,6 +31,7 @@ export interface Verdict {
 /** Исход записи одного вызова: отметки, ID и правило трёх исходов. */
 export class WriteOutcome {
   private marks = 0;
+  private confirmed = false;
   private readonly ids: WriteIds = {};
 
   /** Перед запросом, способным изменить сервер; возвращает снятие этой отметки. */
@@ -41,6 +42,14 @@ export class WriteOutcome {
       if (!withdrawn) this.marks--;
       withdrawn = true;
     };
+  }
+
+  /**
+   * Запись или запуск на сервере уже подтверждены его ответом: последующий сбой (например,
+   * таймаут ожидания) не должен возвращать indeterminate.
+   */
+  confirm(): void {
+    if (this.marks > 0) this.confirmed = true;
   }
 
   /** Значение undefined ничего не стирает. */
@@ -79,7 +88,8 @@ export class WriteOutcome {
     const turnedAway =
       error instanceof HcmError &&
       (error.code === "RPC_SERVER_ONLY" || error.code === "UNKNOWN_RPC_TARGET");
-    const mutationOutcome = sent && !turnedAway ? "indeterminate" : "not_sent";
+    const mutationOutcome: MutationOutcome =
+      sent && !turnedAway ? (this.confirmed ? "confirmed" : "indeterminate") : "not_sent";
     const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error);
     return { ...verdict, mutationOutcome, ...(refusedAfterSend && { refusedAfterSend }) };
   }

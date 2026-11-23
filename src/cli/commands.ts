@@ -820,7 +820,81 @@ function parseAgentObjectIds(rawFlags: readonly string[]): string[] {
   return result;
 }
 
+const AGENT_THREAD_ID_RE = /^-?\d{1,20}$/;
+const AGENT_ROLE_UID_RE = /^[^\s\u0000-\u001f\u007f]{0,128}$/;
+
+function assertAgentThreadId(given: string, label: string): void {
+  if (!AGENT_THREAD_ID_RE.test(given)) {
+    throw new CliInputError(
+      `${label} должен быть ID потока агента (десятичным числом).`,
+      "ID потока возвращает wtctl agent run и wtctl agent status.",
+    );
+  }
+}
+
 function agentCommand(args: CliArguments): Invocation {
+  const action = args.positionals[1];
+  if (action === "status") {
+    exactPositionals(args, 2, 3);
+    const id = args.positionals[2];
+    if (id !== undefined) {
+      assertObjectId(id, "ID агента передаётся строкой: 0x… или десятичной записью.");
+    }
+    const threadId = stringOption(args, "thread");
+    if (threadId !== undefined) assertAgentThreadId(threadId, "--thread");
+    const status = enumOption(
+      args,
+      "status",
+      ["running", "finished", "cancelled"],
+      "Для --status допустимы running, finished или cancelled.",
+    );
+    const limit = integerOption(args, "limit", 1, 200);
+    const wait = args.options.wait === true;
+    const waitTimeoutMs = integerOption(args, "wait-timeout-ms", 1000, 3_600_000);
+    if (wait && threadId === undefined) {
+      throw new CliInputError(
+        "--wait требует указать --thread ID.",
+        "Пример: wtctl agent status --thread 3102754751613348050 --wait.",
+      );
+    }
+    if (!wait && waitTimeoutMs !== undefined) {
+      throw new CliInputError(
+        "--wait-timeout-ms используется только вместе с --wait.",
+        "Добавьте --wait и --thread ID.",
+      );
+    }
+    return {
+      operationId: "agents.status",
+      args: {
+        ...optional("id", id),
+        ...optional("threadId", threadId),
+        ...optional("status", status),
+        ...optional("limit", limit),
+        ...(wait ? { wait: true } : {}),
+        ...optional("waitTimeoutMs", waitTimeoutMs),
+      },
+    };
+  }
+
+  if (action === "cancel") {
+    exactPositionals(args, 3);
+    const threadId = requirePositional(args, 2, "ID потока агента");
+    assertAgentThreadId(threadId, "ID потока агента");
+    const roleUID = stringOption(args, "role");
+    if (roleUID !== undefined && !AGENT_ROLE_UID_RE.test(roleUID)) {
+      throw new CliInputError(
+        "--role должен быть непустым идентификатором роли сервера без пробелов (до 128 знаков).",
+      );
+    }
+    return {
+      operationId: "agents.cancel",
+      args: {
+        threadId,
+        ...optional("roleUID", roleUID),
+      },
+    };
+  }
+
   // Подкоманду `run` уже проверил requireCommand.
   exactPositionals(args, 3);
   const id = requirePositional(args, 2, "ID агента");
@@ -838,12 +912,30 @@ function agentCommand(args: CliArguments): Invocation {
     );
   }
   const objectIds = rawObjects.length > 0 ? parseAgentObjectIds(rawObjects) : undefined;
+  const noWait = args.options["no-wait"] === true;
+  const waitTimeoutMs = integerOption(args, "wait-timeout-ms", 1000, 3_600_000);
+  if (noWait && waitTimeoutMs !== undefined) {
+    throw new CliInputError(
+      "--wait-timeout-ms несовместим с --no-wait.",
+      "Уберите --wait-timeout-ms или запускайте без --no-wait.",
+    );
+  }
+  if (noWait && args.options.logs === true) {
+    throw new CliInputError(
+      "--logs несовместим с --no-wait: агент ещё выполняется.",
+      "Проверьте логи после завершения через wtctl logs tail xhttp или дождитесь агента через wtctl agent status --thread ID --wait.",
+    );
+  }
+  const allowConcurrent = args.options["allow-concurrent"] === true;
   return {
     operationId: "agents.run",
     args: {
       id,
       ...optional("objectId", objectId),
       ...optional("objectIds", objectIds),
+      ...(noWait ? { wait: false } : {}),
+      ...optional("waitTimeoutMs", waitTimeoutMs),
+      ...(allowConcurrent ? { allowConcurrent: true } : {}),
     },
   };
 }

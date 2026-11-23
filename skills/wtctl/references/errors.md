@@ -67,6 +67,9 @@
 | --- | --- |
 | `SCRIPT_FAILED` | текст ошибки кода — в `details.scriptError`, см. [scripts.md](scripts.md) |
 | `SCRIPT_RESPONSE` | код не присвоил `RESULT` массив или вернул то, что не передаётся (документ, структуру) |
+| `AGENT_WAIT_TIMEOUT` | агент сервера не завершился за `waitTimeoutMs` и продолжает работу (`details.threadId`; у `agents.run` исход `confirmed`, повторять запуск не нужно): проверить через `agents.status` или остановить через `agents.cancel` |
+| `AGENT_STATUS_FAILED` | агент сервера запущен (`confirmed`, `details.threadId`), но опрос списка запусков сорвался: повторять запуск не нужно, проверить через `agents.status` |
+| `AGENT_NOT_RUNNING` | работающего агента с этим `threadId` нет (`not_sent`): проверить список запусков через `agents.status` |
 | `QUERY_REPRESENTATION` | запрос XQuery вернул не строки каталога: закончить на `return $e` |
 
 ## Файлы

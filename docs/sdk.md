@@ -58,7 +58,7 @@ const config = loadConfig({
 | Типы и поля | `types({search})`, `schema({type, search, path, deep, origin, kind})` |
 | Поиск | `query({catalog, where, fields, order, limit, startPosition})`, `query({query: "текст XQuery", fields})`, все строки — `queryRows(…)` |
 | Объект | `get({id, fields})`, `getMany({ids, fields})`, `create({type, data})`, `patch({id, patch, remove, preview, expectedFingerprint})`, `delete({id, permanent: true})` |
-| Код и функции | `execute(code, params)`, `runAgent({id, objectId, objectIds})`, `rpc({library, method, arguments})`, `listRpc({query})`, `describeRpc("библиотека.функция", {source: true})` |
+| Код и функции | `execute(code, params)`, `runAgent({id, objectId, objectIds, wait, waitTimeoutMs, allowConcurrent})`, `agentStatus({id, threadId, status, limit, wait, waitTimeoutMs})`, `cancelAgent({threadId, roleUID})`, `rpc({library, method, arguments})`, `listRpc({query})`, `describeRpc("библиотека.функция", {source: true})` |
 | Логи | `listLogs()`, `searchLogs({file, text, level})`, `readLog({file})`, `followLog({file, cursor})` |
 | Файлы | `fileExists({url})`, `readFile({url})`, на диск — `readFile({url, file, overwrite})`, `listFiles({url})`, `writeFile({url, text | base64 | file})`, `deleteFile({url})`, `uploadFile({filename, data})` |
 | Несколько операций | `batch({steps})` |

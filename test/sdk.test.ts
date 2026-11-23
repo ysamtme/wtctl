@@ -194,9 +194,21 @@ const cases: {
   },
   {
     name: "runAgent",
-    run: (c) => c.runAgent({ id: "0x1", objectId: "0x2" }),
+    run: (c) => c.runAgent({ id: "0x1", objectId: "0x2", wait: false, allowConcurrent: true }),
     id: "agents.run",
-    args: { id: "0x1", objectId: "0x2" },
+    args: { id: "0x1", objectId: "0x2", wait: false, allowConcurrent: true },
+  },
+  {
+    name: "agentStatus",
+    run: (c) => c.agentStatus({ id: "0x1", threadId: "3102754751613348050", status: "running" }),
+    id: "agents.status",
+    args: { id: "0x1", threadId: "3102754751613348050", status: "running" },
+  },
+  {
+    name: "cancelAgent",
+    run: (c) => c.cancelAgent({ threadId: "3102754751613348050", roleUID: "role-1" }),
+    id: "agents.cancel",
+    args: { threadId: "3102754751613348050", roleUID: "role-1" },
   },
   {
     name: "execute with params",

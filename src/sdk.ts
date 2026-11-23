@@ -3,7 +3,7 @@ import type { RuntimePort } from "./runtime-port.js";
 import type { ResultExportData, ResultExportInput } from "./results.js";
 import type { CheckData } from "./self-check.js";
 import { HcmError } from "./errors.js";
-import type { AgentRunData, ScriptData } from "./scripts.js";
+import type { AgentCancelData, AgentRunData, AgentStatusData, ScriptData } from "./scripts.js";
 import type { OperationData } from "./operations.js";
 import type {
   CreatedObjectData,
@@ -34,8 +34,10 @@ import type {
 } from "./rpc-catalog.js";
 import type { WebSocketHeartbeatInput, WebSocketHeartbeatData } from "./protocol/index.js";
 import type {
+  AgentStatusInput,
   BatchData,
   BatchInput,
+  CancelAgentInput,
   ClearedUploadChunksData,
   ClearUploadChunksInput,
   CreateInput,
@@ -64,9 +66,11 @@ import type {
 } from "./sdk-types.js";
 
 export type {
+  AgentStatusInput,
   BatchData,
   BatchInput,
   BatchStep,
+  CancelAgentInput,
   ClearedUploadChunksData,
   ClearUploadChunksInput,
   CreateInput,
@@ -459,11 +463,26 @@ export class HcmClient {
     );
   }
   /**
-   * Запускает агента сервера и ждёт конца его кода; нужно право execute. Ошибки кода агента —
-   * только в логе xhttp между startedAt и finishedAt.
+   * Запускает агента сервера в отдельном потоке и по умолчанию ждёт завершения (до waitTimeoutMs,
+   * по умолчанию 120000 мс); нужно право execute. С wait:false возвращает threadId сразу. Ошибки
+   * кода агента — только в логе xhttp.
    */
   runAgent(input: RunAgentInput): Promise<HcmResult<AgentRunData>> {
     return callOperation(this, "agents.run", { ...input });
+  }
+  /**
+   * Список текущих и недавно завершённых запусков агентов сервера; фильтруется по id, threadId,
+   * status и limit. С threadId и wait:true ждёт завершения запуска. Право execute не требуется.
+   */
+  agentStatus(input: AgentStatusInput = {}): Promise<HcmResult<AgentStatusData>> {
+    return callOperation(this, "agents.status", { ...input });
+  }
+  /**
+   * Останавливает выполняющегося агента сервера по threadId (roleUID определяется автоматически,
+   * если не задан); нужно право write. Уже сделанные изменения не откатываются.
+   */
+  cancelAgent(input: CancelAgentInput): Promise<HcmResult<AgentCancelData>> {
+    return callOperation(this, "agents.cancel", { ...input });
   }
   /**
    * Несколько операций одним вызовом; права проверяются для каждого шага. Не транзакция:

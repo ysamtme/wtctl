@@ -600,6 +600,24 @@ export function extractTable(
       }),
     };
   }
+  if (operationId === "agents.status" && isRecord(data) && Array.isArray(data.runs)) {
+    return {
+      headers: ["id", "code", "name", "status", "threadId", "roleUID", "startedAt", "finishedAt"],
+      rows: data.runs.map((item) => {
+        const r = isRecord(item) ? item : {};
+        return [
+          r.id ?? "",
+          r.code ?? "",
+          r.name ?? "",
+          r.status ?? "",
+          r.threadId ?? "",
+          r.roleUID ?? "",
+          r.startedAt ?? "",
+          r.finishedAt ?? "",
+        ];
+      }),
+    };
+  }
   if (operationId === "web.spxml.getBackgroundTasksByName") {
     const tasks = normalizeBackgroundTasks(data);
     return {
@@ -761,6 +779,24 @@ export function tabularStreamSpec(
           return [r.sequence ?? "", r.time ?? "", r.context ?? "", r.level ?? "", r.text ?? ""];
         },
       };
+    case "agents.status":
+      return {
+        kind: "fixed",
+        headers: ["id", "code", "name", "status", "threadId", "roleUID", "startedAt", "finishedAt"],
+        mapRow: (item) => {
+          const r = isRecord(item) ? item : {};
+          return [
+            r.id ?? "",
+            r.code ?? "",
+            r.name ?? "",
+            r.status ?? "",
+            r.threadId ?? "",
+            r.roleUID ?? "",
+            r.startedAt ?? "",
+            r.finishedAt ?? "",
+          ];
+        },
+      };
     case "web.spxml.getBackgroundTasksByName":
       return {
         kind: "fixed",
@@ -839,6 +875,8 @@ export function extractListItems(
       return Array.isArray(data.results) ? data.results : undefined;
     case "runtime.check":
       return Array.isArray(data.checks) ? data.checks : undefined;
+    case "agents.status":
+      return Array.isArray(data.runs) ? data.runs : undefined;
     case "web.spxml.getBackgroundTasksByName":
       return normalizeBackgroundTasks(data);
     default:
@@ -2131,6 +2169,9 @@ export function renderHuman(
 
   if (op === "agents.run" && isRecord(data)) {
     const started = data.started === true;
+    const status = typeof data.status === "string" ? data.status : undefined;
+    const threadId = typeof data.threadId === "string" && data.threadId ? data.threadId : undefined;
+    const roleUID = typeof data.roleUID === "string" && data.roleUID ? data.roleUID : undefined;
     const startedAt = typeof data.startedAt === "string" ? data.startedAt : "";
     const finishedAt = typeof data.finishedAt === "string" ? data.finishedAt : "";
     const duration =
@@ -2175,17 +2216,37 @@ export function renderHuman(
             : startMatch && finishMatch && !sameDay
               ? `wtctl ${connFlag}logs tail ${logType}  ·  wtctl ${connFlag}logs list --type ${logType} --start-date ${startMatch[1]} --end-date ${finishMatch[1]}`
               : `wtctl ${connFlag}logs tail ${logType}  ·  wtctl ${connFlag}logs search ${logType}`;
+    const stateLabel = started
+      ? status === "running"
+        ? styler.bold(styler.cyan("Запущен в фоне"))
+        : status === "cancelled"
+          ? styler.bold(styler.yellow("Запущен и отменён"))
+          : status === "unknown"
+            ? styler.bold(styler.yellow("Запущен (состояние неизвестно)"))
+            : styler.bold(styler.green("Запущен и завершён"))
+      : status === "running"
+        ? styler.bold(styler.yellow("Уже выполняется"))
+        : styler.bold(styler.yellow("Не запущен"));
     const entries: [string, string][] = [
-      [
-        "Состояние",
-        started
-          ? styler.bold(styler.green("Запущен и завершён"))
-          : styler.bold(styler.yellow("Не запущен")),
-      ],
-      ...(interval ? ([["Интервал", interval]] as [string, string][]) : []),
-      ["Лог", logCommand],
+      ["Состояние", stateLabel],
+      ...(threadId ? ([["Поток", styler.bold(threadId)]] as [string, string][]) : []),
+      ...(roleUID ? ([["Роль", roleUID]] as [string, string][]) : []),
+      ...(interval
+        ? ([[finishedAt ? "Интервал" : "Запущен", interval]] as [string, string][])
+        : []),
+      ...(status === "running" && threadId
+        ? ([
+            [
+              "Проверка",
+              `wtctl ${connFlag}agent status --thread ${threadId} --wait  ·  wtctl ${connFlag}agent cancel ${threadId}`,
+            ],
+          ] as [string, string][])
+        : ([["Лог", logCommand]] as [string, string][])),
     ];
     const parts: string[] = [renderCard(entries, styler)];
+    if (!started && status === "running") {
+      parts.push(styler.dim("Для параллельного запуска добавьте --allow-concurrent."));
+    }
     let stderrNote: string | undefined;
 
     if (isRecord(data.logs)) {
@@ -2215,6 +2276,72 @@ export function renderHuman(
       text: `${parts.join("\n")}\n`,
       ...(stderrNote === undefined ? {} : { stderrNote }),
     };
+  }
+
+  if (op === "agents.status" && isRecord(data) && Array.isArray(data.runs)) {
+    const parts: string[] = [];
+    if (data.runs.length > 0) {
+      const cols: TableColumn[] = [
+        { header: "Поток" },
+        { header: "Код" },
+        { header: "Название" },
+        { header: "Состояние" },
+        { header: "Старт" },
+        { header: "Конец" },
+      ];
+      const rows = data.runs.map((item) => {
+        const r = isRecord(item) ? item : {};
+        const status = String(r.status ?? "");
+        const state =
+          status === "running"
+            ? styler.cyan("Выполняется")
+            : status === "finished"
+              ? styler.green("Завершён")
+              : status === "cancelled"
+                ? styler.yellow("Отменён")
+                : status || "—";
+        return [
+          String(r.threadId ?? ""),
+          String(r.code ?? ""),
+          String(r.name ?? ""),
+          state,
+          String(r.startedAt ?? ""),
+          String(r.finishedAt ?? "—"),
+        ];
+      });
+      parts.push(renderTable(cols, rows, tableOpts));
+      parts.push(
+        styler.dim(`Показано ${data.runs.length} из ${String(data.total ?? data.runs.length)}`),
+      );
+    } else {
+      parts.push(styler.dim("Запусков агентов не найдено."));
+    }
+    return { text: `${parts.join("\n")}\n` };
+  }
+
+  if (op === "agents.cancel" && isRecord(data)) {
+    const connFlag = options.connectionArg
+      ? options.connectionArg.startsWith("-")
+        ? `--connection=${options.connectionArg} `
+        : `-c ${options.connectionArg} `
+      : "";
+    const threadId = typeof data.threadId === "string" ? data.threadId : undefined;
+    const roleUID = typeof data.roleUID === "string" ? data.roleUID : undefined;
+    const entries: [string, string][] = [
+      ...(threadId ? ([["Поток", styler.bold(threadId)]] as [string, string][]) : []),
+      ...(roleUID ? ([["Роль", roleUID]] as [string, string][]) : []),
+      ["Исход", String(data.mutationOutcome ?? "confirmed")],
+    ];
+    const parts = [
+      styler.bold(styler.green("✓ Запрос на отмену агента отправлен")),
+      renderCard(entries, styler),
+      styler.dim(
+        threadId
+          ? `Уже сделанные изменения не откатываются. Состояние: wtctl ${connFlag}agent status --thread ${threadId}`
+          : "Уже сделанные изменения не откатываются.",
+      ),
+    ];
+    return { text: `${parts.join("\n")}\n` };
   }
 
   if (op === "web.spxml.getBackgroundTasksByName") {
@@ -2379,6 +2506,16 @@ export function formatHumanError(result: OperationResult, styler: Styler): strin
     for (const line of scriptError.split(/\r?\n/)) {
       lines.push(`  ${line}`);
     }
+  }
+
+  if (err.mutationOutcome === "confirmed" && typeof err.details?.threadId === "string") {
+    const role =
+      typeof err.details.roleUID === "string" && err.details.roleUID
+        ? `, роль: ${err.details.roleUID}`
+        : "";
+    lines.push(
+      styler.yellow(`Агент сервера запущен (confirmed), поток: ${err.details.threadId}${role}.`),
+    );
   }
 
   if (err.mutationOutcome === "indeterminate") {

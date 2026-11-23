@@ -118,7 +118,7 @@ function extractObjectPreview(
  * При отказе печатает «Отменено.» в stderr и возвращает false.
  */
 export async function confirmDestructiveAction(
-  operationId: "objects.delete" | "files.delete" | "web.spxml.killAsyncMethod",
+  operationId: "objects.delete" | "files.delete" | "web.spxml.killAsyncMethod" | "agents.cancel",
   args: Readonly<Record<string, unknown>>,
   config: Pick<ConnectionConfig, "name" | "baseUrl">,
   runtime: RuntimePort,
@@ -195,6 +195,14 @@ export async function confirmDestructiveAction(
       }
     }
     question = "Удалить файл на сервере? [y/N] ";
+  } else if (operationId === "agents.cancel") {
+    await progress.stop();
+    const threadId = typeof args.threadId === "string" ? args.threadId : "";
+    const roleUID = typeof args.roleUID === "string" ? args.roleUID : "";
+    entries.push(["Поток", styler.bold(sanitizeTerminalText(threadId))]);
+    if (roleUID) entries.push(["Роль", sanitizeTerminalText(roleUID)]);
+    entries.push(["Внимание", styler.yellow("Уже сделанные изменения не откатываются.")]);
+    question = "Остановить агента сервера? [y/N] ";
   } else {
     await progress.stop();
     const trackingId = typeof args.trackingId === "string" ? args.trackingId : "";
@@ -267,6 +275,7 @@ function parseDateAndTimeMs(dateHint: string, time: string): number | undefined 
 
 /**
  * Отбирает события лога, попавшие в интервал [startedAt, finishedAt] с допуском ±toleranceSec.
+ * При пустом finishedAt отбирает события начиная с startedAt - toleranceSec до конца лога.
  * При известной дате события/файла сравнивает полную дату и время; без даты — время суток с переходом через полночь.
  */
 export function filterLogEventsByInterval(
@@ -277,10 +286,28 @@ export function filterLogEventsByInterval(
   fileDateHint?: string,
 ): LogEvent[] {
   let startSec = parseTimeOfDaySec(startedAt);
-  let endSec = parseTimeOfDaySec(finishedAt);
-  if (startSec === undefined || endSec === undefined) return [];
-
+  if (startSec === undefined) return [];
   const startMs = parseIsoTimestampMs(startedAt);
+
+  // Открытая верхняя граница (например, при status:"unknown" у C#-агента): все события от startedAt - toleranceSec.
+  if (finishedAt.trim() === "") {
+    const minMs = startMs !== undefined ? startMs - toleranceSec * 1000 : undefined;
+    const lo = Math.max(0, startSec - toleranceSec);
+    return events.filter((event) => {
+      if (event.time === undefined) return false;
+      const eventDate = event.dateHint ?? fileDateHint;
+      if (minMs !== undefined && eventDate !== undefined) {
+        const eventMs = parseDateAndTimeMs(eventDate, event.time);
+        if (eventMs !== undefined) return eventMs >= minMs;
+      }
+      const t = parseTimeOfDaySec(event.time);
+      return t !== undefined && t >= lo;
+    });
+  }
+
+  let endSec = parseTimeOfDaySec(finishedAt);
+  if (endSec === undefined) return [];
+
   const endMs = parseIsoTimestampMs(finishedAt);
   const hasFullRange = startMs !== undefined && endMs !== undefined;
   const minMs = hasFullRange ? Math.min(startMs, endMs) - toleranceSec * 1000 : undefined;
@@ -372,18 +399,22 @@ function selectLogFilesForInterval(
   if (candidates.length === 0) return [];
 
   const startMs = parseIsoTimestampMs(startedAt);
-  const endMs = parseIsoTimestampMs(finishedAt);
-  if (startMs === undefined || endMs === undefined) return [candidates[0]!];
+  if (startMs === undefined) return [candidates[0]!];
+  const endMs = finishedAt.trim() === "" ? undefined : parseIsoTimestampMs(finishedAt);
 
-  const minMs = Math.min(startMs, endMs) - AGENT_LOG_TOLERANCE_SEC * 1000;
-  const maxMs = Math.max(startMs, endMs) + AGENT_LOG_TOLERANCE_SEC * 1000;
+  const minMs =
+    (endMs === undefined ? startMs : Math.min(startMs, endMs)) - AGENT_LOG_TOLERANCE_SEC * 1000;
+  const maxMs =
+    endMs === undefined ? undefined : Math.max(startMs, endMs) + AGENT_LOG_TOLERANCE_SEC * 1000;
   const startDate = formatUtcDate(minMs);
-  const endDate = formatUtcDate(maxMs);
+  const endDate = maxMs === undefined ? undefined : formatUtcDate(maxMs);
 
   const dated = candidates.filter((file) => file.dateHint !== undefined);
   if (dated.length === 0) return [candidates[0]!];
 
-  const inRange = dated.filter((file) => file.dateHint! >= startDate && file.dateHint! <= endDate);
+  const inRange = dated.filter(
+    (file) => file.dateHint! >= startDate && (endDate === undefined || file.dateHint! <= endDate),
+  );
   if (inRange.length === 0) return [candidates[0]!];
 
   // Хронологический порядок: сначала ранние даты, затем поздние; не более MAX_AGENT_LOG_FILES.

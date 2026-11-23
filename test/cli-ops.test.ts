@@ -147,17 +147,23 @@ function harness(options: HarnessOptions = {}) {
 // 1. wtctl agent run и фильтрация лога по интервалу
 // ---------------------------------------------------------------------------
 
-test("NAMES переводит agents.run в wtctl agent run для CLI и оставляет agents.run для MCP", () => {
+test("NAMES переводит agents.run, agents.status и agents.cancel в команды CLI и оставляет ID для MCP", () => {
   assert.deepEqual(NAMES["agents.run"], [undefined, "wtctl agent run"]);
+  assert.deepEqual(NAMES["agents.status"], [undefined, "wtctl agent status"]);
+  assert.deepEqual(NAMES["agents.cancel"], [undefined, "wtctl agent cancel"]);
   const err = errResult(
     "agents.run",
     "EXECUTE_DISABLED",
     "Операция agents.run требует права execute.",
-    "Проверить agents.run.",
+    "Проверить agents.status или остановить через agents.cancel.",
   );
   assert.equal(
     errorInFrontendTerms(err, "cli").error?.message,
     "Операция wtctl agent run требует права execute.",
+  );
+  assert.equal(
+    errorInFrontendTerms(err, "cli").error?.hint,
+    "Проверить wtctl agent status или остановить через wtctl agent cancel.",
   );
   assert.equal(
     errorInFrontendTerms(err, "mcp").error?.message,
@@ -237,7 +243,7 @@ test("agent run передаёт id, --object или --objects, сохраняе
   assert.match(tty.state.stdout, /wtctl -c stage logs search xhttp 14:10/);
   assert.match(tty.state.stdout, /wtctl -c stage logs tail xhttp/);
 
-  // Некорректные аргументы, совместные --object/--objects и пустые элементы отклоняются с кодом 2.
+  // Некорректные аргументы, совместные --object/--objects, --no-wait с --wait-timeout-ms/--logs и пустые элементы отклоняются с кодом 2.
   for (const badArgv of [
     ["agent", "run"],
     ["agent", "run", "not-an-id"],
@@ -247,11 +253,254 @@ test("agent run передаёт id, --object или --objects, сохраняе
     ["agent", "run", "0x1", "--objects", ",0x1"],
     ["agent", "run", "0x1", "--objects", "0x1,"],
     ["agent", "run", "0x1", "--objects", "   "],
+    ["agent", "run", "0x1", "--no-wait", "--wait-timeout-ms", "5000"],
+    ["agent", "run", "0x1", "--no-wait", "--logs"],
+    ["agent", "run", "0x1", "--wait-timeout-ms", "500"],
   ]) {
     const bad = harness();
     assert.equal(await runCli(badArgv, bad.io, bad.dependencies), 2, badArgv.join(" "));
     assert.equal(bad.state.calls.length, 0);
   }
+
+  // Новые флаги agent run: --no-wait, --allow-concurrent, --wait-timeout-ms.
+  const noWait = harness({
+    stdoutIsTTY: true,
+    color: false,
+    reply: () =>
+      okResult("agents.run", {
+        started: true,
+        status: "running",
+        threadId: "3102754751613348050",
+        roleUID: "role-1",
+        startedAt: "2026-11-22T14:10:00",
+        hint: "Запущен.",
+      }),
+  });
+  assert.equal(
+    await runCli(
+      ["agent", "run", "0x1", "--no-wait", "--allow-concurrent"],
+      noWait.io,
+      noWait.dependencies,
+    ),
+    0,
+  );
+  assert.deepEqual(noWait.state.calls, [
+    { id: "agents.run", args: { id: "0x1", wait: false, allowConcurrent: true } },
+  ]);
+  assert.match(noWait.state.stdout, /Запущен в фоне/);
+  assert.match(noWait.state.stdout, /3102754751613348050/);
+
+  const withTimeout = harness({
+    stdoutIsTTY: false,
+    reply: () => okResult("agents.run", payload),
+  });
+  assert.equal(
+    await runCli(
+      ["agent", "run", "0x1", "--wait-timeout-ms", "30000"],
+      withTimeout.io,
+      withTimeout.dependencies,
+    ),
+    0,
+  );
+  assert.deepEqual(withTimeout.state.calls, [
+    { id: "agents.run", args: { id: "0x1", waitTimeoutMs: 30000 } },
+  ]);
+});
+
+test("wtctl agent status и agent cancel передают аргументы, выводят таблицу/CSV и спрашивают [y/N] в TTY", async () => {
+  const statusData = {
+    runs: [
+      {
+        id: "16",
+        code: "demo_job",
+        name: "Демо",
+        status: "running",
+        threadId: "3102754751613348050",
+        roleUID: "role-1",
+        startedAt: "2026-11-22T14:10:00",
+      },
+    ],
+    total: 1,
+  };
+
+  // agent status в TTY — таблица; с --format csv — табличный CSV.
+  const ttyStatus = harness({
+    stdoutIsTTY: true,
+    color: false,
+    reply: () => okResult("agents.status", statusData),
+  });
+  assert.equal(
+    await runCli(
+      [
+        "agent",
+        "status",
+        "0x10",
+        "--thread",
+        "3102754751613348050",
+        "--status",
+        "running",
+        "--limit",
+        "10",
+        "--wait",
+        "--wait-timeout-ms",
+        "5000",
+      ],
+      ttyStatus.io,
+      ttyStatus.dependencies,
+    ),
+    0,
+    ttyStatus.state.stderr,
+  );
+  assert.deepEqual(ttyStatus.state.calls, [
+    {
+      id: "agents.status",
+      args: {
+        id: "0x10",
+        threadId: "3102754751613348050",
+        status: "running",
+        limit: 10,
+        wait: true,
+        waitTimeoutMs: 5000,
+      },
+    },
+  ]);
+  assert.match(ttyStatus.state.stdout, /3102754751613348050/);
+  assert.match(ttyStatus.state.stdout, /Выполняется/);
+
+  const csvStatus = harness({
+    stdoutIsTTY: false,
+    reply: () => okResult("agents.status", statusData),
+  });
+  assert.equal(
+    await runCli(["agent", "status", "--format", "csv"], csvStatus.io, csvStatus.dependencies),
+    0,
+  );
+  assert.match(
+    csvStatus.state.stdout,
+    /^id,code,name,status,threadId,roleUID,startedAt,finishedAt\n/,
+  );
+  assert.match(csvStatus.state.stdout, /3102754751613348050/);
+
+  // Неверные сочетания флагов status отклоняются с кодом 2.
+  for (const badArgv of [
+    ["agent", "status", "--wait"],
+    ["agent", "status", "--thread", "123", "--wait-timeout-ms", "5000"],
+    ["agent", "status", "--thread", "not-a-thread"],
+    ["agent", "status", "--status", "unknown"],
+    ["agent", "cancel"],
+    ["agent", "cancel", "bad-thread"],
+  ]) {
+    const bad = harness();
+    assert.equal(await runCli(badArgv, bad.io, bad.dependencies), 2, badArgv.join(" "));
+    assert.equal(bad.state.calls.length, 0);
+  }
+
+  // agent cancel в TTY спрашивает [y/N]: отказ отменяет вызов, согласие и --yes выполняют agents.cancel.
+  const declined = harness({
+    stdoutIsTTY: true,
+    color: false,
+    confirm: false,
+  });
+  assert.equal(
+    await runCli(["agent", "cancel", "3102754751613348050"], declined.io, declined.dependencies),
+    1,
+  );
+  assert.equal(declined.state.calls.length, 0);
+  assert.match(declined.state.stderr, /Отменено\./);
+
+  const accepted = harness({
+    stdoutIsTTY: true,
+    color: false,
+    confirm: true,
+    reply: () =>
+      okResult("agents.cancel", {
+        cancelled: true,
+        threadId: "3102754751613348050",
+        roleUID: "role-1",
+        mutationOutcome: "confirmed",
+        hint: "Запрос отправлен.",
+      }),
+  });
+  assert.equal(
+    await runCli(
+      ["agent", "cancel", "3102754751613348050", "--role", "role-1"],
+      accepted.io,
+      accepted.dependencies,
+    ),
+    0,
+  );
+  assert.deepEqual(accepted.state.calls, [
+    { id: "agents.cancel", args: { threadId: "3102754751613348050", roleUID: "role-1" } },
+  ]);
+  assert.match(accepted.state.stdout, /Запрос на отмену агента отправлен/);
+
+  const skippedPrompt = harness({
+    stdoutIsTTY: true,
+    color: false,
+    confirm: false,
+    reply: () =>
+      okResult("agents.cancel", {
+        cancelled: true,
+        threadId: "3102754751613348050",
+        roleUID: "role-1",
+        mutationOutcome: "confirmed",
+        hint: "Запрос отправлен.",
+      }),
+  });
+  assert.equal(
+    await runCli(
+      ["agent", "cancel", "3102754751613348050", "--yes"],
+      skippedPrompt.io,
+      skippedPrompt.dependencies,
+    ),
+    0,
+  );
+  assert.equal(skippedPrompt.state.calls.length, 1);
+
+  // Пустая роль (--role= и --role "") допускается для одиночного сервера 2025.2.
+  for (const argv of [
+    ["agent", "cancel", "3102754751613348050", "--role="],
+    ["agent", "cancel", "3102754751613348050", "--role", ""],
+  ]) {
+    const emptyRole = harness({
+      stdoutIsTTY: false,
+      reply: () =>
+        okResult("agents.cancel", {
+          cancelled: true,
+          threadId: "3102754751613348050",
+          roleUID: "",
+          mutationOutcome: "confirmed",
+          hint: "Запрос отправлен.",
+        }),
+    });
+    assert.equal(
+      await runCli(argv, emptyRole.io, emptyRole.dependencies),
+      0,
+      `${argv.join(" ")}: ${emptyRole.state.stderr}`,
+    );
+    assert.deepEqual(emptyRole.state.calls, [
+      { id: "agents.cancel", args: { threadId: "3102754751613348050", roleUID: "" } },
+    ]);
+  }
+
+  // Открытая верхняя граница при пустом finishedAt (status:"unknown" у C#-агента) не отрезает поздние ошибки.
+  const openEvents = parseLogEvents(
+    [
+      "14:09:50 [0100] До запуска",
+      "14:10:00 [0100] Старт C#-агента",
+      "14:10:15 [0100] ERROR Поздняя ошибка через 15 с",
+    ].join("\n"),
+    "2026-11-22",
+  );
+  const openMatched = filterLogEventsByInterval(
+    openEvents,
+    "2026-11-22T14:10:00",
+    "",
+    2,
+    "2026-11-22",
+  );
+  assert.equal(openMatched.length, 2);
+  assert.match(openMatched[1]!.text, /Поздняя ошибка/);
 });
 
 test("agent run --logs читает свежий xhttp в той же сессии, распаковывает truncated и подсвечивает события", async () => {

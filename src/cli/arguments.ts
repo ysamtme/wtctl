@@ -392,7 +392,7 @@ function recordOption(
   const nextFlags = spec.name === "input-file" ? scopeByLong : index.allLong;
   if (
     next === undefined ||
-    next.length === 0 ||
+    (next.length === 0 && !spec.allowEmpty) ||
     (equals < 0 && isNextFlagToken(next, index, nextFlags))
   ) {
     throw new CliInputError(`Для --${spec.name} требуется значение.`);

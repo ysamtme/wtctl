@@ -29,8 +29,8 @@ const TOPICS: readonly Topic[] = [
   },
   {
     id: "agents",
-    title: "Агенты сервера: запустить и дождаться конца",
-    operations: ["agents.run"],
+    title: "Агенты сервера: запустить, узнать состояние, остановить",
+    operations: ["agents.run", "agents.status", "agents.cancel"],
   },
   {
     id: "files",

@@ -137,6 +137,7 @@ const TABULAR_OPERATIONS = new Set([
   "runtime.check",
   "execute.script",
   "results.read",
+  "agents.status",
   "web.spxml.getBackgroundTasksByName",
 ]);
 
@@ -148,6 +149,8 @@ const CLI_FORMAT_LABELS: Readonly<Record<string, string>> = {
   "cli.config.remove": "wtctl config remove",
   "cli.config.path": "wtctl config path",
   "cli.config.example": "wtctl config example",
+  "agents.run": "wtctl agent run",
+  "agents.cancel": "wtctl agent cancel",
   "web.spxml.getAsyncMethodStatus": "wtctl tasks status",
   "web.spxml.killAsyncMethod": "wtctl tasks kill",
 };

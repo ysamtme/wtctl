@@ -79,6 +79,21 @@ test("общий путь вызова снимает отметку с запр
   assert.equal(code.verdict("execute", unauthorized()).mutationOutcome, "not_sent");
 });
 
+test("подтверждённая запись сохраняет исход confirmed при последующей ошибке (например таймауте ожидания)", () => {
+  const { outcome, withdraw } = marked();
+  outcome.confirm();
+  assert.equal(outcome.verdict("execute", plain).mutationOutcome, "confirmed");
+  assert.equal(outcome.verdict("execute", unauthorized()).mutationOutcome, "confirmed");
+  assert.equal(outcome.verdict("execute", unauthorized()).refusedAfterSend, undefined);
+  withdraw();
+  assert.equal(outcome.verdict("execute", plain).mutationOutcome, "not_sent");
+
+  // Без отметки отправки confirm не делает не отправленную операцию confirmed.
+  const empty = new WriteOutcome();
+  empty.confirm();
+  assert.equal(empty.verdict("write", plain).mutationOutcome, "not_sent");
+});
+
 test("снятие относится к своей отметке и срабатывает один раз", () => {
   const outcome = new WriteOutcome();
   const [first, second] = [outcome.sending(), outcome.sending()];

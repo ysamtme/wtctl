@@ -28,9 +28,11 @@ export type {
   OperationResult,
 } from "./contracts.js";
 export type {
+  AgentStatusInput,
   BatchData,
   BatchInput,
   BatchStep,
+  CancelAgentInput,
   ClearedUploadChunksData,
   ClearUploadChunksInput,
   CreateInput,
@@ -102,7 +104,15 @@ export type {
   PatchPreviewData,
 } from "./objects.js";
 export type { PatchChange } from "./documents.js";
-export type { AgentRunData, ScriptData } from "./scripts.js";
+export type {
+  AgentCancelData,
+  AgentListStatus,
+  AgentRunData,
+  AgentRunRecord,
+  AgentRunStatus,
+  AgentStatusData,
+  ScriptData,
+} from "./scripts.js";
 export type { ResultExportData, ResultExportInput } from "./results.js";
 export type {
   RpcCatalogFilter,

@@ -9,6 +9,8 @@ export interface OptionSpec {
   readonly repeatable?: boolean;
   /** Локальный флаг подкоманды с тем же именем, что глобальный (например --format у result read/export). */
   readonly overridesGlobal?: true;
+  /** Допускает пустую строку в качестве значения (`--role=` или `--role ""`). */
+  readonly allowEmpty?: true;
   readonly valueLabel?: string;
   readonly values?: readonly string[];
   readonly description: string;
@@ -759,12 +761,14 @@ export const CLI_COMMANDS: readonly CommandSpec[] = [
   {
     name: "agent",
     group: "code",
-    summary: "Агенты сервера: run.",
+    summary: "Агенты сервера: run, status, cancel.",
     subcommands: [
       {
         name: "run",
-        summary: "Запустить агента сервера и дождаться завершения.",
-        usage: ["wtctl agent run ID [--object ID | --objects ID,ID] [--logs]"],
+        summary: "Запустить агента сервера в отдельном потоке.",
+        usage: [
+          "wtctl agent run ID [--object ID | --objects ID,ID] [--no-wait | --wait-timeout-ms N] [--allow-concurrent] [--logs]",
+        ],
         options: [
           {
             name: "object",
@@ -780,19 +784,96 @@ export const CLI_COMMANDS: readonly CommandSpec[] = [
             description: "ID объектов через запятую (OBJECTS_ID_STR); повторяемый.",
           },
           {
+            name: "no-wait",
+            type: "boolean",
+            description: "Запустить в фоне без ожидания завершения и сразу вернуть threadId.",
+          },
+          {
+            name: "wait-timeout-ms",
+            type: "string",
+            valueLabel: "N",
+            description:
+              "Предел ожидания завершения в миллисекундах: 1000–3600000, по умолчанию 120000.",
+          },
+          {
+            name: "allow-concurrent",
+            type: "boolean",
+            description: "Запустить параллельно, даже если этот агент уже выполняется.",
+          },
+          {
             name: "logs",
             type: "boolean",
-            description: "Показать события свежего лога за интервал работы агента.",
+            description:
+              "Показать события свежего лога за интервал работы агента (несовместим с --no-wait).",
           },
         ],
         notes: [
-          "Ждёт завершения в пределах timeoutMs; долгого агента запускает wtctl rpc tools.start_agent ID.",
+          "Запускает агента в отдельном потоке и по умолчанию ждёт завершения (до --wait-timeout-ms, по умолчанию 120000 мс); --no-wait возвращает threadId сразу.",
+          "При таймауте ожидания отвечает AGENT_WAIT_TIMEOUT (mutationOutcome: confirmed): агент продолжает работу, состояние покажет wtctl agent status --thread ID.",
           "Ошибки кода и alert сервер пишет в лог xhttp между startedAt и finishedAt.",
+        ],
+      },
+      {
+        name: "status",
+        summary: "Показать текущие и недавно завершённые запуски агентов сервера.",
+        usage: [
+          "wtctl agent status [ID] [--thread ID] [--status running|finished|cancelled] [--limit N] [--wait [--wait-timeout-ms N]]",
+        ],
+        options: [
+          {
+            name: "thread",
+            type: "string",
+            valueLabel: "ID",
+            description: "Фильтр по ID потока запуска.",
+          },
+          {
+            name: "status",
+            type: "string",
+            valueLabel: "СОСТОЯНИЕ",
+            values: ["running", "finished", "cancelled"],
+            description: "Фильтр по состоянию: running, finished или cancelled.",
+          },
+          limitOption("Количество записей, 1–200, по умолчанию 20."),
+          {
+            name: "wait",
+            type: "boolean",
+            description: "Ждать завершения запуска (требует --thread).",
+          },
+          {
+            name: "wait-timeout-ms",
+            type: "string",
+            valueLabel: "N",
+            description:
+              "Предел ожидания в миллисекундах: 1000–3600000, по умолчанию 120000 (только с --wait).",
+          },
+        ],
+        notes: [
+          "Работает без права execute; показывает выполняющиеся запуски и до 100 последних завершённых.",
+          "С --thread ID --wait ждёт завершения или отмены указанного запуска.",
+        ],
+      },
+      {
+        name: "cancel",
+        summary: "Остановить выполняющегося агента сервера по ID потока.",
+        usage: ["wtctl agent cancel THREAD_ID [--role ROLE_UID]"],
+        options: [
+          {
+            name: "role",
+            type: "string",
+            allowEmpty: true,
+            valueLabel: "ROLE_UID",
+            description:
+              "Идентификатор роли сервера (на одиночном сервере 2025.2 — пустая строка --role=; без флага определяется по списку запусков).",
+          },
+        ],
+        notes: [
+          "Требует права write. Уже сделанные изменения не откатываются; сервер обрабатывает отмену в течение нескольких секунд.",
+          "Вопрос [y/N] появляется, только когда stdin, stdout и stderr подключены к терминалу (без вопроса — --yes); иначе выполняется сразу.",
         ],
       },
     ],
     notes: [
-      "Ждёт завершения в пределах timeoutMs; --logs читает события из свежего xhttp (или agent при started:false).",
+      "run запускает в отдельном потоке и по умолчанию ждёт завершения (--no-wait — сразу в фоне); status показывает запуски и ждёт по --thread --wait; cancel останавливает работающий поток.",
     ],
   },
   {

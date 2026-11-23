@@ -119,7 +119,7 @@ RESULT = [{ id: doc.DocID + '', lastname: doc.TopElem.lastname + '' }];
 | `doc get`, `put`, `delete` | документ по адресу (в терминале и `--format table\|raw` — XML, в JSON — разобранная структура) |
 | `exec` | код на сервере (SP-XML Script) |
 | `rpc list`, `describe`, `БИБЛИОТЕКА.ФУНКЦИЯ` | функции библиотек сервера и их вызов |
-| `agent run` | запуск агента сервера с ожиданием завершения и чтением логов (`--logs`) |
+| `agent run`, `status`, `cancel` | запуск агента сервера в отдельном потоке (с ожиданием или `--no-wait`), состояние запусков и остановка |
 | `tasks list`, `status`, `kill` | список, статус и остановка асинхронных вызовов функций библиотек (`rpc --async`) |
 | `run` | несколько операций одним вызовом |
 | `files read`, `exists`, `list`, `write`, `edit`, `delete`, `upload` | чтение и сохранение на диск, проверка существования, список папки, запись, правка в редакторе, удаление и загрузка файла в папку загрузок (прежнее имя `file upload` сохранено) |
@@ -165,6 +165,9 @@ wtctl -c test rpc tools.my_long_job --async
 wtctl -c test tasks list tools.my_long_job
 wtctl -c test tasks status TRACKING_ID
 wtctl -c test agent run 0x65D6BB73BFE67019 --logs
+wtctl -c test agent run 0x65D6BB73BFE67019 --no-wait
+wtctl agent status --status running
+wtctl -c test agent cancel 3102754751613348050
 ```
 
 Логи, файлы и подключения:
@@ -267,8 +270,8 @@ ID объекта пишется как есть, `0x…` или десятич�
 
 В читаемом выводе (интерактивный терминал и `--format table`):
 
-- списки (`types`, `schema`, `query`, `logs list`, `files list`, `rpc list`, `config list`, `api list`, `tasks list`) выводятся таблицами с выравниванием, учётом ширины терминала (`COLUMNS`), числом показанных строк и параметром следующей страницы;
-- одиночные ответы (`status`, `server info`, `version`, `object get/create/patch/delete`, `files exists/write/upload`, `agent run`, `tasks status`, `ws heartbeat`, `config`) выводятся компактными сводками; `check` — списком шагов с отметками `✓`, `✗`, `−`;
+- списки (`types`, `schema`, `query`, `logs list`, `files list`, `rpc list`, `config list`, `api list`, `agent status`, `tasks list`) выводятся таблицами с выравниванием, учётом ширины терминала (`COLUMNS`), числом показанных строк и параметром следующей страницы;
+- одиночные ответы (`status`, `server info`, `version`, `object get/create/patch/delete`, `files exists/write/upload`, `agent run/cancel`, `tasks status`, `ws heartbeat`, `config`) выводятся компактными сводками; `check` — списком шагов с отметками `✓`, `✗`, `−`;
 - текстовые данные (`files read` для текста, `logs read/tail/search/follow`, `rpc describe --source`) печатаются как есть, без JSON-экранирования; `doc get` в терминале и с `--format table|raw` собирает XML из ответа `native.lds.loadDoc` (для исходного файла байт в байт нужен `files read АДРЕС --to ФАЙЛ`); для двоичных файлов `files read` показывает сводку и подсказку про `--to`;
 - `object patch --preview` показывает построчный diff с предупреждением о полях, которые сервер заполняет сам (`serverFilled`);
 - цвета в таблицах, логах и diff зависят от TTY и учитывают `NO_COLOR` и `FORCE_COLOR`;
@@ -327,9 +330,9 @@ ID объекта пишется как есть, `0x…` или десятич�
 - `wtctl object edit [ТИП] ID [-f ПОЛЯ] [--editor "code --wait"] [-y]` открывает выбранные (`-f`) или все поля объекта в `.json`, по разнице «было / стало» строит минимальный `patch` / `remove` (удаление ключа в JSON удаляет поле, остальные узлы XML не затрагиваются), показывает предпросмотр `objects.patch` с предупреждением о `serverFilled` и записывает с `expectedFingerprint`.
 - `wtctl object edit [ТИП] ID --xml [--editor "code --wait"] [-y]` открывает исходный XML документа (`native.lds.loadDoc`/`putDoc`), сохраняя форматирование и порядок узлов, но отклоняет некорректный XML, смену корневого элемента, изменение `<id>` и параллельные правки на сервере (`--xml` и `--fields` несовместимы).
 
-### Подтверждение удаления и остановки асинхронных вызовов
+### Подтверждение удаления и остановки фоновых процессов
 
-Когда `stdin`, `stdout` и `stderr` подключены к интерактивному терминалу, команды `object delete`, `files delete`, `tasks kill` и `config remove` (`rm`) перед выполнением показывают имя подключения и краткие сведения о цели и запрашивают подтверждение `[y/N]` в `stderr`. При отказе запрос на удаление не отправляется (при этом клиент мог предварительно прочитать объект или проверить файл), печатается «Отменено.» и возвращается код выхода `1`. Вопрос отключается флагом `-y` / `--yes` (а для `object delete` и `files delete` также флагом `--permanent`). Если хотя бы один из потоков (`stdin`, `stdout` или `stderr`) перенаправлен, интерактивного вопроса нет: `object delete` в таком запуске требует `--permanent` (даже при `--yes`), а `files delete`, `tasks kill` и `config remove` выполняются сразу. Команды `doc delete`, `api call` и шаги внутри `run` интерактивного подтверждения не запрашивают.
+Когда `stdin`, `stdout` и `stderr` подключены к интерактивному терминалу, команды `object delete`, `files delete`, `agent cancel`, `tasks kill` и `config remove` (`rm`) перед выполнением показывают имя подключения и краткие сведения о цели и запрашивают подтверждение `[y/N]` в `stderr`. При отказе запрос на удаление не отправляется (при этом клиент мог предварительно прочитать объект или проверить файл), печатается «Отменено.» и возвращается код выхода `1`. Вопрос отключается флагом `-y` / `--yes` (а для `object delete` и `files delete` также флагом `--permanent`). Если хотя бы один из потоков (`stdin`, `stdout` или `stderr`) перенаправлен, интерактивного вопроса нет: `object delete` в таком запуске требует `--permanent` (даже при `--yes`), а `files delete`, `agent cancel`, `tasks kill` и `config remove` выполняются сразу. Команды `doc delete`, `api call` и шаги внутри `run` интерактивного подтверждения не запрашивают.
 
 ## Скрипты
 

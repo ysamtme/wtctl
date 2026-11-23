@@ -427,7 +427,9 @@ export async function runCli(
                 ? ("files.delete" as const)
                 : command === "tasks" && action === "kill"
                   ? ("web.spxml.killAsyncMethod" as const)
-                  : undefined
+                  : command === "agent" && action === "cancel"
+                    ? ("agents.cancel" as const)
+                    : undefined
             : undefined;
         if (confirmTarget !== undefined) {
           const confirmed = await confirmDestructiveAction(
@@ -446,7 +448,11 @@ export async function runCli(
             callArgs = { ...callArgs, permanent: true };
           }
           progress.start(
-            confirmTarget === "web.spxml.killAsyncMethod" ? "Остановка задачи…" : "Удаление…",
+            confirmTarget === "web.spxml.killAsyncMethod"
+              ? "Остановка задачи…"
+              : confirmTarget === "agents.cancel"
+                ? "Остановка агента…"
+                : "Удаление…",
           );
         }
         result = await runtime.call(invocation!.operationId, callArgs);
