@@ -2,15 +2,15 @@ import { createRequire as __wtctlRequire } from "node:module";
 const require = __wtctlRequire(import.meta.url);
 import {
   HcmRuntime
-} from "./chunks/chunk-GDGUNIPL.js";
+} from "./chunks/chunk-UQHEU7II.js";
 import {
   HcmError,
   describeHcmOperation,
   listHcmOperations,
   loadConfig
-} from "./chunks/chunk-7DDP3AUY.js";
-import "./chunks/chunk-OJZZGCO7.js";
-import "./chunks/chunk-VYMNGZ3Z.js";
+} from "./chunks/chunk-T672SCY6.js";
+import "./chunks/chunk-VCNJKZJ7.js";
+import "./chunks/chunk-JZ7VTFSJ.js";
 import "./chunks/chunk-LV7Y4FOL.js";
 
 // src/sdk.ts
@@ -258,11 +258,30 @@ var HcmClient = class {
     );
   }
   /**
-   * Запускает агента сервера и ждёт конца его кода; нужно право execute. Ошибки кода агента —
-   * только в логе xhttp между startedAt и finishedAt.
+   * Запускает агента сервера в отдельном потоке и по умолчанию ждёт завершения (до waitTimeoutMs,
+   * по умолчанию 120000 мс); нужно право execute. С wait:false возвращает threadId сразу (для
+   * агентов на C# threadId может отсутствовать). При истечении waitTimeoutMs возвращает
+   * AGENT_WAIT_TIMEOUT (mutationOutcome: confirmed), при сбое опроса — AGENT_STATUS_FAILED
+   * (confirmed). Ошибки кода агента сервера — только в логе xhttp.
    */
   runAgent(input) {
     return callOperation(this, "agents.run", { ...input });
+  }
+  /**
+   * Список текущих и недавно завершённых запусков агентов сервера; фильтруется по id, threadId,
+   * status и limit. С threadId и wait:true ждёт завершения запуска (при таймауте —
+   * AGENT_WAIT_TIMEOUT). Право execute не требуется.
+   */
+  agentStatus(input = {}) {
+    return callOperation(this, "agents.status", { ...input });
+  }
+  /**
+   * Останавливает выполняющегося агента сервера по threadId (roleUID определяется автоматически,
+   * если не задан; при отсутствии работающего потока — AGENT_NOT_RUNNING с not_sent). Нужно право
+   * write; уже сделанные изменения не откатываются.
+   */
+  cancelAgent(input) {
+    return callOperation(this, "agents.cancel", { ...input });
   }
   /**
    * Несколько операций одним вызовом; права проверяются для каждого шага. Не транзакция:

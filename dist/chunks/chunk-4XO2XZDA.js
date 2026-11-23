@@ -7,7 +7,7 @@ import {
   operationSummary,
   operationTopic,
   unknownOperationHint
-} from "./chunk-7DDP3AUY.js";
+} from "./chunk-T672SCY6.js";
 
 // src/frontend-names.ts
 var NAMES = {
@@ -36,6 +36,8 @@ var NAMES = {
   "rpc.call": [void 0, "wtctl rpc"],
   "execute.script": ["hcm_script", "wtctl exec"],
   "agents.run": [void 0, "wtctl agent run"],
+  "agents.status": [void 0, "wtctl agent status"],
+  "agents.cancel": [void 0, "wtctl agent cancel"],
   "logs.list": ["hcm_logs_list", "wtctl logs list"],
   "logs.read": ["hcm_logs_read", "wtctl logs read"],
   "logs.search": ["hcm_logs_search", "wtctl logs search"],
@@ -153,7 +155,7 @@ async function guide(topic = "start", local) {
       "В гайде нет такой темы.",
       `Темы: ${GUIDE_TOPICS.join(", ")}.`
     );
-  const { GUIDE_PAGES } = await import("./guide-texts-TBIWFZJB.js");
+  const { GUIDE_PAGES } = await import("./guide-texts-YQN6YVTG.js");
   const page = GUIDE_PAGES[index];
   return local && topic === "cli-sdk" ? { ...page, text: `${page.text}
 
@@ -236,7 +238,7 @@ function discoverOperations(list, filter) {
 }
 
 // src/version.ts
-var VERSION = "0.8.0";
+var VERSION = "0.8.1";
 
 export {
   errorInFrontendTerms,

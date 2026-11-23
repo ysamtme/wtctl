@@ -1,7 +1,7 @@
 import type { ResultExportData, ResultExportInput } from "./results.js";
 import type { CheckData } from "./self-check.js";
 import { HcmError } from "./errors.js";
-import type { AgentRunData, ScriptData } from "./scripts.js";
+import type { AgentCancelData, AgentRunData, AgentStatusData, ScriptData } from "./scripts.js";
 import type { CreatedObjectData, PatchPreviewData, PatchedObjectData, DeletedObjectData } from "./objects.js";
 import type { ServerInfoInput, ServerInfoData } from "./server-info.js";
 import type { FileExistsInput, FileExistsData, FileReadInput, FileReadData } from "./files.js";
@@ -13,8 +13,8 @@ import type { LogListInput, LogReadInput, LogSearchInput, LogFollowInput } from 
 import type { LogFiles, LogMatches, LogNews, LogText } from "./log-output.js";
 import type { RpcCatalogFilter, RpcCatalogPage, RpcDescribeOptions, RpcTargetDescription } from "./rpc-catalog.js";
 import type { WebSocketHeartbeatInput, WebSocketHeartbeatData } from "./protocol/index.js";
-import type { BatchData, BatchInput, ClearedUploadChunksData, ClearUploadChunksInput, CreateInput, DeleteOptions, GetManyData, GetManyInput, GetOptions, HcmData, HcmResult, ObjectData, ObjectTarget, PatchOptions, QueryData, QueryInput, ResultPage, ResultReadInput, RpcAsyncData, RpcInput, RpcValueData, RunAgentInput, StatusData, UploadChunkInput, UploadedChunkData, UploadedFileData, UploadFileInput } from "./sdk-types.js";
-export type { BatchData, BatchInput, BatchStep, ClearedUploadChunksData, ClearUploadChunksInput, CreateInput, DeleteOptions, FilterCondition, FilterValue, GetManyData, GetManyInput, GetOptions, HcmData, HcmResult, ObjectData, ObjectTarget, PatchOperation, PatchOptions, QueryData, QueryInput, QueryOptions, ResultMeta, ResultPage, ResultReadInput, RpcArgument, RpcAsyncData, RpcInput, RpcTypedArgument, RpcValueData, RpcXmlArgument, RunAgentInput, StatusData, StoredResultData, UploadChunkInput, UploadedChunkData, UploadedFileData, UploadFileInput, } from "./sdk-types.js";
+import type { AgentStatusInput, BatchData, BatchInput, CancelAgentInput, ClearedUploadChunksData, ClearUploadChunksInput, CreateInput, DeleteOptions, GetManyData, GetManyInput, GetOptions, HcmData, HcmResult, ObjectData, ObjectTarget, PatchOptions, QueryData, QueryInput, ResultPage, ResultReadInput, RpcAsyncData, RpcInput, RpcValueData, RunAgentInput, StatusData, UploadChunkInput, UploadedChunkData, UploadedFileData, UploadFileInput } from "./sdk-types.js";
+export type { AgentStatusInput, BatchData, BatchInput, BatchStep, CancelAgentInput, ClearedUploadChunksData, ClearUploadChunksInput, CreateInput, DeleteOptions, FilterCondition, FilterValue, GetManyData, GetManyInput, GetOptions, HcmData, HcmResult, ObjectData, ObjectTarget, PatchOperation, PatchOptions, QueryData, QueryInput, QueryOptions, ResultMeta, ResultPage, ResultReadInput, RpcArgument, RpcAsyncData, RpcInput, RpcTypedArgument, RpcValueData, RpcXmlArgument, RunAgentInput, StatusData, StoredResultData, UploadChunkInput, UploadedChunkData, UploadedFileData, UploadFileInput, } from "./sdk-types.js";
 /**
  * Ошибка, которую бросает unwrap при ok:false: code, message, hint, details и mutationOutcome
  * взяты из error ответа.
@@ -158,10 +158,25 @@ export declare class HcmClient {
         params?: object;
     }, params?: object): Promise<HcmResult<ScriptData<T>>>;
     /**
-     * Запускает агента сервера и ждёт конца его кода; нужно право execute. Ошибки кода агента —
-     * только в логе xhttp между startedAt и finishedAt.
+     * Запускает агента сервера в отдельном потоке и по умолчанию ждёт завершения (до waitTimeoutMs,
+     * по умолчанию 120000 мс); нужно право execute. С wait:false возвращает threadId сразу (для
+     * агентов на C# threadId может отсутствовать). При истечении waitTimeoutMs возвращает
+     * AGENT_WAIT_TIMEOUT (mutationOutcome: confirmed), при сбое опроса — AGENT_STATUS_FAILED
+     * (confirmed). Ошибки кода агента сервера — только в логе xhttp.
      */
     runAgent(input: RunAgentInput): Promise<HcmResult<AgentRunData>>;
+    /**
+     * Список текущих и недавно завершённых запусков агентов сервера; фильтруется по id, threadId,
+     * status и limit. С threadId и wait:true ждёт завершения запуска (при таймауте —
+     * AGENT_WAIT_TIMEOUT). Право execute не требуется.
+     */
+    agentStatus(input?: AgentStatusInput): Promise<HcmResult<AgentStatusData>>;
+    /**
+     * Останавливает выполняющегося агента сервера по threadId (roleUID определяется автоматически,
+     * если не задан; при отсутствии работающего потока — AGENT_NOT_RUNNING с not_sent). Нужно право
+     * write; уже сделанные изменения не откатываются.
+     */
+    cancelAgent(input: CancelAgentInput): Promise<HcmResult<AgentCancelData>>;
     /**
      * Несколько операций одним вызовом; права проверяются для каждого шага. Не транзакция:
      * выполненные шаги не откатываются.

@@ -9584,6 +9584,12 @@ var WebPageApi = class {
     this.transport = transport2;
     this.uploadToken = uploadToken;
   }
+  /** Прочитать форму по локальному URL сервера через службу веб-админки. */
+  async getForm(request, options) {
+    return textResponse(
+      await this.transport.send(query("/spxml_web/service/get_form.htm", request), {}, options)
+    );
+  }
   /** Прочитать экранную форму по локальному URL сервера как текст. */
   async getScreenForm(request, options) {
     return textResponse(

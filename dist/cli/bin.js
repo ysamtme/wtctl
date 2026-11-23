@@ -9,7 +9,7 @@ import {
   maxLogTailBytes,
   parseLogEvents,
   sliceEventsAfterCursorToken
-} from "../chunks/chunk-GDGUNIPL.js";
+} from "../chunks/chunk-UQHEU7II.js";
 import {
   VERSION,
   discoverOperations,
@@ -17,7 +17,7 @@ import {
   guide,
   guideTopics,
   operationHelp
-} from "../chunks/chunk-WFL6GLXE.js";
+} from "../chunks/chunk-4XO2XZDA.js";
 import {
   HcmError,
   MAX_CONFIG_BYTES,
@@ -42,8 +42,8 @@ import {
   updateConnection,
   withConnection,
   withoutFalseOffset
-} from "../chunks/chunk-7DDP3AUY.js";
-import "../chunks/chunk-OJZZGCO7.js";
+} from "../chunks/chunk-T672SCY6.js";
+import "../chunks/chunk-VCNJKZJ7.js";
 import {
   ArgumentError,
   buildXml,
@@ -52,7 +52,7 @@ import {
   rawXmlElement,
   resolvePhysicalDocumentLocation,
   unwrapLoadDocSoapXml
-} from "../chunks/chunk-VYMNGZ3Z.js";
+} from "../chunks/chunk-JZ7VTFSJ.js";
 import "../chunks/chunk-LV7Y4FOL.js";
 
 // src/cli/bin.ts
@@ -740,12 +740,14 @@ var CLI_COMMANDS = [
   {
     name: "agent",
     group: "code",
-    summary: "Агенты сервера: run.",
+    summary: "Агенты сервера: run, status, cancel.",
     subcommands: [
       {
         name: "run",
-        summary: "Запустить агента сервера и дождаться завершения.",
-        usage: ["wtctl agent run ID [--object ID | --objects ID,ID] [--logs]"],
+        summary: "Запустить агента сервера в отдельном потоке.",
+        usage: [
+          "wtctl agent run ID [--object ID | --objects ID,ID] [--no-wait | --wait-timeout-ms N] [--allow-concurrent] [--logs]"
+        ],
         options: [
           {
             name: "object",
@@ -761,19 +763,92 @@ var CLI_COMMANDS = [
             description: "ID объектов через запятую (OBJECTS_ID_STR); повторяемый."
           },
           {
+            name: "no-wait",
+            type: "boolean",
+            description: "Запустить в фоне без ожидания завершения и сразу вернуть threadId."
+          },
+          {
+            name: "wait-timeout-ms",
+            type: "string",
+            valueLabel: "N",
+            description: "Предел ожидания завершения в миллисекундах: 1000–3600000, по умолчанию 120000."
+          },
+          {
+            name: "allow-concurrent",
+            type: "boolean",
+            description: "Запустить параллельно, даже если этот агент уже выполняется."
+          },
+          {
             name: "logs",
             type: "boolean",
-            description: "Показать события свежего лога за интервал работы агента."
+            description: "Показать события свежего лога за интервал работы агента (несовместим с --no-wait)."
           }
         ],
         notes: [
-          "Ждёт завершения в пределах timeoutMs; долгого агента запускает wtctl rpc tools.start_agent ID.",
+          "Запускает агента в отдельном потоке и по умолчанию ждёт завершения (до --wait-timeout-ms, по умолчанию 120000 мс); --no-wait возвращает threadId сразу.",
+          "При таймауте ожидания отвечает AGENT_WAIT_TIMEOUT (mutationOutcome: confirmed): агент продолжает работу, состояние покажет wtctl agent status --thread ID.",
           "Ошибки кода и alert сервер пишет в лог xhttp между startedAt и finishedAt."
+        ]
+      },
+      {
+        name: "status",
+        summary: "Показать текущие и недавно завершённые запуски агентов сервера.",
+        usage: [
+          "wtctl agent status [ID] [--thread ID] [--status running|finished|cancelled] [--limit N] [--wait [--wait-timeout-ms N]]"
+        ],
+        options: [
+          {
+            name: "thread",
+            type: "string",
+            valueLabel: "ID",
+            description: "Фильтр по ID потока запуска."
+          },
+          {
+            name: "status",
+            type: "string",
+            valueLabel: "СОСТОЯНИЕ",
+            values: ["running", "finished", "cancelled"],
+            description: "Фильтр по состоянию: running, finished или cancelled."
+          },
+          limitOption("Количество записей, 1–200, по умолчанию 20."),
+          {
+            name: "wait",
+            type: "boolean",
+            description: "Ждать завершения запуска (требует --thread)."
+          },
+          {
+            name: "wait-timeout-ms",
+            type: "string",
+            valueLabel: "N",
+            description: "Предел ожидания в миллисекундах: 1000–3600000, по умолчанию 120000 (только с --wait)."
+          }
+        ],
+        notes: [
+          "Работает без права execute; показывает выполняющиеся запуски и до 100 последних завершённых.",
+          "С --thread ID --wait ждёт завершения или отмены указанного запуска."
+        ]
+      },
+      {
+        name: "cancel",
+        summary: "Остановить выполняющегося агента сервера по ID потока.",
+        usage: ["wtctl agent cancel THREAD_ID [--role ROLE_UID]"],
+        options: [
+          {
+            name: "role",
+            type: "string",
+            allowEmpty: true,
+            valueLabel: "ROLE_UID",
+            description: "Идентификатор роли сервера (на одиночном сервере 2025.2 — пустая строка --role=; без флага определяется по списку запусков)."
+          }
+        ],
+        notes: [
+          "Требует права write. Уже сделанные изменения не откатываются; сервер обрабатывает отмену в течение нескольких секунд.",
+          "Вопрос [y/N] появляется, только когда stdin, stdout и stderr подключены к терминалу (без вопроса — --yes); иначе выполняется сразу."
         ]
       }
     ],
     notes: [
-      "Ждёт завершения в пределах timeoutMs; --logs читает события из свежего xhttp (или agent при started:false)."
+      "run запускает в отдельном потоке и по умолчанию ждёт завершения (--no-wait — сразу в фоне); status показывает запуски и ждёт по --thread --wait; cancel останавливает работающий поток."
     ]
   },
   {
@@ -1778,7 +1853,7 @@ function recordOption(result, spec, equals, token, argv, cursor, index, scopeByL
   }
   const next = equals < 0 ? argv[++cursor.index] : token.slice(equals + 1);
   const nextFlags = spec.name === "input-file" ? scopeByLong : index.allLong;
-  if (next === void 0 || next.length === 0 || equals < 0 && isNextFlagToken(next, index, nextFlags)) {
+  if (next === void 0 || next.length === 0 && !spec.allowEmpty || equals < 0 && isNextFlagToken(next, index, nextFlags)) {
     throw new CliInputError(`Для --${spec.name} требуется значение.`);
   }
   if (spec.repeatable) {
@@ -3135,7 +3210,77 @@ function parseAgentObjectIds(rawFlags) {
   if (result.length > 1e3) throw new CliInputError("--objects: можно передать не больше 1000 ID.");
   return result;
 }
+var AGENT_THREAD_ID_RE = /^-?\d{1,20}$/;
+var AGENT_ROLE_UID_RE = /^[^\s\u0000-\u001f\u007f]{0,128}$/;
+function assertAgentThreadId(given, label) {
+  if (!AGENT_THREAD_ID_RE.test(given)) {
+    throw new CliInputError(
+      `${label} должен быть ID потока агента (десятичным числом).`,
+      "ID потока возвращает wtctl agent run и wtctl agent status."
+    );
+  }
+}
 function agentCommand(args) {
+  const action = args.positionals[1];
+  if (action === "status") {
+    exactPositionals(args, 2, 3);
+    const id2 = args.positionals[2];
+    if (id2 !== void 0) {
+      assertObjectId(id2, "ID агента передаётся строкой: 0x… или десятичной записью.");
+    }
+    const threadId = stringOption(args, "thread");
+    if (threadId !== void 0) assertAgentThreadId(threadId, "--thread");
+    const status = enumOption(
+      args,
+      "status",
+      ["running", "finished", "cancelled"],
+      "Для --status допустимы running, finished или cancelled."
+    );
+    const limit = integerOption(args, "limit", 1, 200);
+    const wait = args.options.wait === true;
+    const waitTimeoutMs2 = integerOption(args, "wait-timeout-ms", 1e3, 36e5);
+    if (wait && threadId === void 0) {
+      throw new CliInputError(
+        "--wait требует указать --thread ID.",
+        "Пример: wtctl agent status --thread 3102754751613348050 --wait."
+      );
+    }
+    if (!wait && waitTimeoutMs2 !== void 0) {
+      throw new CliInputError(
+        "--wait-timeout-ms используется только вместе с --wait.",
+        "Добавьте --wait и --thread ID."
+      );
+    }
+    return {
+      operationId: "agents.status",
+      args: {
+        ...optional("id", id2),
+        ...optional("threadId", threadId),
+        ...optional("status", status),
+        ...optional("limit", limit),
+        ...wait ? { wait: true } : {},
+        ...optional("waitTimeoutMs", waitTimeoutMs2)
+      }
+    };
+  }
+  if (action === "cancel") {
+    exactPositionals(args, 3);
+    const threadId = requirePositional(args, 2, "ID потока агента");
+    assertAgentThreadId(threadId, "ID потока агента");
+    const roleUID = stringOption(args, "role");
+    if (roleUID !== void 0 && !AGENT_ROLE_UID_RE.test(roleUID)) {
+      throw new CliInputError(
+        "--role должен быть непустым идентификатором роли сервера без пробелов (до 128 знаков)."
+      );
+    }
+    return {
+      operationId: "agents.cancel",
+      args: {
+        threadId,
+        ...optional("roleUID", roleUID)
+      }
+    };
+  }
   exactPositionals(args, 3);
   const id = requirePositional(args, 2, "ID агента");
   assertObjectId(id, "ID агента передаётся строкой: 0x… или десятичной записью.");
@@ -3152,12 +3297,30 @@ function agentCommand(args) {
     );
   }
   const objectIds = rawObjects.length > 0 ? parseAgentObjectIds(rawObjects) : void 0;
+  const noWait = args.options["no-wait"] === true;
+  const waitTimeoutMs = integerOption(args, "wait-timeout-ms", 1e3, 36e5);
+  if (noWait && waitTimeoutMs !== void 0) {
+    throw new CliInputError(
+      "--wait-timeout-ms несовместим с --no-wait.",
+      "Уберите --wait-timeout-ms или запускайте без --no-wait."
+    );
+  }
+  if (noWait && args.options.logs === true) {
+    throw new CliInputError(
+      "--logs несовместим с --no-wait: агент ещё выполняется.",
+      "Проверьте логи после завершения через wtctl logs tail xhttp или дождитесь агента через wtctl agent status --thread ID --wait."
+    );
+  }
+  const allowConcurrent = args.options["allow-concurrent"] === true;
   return {
     operationId: "agents.run",
     args: {
       id,
       ...optional("objectId", objectId),
-      ...optional("objectIds", objectIds)
+      ...optional("objectIds", objectIds),
+      ...noWait ? { wait: false } : {},
+      ...optional("waitTimeoutMs", waitTimeoutMs),
+      ...allowConcurrent ? { allowConcurrent: true } : {}
     }
   };
 }
@@ -4849,6 +5012,24 @@ function extractTable(operationId, data, requestedFields) {
       })
     };
   }
+  if (operationId === "agents.status" && isRecord(data) && Array.isArray(data.runs)) {
+    return {
+      headers: ["id", "code", "name", "status", "threadId", "roleUID", "startedAt", "finishedAt"],
+      rows: data.runs.map((item) => {
+        const r = isRecord(item) ? item : {};
+        return [
+          r.id ?? "",
+          r.code ?? "",
+          r.name ?? "",
+          r.status ?? "",
+          r.threadId ?? "",
+          r.roleUID ?? "",
+          r.startedAt ?? "",
+          r.finishedAt ?? ""
+        ];
+      })
+    };
+  }
   if (operationId === "web.spxml.getBackgroundTasksByName") {
     const tasks = normalizeBackgroundTasks(data);
     return {
@@ -4991,6 +5172,24 @@ function tabularStreamSpec(operationId, requestedFields) {
           return [r.sequence ?? "", r.time ?? "", r.context ?? "", r.level ?? "", r.text ?? ""];
         }
       };
+    case "agents.status":
+      return {
+        kind: "fixed",
+        headers: ["id", "code", "name", "status", "threadId", "roleUID", "startedAt", "finishedAt"],
+        mapRow: (item) => {
+          const r = isRecord(item) ? item : {};
+          return [
+            r.id ?? "",
+            r.code ?? "",
+            r.name ?? "",
+            r.status ?? "",
+            r.threadId ?? "",
+            r.roleUID ?? "",
+            r.startedAt ?? "",
+            r.finishedAt ?? ""
+          ];
+        }
+      };
     case "web.spxml.getBackgroundTasksByName":
       return {
         kind: "fixed",
@@ -5060,6 +5259,8 @@ function extractListItems(operationId, data) {
       return Array.isArray(data.results) ? data.results : void 0;
     case "runtime.check":
       return Array.isArray(data.checks) ? data.checks : void 0;
+    case "agents.status":
+      return Array.isArray(data.runs) ? data.runs : void 0;
     case "web.spxml.getBackgroundTasksByName":
       return normalizeBackgroundTasks(data);
     default:
@@ -6233,6 +6434,9 @@ ${renderCard(entries, styler)}
   }
   if (op === "agents.run" && isRecord(data)) {
     const started = data.started === true;
+    const status = typeof data.status === "string" ? data.status : void 0;
+    const threadId = typeof data.threadId === "string" && data.threadId ? data.threadId : void 0;
+    const roleUID = typeof data.roleUID === "string" && data.roleUID ? data.roleUID : void 0;
     const startedAt = typeof data.startedAt === "string" ? data.startedAt : "";
     const finishedAt = typeof data.finishedAt === "string" ? data.finishedAt : "";
     const duration = startedAt && finishedAt ? formatIsoIntervalDuration(startedAt, finishedAt) : void 0;
@@ -6250,15 +6454,23 @@ ${renderCard(entries, styler)}
     const adjacentMinutes = sameDay && startMin !== void 0 && finishMin !== void 0 && Math.abs(minuteNumber(finishMin) - minuteNumber(startMin)) === 1;
     const searchQuery = sameMinute ? startMatch[2] === finishMatch[2] ? startMatch[2] : startMin : void 0;
     const logCommand = searchQuery ? `wtctl ${connFlag}logs search ${logType} ${searchQuery}  ·  wtctl ${connFlag}logs tail ${logType}` : adjacentMinutes && startMin && finishMin ? `wtctl ${connFlag}logs search ${logType} ${startMin}  ·  wtctl ${connFlag}logs search ${logType} ${finishMin}` : sameHour && startMatch ? `wtctl ${connFlag}logs search ${logType} ${startMatch[2].slice(0, 3)}  ·  wtctl ${connFlag}logs tail ${logType}` : sameDay && startMin ? `wtctl ${connFlag}logs search ${logType} ${startMin}  ·  wtctl ${connFlag}logs tail ${logType}` : startMatch && finishMatch && !sameDay ? `wtctl ${connFlag}logs tail ${logType}  ·  wtctl ${connFlag}logs list --type ${logType} --start-date ${startMatch[1]} --end-date ${finishMatch[1]}` : `wtctl ${connFlag}logs tail ${logType}  ·  wtctl ${connFlag}logs search ${logType}`;
+    const stateLabel = started ? status === "running" ? styler.bold(styler.cyan("Запущен в фоне")) : status === "cancelled" ? styler.bold(styler.yellow("Запущен и отменён")) : status === "unknown" ? styler.bold(styler.yellow("Запущен (состояние неизвестно)")) : styler.bold(styler.green("Запущен и завершён")) : status === "running" ? styler.bold(styler.yellow("Уже выполняется")) : styler.bold(styler.yellow("Не запущен"));
     const entries = [
-      [
-        "Состояние",
-        started ? styler.bold(styler.green("Запущен и завершён")) : styler.bold(styler.yellow("Не запущен"))
-      ],
-      ...interval ? [["Интервал", interval]] : [],
-      ["Лог", logCommand]
+      ["Состояние", stateLabel],
+      ...threadId ? [["Поток", styler.bold(threadId)]] : [],
+      ...roleUID ? [["Роль", roleUID]] : [],
+      ...interval ? [[finishedAt ? "Интервал" : "Запущен", interval]] : [],
+      ...status === "running" && threadId ? [
+        [
+          "Проверка",
+          `wtctl ${connFlag}agent status --thread ${threadId} --wait  ·  wtctl ${connFlag}agent cancel ${threadId}`
+        ]
+      ] : [["Лог", logCommand]]
     ];
     const parts = [renderCard(entries, styler)];
+    if (!started && status === "running") {
+      parts.push(styler.dim("Для параллельного запуска добавьте --allow-concurrent."));
+    }
     let stderrNote;
     if (isRecord(data.logs)) {
       const hasWarning = typeof data.logs.warning === "string" && data.logs.warning.length > 0;
@@ -6281,6 +6493,59 @@ ${renderCard(entries, styler)}
 `,
       ...stderrNote === void 0 ? {} : { stderrNote }
     };
+  }
+  if (op === "agents.status" && isRecord(data) && Array.isArray(data.runs)) {
+    const parts = [];
+    if (data.runs.length > 0) {
+      const cols = [
+        { header: "Поток" },
+        { header: "Код" },
+        { header: "Название" },
+        { header: "Состояние" },
+        { header: "Старт" },
+        { header: "Конец" }
+      ];
+      const rows2 = data.runs.map((item) => {
+        const r = isRecord(item) ? item : {};
+        const status = String(r.status ?? "");
+        const state = status === "running" ? styler.cyan("Выполняется") : status === "finished" ? styler.green("Завершён") : status === "cancelled" ? styler.yellow("Отменён") : status || "—";
+        return [
+          String(r.threadId ?? ""),
+          String(r.code ?? ""),
+          String(r.name ?? ""),
+          state,
+          String(r.startedAt ?? ""),
+          String(r.finishedAt ?? "—")
+        ];
+      });
+      parts.push(renderTable(cols, rows2, tableOpts));
+      parts.push(
+        styler.dim(`Показано ${data.runs.length} из ${String(data.total ?? data.runs.length)}`)
+      );
+    } else {
+      parts.push(styler.dim("Запусков агентов не найдено."));
+    }
+    return { text: `${parts.join("\n")}
+` };
+  }
+  if (op === "agents.cancel" && isRecord(data)) {
+    const connFlag = options.connectionArg ? options.connectionArg.startsWith("-") ? `--connection=${options.connectionArg} ` : `-c ${options.connectionArg} ` : "";
+    const threadId = typeof data.threadId === "string" ? data.threadId : void 0;
+    const roleUID = typeof data.roleUID === "string" ? data.roleUID : void 0;
+    const entries = [
+      ...threadId ? [["Поток", styler.bold(threadId)]] : [],
+      ...roleUID ? [["Роль", roleUID]] : [],
+      ["Исход", String(data.mutationOutcome ?? "confirmed")]
+    ];
+    const parts = [
+      styler.bold(styler.green("✓ Запрос на отмену агента отправлен")),
+      renderCard(entries, styler),
+      styler.dim(
+        threadId ? `Уже сделанные изменения не откатываются. Состояние: wtctl ${connFlag}agent status --thread ${threadId}` : "Уже сделанные изменения не откатываются."
+      )
+    ];
+    return { text: `${parts.join("\n")}
+` };
   }
   if (op === "web.spxml.getBackgroundTasksByName") {
     const tasks = normalizeBackgroundTasks(data);
@@ -6410,6 +6675,12 @@ function formatHumanError(result, styler) {
       lines.push(`  ${line}`);
     }
   }
+  if (err.mutationOutcome === "confirmed" && typeof err.details?.threadId === "string") {
+    const role = typeof err.details.roleUID === "string" && err.details.roleUID ? `, роль: ${err.details.roleUID}` : "";
+    lines.push(
+      styler.yellow(`Агент сервера запущен (confirmed), поток: ${err.details.threadId}${role}.`)
+    );
+  }
   if (err.mutationOutcome === "indeterminate") {
     lines.push(
       styler.yellow(
@@ -6533,6 +6804,7 @@ var TABULAR_OPERATIONS = /* @__PURE__ */ new Set([
   "runtime.check",
   "execute.script",
   "results.read",
+  "agents.status",
   "web.spxml.getBackgroundTasksByName"
 ]);
 var CLI_FORMAT_LABELS = {
@@ -6543,6 +6815,8 @@ var CLI_FORMAT_LABELS = {
   "cli.config.remove": "wtctl config remove",
   "cli.config.path": "wtctl config path",
   "cli.config.example": "wtctl config example",
+  "agents.run": "wtctl agent run",
+  "agents.cancel": "wtctl agent cancel",
   "web.spxml.getAsyncMethodStatus": "wtctl tasks status",
   "web.spxml.killAsyncMethod": "wtctl tasks kill"
 };
@@ -7380,6 +7654,14 @@ async function confirmDestructiveAction(operationId, args, config, runtime, io, 
       }
     }
     question = "Удалить файл на сервере? [y/N] ";
+  } else if (operationId === "agents.cancel") {
+    await progress.stop();
+    const threadId = typeof args.threadId === "string" ? args.threadId : "";
+    const roleUID = typeof args.roleUID === "string" ? args.roleUID : "";
+    entries.push(["Поток", styler.bold(sanitizeTerminalText(threadId))]);
+    if (roleUID) entries.push(["Роль", sanitizeTerminalText(roleUID)]);
+    entries.push(["Внимание", styler.yellow("Уже сделанные изменения не откатываются.")]);
+    question = "Остановить агента сервера? [y/N] ";
   } else {
     await progress.stop();
     const trackingId = typeof args.trackingId === "string" ? args.trackingId : "";
@@ -7441,9 +7723,24 @@ function parseDateAndTimeMs(dateHint, time) {
 }
 function filterLogEventsByInterval(events, startedAt, finishedAt, toleranceSec = AGENT_LOG_TOLERANCE_SEC, fileDateHint) {
   let startSec = parseTimeOfDaySec(startedAt);
-  let endSec = parseTimeOfDaySec(finishedAt);
-  if (startSec === void 0 || endSec === void 0) return [];
+  if (startSec === void 0) return [];
   const startMs = parseIsoTimestampMs(startedAt);
+  if (finishedAt.trim() === "") {
+    const minMs2 = startMs !== void 0 ? startMs - toleranceSec * 1e3 : void 0;
+    const lo2 = Math.max(0, startSec - toleranceSec);
+    return events.filter((event) => {
+      if (event.time === void 0) return false;
+      const eventDate = event.dateHint ?? fileDateHint;
+      if (minMs2 !== void 0 && eventDate !== void 0) {
+        const eventMs = parseDateAndTimeMs(eventDate, event.time);
+        if (eventMs !== void 0) return eventMs >= minMs2;
+      }
+      const t = parseTimeOfDaySec(event.time);
+      return t !== void 0 && t >= lo2;
+    });
+  }
+  let endSec = parseTimeOfDaySec(finishedAt);
+  if (endSec === void 0) return [];
   const endMs = parseIsoTimestampMs(finishedAt);
   const hasFullRange = startMs !== void 0 && endMs !== void 0;
   const minMs = hasFullRange ? Math.min(startMs, endMs) - toleranceSec * 1e3 : void 0;
@@ -7509,15 +7806,17 @@ function selectLogFilesForInterval(rawFiles, startedAt, finishedAt) {
   }
   if (candidates.length === 0) return [];
   const startMs = parseIsoTimestampMs(startedAt);
-  const endMs = parseIsoTimestampMs(finishedAt);
-  if (startMs === void 0 || endMs === void 0) return [candidates[0]];
-  const minMs = Math.min(startMs, endMs) - AGENT_LOG_TOLERANCE_SEC * 1e3;
-  const maxMs = Math.max(startMs, endMs) + AGENT_LOG_TOLERANCE_SEC * 1e3;
+  if (startMs === void 0) return [candidates[0]];
+  const endMs = finishedAt.trim() === "" ? void 0 : parseIsoTimestampMs(finishedAt);
+  const minMs = (endMs === void 0 ? startMs : Math.min(startMs, endMs)) - AGENT_LOG_TOLERANCE_SEC * 1e3;
+  const maxMs = endMs === void 0 ? void 0 : Math.max(startMs, endMs) + AGENT_LOG_TOLERANCE_SEC * 1e3;
   const startDate = formatUtcDate(minMs);
-  const endDate = formatUtcDate(maxMs);
+  const endDate = maxMs === void 0 ? void 0 : formatUtcDate(maxMs);
   const dated = candidates.filter((file) => file.dateHint !== void 0);
   if (dated.length === 0) return [candidates[0]];
-  const inRange = dated.filter((file) => file.dateHint >= startDate && file.dateHint <= endDate);
+  const inRange = dated.filter(
+    (file) => file.dateHint >= startDate && (endDate === void 0 || file.dateHint <= endDate)
+  );
   if (inRange.length === 0) return [candidates[0]];
   inRange.sort(
     (left, right) => left.dateHint.localeCompare(right.dateHint) || left.name.localeCompare(right.name)
@@ -12009,7 +12308,7 @@ async function runCli(argv, io, dependencies) {
           result = await runtime.call(invocation.operationId, callArgs);
         }
       } else {
-        const confirmTarget = interactiveConfirm && parsed.options.yes !== true ? command === "object" && action === "delete" && parsed.options.permanent !== true ? "objects.delete" : command === "files" && action === "delete" && parsed.options.permanent !== true ? "files.delete" : command === "tasks" && action === "kill" ? "web.spxml.killAsyncMethod" : void 0 : void 0;
+        const confirmTarget = interactiveConfirm && parsed.options.yes !== true ? command === "object" && action === "delete" && parsed.options.permanent !== true ? "objects.delete" : command === "files" && action === "delete" && parsed.options.permanent !== true ? "files.delete" : command === "tasks" && action === "kill" ? "web.spxml.killAsyncMethod" : command === "agent" && action === "cancel" ? "agents.cancel" : void 0 : void 0;
         if (confirmTarget !== void 0) {
           const confirmed = await confirmDestructiveAction(
             confirmTarget,
@@ -12027,7 +12326,7 @@ async function runCli(argv, io, dependencies) {
             callArgs = { ...callArgs, permanent: true };
           }
           progress.start(
-            confirmTarget === "web.spxml.killAsyncMethod" ? "Остановка задачи…" : "Удаление…"
+            confirmTarget === "web.spxml.killAsyncMethod" ? "Остановка задачи…" : confirmTarget === "agents.cancel" ? "Остановка агента…" : "Удаление…"
           );
         }
         result = await runtime.call(invocation.operationId, callArgs);
@@ -12130,7 +12429,7 @@ process6.exitCode = await runCli(process6.argv.slice(2), nodeIo(), {
   ),
   createRuntime: (config) => new HcmRuntime(config),
   runMcp: async (runtime, connectionName, streams, local) => {
-    const { runMcpStdio } = await import("../chunks/stdio-B2WCHWVF.js");
+    const { runMcpStdio } = await import("../chunks/stdio-ZPFAA25Q.js");
     await runMcpStdio(runtime, connectionName, (text) => streams.writeError(text), local);
   },
   local: localInstall()

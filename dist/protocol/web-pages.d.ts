@@ -34,6 +34,10 @@ export declare class WebPageApi {
     private readonly transport;
     private readonly uploadToken?;
     constructor(transport: HttpTransport, uploadToken?: (() => string | undefined) | undefined);
+    /** Прочитать форму по локальному URL сервера через службу веб-админки. */
+    getForm(request: {
+        url: string;
+    }, options?: RequestOptions): Promise<WsHcmResponse<string>>;
     /** Прочитать экранную форму по локальному URL сервера как текст. */
     getScreenForm(request: {
         url: string;

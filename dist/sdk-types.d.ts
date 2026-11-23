@@ -399,6 +399,34 @@ export interface RunAgentInput {
     readonly objectId?: string;
     /** ID нескольких объектов: в коде агента это OBJECTS_ID_STR, через «;». */
     readonly objectIds?: readonly string[];
+    /** Ждать завершения агента по списку запусков (по умолчанию true). false запускает в фоне и сразу возвращает threadId. */
+    readonly wait?: boolean;
+    /** Предел ожидания завершения в миллисекундах (1000–3600000, по умолчанию 120000). Несовместим с wait:false. */
+    readonly waitTimeoutMs?: number;
+    /** Разрешить параллельный запуск, если этот агент уже выполняется (по умолчанию false). */
+    readonly allowConcurrent?: boolean;
+}
+/** Аргументы agentStatus. */
+export interface AgentStatusInput {
+    /** Фильтр по ID агента сервера (0x… или десятичный). */
+    readonly id?: string;
+    /** Фильтр по ID потока запуска (64-битное целое строкой). */
+    readonly threadId?: string;
+    /** Фильтр по состоянию: running, finished или cancelled. */
+    readonly status?: "running" | "finished" | "cancelled";
+    /** Количество записей в ответе (1–200, по умолчанию 20). */
+    readonly limit?: number;
+    /** Ждать завершения запуска с заданным threadId (требует threadId). */
+    readonly wait?: boolean;
+    /** Предел ожидания в миллисекундах (1000–3600000, по умолчанию 120000; требует wait:true и threadId). */
+    readonly waitTimeoutMs?: number;
+}
+/** Аргументы cancelAgent. */
+export interface CancelAgentInput {
+    /** ID потока работающего агента сервера (из runAgent или agentStatus). */
+    readonly threadId: string;
+    /** Идентификатор роли сервера; если не указан, определяется по threadId среди работающих запусков. */
+    readonly roleUID?: string;
 }
 /** Ответ batch. */
 export interface BatchData {

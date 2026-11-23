@@ -2,6 +2,7 @@ import { createRequire as __wtctlRequire } from "node:module";
 const require = __wtctlRequire(import.meta.url);
 import {
   HcmError,
+  HcmServer,
   LOCAL_LIMITS,
   LibraryReader,
   SchemaReader,
@@ -16,6 +17,7 @@ import {
   inputObject,
   isSimilarName,
   listHcmOperations,
+  normalizeXmlLineEndings,
   operationDefinition,
   operationEffect,
   operationSpec,
@@ -26,25 +28,23 @@ import {
   projectFields,
   queryPage,
   readServerInfo,
-  refusedAtDoor,
   requiredString,
   rpcArgument,
   sameData,
   saveLocalFile,
   scalar,
-  scriptResult,
   serverDatabases,
   similarHint,
   withRepeated,
+  withRequestSignal,
   withoutFalseOffset
-} from "./chunk-7DDP3AUY.js";
+} from "./chunk-T672SCY6.js";
 import {
   NativeGateway,
   freezeRegistry,
-  nativeEffect,
   trustedGatewayPort,
   validate
-} from "./chunk-OJZZGCO7.js";
+} from "./chunk-VCNJKZJ7.js";
 import {
   ArgumentError,
   WsHcmApiError,
@@ -57,7 +57,7 @@ import {
   redactCredentials,
   resolvePhysicalDocumentLocation,
   validateDbName
-} from "./chunk-VYMNGZ3Z.js";
+} from "./chunk-JZ7VTFSJ.js";
 
 // src/results.ts
 import { createHash, randomUUID } from "node:crypto";
@@ -1808,7 +1808,7 @@ function serverDate(value) {
 function isServerDate(value) {
   return DATE.test(value);
 }
-function equivalent(expected, actual, path, fields, prior, inCollection = false, differences = []) {
+function equivalent(expected, actual, path, fields, prior, inCollection = false, differences = [], normalizeEol = true) {
   const differ = () => {
     if (differences.length < 5)
       differences.push({ path, requested: shown(expected), actual: shown(actual) });
@@ -1858,6 +1858,8 @@ function equivalent(expected, actual, path, fields, prior, inCollection = false,
     return BigInt(String(expected)) === BigInt(String(actual)) || differ();
   const date2 = serverDate(expected);
   if (date2 !== void 0 && date2 === serverDate(actual)) return true;
+  if (normalizeEol && (field?.type === void 0 || field.type === "" || field.type === "string") && normalizeXmlLineEndings(String(expected)) === normalizeXmlLineEndings(String(actual)))
+    return true;
   return String(expected) === String(actual) || differ();
 }
 function xmlRoot(source) {
@@ -1886,29 +1888,53 @@ function verifyFields(expected, actual, descriptors, names = Object.keys(expecte
     );
 }
 function verifyRemovals(expected, actual, changes, descriptors) {
-  const at = (data, path) => {
-    let value = data;
+  const collect = (data, path, allowNormalizedKey) => {
+    let nodes = [data];
     let fieldPath = "";
     for (const match of patchSegments(path)) {
       fieldPath += `${fieldPath ? "." : ""}${match[1]}`;
-      value = record2(value) ? value[match[1]] : void 0;
-      if (match[3] !== void 0) {
-        const keyPath = `${fieldPath}.${match[3]}`;
-        const field = Array.isArray(descriptors) ? descriptors.find((field2) => record2(field2) && field2.path === keyPath) : void 0;
-        value = (Array.isArray(value) ? value : [value]).find(
-          (item) => record2(item) && equivalent(match[4], item[match[3]], keyPath, /* @__PURE__ */ new Map([[keyPath, field]]))
-        );
-      } else if (match[2] !== void 0)
-        value = Array.isArray(value) ? value[Number(match[2])] : Number(match[2]) === 0 ? value : void 0;
+      const next = [];
+      for (const node of nodes) {
+        const value = record2(node) ? node[match[1]] : void 0;
+        if (match[3] !== void 0) {
+          const keyPath = `${fieldPath}.${match[3]}`;
+          const field = Array.isArray(descriptors) ? descriptors.find((item) => record2(item) && item.path === keyPath) : void 0;
+          const items = Array.isArray(value) ? value : value === void 0 ? [] : [value];
+          const matchByKey = (normalizeEol) => items.filter(
+            (item) => record2(item) && equivalent(
+              match[4],
+              item[match[3]],
+              keyPath,
+              /* @__PURE__ */ new Map([[keyPath, field]]),
+              void 0,
+              false,
+              [],
+              normalizeEol
+            )
+          );
+          const exact = matchByKey(false);
+          const chosen = exact.length > 0 || !allowNormalizedKey ? exact : matchByKey(true);
+          next.push(...chosen);
+        } else if (match[2] !== void 0) {
+          const picked = Array.isArray(value) ? value[Number(match[2])] : Number(match[2]) === 0 ? value : void 0;
+          if (picked !== void 0) next.push(picked);
+        } else if (value !== void 0) {
+          next.push(value);
+        }
+      }
+      nodes = next;
+      if (nodes.length === 0) break;
     }
-    return value;
+    return nodes;
   };
+  const nonEmpty = (values) => values.filter((value) => value !== void 0 && value !== "" && value !== null);
   for (const raw of changes) {
     if (!record2(raw) || raw.op !== "remove" || typeof raw.path !== "string" || patchSegments(raw.path).at(-1)[2] !== void 0)
       continue;
-    if (at(expected, raw.path) !== void 0) continue;
-    const value = at(actual, raw.path);
-    if (value !== void 0 && value !== "" && value !== null)
+    if (collect(expected, raw.path, false).length > 0) continue;
+    const exactActual = nonEmpty(collect(actual, raw.path, false));
+    const leftBehind = exactActual.length > 0 || nonEmpty(collect(actual, raw.path, true)).length > nonEmpty(collect(expected, raw.path, true)).length;
+    if (leftBehind)
       throw new HcmError(
         "READ_BACK_MISMATCH",
         "Поле, которое нужно было удалить, осталось в документе.",
@@ -2400,7 +2426,10 @@ var ServerObjects = class {
       fingerprint: snapshot.fingerprint
     });
     const serverChanged = Object.keys({ ...changes.after.data, ...snapshot.data }).filter(
-      (key) => key !== "doc_info" && !branches.includes(key) && !sameData(changes.after.data[key], snapshot.data[key])
+      (key) => key !== "doc_info" && !branches.includes(key) && !sameData(changes.after.data[key], snapshot.data[key], {
+        fieldTypes: shape.types,
+        path: key
+      })
     );
     return {
       ...verified.id === void 0 ? {} : { id: verified.id },
@@ -2455,87 +2484,6 @@ var ServerObjects = class {
       verification: catalog === void 0 ? "server" : "catalog",
       ...catalog === void 0 ? {} : { catalog }
     };
-  }
-};
-
-// src/hcm-server.ts
-import { AsyncLocalStorage } from "node:async_hooks";
-var activeSignal = new AsyncLocalStorage();
-function withRequestSignal(signal, fn) {
-  return signal === void 0 ? fn() : activeSignal.run(signal, fn);
-}
-function refuseUnowned(id, args, refused) {
-  const effect = nativeEffect(id, args);
-  if (effect !== void 0 && refused(effect))
-    throw new Error(`${id}: запрос, который может изменить сервер, без владельца исхода записи`);
-}
-var HcmServer = class {
-  constructor(port) {
-    this.port = port;
-  }
-  appInfo;
-  /** Запрос операции, которую реестр считает чтением. Всё остальное обязано сказать, что это. */
-  async call(id, args, outcome) {
-    const signal = activeSignal.getStore();
-    if (!outcome) {
-      refuseUnowned(id, args, (effect) => effect !== "read");
-      return this.port.call(id, args, signal);
-    }
-    const withdraw = outcome.sending();
-    try {
-      return await this.port.call(id, args, signal);
-    } catch (error) {
-      if (error instanceof WsHcmApiError && error.requestSent === false || error instanceof ArgumentError || refusedAtDoor(error))
-        withdraw();
-      throw error;
-    }
-  }
-  /** Только чтение, хотя операция умеет больше (xQuery, rpc.call); запись реестра отклоняется. */
-  async read(id, args) {
-    refuseUnowned(id, args, (effect) => effect === "write");
-    return this.port.call(id, args, activeSignal.getStore());
-  }
-  /** Чтение реестра с двоичным ответом потоком: read получает тело. */
-  async stream(id, args, read) {
-    refuseUnowned(id, args, (effect) => effect !== "read");
-    return this.port.stream(id, args, read, activeSignal.getStore());
-  }
-  /** Сведения о приложении, хранятся 30 секунд; отклонённый или битый ответ не хранится. */
-  async applicationInfo(fresh = false) {
-    if (fresh || !this.appInfo || this.appInfo.expires <= Date.now()) {
-      const value = this.call("native.spxml2.getAppInfo", { fastStart: true }).then(
-        (raw) => inputObject(raw, "сведения о приложении")
-      );
-      this.appInfo = { expires: Date.now() + 3e4, value };
-      value.catch(() => {
-        if (this.appInfo?.value === value) this.appInfo = void 0;
-      });
-    }
-    return this.appInfo.value;
-  }
-  /** Сбросить кэш сведений о приложении после операции, способной изменить настройки сервера. */
-  invalidateApplicationInfo() {
-    this.appInfo = void 0;
-  }
-  /**
-   * Код, подготовленный prepareScript, выполняется на сервере; ответ проверяется на
-   * перехваченную ошибку. `idle` по ответу узнаёт, что код ничего не сделал: отметка снимается.
-   */
-  async runCode(script, outcome, idle) {
-    outcome.note({ executionId: script.executionId });
-    const withdraw = outcome.sending();
-    try {
-      const data = scriptResult(
-        await this.port.call("web.rpc.call", script.request, activeSignal.getStore()),
-        script.executionId
-      );
-      if (idle?.(data)) withdraw();
-      return data;
-    } catch (error) {
-      if (error instanceof WsHcmApiError && error.requestSent === false || error instanceof ArgumentError || error instanceof HcmError && error.mutationOutcome === "not_sent" || refusedAtDoor(error))
-        withdraw();
-      throw error;
-    }
   }
 };
 
@@ -2807,7 +2755,8 @@ var ReplyPacker = class {
         ...ids.mutationId === void 0 ? {} : { mutationId: ids.mutationId },
         ...ids.objectId === void 0 ? {} : { objectId: ids.objectId },
         ...ids.url === void 0 ? {} : { url: ids.url },
-        ...ids.executionId === void 0 ? {} : { executionId: ids.executionId }
+        ...ids.executionId === void 0 ? {} : { executionId: ids.executionId },
+        ...ids.threadId === void 0 ? {} : { threadId: ids.threadId }
       }),
       ...exactIds
     };
@@ -2852,6 +2801,35 @@ var ReplyPacker = class {
 };
 
 // src/runtime.ts
+var MAX_DOC_TYPE_PAGES = 50;
+async function readDocTypeTitles(server) {
+  const titles = /* @__PURE__ */ new Map();
+  let startPos = 0;
+  for (let pageIndex = 0; pageIndex < MAX_DOC_TYPE_PAGES; pageIndex++) {
+    const response = await server.read("native.lds.xQuery", {
+      query: "for $e in doc_types return $e",
+      startPos,
+      maxCount: 1e3,
+      expectToReadAll: false
+    });
+    const page = queryPage(response, startPos, 1e3, ["object_name", "name"], false);
+    if (page.incomplete)
+      throw new HcmError(
+        "QUERY_INCOMPLETE",
+        "Каталог doc_types вернул неполный ответ: заголовки пользовательских типов не прочитаны."
+      );
+    for (const row of page.items) {
+      if (typeof row.object_name === "string" && row.object_name && typeof row.name === "string" && row.name)
+        titles.set(row.object_name, row.name);
+    }
+    if (page.nextStartPosition === void 0 || page.nextStartPosition <= startPos) return titles;
+    startPos = page.nextStartPosition;
+  }
+  throw new HcmError(
+    "QUERY_INCOMPLETE",
+    "Каталог doc_types превысил предел чтения страниц: заголовки пользовательских типов прочитаны не полностью."
+  );
+}
 var HcmRuntime = class {
   constructor(config, port) {
     this.config = config;
@@ -2867,8 +2845,17 @@ var HcmRuntime = class {
     );
     this.schemaReader = new SchemaReader(
       () => this.server.applicationInfo(),
-      async (url) => requiredString(await this.server.call("native.spxml2.getForm", { url }), "ответ с формой"),
-      async (url) => (await this.objects.load({ url })).document.snapshot().data
+      async (url) => requiredString(
+        await this.server.call(
+          url.startsWith("x-local://udt/") ? "web.pages.getForm" : "native.spxml2.getForm",
+          { url }
+        ),
+        "ответ с формой"
+      ),
+      async (url) => (await this.objects.load({ url })).document.snapshot().data,
+      void 0,
+      void 0,
+      () => readDocTypeTitles(this.server)
     );
     this.objects = new ServerObjects(this.server, this.schemaReader, {
       directory: this.results.directory,

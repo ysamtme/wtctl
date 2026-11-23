@@ -397,10 +397,37 @@ client.execute<T = unknown>(code: string | { code: string; params?: object; }, p
 client.runAgent(input: RunAgentInput): Promise<HcmResult<AgentRunData>>
 ```
 
-Запускает агента сервера и ждёт конца его кода; нужно право execute. Ошибки кода агента —
-только в логе xhttp между startedAt и finishedAt.
+Запускает агента сервера в отдельном потоке и по умолчанию ждёт завершения (до waitTimeoutMs,
+по умолчанию 120000 мс); нужно право execute. С wait:false возвращает threadId сразу (для
+агентов на C# threadId может отсутствовать). При истечении waitTimeoutMs возвращает
+AGENT_WAIT_TIMEOUT (mutationOutcome: confirmed), при сбое опроса — AGENT_STATUS_FAILED
+(confirmed). Ошибки кода агента сервера — только в логе xhttp.
 
 Типы: [RunAgentInput](#runagentinput), [AgentRunData](#agentrundata).
+
+#### client.agentStatus
+
+```ts
+client.agentStatus(input?: AgentStatusInput): Promise<HcmResult<AgentStatusData>>
+```
+
+Список текущих и недавно завершённых запусков агентов сервера; фильтруется по id, threadId,
+status и limit. С threadId и wait:true ждёт завершения запуска (при таймауте —
+AGENT_WAIT_TIMEOUT). Право execute не требуется.
+
+Типы: [AgentStatusInput](#agentstatusinput), [AgentStatusData](#agentstatusdata).
+
+#### client.cancelAgent
+
+```ts
+client.cancelAgent(input: CancelAgentInput): Promise<HcmResult<AgentCancelData>>
+```
+
+Останавливает выполняющегося агента сервера по threadId (roleUID определяется автоматически,
+если не задан; при отсутствии работающего потока — AGENT_NOT_RUNNING с not_sent). Нужно право
+write; уже сделанные изменения не откатываются.
+
+Типы: [CancelAgentInput](#cancelagentinput), [AgentCancelData](#agentcanceldata).
 
 #### client.batch
 
@@ -607,16 +634,84 @@ error ответа, как его вернула операция.
 
 ## Типы
 
+### AgentCancelData
+
+Ответ cancelAgent.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `cancelled` | `true` | Запрос на отмену передан в очередь роли сервера. |
+| `threadId` | `string` | ID потока агента сервера. |
+| `roleUID` | `string` | Идентификатор роли сервера, в очередь которой отправлена отмена. |
+| `mutationOutcome` | `"confirmed"` | Исход записи: запрос на отмену подтверждён сервером. |
+| `hint` | `string` | Что делать дальше: уже сделанные изменения не откатываются. |
+
+### AgentListStatus
+
+Состояние записи в списке запусков агентов сервера.
+
+```ts
+type AgentListStatus = "running" | "finished" | "cancelled"
+```
+
 ### AgentRunData
 
 Ответ runAgent.
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
-| `started` | `boolean` | false: сервер не запустил агента; причина — в логе `agent`. |
-| `startedAt` | `string` | Местное время сервера перед запуском: строки агента в логах лежат после него. |
-| `finishedAt` | `string` | Местное время сервера после конца кода агента. |
-| `hint` | `string` | В каком логе искать строки и ошибки агента. |
+| `started` | `boolean` | false: агент не запущен (уже выполняется при allowConcurrent:false или отклонён сервером). |
+| `status?` | `AgentRunStatus` | Состояние запуска: running, finished, cancelled или unknown. |
+| `threadId?` | `string` | ID потока запуска (или уже выполняющегося экземпляра, если запуск отклонён из-за дубля). |
+| `roleUID?` | `string` | Идентификатор роли сервера, на которой выполняется или выполнялся агент. |
+| `startedAt` | `string` | Местное время сервера при запуске: строки агента в логах лежат после него. |
+| `finishedAt?` | `string` | Местное время сервера после завершения или отмены (отсутствует при wait:false). |
+| `hint` | `string` | В каком логе искать строки агента и как проверить или остановить запуск. |
+
+### AgentRunRecord
+
+Одна запись о запуске агента сервера из списка запусков.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `id` | `string` | ID агента сервера (server_agent) в десятичной записи. |
+| `code` | `string` | Код агента сервера. |
+| `name` | `string` | Название агента сервера. |
+| `status` | `AgentListStatus` | Состояние запуска: выполняется, завершён или отменён. |
+| `threadId` | `string` | ID потока запуска (строка, 64-битное целое без потери точности). |
+| `roleUID?` | `string` | Идентификатор роли сервера, на которой выполняется или выполнялся агент (на одиночном сервере 2025.2 — пустая строка). |
+| `startedAt` | `string` | Местное время сервера при запуске. |
+| `finishedAt?` | `string` | Местное время сервера при завершении или отмене (отсутствует у выполняющегося агента). |
+
+### AgentRunStatus
+
+Состояние запуска агента сервера в ответе runAgent.
+
+```ts
+type AgentRunStatus = "running" | "finished" | "cancelled" | "unknown"
+```
+
+### AgentStatusData
+
+Ответ agentStatus.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `runs` | `readonly AgentRunRecord[]` | Запуски агентов сервера, подошедшие под фильтр (сначала выполняющиеся, затем свежие завершённые). |
+| `total` | `number` | Сколько запусков подошло под фильтр (до ограничения limit). |
+
+### AgentStatusInput
+
+Аргументы agentStatus.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `id?` | `string` | Фильтр по ID агента сервера (0x… или десятичный). |
+| `threadId?` | `string` | Фильтр по ID потока запуска (64-битное целое строкой). |
+| `status?` | `"running" \| "finished" \| "cancelled"` | Фильтр по состоянию: running, finished или cancelled. |
+| `limit?` | `number` | Количество записей в ответе (1–200, по умолчанию 20). |
+| `wait?` | `boolean` | Ждать завершения запуска с заданным threadId (требует threadId). |
+| `waitTimeoutMs?` | `number` | Предел ожидания в миллисекундах (1000–3600000, по умолчанию 120000; требует wait:true и threadId). |
 
 ### BatchData
 
@@ -648,6 +743,15 @@ error ответа, как его вернула операция.
 | `id` | `string` | ID операции шага. |
 | `args?` | `HcmData` | Аргументы операции; значение из прошлого шага — {$ref:'имя.data.items.0.id'}. |
 | `as?` | `string` | Имя шага для ссылок из следующих шагов: латинские буквы, цифры и _, первой не цифра. |
+
+### CancelAgentInput
+
+Аргументы cancelAgent.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `threadId` | `string` | ID потока работающего агента сервера (из runAgent или agentStatus). |
+| `roleUID?` | `string` | Идентификатор роли сервера; если не указан, определяется по threadId среди работающих запусков. |
 
 ### CheckData
 
@@ -1631,6 +1735,9 @@ RpcValueData<T = unknown>
 | `id` | `string` | ID агента сервера (server_agent). |
 | `objectId?` | `string` | ID объекта: в коде агента это OBJECT_ID. |
 | `objectIds?` | `readonly string[]` | ID нескольких объектов: в коде агента это OBJECTS_ID_STR, через «;». |
+| `wait?` | `boolean` | Ждать завершения агента по списку запусков (по умолчанию true). false запускает в фоне и сразу возвращает threadId. |
+| `waitTimeoutMs?` | `number` | Предел ожидания завершения в миллисекундах (1000–3600000, по умолчанию 120000). Несовместим с wait:false. |
+| `allowConcurrent?` | `boolean` | Разрешить параллельный запуск, если этот агент уже выполняется (по умолчанию false). |
 
 ### SchemaField
 

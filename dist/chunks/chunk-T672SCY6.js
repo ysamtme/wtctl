@@ -10,12 +10,13 @@ import {
   integer,
   isStepReference,
   loginFailed,
+  nativeEffect,
   object,
   operation,
   prepare,
   schema,
   string
-} from "./chunk-OJZZGCO7.js";
+} from "./chunk-VCNJKZJ7.js";
 import {
   ArgumentError,
   WebSocketHeartbeatError,
@@ -33,7 +34,7 @@ import {
   rawXml,
   validateDbName,
   validatePlatformXmlSource
-} from "./chunk-VYMNGZ3Z.js";
+} from "./chunk-JZ7VTFSJ.js";
 
 // src/errors.ts
 var HcmError = class extends Error {
@@ -789,6 +790,7 @@ function refusedAtDoor(error) {
 }
 var WriteOutcome = class {
   marks = 0;
+  confirmed = false;
   ids = {};
   /** Перед запросом, способным изменить сервер; возвращает снятие этой отметки. */
   sending() {
@@ -798,6 +800,13 @@ var WriteOutcome = class {
       if (!withdrawn) this.marks--;
       withdrawn = true;
     };
+  }
+  /**
+   * Запись или запуск на сервере уже подтверждены его ответом: последующий сбой (например,
+   * таймаут ожидания) не должен возвращать indeterminate.
+   */
+  confirm() {
+    if (this.marks > 0) this.confirmed = true;
   }
   /** Значение undefined ничего не стирает. */
   note(ids) {
@@ -809,17 +818,18 @@ var WriteOutcome = class {
    * отметка; иначе not_sent.
    */
   verdict(effect, error) {
-    const { mutationId, objectId, executionId } = this.ids;
+    const { mutationId, objectId, executionId, threadId } = this.ids;
     const exactIds = {
       ...mutationId !== void 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId) ? { mutationId } : {},
       ...objectId !== void 0 && /^(?:[0-9]{1,20}|0[xX][0-9a-fA-F]{1,16})$/.test(objectId) && BigInt(objectId) <= 0xffffffffffffffffn ? { objectId } : {},
-      ...executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(executionId) ? { executionId } : {}
+      ...executionId !== void 0 && /^hcm_inline_[a-f0-9]{32}$/.test(executionId) ? { executionId } : {},
+      ...threadId !== void 0 && /^-?\d{1,20}$/.test(threadId) ? { threadId } : {}
     };
     const sent = effect !== "read" && this.marks > 0;
     const verdict = { sent, ids: { ...this.ids }, exactIds };
     if (error === void 0 || effect === "read") return verdict;
     const turnedAway = error instanceof HcmError && (error.code === "RPC_SERVER_ONLY" || error.code === "UNKNOWN_RPC_TARGET");
-    const mutationOutcome = sent && !turnedAway ? "indeterminate" : "not_sent";
+    const mutationOutcome = sent && !turnedAway ? this.confirmed ? "confirmed" : "indeterminate" : "not_sent";
     const refusedAfterSend = mutationOutcome === "indeterminate" && refusedAtDoor(error);
     return { ...verdict, mutationOutcome, ...refusedAfterSend && { refusedAfterSend } };
   }
@@ -1749,24 +1759,48 @@ function sameKey(stored, key, type) {
   const text3 = String(stored);
   return text3 === key || (type === void 0 || type === "integer") && ID_TEXT.test(text3) && ID_TEXT.test(key) && BigInt(text3) === BigInt(key);
 }
-function sameData(left, right) {
+function normalizeXmlLineEndings(value) {
+  return value.replace(/\r\n?/g, "\n");
+}
+function sameData(left, right, eol) {
   if (left === right) return true;
+  if (typeof left === "string" && typeof right === "string") {
+    if (!eol) return false;
+    const type = eol.path ? eol.fieldTypes?.get(eol.path) : void 0;
+    if (type !== void 0 && type !== "" && type !== "string") return false;
+    return normalizeXmlLineEndings(left) === normalizeXmlLineEndings(right);
+  }
   if (left === null || right === null || typeof left !== "object" || typeof right !== "object")
     return false;
   if (Array.isArray(left) || Array.isArray(right))
-    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameData(item, right[index]));
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameData(item, right[index], eol));
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
   return leftKeys.length === rightKeys.length && leftKeys.every(
-    (key) => Object.hasOwn(right, key) && sameData(left[key], right[key])
+    (key) => Object.hasOwn(right, key) && sameData(
+      left[key],
+      right[key],
+      eol ? {
+        ...eol.fieldTypes ? { fieldTypes: eol.fieldTypes } : {},
+        path: eol.path ? `${eol.path}.${key}` : key
+      } : void 0
+    )
   );
 }
-function sameValue(stored, value, replacement, type) {
+function sameValue(stored, value, replacement, type, fieldTypes2, fieldPath) {
   if (typeof value === "boolean") return stored === String(value) || stored === (value ? "1" : "0");
-  if (typeof value === "string" || typeof value === "number")
-    return typeof stored === "string" && sameKey(stored, String(withoutFalseOffset(String(value))), type);
+  if (typeof value === "string" || typeof value === "number") {
+    if (typeof stored !== "string") return false;
+    const target2 = String(withoutFalseOffset(String(value)));
+    if (typeof value === "string" && (type === void 0 || type === "" || type === "string"))
+      return normalizeXmlLineEndings(stored) === normalizeXmlLineEndings(target2) || sameKey(stored, target2, type);
+    return sameKey(stored, target2, type);
+  }
   const encoded = replacement.length === 1 ? withoutFalseOffset(compact(children(replacement[0]))) : replacement.map((node) => withoutFalseOffset(compact(children(node))));
-  return sameData(encoded, stored);
+  return sameData(encoded, stored, {
+    ...fieldTypes2 ? { fieldTypes: fieldTypes2 } : {},
+    ...fieldPath ? { path: fieldPath } : {}
+  });
 }
 function brief(value, nested = false) {
   if (value === null || typeof value !== "object") return value;
@@ -1955,7 +1989,14 @@ var XmlDocument = class _XmlDocument {
                 path
               }
             );
-          if (stored !== void 0 && sameValue(stored, operation2.value, replacement, typeOf(index + 1)))
+          if (stored !== void 0 && sameValue(
+            stored,
+            operation2.value,
+            replacement,
+            typeOf(index + 1),
+            types,
+            segments.slice(0, index + 1).map((part) => part[1]).join(".")
+          ))
             continue;
           if (chosen) {
             if (replacement.length === 1) {
@@ -2411,6 +2452,8 @@ var matches = (search, values) => {
 var nothingFound = (where, examples, search = "", one = "поле") => `Ничего не найдено: search ищет слова ${where}.${/\S\s+\S/.test(search) ? ` Все слова должны быть в одном ${one}: искать нужно по одному слову.` : ""} Можно попробовать слово из заголовка на языке сервера, часть имени латиницей (${examples}) или вызов без search.`;
 var pageSize = (value) => Buffer.byteLength(JSON.stringify(value));
 var usualFormUrl = (type) => `x-local://wtv/wtv_${type}.xmd`;
+var udtDocumentFormUrl = (type) => `x-local://udt/udt_${type}.xmd`;
+var isUdtForm = (value) => text2(value).startsWith("x-local://udt/");
 var customUnreadable = "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет.";
 function remembered(cache, key, ttlMs, now, read) {
   const cached = cache.get(key);
@@ -2423,18 +2466,20 @@ function remembered(cache, key, ttlMs, now, read) {
   return reading;
 }
 var SchemaReader = class _SchemaReader {
-  constructor(applicationInfo, readForm, readDocument, ttlMs = _SchemaReader.TTL_MS, now = Date.now) {
+  constructor(applicationInfo, readForm, readDocument, ttlMs = _SchemaReader.TTL_MS, now = Date.now, readDocTypeTitles = async () => /* @__PURE__ */ new Map()) {
     this.applicationInfo = applicationInfo;
     this.readForm = readForm;
     this.readDocument = readDocument;
     this.ttlMs = ttlMs;
     this.now = now;
+    this.readDocTypeTitles = readDocTypeTitles;
   }
   static TTL_MS = 6e4;
   forms = /* @__PURE__ */ new Map();
   shapes = /* @__PURE__ */ new Map();
   dictionaries = /* @__PURE__ */ new Map();
   documents = /* @__PURE__ */ new Map();
+  customTypeTitles = /* @__PURE__ */ new Map();
   /** Найденный адрес формы по имени типа или каталога; ненайденный следующий вызов ищет заново. */
   formUrls = /* @__PURE__ */ new Map();
   fetches = 0;
@@ -2456,11 +2501,13 @@ var SchemaReader = class _SchemaReader {
     this.shapes.clear();
     this.dictionaries.clear();
     this.documents.clear();
+    this.customTypeTitles.clear();
     this.formUrls.clear();
   }
   /** Сбросить кэш общих документов (common, custom_templates) после записи объекта. */
   invalidateDocuments() {
     this.documents.clear();
+    this.customTypeTitles.clear();
   }
   cached(cache, key, read) {
     return remembered(cache, key, this.ttlMs, this.now, read);
@@ -2662,19 +2709,34 @@ var SchemaReader = class _SchemaReader {
     return extractCatalogFields(catalogRoots, text2(catalog.id), type, samples);
   }
   /**
-   * Адрес формы документа типа: обычный, а если такой формы нет — тот, что сервер объявляет для
-   * типа в common. Формы типов тестирования (assessment и др.) лежат вне x-local://wtv. Если не
-   * нашлась ни та, ни другая, отказ — тот, что дало чтение обычной формы.
+   * Адрес формы документа типа: для пользовательского типа (`doc_type`) — `x-local://udt/udt_<тип>.xmd`
+   * по каталогу из сведений о приложении; иначе обычный `wtv/wtv_<тип>.xmd`, а если его нет —
+   * адрес из общего документа `common` (формы типов тестирования лежат вне `x-local://wtv`).
    */
   async typeFormUrl(type) {
     const known = this.knownFormUrl(type);
     if (known) return known;
+    const info = await this.applicationInfo().catch(() => void 0);
+    if (info) {
+      if (this.typedCatalogs(info).some(
+        (item) => item.object_type === type && isUdtForm(item.form_url)
+      )) {
+        const url2 = udtDocumentFormUrl(type);
+        this.rememberFormUrl(type, url2);
+        return url2;
+      }
+      const udtCatalog = this.catalog(info, type);
+      if (udtCatalog && isUdtForm(udtCatalog.form_url)) {
+        const url2 = text2(udtCatalog.form_url);
+        this.rememberFormUrl(type, url2);
+        return url2;
+      }
+    }
     const usual = usualFormUrl(type);
     let url = usual;
     try {
       await this.form(usual);
     } catch (error) {
-      const info = await this.applicationInfo().catch(() => void 0);
       const declared = info ? await this.declaredTypes(info) : [];
       url = text2(declared.find((item) => item.name === type)?.form_url);
       if (!url) throw error;
@@ -2930,6 +2992,10 @@ var SchemaReader = class _SchemaReader {
     const common = await this.commonData(info);
     const definitions = list(data(common.exchange_object_types).exchange_object_type);
     const named = this.typedCatalogs(info);
+    const hasUdt = named.some((item) => isUdtForm(item.form_url));
+    const docTypeTitles = hasUdt ? await this.cached(this.customTypeTitles, "doc_types", () => this.readDocTypeTitles()).catch(
+      () => /* @__PURE__ */ new Map()
+    ) : /* @__PURE__ */ new Map();
     const unnamed = [];
     for (const definition of definitions) {
       const type = text2(definition.name);
@@ -2939,7 +3005,7 @@ var SchemaReader = class _SchemaReader {
     const all = [...named, ...unnamed].map((catalog) => {
       const type = text2(catalog.object_type);
       const definition = definitions.find((item) => item.name === type);
-      const title = this.typeTitle(definition ?? {}, dictionary, translations);
+      const title = this.typeTitle(definition ?? {}, dictionary, translations) || (isUdtForm(catalog.form_url) ? docTypeTitles.get(type) ?? "" : "");
       const template = data(custom?.[type]);
       return {
         type,
@@ -3405,6 +3471,33 @@ function saveFailed(error) {
 import { randomUUID as randomUUID2 } from "node:crypto";
 var TARGET = "ms_tools.evaluate_remote_collection_obj";
 var FORM = "x-local://wtv/wtv_remote_collection.xmd";
+var DEFAULT_AGENT_WAIT_TIMEOUT_MS = 12e4;
+var MIN_AGENT_WAIT_TIMEOUT_MS = 1e3;
+var MAX_AGENT_WAIT_TIMEOUT_MS = 36e5;
+var DEFAULT_AGENT_STATUS_LIMIT = 20;
+var MAX_AGENT_STATUS_LIMIT = 200;
+var AGENT_POLL_DELAYS_MS = [250, 500, 1e3, 2e3];
+var AGENT_MISSING_GRACE_MS = 2e3;
+var AGENT_FINISHED_CAPACITY = 100;
+var DEFAULT_AGENT_WAIT_CLOCK = {
+  now: () => Date.now(),
+  sleep: (ms, signal) => new Promise((resolve4) => {
+    if (signal?.aborted) {
+      resolve4();
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve4();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve4();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  })
+};
+var agentWaitClock = DEFAULT_AGENT_WAIT_CLOCK;
 function paramsJson(params) {
   const value = inputObject(params, "params");
   try {
@@ -3424,40 +3517,362 @@ function prepareScript(value, params) {
   return { request: { target: TARGET, args: [{ lexicalValue: { xml } }] }, executionId: marker };
 }
 var ID = /^(?:0x[0-9a-f]{1,16}|\d{1,20})$/i;
+var THREAD_ID = /^-?\d{1,20}$/;
+var ROLE_UID = /^[^\s\u0000-\u001f\u007f]{0,128}$/;
 var AGENT_RUN = `var doc = OpenDoc(UrlFromDocID(Int(PARAMS.id)));
 if (doc.TopElem.Name != 'server_agent') throw 'Объект с этим ID — не агент сервера (server_agent).';
 var from = StrXmlDate(Date());
-var started = doc.TopElem.run_agent(PARAMS.objectId, PARAMS.objectIds, Date(), true);
-if (started) doc.Save();
-RESULT = [{ started: started, from: from, to: StrXmlDate(Date()) }];`;
+var targetId = doc.TopElem.id + '';
+var running = false;
+if (!PARAMS.allowConcurrent) {
+  var q = tools.spxml_unibridge.Object.provider.PeekMessagesFromQueue('ag_running');
+  if (q != undefined) {
+    var item;
+    for (item in q) {
+      if (item + '' == targetId) { running = true; break; }
+    }
+  }
+}
+if (running) {
+  var info = tools.spxml_unibridge.Object.provider.GetUserData('ag_info_' + targetId);
+  var runningInfo = '';
+  if (info != undefined) runningInfo = info + '';
+  RESULT = [{ started: false, alreadyRunning: true, runningInfo: runningInfo, from: from, to: StrXmlDate(Date()) }];
+} else {
+  doc.TopElem.obj.Clear();
+  var started = doc.TopElem.run_agent(PARAMS.objectId, PARAMS.objectIds, Date(), false);
+  var threadId = '';
+  var codeType = '';
+  var roleUID = '';
+  var hasRoleUID = false;
+  try { codeType = doc.TopElem.exec_code.code_type + ''; } catch (e) {}
+  if (started) {
+    try { threadId = doc.TopElem.obj.Object.UniqueThreadId + ''; } catch (e) {}
+    try {
+      roleUID = tools.get_object_assembly('DatexCore').CallClassStaticMethod('Datex.Core.StaticPrime', 'GetRoleUID', []) + '';
+      hasRoleUID = true;
+    } catch (e) {}
+    doc.Save();
+  }
+  RESULT = [{ started: started, alreadyRunning: false, threadId: threadId, codeType: codeType, roleUID: roleUID, hasRoleUID: hasRoleUID, from: from, to: StrXmlDate(Date()) }];
+}`;
+var formatAgentTime = (value) => String(value ?? "").slice(0, 19);
+function parseAgentId(value, path) {
+  if (typeof value !== "string" || !ID.test(value) || BigInt(value) > 0xffffffffffffffffn)
+    throw new HcmError("INVALID_ARGUMENT", `${path}: нужен ID строкой, 0x… или десятичный.`);
+  return BigInt(value).toString();
+}
+function parseAgentThreadId(value, path = "threadId") {
+  if (typeof value !== "string" || !THREAD_ID.test(value))
+    throw new HcmError("INVALID_ARGUMENT", `${path}: нужен ID потока агента десятичной строкой.`);
+  return value;
+}
+function parseAgentRoleUID(value, path = "roleUID") {
+  if (typeof value !== "string" || !ROLE_UID.test(value))
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      `${path}: нужен идентификатор роли сервера без пробелов (до 128 знаков).`
+    );
+  return value;
+}
+function parseAgentWaitTimeout(value) {
+  if (value === void 0) return DEFAULT_AGENT_WAIT_TIMEOUT_MS;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < MIN_AGENT_WAIT_TIMEOUT_MS || value > MAX_AGENT_WAIT_TIMEOUT_MS) {
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      `waitTimeoutMs: нужно целое число от ${MIN_AGENT_WAIT_TIMEOUT_MS} до ${MAX_AGENT_WAIT_TIMEOUT_MS}.`
+    );
+  }
+  return value;
+}
 function agentRun(args) {
-  const id = (value, path) => {
-    if (typeof value !== "string" || !ID.test(value))
-      throw new HcmError("INVALID_ARGUMENT", `${path}: нужен ID строкой, 0x… или десятичный.`);
-    return BigInt(value).toString();
-  };
   const list2 = args.objectIds ?? [];
   if (!Array.isArray(list2) || list2.length > 1e3)
     throw new HcmError("INVALID_ARGUMENT", "objectIds: нужен список до 1000 ID.");
+  const wait = args.wait !== false;
+  if (!wait && args.waitTimeoutMs !== void 0) {
+    throw new HcmError(
+      "INVALID_ARGUMENT",
+      "waitTimeoutMs нельзя задавать при wait: false.",
+      "Убрать waitTimeoutMs или включить ожидание (wait: true)."
+    );
+  }
+  const waitTimeoutMs = parseAgentWaitTimeout(args.waitTimeoutMs);
   return {
     code: AGENT_RUN,
     params: {
-      id: id(args.id, "id"),
-      objectId: args.objectId === void 0 ? null : id(args.objectId, "objectId"),
-      objectIds: list2.map((item, index) => id(item, `objectIds[${index}]`)).join(";")
-    }
+      id: parseAgentId(args.id, "id"),
+      objectId: args.objectId === void 0 ? null : parseAgentId(args.objectId, "objectId"),
+      objectIds: list2.map((item, index) => parseAgentId(item, `objectIds[${index}]`)).join(";"),
+      allowConcurrent: args.allowConcurrent === true
+    },
+    wait,
+    waitTimeoutMs
   };
 }
-function agentRunResult(data2) {
-  const row = data2.result[0];
-  const time = (value) => String(value ?? "").slice(0, 19);
-  const started = row?.started === "1";
+function mapAgentListStatus(raw) {
+  if (raw === 1 || raw === "1") return "running";
+  if (raw === 2 || raw === "2") return "finished";
+  if (raw === 3 || raw === "3") return "cancelled";
+  return void 0;
+}
+function parseAgentListJson(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed, ((key, value, context) => {
+      if ((key === "UniqueId" || key === "id") && typeof value === "number" && typeof context?.source === "string") {
+        return context.source;
+      }
+      return value;
+    }));
+  } catch {
+    throw new HcmError(
+      "AGENT_STATUS_RESPONSE",
+      "Сервер вернул список запусков агентов в неверном формате JSON."
+    );
+  }
+  if (!Array.isArray(parsed)) {
+    throw new HcmError(
+      "AGENT_STATUS_RESPONSE",
+      "Сервер вернул список запусков агентов в неожиданном виде: это не массив."
+    );
+  }
+  const byThread = /* @__PURE__ */ new Map();
+  for (let index = 0; index < parsed.length; index++) {
+    const entry = parsed[index];
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const obj = entry;
+    const status = mapAgentListStatus(obj.status);
+    const threadId = typeof obj.UniqueId === "string" || typeof obj.UniqueId === "number" ? String(obj.UniqueId).trim() : "";
+    if (!status || !threadId) continue;
+    const startedAt = formatAgentTime(obj.started);
+    const finishedRaw = typeof obj.finished === "string" && obj.finished.trim() !== "" ? formatAgentTime(obj.finished) : void 0;
+    const record = {
+      id: typeof obj.id === "string" || typeof obj.id === "number" ? String(obj.id) : "",
+      code: typeof obj.code === "string" ? obj.code : "",
+      name: typeof obj.name === "string" ? obj.name : "",
+      status,
+      threadId,
+      ...typeof obj.roleUID === "string" ? { roleUID: obj.roleUID } : {},
+      startedAt,
+      ...finishedRaw ? { finishedAt: finishedRaw } : {}
+    };
+    const existing = byThread.get(threadId);
+    if (!existing || existing.record.status === "running" && record.status !== "running") {
+      byThread.set(threadId, { record, order: index });
+    }
+  }
+  const entries = [...byThread.values()];
+  entries.sort((left, right) => {
+    const leftRunning = left.record.status === "running" ? 0 : 1;
+    const rightRunning = right.record.status === "running" ? 0 : 1;
+    if (leftRunning !== rightRunning) return leftRunning - rightRunning;
+    const leftTime = left.record.finishedAt ?? left.record.startedAt;
+    const rightTime = right.record.finishedAt ?? right.record.startedAt;
+    if (leftTime !== rightTime) return rightTime.localeCompare(leftTime);
+    return right.order - left.order;
+  });
+  return entries.map((entry) => entry.record);
+}
+function decodeAgentListResponse(response) {
+  const decoded = rpcValue(response);
+  if (decoded === null || typeof decoded !== "object" || !("value" in decoded)) {
+    throw new HcmError(
+      "AGENT_STATUS_RESPONSE",
+      "Сервер вернул список запусков агентов в неожиданном виде."
+    );
+  }
+  const value = decoded.value;
+  if (value === null || value === "") return [];
+  if (typeof value !== "string") {
+    throw new HcmError(
+      "AGENT_STATUS_RESPONSE",
+      "Сервер вернул список запусков агентов не строкой JSON."
+    );
+  }
+  return parseAgentListJson(value);
+}
+function filterAgentRuns(records, options) {
+  const filtered = records.filter((record) => {
+    if (options.id !== void 0 && record.id !== options.id) return false;
+    if (options.threadId !== void 0 && record.threadId !== options.threadId) return false;
+    if (options.status !== void 0 && record.status !== options.status) return false;
+    return true;
+  });
+  const limit = options.limit ?? DEFAULT_AGENT_STATUS_LIMIT;
   return {
-    started,
-    startedAt: time(row?.from),
-    finishedAt: time(row?.to),
-    hint: started ? "Код агента отработал до конца или до ошибки: ошибку сервер пишет только в лог. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt." : "Сервер агента не запустил; причину он пишет в лог agent."
+    runs: filtered.slice(0, limit),
+    total: filtered.length
   };
+}
+function isAgentLaunchIdle(data2) {
+  const row = data2.result[0];
+  if (row === null || typeof row !== "object" || Array.isArray(row)) return false;
+  return row.started === "0";
+}
+function parseAgentLaunch(data2) {
+  const raw = data2.result[0];
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул ответ запуска агента в неожиданном виде.",
+      "Запрос уже отправлен на сервер: проверить состояние запусков через agents.status, прежде чем повторять."
+    );
+  }
+  const row = raw;
+  const startedAt = formatAgentTime(row.from);
+  const finishedAt = formatAgentTime(row.to);
+  if (row.started === "0" && row.alreadyRunning === "1") {
+    let runningRecord;
+    if (typeof row.runningInfo === "string" && row.runningInfo.trim() !== "") {
+      try {
+        runningRecord = parseAgentListJson(`[${row.runningInfo}]`)[0];
+      } catch {
+      }
+    }
+    return {
+      kind: "already_running",
+      startedAt,
+      ...runningRecord ? { runningRecord } : {}
+    };
+  }
+  if (row.started === "0") {
+    return { kind: "refused", startedAt, finishedAt };
+  }
+  if (row.started !== "1") {
+    throw new HcmError(
+      "SCRIPT_RESPONSE",
+      "Сервер вернул ответ запуска агента без признака started.",
+      "Запрос уже отправлен на сервер: проверить состояние запусков через agents.status, прежде чем повторять."
+    );
+  }
+  const rawThreadId = typeof row.threadId === "string" ? row.threadId.trim() : "";
+  const threadId = THREAD_ID.test(rawThreadId) ? rawThreadId : "";
+  const codeType = typeof row.codeType === "string" ? row.codeType.trim().toLowerCase() : "";
+  const roleUID = typeof row.roleUID === "string" && (row.hasRoleUID === "1" || row.hasRoleUID === void 0 && Object.hasOwn(row, "roleUID")) ? row.roleUID.trim() : void 0;
+  return {
+    kind: "started",
+    threadId,
+    codeType,
+    ...roleUID !== void 0 ? { roleUID } : {},
+    startedAt
+  };
+}
+function couldBeEvictedFromFinished(records, startedAt) {
+  let finishedCount = 0;
+  let oldestFinishedTime;
+  for (const record of records) {
+    if (record.status === "running") continue;
+    finishedCount++;
+    const time = record.finishedAt ?? record.startedAt;
+    if (time && (oldestFinishedTime === void 0 || time < oldestFinishedTime)) {
+      oldestFinishedTime = time;
+    }
+  }
+  if (finishedCount < AGENT_FINISHED_CAPACITY) return false;
+  if (!startedAt || !oldestFinishedTime) return true;
+  return oldestFinishedTime >= startedAt;
+}
+async function waitForAgentThread(readList, options) {
+  const clock = agentWaitClock;
+  const deadline = clock.now() + options.timeoutMs;
+  let attempt = 0;
+  let anyPollSucceeded = false;
+  let seenRunning = false;
+  let evictedSince;
+  let lastRoleUID = options.initialRoleUID;
+  let lastStartedAt = options.initialStartedAt;
+  const meta = () => ({
+    ...lastRoleUID !== void 0 ? { roleUID: lastRoleUID } : {},
+    ...lastStartedAt ? { startedAt: lastStartedAt } : {}
+  });
+  const finishOnDeadline = () => options.mode === "status" && anyPollSucceeded && !seenRunning ? { kind: "missing", ...meta() } : { kind: "timeout", ...meta() };
+  for (; ; ) {
+    const remainingBeforePoll = deadline - clock.now();
+    if (remainingBeforePoll <= 0 && attempt > 0) {
+      return finishOnDeadline();
+    }
+    const pollBudget = Math.max(1, remainingBeforePoll);
+    const pollController = new AbortController();
+    const timerController = new AbortController();
+    let timedOut = false;
+    let records;
+    try {
+      const timeoutPromise = clock.sleep(pollBudget, timerController.signal).then(() => {
+        if (!timerController.signal.aborted) {
+          timedOut = true;
+          pollController.abort();
+        }
+        return null;
+      });
+      const readPromise = readList(pollController.signal).then((value) => {
+        timerController.abort();
+        return value;
+      });
+      readPromise.catch(() => void 0);
+      const winner = await Promise.race([readPromise, timeoutPromise]);
+      if (timedOut || winner === null || clock.now() > deadline) {
+        return finishOnDeadline();
+      }
+      records = winner;
+      anyPollSucceeded = true;
+    } finally {
+      timerController.abort();
+    }
+    const match = records.find((item) => item.threadId === options.threadId);
+    if (match) {
+      if (match.roleUID !== void 0) lastRoleUID = match.roleUID;
+      if (match.startedAt) lastStartedAt = match.startedAt;
+      if (match.status === "finished" || match.status === "cancelled") {
+        return { kind: "done", record: match };
+      }
+      seenRunning = true;
+      evictedSince = void 0;
+    } else if (seenRunning && couldBeEvictedFromFinished(records, lastStartedAt)) {
+      const current = clock.now();
+      evictedSince ??= current;
+      if (current - evictedSince >= AGENT_MISSING_GRACE_MS) {
+        return { kind: "missing", ...meta() };
+      }
+    } else {
+      evictedSince = void 0;
+    }
+    const remaining = deadline - clock.now();
+    if (remaining <= 0) {
+      return finishOnDeadline();
+    }
+    const step = AGENT_POLL_DELAYS_MS[Math.min(attempt, AGENT_POLL_DELAYS_MS.length - 1)];
+    attempt++;
+    let delay = Math.min(step, remaining);
+    if (evictedSince !== void 0) {
+      const graceRemaining = Math.max(0, AGENT_MISSING_GRACE_MS - (clock.now() - evictedSince));
+      if (graceRemaining === 0) {
+        return { kind: "missing", ...meta() };
+      }
+      delay = Math.min(delay, graceRemaining);
+    }
+    await clock.sleep(delay);
+  }
+}
+function agentRunHint(kind, threadId) {
+  switch (kind) {
+    case "running":
+      return "Агент сервера запущен в отдельном потоке. Проверить состояние — agents.status, остановить — agents.cancel. Строки запуска — лог agent, alert и ошибки кода — лог xhttp после startedAt.";
+    case "finished":
+      return "Код агента отработал до конца или до ошибки: ошибку сервер пишет только в лог. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt.";
+    case "cancelled":
+      return "Агент сервера остановлен. Уже сделанные изменения не откатываются. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt.";
+    case "unknown_cs":
+      return "Агент сервера на C# запущен, но сервер не публикует его состояние в списке запусков. Результат и ошибки искать в логах agent и xhttp после startedAt.";
+    case "unknown_missing":
+      return "Агент сервера запущен, но запись о потоке не найдена среди выполняющихся и последних 100 завершённых. Проверить логи agent и xhttp после startedAt.";
+    case "already_running":
+      return threadId ? `Агент сервера уже выполняется (поток ${threadId}). Проверить состояние — agents.status, остановить — agents.cancel, запустить параллельно — allowConcurrent: true.` : "Агент сервера уже выполняется. Проверить состояние — agents.status, запустить параллельно — allowConcurrent: true.";
+    case "refused":
+      return "Сервер агента не запустил; причину он пишет в лог agent.";
+  }
 }
 function scriptResult(response, executionId) {
   const decoded = decodeRpcValue(findXmlNode(response, "Result"));
@@ -4554,7 +4969,98 @@ var schemaOperations = [
   })
 ];
 
+// src/hcm-server.ts
+import { AsyncLocalStorage } from "node:async_hooks";
+var activeSignal = new AsyncLocalStorage();
+function withRequestSignal(signal, fn) {
+  return signal === void 0 ? fn() : activeSignal.run(signal, fn);
+}
+function refuseUnowned(id, args, refused) {
+  const effect = nativeEffect(id, args);
+  if (effect !== void 0 && refused(effect))
+    throw new Error(`${id}: запрос, который может изменить сервер, без владельца исхода записи`);
+}
+var HcmServer = class {
+  constructor(port) {
+    this.port = port;
+  }
+  appInfo;
+  /** Запрос операции, которую реестр считает чтением. Всё остальное обязано сказать, что это. */
+  async call(id, args, outcome) {
+    const signal = activeSignal.getStore();
+    if (!outcome) {
+      refuseUnowned(id, args, (effect) => effect !== "read");
+      return this.port.call(id, args, signal);
+    }
+    const withdraw = outcome.sending();
+    try {
+      return await this.port.call(id, args, signal);
+    } catch (error) {
+      if (error instanceof WsHcmApiError && error.requestSent === false || error instanceof ArgumentError || refusedAtDoor(error))
+        withdraw();
+      throw error;
+    }
+  }
+  /** Только чтение, хотя операция умеет больше (xQuery, rpc.call); запись реестра отклоняется. */
+  async read(id, args) {
+    refuseUnowned(id, args, (effect) => effect === "write");
+    return this.port.call(id, args, activeSignal.getStore());
+  }
+  /** Чтение реестра с двоичным ответом потоком: read получает тело. */
+  async stream(id, args, read) {
+    refuseUnowned(id, args, (effect) => effect !== "read");
+    return this.port.stream(id, args, read, activeSignal.getStore());
+  }
+  /** Сведения о приложении, хранятся 30 секунд; отклонённый или битый ответ не хранится. */
+  async applicationInfo(fresh = false) {
+    if (fresh || !this.appInfo || this.appInfo.expires <= Date.now()) {
+      const value = this.call("native.spxml2.getAppInfo", { fastStart: true }).then(
+        (raw) => inputObject(raw, "сведения о приложении")
+      );
+      this.appInfo = { expires: Date.now() + 3e4, value };
+      value.catch(() => {
+        if (this.appInfo?.value === value) this.appInfo = void 0;
+      });
+    }
+    return this.appInfo.value;
+  }
+  /** Сбросить кэш сведений о приложении после операции, способной изменить настройки сервера. */
+  invalidateApplicationInfo() {
+    this.appInfo = void 0;
+  }
+  /**
+   * Код, подготовленный prepareScript, выполняется на сервере; ответ проверяется на
+   * перехваченную ошибку. `idle` по ответу узнаёт, что код ничего не сделал: отметка снимается.
+   */
+  async runCode(script, outcome, idle) {
+    outcome.note({ executionId: script.executionId });
+    const withdraw = outcome.sending();
+    try {
+      const data2 = scriptResult(
+        await this.port.call("web.rpc.call", script.request, activeSignal.getStore()),
+        script.executionId
+      );
+      if (idle?.(data2)) withdraw();
+      return data2;
+    } catch (error) {
+      if (error instanceof WsHcmApiError && error.requestSent === false || error instanceof ArgumentError || error instanceof HcmError && error.mutationOutcome === "not_sent" || refusedAtDoor(error))
+        withdraw();
+      throw error;
+    }
+  }
+};
+
 // src/operations/scripts.ts
+var AGENT_LIST_TARGET = "tools.amgr_get_agent_list_json";
+var AGENT_CANCEL_TARGET = "tools.amgr_cancel_agent";
+function readAgentRunList(context, signal) {
+  return withRequestSignal(
+    signal,
+    async () => decodeAgentListResponse(
+      await context.server.read("native.rpc.call", { target: AGENT_LIST_TARGET, args: [] })
+    )
+  );
+}
 var scriptOperations = [
   operation({
     id: "execute.script",
@@ -4572,30 +5078,341 @@ var scriptOperations = [
   operation({
     id: "agents.run",
     effect: "execute",
-    description: "Запустить агента сервера и дождаться конца его кода. Ответ: started, startedAt и finishedAt — местное время сервера. Ошибку в коде агента ответ не показывает: она в логе xhttp между этими отметками. Дата последнего запуска сохраняется в агенте, как при запуске из админки.",
+    description: "Запустить агента сервера в отдельном штатном потоке и по умолчанию дождаться завершения по списку запусков (до waitTimeoutMs, по умолчанию 120000 мс). С wait:false возвращает threadId сразу. Повторный запуск уже работающего агента отклоняется (started:false), если не задан allowConcurrent:true. Ошибку в коде агента ответ не показывает: она в логе xhttp.",
     inputSchema: schema(
       {
-        id: { type: "string", description: "ID агента (server_agent)." },
+        id: { type: "string", description: "ID агента сервера (server_agent)." },
         objectId: { type: "string", description: "ID объекта: в коде агента это OBJECT_ID." },
         objectIds: {
           type: "array",
           items: string,
           maxItems: 1e3,
           description: "ID нескольких объектов: в коде агента это OBJECTS_ID_STR, через «;»."
+        },
+        wait: {
+          type: "boolean",
+          description: "Ждать завершения агента по списку запусков (по умолчанию true). false запускает в фоне и сразу возвращает threadId."
+        },
+        waitTimeoutMs: {
+          type: "integer",
+          minimum: MIN_AGENT_WAIT_TIMEOUT_MS,
+          maximum: MAX_AGENT_WAIT_TIMEOUT_MS,
+          description: "Предел ожидания завершения в миллисекундах (1000–3600000, по умолчанию 120000). Несовместим с wait:false."
+        },
+        allowConcurrent: {
+          type: "boolean",
+          description: "Разрешить параллельный запуск, если этот агент уже выполняется (по умолчанию false)."
         }
       },
       ["id"]
     ),
-    summary: "Запустить агента по ID и дождаться конца: {id}; objectId и objectIds — объекты, над которыми он работает.",
-    details: "Вызов ждёт, пока код агента не кончится, и ограничен временем ожидания подключения (timeoutMs): долгого агента нужно запускать без ожидания — rpc.call {library:'tools', method:'start_agent', arguments:[id]} — и следить за логом agent. Параметры агента берутся из его документа. Агенты на C# и агенты выгрузки и импорта не проверялись.",
+    summary: "Запустить агента сервера в отдельном потоке по ID: {id, wait?, waitTimeoutMs?, allowConcurrent?, objectId?, objectIds?}.",
+    details: "Запускает отдельный поток сервера, не держит HTTP-запрос на время работы агента и сохраняет дату последнего запуска. Проверка дубля смотрит очередь ag_running до запуска (это не атомарная блокировка при одновременных запросах; для агентов на C# очередь сервером не ведётся). По умолчанию ждёт завершения через опрос списка запусков (до waitTimeoutMs, по умолчанию 120000 мс); при таймауте возвращает AGENT_WAIT_TIMEOUT с mutationOutcome:'confirmed' и threadId в details — повторять запуск не нужно, дождаться можно через agents.status {threadId, wait:true}, остановить — через agents.cancel. Параметры агента берутся из его документа. Агенты на C# не публикуют статус в списке запусков.",
     run: async (context, args, call) => {
       const agent = agentRun(args);
       const data2 = await context.server.runCode(
         prepareScript(agent.code, agent.params),
+        call.outcome,
+        isAgentLaunchIdle
+      );
+      const launch = parseAgentLaunch(data2);
+      if (launch.kind === "already_running") {
+        const running = launch.runningRecord;
+        return {
+          started: false,
+          status: "running",
+          ...running?.threadId ? { threadId: running.threadId } : {},
+          ...running?.roleUID !== void 0 ? { roleUID: running.roleUID } : {},
+          startedAt: running?.startedAt || launch.startedAt,
+          hint: agentRunHint("already_running", running?.threadId)
+        };
+      }
+      context.logs.serverWroteLog();
+      if (launch.kind === "refused") {
+        return {
+          started: false,
+          startedAt: launch.startedAt,
+          finishedAt: launch.finishedAt,
+          hint: agentRunHint("refused")
+        };
+      }
+      call.outcome.confirm();
+      if (launch.threadId) call.outcome.note({ threadId: launch.threadId });
+      if (launch.codeType === "cs") {
+        return {
+          started: true,
+          status: agent.wait ? "unknown" : "running",
+          ...launch.threadId ? { threadId: launch.threadId } : {},
+          ...launch.roleUID !== void 0 ? { roleUID: launch.roleUID } : {},
+          startedAt: launch.startedAt,
+          hint: agentRunHint("unknown_cs")
+        };
+      }
+      if (!launch.threadId) {
+        throw new HcmError(
+          "SCRIPT_RESPONSE",
+          "Агент сервера запущен, но сервер не вернул ID потока (threadId).",
+          "Повторять запуск не нужно: проверить запуски агента через agents.status.",
+          {
+            started: true,
+            ...launch.roleUID !== void 0 ? { roleUID: launch.roleUID } : {},
+            startedAt: launch.startedAt
+          },
+          "confirmed"
+        );
+      }
+      if (!agent.wait) {
+        return {
+          started: true,
+          status: "running",
+          threadId: launch.threadId,
+          ...launch.roleUID !== void 0 ? { roleUID: launch.roleUID } : {},
+          startedAt: launch.startedAt,
+          hint: agentRunHint("running")
+        };
+      }
+      let waited;
+      try {
+        waited = await waitForAgentThread((signal) => readAgentRunList(context, signal), {
+          threadId: launch.threadId,
+          timeoutMs: agent.waitTimeoutMs,
+          mode: "run",
+          ...launch.roleUID !== void 0 ? { initialRoleUID: launch.roleUID } : {},
+          initialStartedAt: launch.startedAt
+        });
+      } catch {
+        throw new HcmError(
+          "AGENT_STATUS_FAILED",
+          "Агент сервера запущен, но проверить его состояние не удалось.",
+          `Повторять запуск не нужно (поток ${launch.threadId}): проверить состояние через agents.status или остановить через agents.cancel.`,
+          {
+            started: true,
+            threadId: launch.threadId,
+            ...launch.roleUID !== void 0 ? { roleUID: launch.roleUID } : {},
+            startedAt: launch.startedAt
+          },
+          "confirmed"
+        );
+      }
+      if (waited.kind === "timeout") {
+        const roleUID2 = waited.roleUID ?? launch.roleUID;
+        const startedAt = waited.startedAt || launch.startedAt;
+        throw new HcmError(
+          "AGENT_WAIT_TIMEOUT",
+          `Агент сервера не завершился за ${agent.waitTimeoutMs} мс и продолжает работу.`,
+          `Повторять запуск не нужно (поток ${launch.threadId}): проверить состояние через agents.status или остановить через agents.cancel.`,
+          {
+            started: true,
+            threadId: launch.threadId,
+            ...roleUID2 !== void 0 ? { roleUID: roleUID2 } : {},
+            startedAt
+          },
+          "confirmed"
+        );
+      }
+      if (waited.kind === "missing") {
+        const roleUID2 = waited.roleUID ?? launch.roleUID;
+        return {
+          started: true,
+          status: "unknown",
+          threadId: launch.threadId,
+          ...roleUID2 !== void 0 ? { roleUID: roleUID2 } : {},
+          startedAt: waited.startedAt || launch.startedAt,
+          hint: agentRunHint("unknown_missing")
+        };
+      }
+      context.logs.serverWroteLog();
+      const record = waited.record;
+      const roleUID = record.roleUID ?? launch.roleUID;
+      return {
+        started: true,
+        status: record.status,
+        threadId: record.threadId,
+        ...roleUID !== void 0 ? { roleUID } : {},
+        startedAt: record.startedAt || launch.startedAt,
+        ...record.finishedAt ? { finishedAt: record.finishedAt } : {},
+        hint: agentRunHint(record.status === "cancelled" ? "cancelled" : "finished")
+      };
+    }
+  }),
+  operation({
+    id: "agents.status",
+    effect: "read",
+    description: "Показать текущие и недавно завершённые запуски агентов сервера (до 100 последних завершённых). Фильтры: id, threadId, status, limit. При заданном threadId можно включить wait:true для ожидания завершения (до waitTimeoutMs, по умолчанию 120000 мс).",
+    inputSchema: schema({
+      id: { type: "string", description: "Фильтр по ID агента сервера (0x… или десятичный)." },
+      threadId: {
+        type: "string",
+        description: "Фильтр по ID потока запуска (64-битное целое строкой)."
+      },
+      status: {
+        type: "string",
+        enum: ["running", "finished", "cancelled"],
+        description: "Фильтр по состоянию: running, finished или cancelled."
+      },
+      limit: {
+        type: "integer",
+        minimum: 1,
+        maximum: MAX_AGENT_STATUS_LIMIT,
+        description: `Количество записей в ответе (1–${MAX_AGENT_STATUS_LIMIT}, по умолчанию ${DEFAULT_AGENT_STATUS_LIMIT}).`
+      },
+      wait: {
+        type: "boolean",
+        description: "Ждать завершения запуска с заданным threadId (требует threadId)."
+      },
+      waitTimeoutMs: {
+        type: "integer",
+        minimum: MIN_AGENT_WAIT_TIMEOUT_MS,
+        maximum: MAX_AGENT_WAIT_TIMEOUT_MS,
+        description: "Предел ожидания в миллисекундах (1000–3600000, по умолчанию 120000; требует wait:true и threadId)."
+      }
+    }),
+    summary: "Состояние запусков агентов сервера: {id?, threadId?, status?, limit?, wait?, waitTimeoutMs?}.",
+    details: "Читает список запусков без права execute (сначала выполняющиеся, затем свежие завершённые). При wait:true ждёт завершения или отмены указанного threadId; по истечении waitTimeoutMs отвечает AGENT_WAIT_TIMEOUT.",
+    reply: {
+      list: {
+        key: "runs",
+        summary: (item) => {
+          const r = item;
+          return {
+            id: r.id,
+            code: r.code,
+            status: r.status,
+            threadId: r.threadId,
+            startedAt: r.startedAt,
+            ...r.finishedAt ? { finishedAt: r.finishedAt } : {}
+          };
+        }
+      }
+    },
+    run: async (context, args) => {
+      const id = args.id === void 0 ? void 0 : parseAgentId(args.id, "id");
+      const threadId = args.threadId === void 0 ? void 0 : parseAgentThreadId(args.threadId, "threadId");
+      const status = args.status;
+      const limit = args.limit === void 0 ? DEFAULT_AGENT_STATUS_LIMIT : args.limit;
+      const wait = args.wait === true;
+      if (wait && threadId === void 0) {
+        throw new HcmError(
+          "INVALID_ARGUMENT",
+          "wait: true требует указать threadId.",
+          "Передать threadId из ответа agents.run или agents.status."
+        );
+      }
+      if (!wait && args.waitTimeoutMs !== void 0) {
+        throw new HcmError(
+          "INVALID_ARGUMENT",
+          "waitTimeoutMs используется только вместе с wait: true и threadId."
+        );
+      }
+      const waitTimeoutMs = parseAgentWaitTimeout(args.waitTimeoutMs);
+      if (!wait) {
+        const records = await readAgentRunList(context);
+        return filterAgentRuns(records, {
+          ...id === void 0 ? {} : { id },
+          ...threadId === void 0 ? {} : { threadId },
+          ...status === void 0 ? {} : { status },
+          limit
+        });
+      }
+      const waited = await waitForAgentThread((signal) => readAgentRunList(context, signal), {
+        threadId,
+        timeoutMs: waitTimeoutMs,
+        mode: "status"
+      });
+      if (waited.kind === "timeout") {
+        throw new HcmError(
+          "AGENT_WAIT_TIMEOUT",
+          `Агент сервера (поток ${threadId}) не завершился за ${waitTimeoutMs} мс и продолжает работу.`,
+          "Повторить ожидание через agents.status или остановить запуск через agents.cancel.",
+          {
+            threadId,
+            ...waited.roleUID !== void 0 ? { roleUID: waited.roleUID } : {},
+            ...waited.startedAt ? { startedAt: waited.startedAt } : {}
+          }
+        );
+      }
+      if (waited.kind === "missing") {
+        return { runs: [], total: 0 };
+      }
+      return filterAgentRuns([waited.record], {
+        ...id === void 0 ? {} : { id },
+        threadId,
+        ...status === void 0 ? {} : { status },
+        limit
+      });
+    }
+  }),
+  operation({
+    id: "agents.cancel",
+    effect: "write",
+    description: "Остановить выполняющегося агента сервера по ID потока (threadId). Если roleUID не указан, клиент находит его среди работающих запусков; если агент не выполняется, отвечает AGENT_NOT_RUNNING без отправки запроса. Уже сделанные изменения не откатываются.",
+    inputSchema: schema(
+      {
+        threadId: {
+          type: "string",
+          description: "ID потока работающего агента сервера (из agents.run или agents.status)."
+        },
+        roleUID: {
+          type: "string",
+          maxLength: 128,
+          description: "Идентификатор роли сервера (на одиночном сервере 2025.2 может быть пустой строкой). Если не указан, определяется по threadId среди работающих запусков."
+        }
+      },
+      ["threadId"]
+    ),
+    summary: "Остановить работающего агента сервера по threadId: {threadId, roleUID?}.",
+    details: "Ставит поток в очередь отмены роли сервера (обрабатывается сервером за несколько секунд). Уже сделанные изменения не откатываются; итоговое состояние показывает agents.status.",
+    run: async (context, args, call) => {
+      const threadId = parseAgentThreadId(args.threadId, "threadId");
+      let roleUID = args.roleUID === void 0 ? void 0 : parseAgentRoleUID(args.roleUID, "roleUID");
+      if (roleUID === void 0) {
+        const records = await readAgentRunList(context);
+        const record = records.find((item) => item.threadId === threadId);
+        if (!record) {
+          throw new HcmError(
+            "AGENT_NOT_RUNNING",
+            `Работающий агент сервера с потоком ${threadId} не найден.`,
+            "Проверить список запусков через agents.status.",
+            { threadId },
+            "not_sent"
+          );
+        }
+        if (record.status !== "running") {
+          throw new HcmError(
+            "AGENT_NOT_RUNNING",
+            `Агент сервера (поток ${threadId}) уже завершился (${record.status}).`,
+            "Проверить список запусков через agents.status.",
+            { threadId, status: record.status },
+            "not_sent"
+          );
+        }
+        if (record.roleUID === void 0) {
+          throw new HcmError(
+            "AGENT_STATUS_RESPONSE",
+            `Сервер не вернул roleUID для работающего потока ${threadId}.`,
+            "Передать roleUID явно или проверить список запусков через agents.status.",
+            { threadId },
+            "not_sent"
+          );
+        }
+        roleUID = record.roleUID;
+      }
+      await context.server.call(
+        "native.rpc.call",
+        {
+          target: AGENT_CANCEL_TARGET,
+          args: [rpcArgument(roleUID), rpcArgument(threadId)]
+        },
         call.outcome
       );
       context.logs.serverWroteLog();
-      return agentRunResult(data2);
+      return {
+        cancelled: true,
+        threadId,
+        roleUID,
+        mutationOutcome: "confirmed",
+        hint: "Запрос на отмену передан в очередь роли сервера (обрабатывается в течение нескольких секунд). Уже сделанные изменения не откатываются; итоговое состояние покажет agents.status."
+      };
     }
   })
 ];
@@ -4666,8 +5483,8 @@ var TOPICS = [
   },
   {
     id: "agents",
-    title: "Агенты сервера: запустить и дождаться конца",
-    operations: ["agents.run"]
+    title: "Агенты сервера: запустить, узнать состояние, остановить",
+    operations: ["agents.run", "agents.status", "agents.cancel"]
   },
   {
     id: "files",
@@ -4859,7 +5676,6 @@ export {
   removeConnection,
   rpcArgument,
   rpcValue,
-  refusedAtDoor,
   WriteOutcome,
   identifier,
   withoutFalseOffset,
@@ -4867,6 +5683,7 @@ export {
   projectFields,
   queryPage,
   hasStructure,
+  normalizeXmlLineEndings,
   sameData,
   patchSegments,
   XmlDocument,
@@ -4877,10 +5694,11 @@ export {
   platformFailure,
   readServerInfo,
   saveLocalFile,
-  scriptResult,
   fileExistsUrl,
   ServerFiles,
   logEntry,
+  withRequestSignal,
+  HcmServer,
   operations,
   operationSpec,
   operationDefinition,
