@@ -183,6 +183,8 @@ const nothingFound = (where: string, examples: string, search = "", one = "по�
   `Ничего не найдено: search ищет слова ${where}.${/\S\s+\S/.test(search) ? ` Все слова должны быть в одном ${one}: искать нужно по одному слову.` : ""} Можно попробовать слово из заголовка на языке сервера, часть имени латиницей (${examples}) или вызов без search.`;
 const pageSize = (value: unknown): number => Buffer.byteLength(JSON.stringify(value));
 const usualFormUrl = (type: string): string => `x-local://wtv/wtv_${type}.xmd`;
+const udtDocumentFormUrl = (type: string): string => `x-local://udt/udt_${type}.xmd`;
+const isUdtForm = (value: unknown): boolean => text(value).startsWith("x-local://udt/");
 const customUnreadable =
   "Документ с настраиваемыми полями прочитать не удалось: настраиваемых полей в ответе нет.";
 type Timed<V> = { expires: number; value: Promise<V> };
@@ -214,6 +216,7 @@ export class SchemaReader {
   private shapes = new Map<string, Timed<DataShape>>();
   private dictionaries = new Map<string, Timed<Map<string, string>>>();
   private documents = new Map<string, Timed<Data>>();
+  private customTypeTitles = new Map<string, Timed<Map<string, string>>>();
   /** Найденный адрес формы по имени типа или каталога; ненайденный следующий вызов ищет заново. */
   private formUrls = new Map<string, { expires: number; value: string }>();
   private fetches = 0;
@@ -223,6 +226,7 @@ export class SchemaReader {
     private readDocument: (url: string) => Promise<Data>,
     private readonly ttlMs = SchemaReader.TTL_MS,
     private readonly now: () => number = Date.now,
+    private readDocTypeTitles: () => Promise<Map<string, string>> = async () => new Map(),
   ) {}
   /** Сколько раз формы или общие документы запрашивались у сервера мимо кэша. */
   get serverReads(): number {
@@ -242,11 +246,13 @@ export class SchemaReader {
     this.shapes.clear();
     this.dictionaries.clear();
     this.documents.clear();
+    this.customTypeTitles.clear();
     this.formUrls.clear();
   }
   /** Сбросить кэш общих документов (common, custom_templates) после записи объекта. */
   invalidateDocuments(): void {
     this.documents.clear();
+    this.customTypeTitles.clear();
   }
   private cached<V>(cache: Map<string, Timed<V>>, key: string, read: () => Promise<V>): Promise<V> {
     return remembered(cache, key, this.ttlMs, this.now, read);
@@ -478,19 +484,36 @@ export class SchemaReader {
     return extractCatalogFields(catalogRoots, text(catalog.id), type, samples);
   }
   /**
-   * Адрес формы документа типа: обычный, а если такой формы нет — тот, что сервер объявляет для
-   * типа в common. Формы типов тестирования (assessment и др.) лежат вне x-local://wtv. Если не
-   * нашлась ни та, ни другая, отказ — тот, что дало чтение обычной формы.
+   * Адрес формы документа типа: для пользовательского типа (`doc_type`) — `x-local://udt/udt_<тип>.xmd`
+   * по каталогу из сведений о приложении; иначе обычный `wtv/wtv_<тип>.xmd`, а если его нет —
+   * адрес из общего документа `common` (формы типов тестирования лежат вне `x-local://wtv`).
    */
   async typeFormUrl(type: string): Promise<string> {
     const known = this.knownFormUrl(type);
     if (known) return known;
+    const info = await this.applicationInfo().catch(() => undefined);
+    if (info) {
+      if (
+        this.typedCatalogs(info).some(
+          (item) => item.object_type === type && isUdtForm(item.form_url),
+        )
+      ) {
+        const url = udtDocumentFormUrl(type);
+        this.rememberFormUrl(type, url);
+        return url;
+      }
+      const udtCatalog = this.catalog(info, type);
+      if (udtCatalog && isUdtForm(udtCatalog.form_url)) {
+        const url = text(udtCatalog.form_url);
+        this.rememberFormUrl(type, url);
+        return url;
+      }
+    }
     const usual = usualFormUrl(type);
     let url = usual;
     try {
       await this.form(usual);
     } catch (error) {
-      const info = await this.applicationInfo().catch(() => undefined);
       const declared = info ? await this.declaredTypes(info) : [];
       url = text(declared.find((item) => item.name === type)?.form_url);
       if (!url) throw error;
@@ -788,6 +811,12 @@ export class SchemaReader {
     const common = await this.commonData(info);
     const definitions = list(data(common.exchange_object_types).exchange_object_type);
     const named = this.typedCatalogs(info);
+    const hasUdt = named.some((item) => isUdtForm(item.form_url));
+    const docTypeTitles = hasUdt
+      ? await this.cached(this.customTypeTitles, "doc_types", () => this.readDocTypeTitles()).catch(
+          () => new Map<string, string>(),
+        )
+      : new Map<string, string>();
     // Типы, которые сервер объявляет без названия их каталога (event), идут после остальных.
     const unnamed: Data[] = [];
     for (const definition of definitions) {
@@ -798,7 +827,9 @@ export class SchemaReader {
     const all = [...named, ...unnamed].map((catalog) => {
       const type = text(catalog.object_type);
       const definition = definitions.find((item) => item.name === type);
-      const title = this.typeTitle(definition ?? {}, dictionary, translations);
+      const title =
+        this.typeTitle(definition ?? {}, dictionary, translations) ||
+        (isUdtForm(catalog.form_url) ? (docTypeTitles.get(type) ?? "") : "");
       const template = data(custom?.[type]);
       return {
         type,

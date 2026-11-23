@@ -98,6 +98,15 @@ export class WebPageApi {
     private readonly transport: HttpTransport,
     private readonly uploadToken?: () => string | undefined,
   ) {}
+  /** Прочитать форму по локальному URL сервера через службу веб-админки. */
+  async getForm(
+    request: { url: string },
+    options?: RequestOptions,
+  ): Promise<WsHcmResponse<string>> {
+    return textResponse(
+      await this.transport.send(query("/spxml_web/service/get_form.htm", request), {}, options),
+    );
+  }
   /** Прочитать экранную форму по локальному URL сервера как текст. */
   async getScreenForm(
     request: { url: string },

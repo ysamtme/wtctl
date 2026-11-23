@@ -16,6 +16,7 @@ import { HcmServer, withRequestSignal, type ServerPort } from "./hcm-server.js";
 import { WriteOutcome } from "./write-outcome.js";
 import { ReplyPacker } from "./reply.js";
 import { parsePhysicalDocumentId } from "./protocol/physical-documents.js";
+import { queryPage } from "./query.js";
 import type { RuntimePort } from "./runtime-port.js";
 import type {
   ConnectionConfig,
@@ -59,8 +60,46 @@ export class HcmRuntime implements RuntimePort {
     this.schemaReader = new SchemaReader(
       () => this.server.applicationInfo(),
       async (url) =>
-        requiredString(await this.server.call("native.spxml2.getForm", { url }), "ответ с формой"),
+        requiredString(
+          await this.server.call(
+            url.startsWith("x-local://udt/") ? "web.pages.getForm" : "native.spxml2.getForm",
+            { url },
+          ),
+          "ответ с формой",
+        ),
       async (url) => (await this.objects.load({ url })).document.snapshot().data,
+      undefined,
+      undefined,
+      async () => {
+        const titles = new Map<string, string>();
+        let startPos = 0;
+        for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+          const response = await this.server.read("native.lds.xQuery", {
+            query: "for $e in doc_types return $e",
+            startPos,
+            maxCount: 1000,
+            expectToReadAll: false,
+          });
+          const page = queryPage(response, startPos, 1000, ["object_name", "name"], false);
+          if (page.incomplete)
+            throw new HcmError(
+              "QUERY_INCOMPLETE",
+              "Каталог doc_types вернул неполный ответ: заголовки пользовательских типов не прочитаны.",
+            );
+          for (const row of page.items) {
+            if (
+              typeof row.object_name === "string" &&
+              row.object_name &&
+              typeof row.name === "string" &&
+              row.name
+            )
+              titles.set(row.object_name, row.name);
+          }
+          if (page.nextStartPosition === undefined || page.nextStartPosition <= startPos) break;
+          startPos = page.nextStartPosition;
+        }
+        return titles;
+      },
     );
     this.objects = new ServerObjects(this.server, this.schemaReader, {
       directory: this.results.directory,

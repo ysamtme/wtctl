@@ -794,3 +794,267 @@ test("schema.get в runtime подстраивает размер страниц
     await Promise.all([small.close(), large.close()]);
   }
 });
+
+test("пользовательский тип (x-local://udt/*): schema.get, schema.types, objects.create и objects.patch читают форму через web.pages.getForm без пробы wtv", async () => {
+  const udtFormUrl = "x-local://udt/udt_cc_protocol_ot.xmd";
+  const udcFormUrl = "x-local://udt/udc_cc_protocol_ots.xmd";
+  const udtForm = wrap(
+    `<cc_protocol_ot><id TYPE="integer" TITLE="ID"/><prot_num TYPE="string" TITLE="Номер протокола"/><state TYPE="string" TITLE="Статус"/></cc_protocol_ot>`,
+  );
+  const udcForm = wrap(
+    `<cc_protocol_ots><cc_protocol_ot MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><prot_num TYPE="string"/></cc_protocol_ot></cc_protocol_ots>`,
+  );
+  const storedDocs = new Map<string, string>();
+  const { runtime, server } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": {
+        default_db_name: "wt_data",
+        ui_lang_id: "ru",
+        databases: [
+          {
+            id: "wt_data",
+            catalogs: [
+              { id: "cc_protocol_ots", object_type: "cc_protocol_ot", form_url: udcFormUrl },
+            ],
+          },
+        ],
+        shared_docs: [{ id: "common", url: commonUrl }],
+      },
+      "native.spxml2.getForm": (args, id) => {
+        if (args.url === commonUrl) return buildXml({ common: { exchange_object_types: {} } });
+        throw refusal(id);
+      },
+      "web.pages.getForm": (args, id) => {
+        if (args.url === udtFormUrl) return udtForm;
+        if (args.url === udcFormUrl) return udcForm;
+        throw refusal(id);
+      },
+      "native.lds.xQuery": (args) => {
+        if (String(args.query).includes("doc_types"))
+          return {
+            Data: {
+              doc_type: { object_name: "cc_protocol_ot", name: "(ОТ) Протокол" },
+            },
+            TotalCount: "1",
+            EOF: "true",
+          };
+        return { Data: {}, TotalCount: "0", EOF: "true" };
+      },
+      "native.lds.getNewObjectId": { ObjectID: "7350285530693512721" },
+      "native.lds.putDoc": (args) => {
+        storedDocs.set(String(args.url), String(args.data));
+        return { PutDocResult: "true" };
+      },
+      "native.lds.loadDoc": (args, id) => {
+        const xml = storedDocs.get(String(args.url));
+        if (!xml) throw refusal(id);
+        return { kind: "binary", bytes: new TextEncoder().encode(xml), contentType: "text/xml" };
+      },
+    },
+    { permissions: { write: true, execute: false } },
+  );
+  try {
+    // 1. schema.types подтягивает title из doc_types и находит тип по заголовку.
+    const types = await runtime.call("schema.types", { search: "Протокол" });
+    assert.equal(types.ok, true, JSON.stringify(types));
+    assert.deepEqual((types.data as SchemaTypesResult).types, [
+      { type: "cc_protocol_ot", catalog: "cc_protocol_ots", title: "(ОТ) Протокол" },
+    ]);
+
+    // 2. schema.get по имени типа, по каталогу и по --url читает через web.pages.getForm, без пробы wtv.
+    const byType = await runtime.call("schema.get", { type: "cc_protocol_ot" });
+    assert.equal(byType.ok, true, JSON.stringify(byType));
+    const schemaByType = byType.data as SchemaResult;
+    assert.equal(schemaByType.formUrl, udtFormUrl);
+    assert.equal(schemaByType.catalog, "cc_protocol_ots");
+    assert.equal(schemaByType.fields.find((f) => f.path === "prot_num")?.query, true);
+
+    const byUrl = await runtime.call("schema.get", { url: udtFormUrl });
+    assert.equal(byUrl.ok, true, JSON.stringify(byUrl));
+    assert.equal((byUrl.data as SchemaResult).type, "cc_protocol_ot");
+
+    const byCatalog = await runtime.call("schema.get", { type: "cc_protocol_ots" });
+    assert.equal(byCatalog.ok, true, JSON.stringify(byCatalog));
+    assert.equal((byCatalog.data as SchemaResult).formUrl, udcFormUrl);
+
+    assert.equal(
+      server.calls.some(
+        (c) => c.id === "native.spxml2.getForm" && String(c.args.url).includes("cc_protocol_ot"),
+      ),
+      false,
+    );
+    assert.ok(server.calls.some((c) => c.id === "web.pages.getForm" && c.args.url === udtFormUrl));
+
+    // 3. objects.create и objects.patch работают под правом write без execute.
+    const created = await runtime.call("objects.create", {
+      type: "cc_protocol_ot",
+      data: { prot_num: "P-1", state: "Черновик" },
+    });
+    assert.equal(created.ok, true, JSON.stringify(created));
+    const createdId = (created.data as { id: string }).id;
+    const savedXml = [...storedDocs.values()][0] ?? "";
+    assert.ok(savedXml.includes(`SPXML-FORM="${udtFormUrl}"`), savedXml);
+
+    const patched = await runtime.call("objects.patch", {
+      id: createdId,
+      patch: { state: "Подписан" },
+    });
+    assert.equal(patched.ok, true, JSON.stringify(patched));
+
+    const readBack = await runtime.call("objects.get", { id: createdId, fields: ["state"] });
+    assert.equal(readBack.ok, true, JSON.stringify(readBack));
+    assert.equal((readBack.data as { data: { state: string } }).data.state, "Подписан");
+  } finally {
+    await runtime.close();
+  }
+
+  // На холодном кэше прямой schema.get по url тоже идёт через web.pages.getForm.
+  const cold = fakeRuntime({
+    "native.spxml2.getAppInfo": {
+      default_db_name: "wt_data",
+      ui_lang_id: "ru",
+      databases: [],
+      shared_docs: [{ id: "common", url: commonUrl }],
+    },
+    "native.spxml2.getForm": (_, id) => {
+      throw refusal(id);
+    },
+    "web.pages.getForm": (args, id) => {
+      if (args.url === udtFormUrl) return udtForm;
+      throw refusal(id);
+    },
+  });
+  try {
+    const res = await cold.runtime.call("schema.get", { url: udtFormUrl });
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal((res.data as SchemaResult).type, "cc_protocol_ot");
+    assert.ok(
+      cold.server.calls.some((c) => c.id === "web.pages.getForm" && c.args.url === udtFormUrl),
+    );
+  } finally {
+    await cold.runtime.close();
+  }
+});
+
+test("schema.types дочитывает все страницы doc_types, не кэширует incomplete-отказ и узнаёт любые каталоги x-local://udt/", async () => {
+  let attempt = 0;
+  const { runtime, server } = fakeRuntime({
+    "native.spxml2.getAppInfo": {
+      default_db_name: "wt_data",
+      ui_lang_id: "ru",
+      databases: [
+        {
+          id: "wt_data",
+          catalogs: [
+            {
+              id: "cc_items",
+              object_type: "cc_item",
+              form_url: "x-local://udt/catalogs/items.xmd",
+            },
+          ],
+        },
+      ],
+      shared_docs: [{ id: "common", url: commonUrl }],
+    },
+    "native.spxml2.getForm": (args, id) => {
+      if (args.url === commonUrl) return buildXml({ common: { exchange_object_types: {} } });
+      throw refusal(id);
+    },
+    "native.lds.xQuery": (args) => {
+      attempt++;
+      if (attempt === 1) {
+        // Пустой ответ без TotalCount (отказ SQL): кэшироваться не должен.
+        return { Data: {}, EOF: "true" };
+      }
+      if (args.startPos === 0) {
+        return {
+          Data: { doc_type: [{ object_name: "other", name: "Другой" }] },
+          TotalCount: "2",
+          EOF: "false",
+        };
+      }
+      return {
+        Data: { doc_type: [{ object_name: "cc_item", name: "Элемент со 2-й страницы" }] },
+        TotalCount: "2",
+        EOF: "true",
+      };
+    },
+  });
+  try {
+    const first = await runtime.call("schema.types", { search: "cc_item" });
+    assert.equal(first.ok, true);
+    assert.deepEqual((first.data as SchemaTypesResult).types, [
+      { type: "cc_item", catalog: "cc_items" },
+    ]);
+
+    // После incomplete следующий вызов снова читает doc_types и добирает вторую страницу.
+    const second = await runtime.call("schema.types", { search: "cc_item" });
+    assert.equal(second.ok, true);
+    assert.deepEqual((second.data as SchemaTypesResult).types, [
+      { type: "cc_item", catalog: "cc_items", title: "Элемент со 2-й страницы" },
+    ]);
+    assert.equal(server.calls.filter((c) => c.id === "native.lds.xQuery").length, 3);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("schema.types не запрашивает doc_types без udt-каталогов и не падает при отказе doc_types", async () => {
+  const plain = fakeRuntime({
+    "native.spxml2.getAppInfo": {
+      default_db_name: "wt_data",
+      ui_lang_id: "ru",
+      databases: [
+        {
+          id: "wt_data",
+          catalogs: [
+            { id: "groups", object_type: "group", form_url: "x-local://wtv/wtv_groups.xmd" },
+          ],
+        },
+      ],
+      shared_docs: [{ id: "common", url: commonUrl }],
+    },
+    "native.spxml2.getForm": (args, id) => {
+      if (args.url === commonUrl) return buildXml({ common: { exchange_object_types: {} } });
+      throw refusal(id);
+    },
+  });
+  const failing = fakeRuntime({
+    "native.spxml2.getAppInfo": {
+      default_db_name: "wt_data",
+      ui_lang_id: "ru",
+      databases: [
+        {
+          id: "wt_data",
+          catalogs: [
+            { id: "cc_items", object_type: "cc_item", form_url: "x-local://udt/udc_cc_items.xmd" },
+          ],
+        },
+      ],
+      shared_docs: [{ id: "common", url: commonUrl }],
+    },
+    "native.spxml2.getForm": (args, id) => {
+      if (args.url === commonUrl) return buildXml({ common: { exchange_object_types: {} } });
+      throw refusal(id);
+    },
+    "native.lds.xQuery": (_, id) => {
+      throw refusal(id);
+    },
+  });
+  try {
+    const res1 = await plain.runtime.call("schema.types", {});
+    assert.equal(res1.ok, true);
+    assert.equal(
+      plain.server.calls.some((c) => c.id === "native.lds.xQuery"),
+      false,
+    );
+
+    const res2 = await failing.runtime.call("schema.types", {});
+    assert.equal(res2.ok, true);
+    assert.deepEqual((res2.data as SchemaTypesResult).types, [
+      { type: "cc_item", catalog: "cc_items" },
+    ]);
+  } finally {
+    await Promise.all([plain.runtime.close(), failing.runtime.close()]);
+  }
+});

@@ -167,7 +167,6 @@ test("удалённые низкоуровневые операции откл�
       "web.resources.getImage",
       "web.resources.getCompoundResource",
       "web.pages.filePreviewPdf",
-      "web.pages.getForm",
       "web.pages.getImage",
       "web.pages.getUrl",
       "web.lifecycle.admin",
@@ -188,6 +187,12 @@ test("удалённые низкоуровневые операции откл�
       assert.equal(result.ok, false, id);
       assert.equal(result.error?.code, "UNKNOWN_OPERATION", id);
       await assert.rejects(runtime.gateway.call(id, {}), /Неизвестная низкоуровневая операция/);
+    }
+    // Внутренние операции шлюза тоже не видны снаружи и отклоняются runtime как UNKNOWN_OPERATION.
+    for (const id of ["web.pages.getForm", "native.lds.loadUrl", "native.lds.deleteUrl"]) {
+      const result = await runtime.call(id, {});
+      assert.equal(result.ok, false, id);
+      assert.equal(result.error?.code, "UNKNOWN_OPERATION", id);
     }
     assert.equal(mock.calls.length, 0);
   } finally {

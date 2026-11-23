@@ -762,3 +762,29 @@ test("escapeXml и soapBody сохраняют точное экранирова
   assert.ok(Buffer.isBuffer(bodies[2]));
   assert.ok(String(bodies[2]).includes(`<arg-0 VALUE-TYPE="string">${escapeXml(payload)}</arg-0>`));
 });
+
+test("web.pages.getForm запрашивает /spxml_web/service/get_form.htm с URL формы в query", async () => {
+  const seen: string[] = [];
+  const client = new WsHcmClient({
+    baseUrl: "http://wt.test/",
+    auth: { username: "user", password: "secret" },
+    fetch: webLifecycle((url) => {
+      if (url.pathname === "/spxml_web/service/get_form.htm") {
+        seen.push(`${url.pathname}${url.search}`);
+        return new Response('<SPXML-FORM><cc_item><id TYPE="integer"/></cc_item></SPXML-FORM>', {
+          status: 200,
+          headers: { "content-type": "text/xml; charset=utf-8" },
+        });
+      }
+      return undefined;
+    }),
+  });
+  await client.withWebSession(async (session) => {
+    const res = await session.pages.getForm({ url: "x-local://udt/udt_cc_item.xmd" });
+    assert.equal(res.status, 200);
+    assert.match(res.data, /<cc_item>/);
+  });
+  assert.deepEqual(seen, [
+    "/spxml_web/service/get_form.htm?url=x-local%3A%2F%2Fudt%2Fudt_cc_item.xmd",
+  ]);
+});

@@ -29,6 +29,7 @@ const RIGHTS = {
   "web.spxml.getAsyncMethodStatus": "read",
   "native.spxml2.getAppInfo": "read",
   "native.spxml2.getForm": "read",
+  "web.pages.getForm": { effect: "read", internal: true },
   "web.pages.getScreenForm": "read",
   "web.pages.getUiText": "read",
   "native.resources.getImage": "read",
