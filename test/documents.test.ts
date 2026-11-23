@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { XmlDocument } from "../src/documents.js";
+import { XmlDocument, sameData } from "../src/documents.js";
 import { catalogQuery } from "../src/query.js";
 import { verifyFields, verifyRemovals } from "../src/verification.js";
+import { fakeRuntime } from "./fake-server.js";
 
 test("правка сохраняет неизвестный упорядоченный XML, атрибуты, комментарии, CDATA и экранированные значения", () => {
   const source =
@@ -415,5 +416,104 @@ test("общая правка сохраняет нетронутые ссылк
   ]) {
     assert.throws(() => document.patch(patch), /большое поле/);
     assert.deepEqual(document.snapshot(), before);
+  }
+});
+
+test("проверочное чтение, noop и serverChanged допускают нормализацию переводов строк XML (CRLF и CR в LF), но ловят отличия текста", async () => {
+  const fields = [
+    { path: "html", type: "string" },
+    { path: "code_text", type: "string" },
+  ];
+  verifyFields(
+    { html: "строка 1\r\nстрока 2\r\n", code_text: "a\rb\r\nc" },
+    { html: "строка 1\nстрока 2\n", code_text: "a\nb\nc" },
+    fields,
+  );
+  assert.throws(
+    () => verifyFields({ html: "строка 1\r\nстрока 2" }, { html: "строка 1\nстрока 2 " }, fields),
+    { code: "READ_BACK_MISMATCH" },
+  );
+  // Для integer-полей нормализация переводов строк не применяется.
+  assert.throws(
+    () => verifyFields({ count: "1\r" }, { count: "1\n" }, [{ path: "count", type: "integer" }]),
+    { code: "READ_BACK_MISMATCH" },
+  );
+  // В verifyRemovals ключи элементов списка сравниваются строго, без склейки CRLF и LF.
+  assert.throws(
+    () =>
+      verifyRemovals(
+        { items: { item: [{ name: "a\nb", val: "2" }] } },
+        { items: { item: [{ name: "a\r\nb", val: "1" }, { name: "a\nb" }] } },
+        [{ op: "remove", path: "items.item[name=a\r\nb].val" }],
+        [{ path: "items.item.name", type: "string" }],
+      ),
+    { code: "READ_BACK_MISMATCH" },
+  );
+  assert.equal(sameData({ a: "1\r\n2", b: ["x\ry"] }, { a: "1\n2", b: ["x\ny"] }), true);
+  assert.equal(sameData({ a: "1\r\n2" }, { a: "1\n3" }), false);
+
+  // Повторная правка с CRLF поверх уже сохранённого LF — noop; для integer — не noop.
+  const noopDoc = XmlDocument.parse("<tpl><id>1</id><html>a\nb</html><count>1\n</count></tpl>");
+  assert.equal(noopDoc.patch({ html: "a\r\nb" }, new Map([["html", "string"]])).changes.length, 0);
+  assert.equal(noopDoc.patch({ count: "1\r" }, new Map([["count", "integer"]])).changes.length, 1);
+
+  // Полный цикл objects.create и objects.patch, когда сервер нормализует CRLF -> LF (в обычном поле и в CDATA).
+  let storedXml = "";
+  const { runtime } = fakeRuntime(
+    {
+      "native.spxml2.getAppInfo": {
+        default_db_name: "wt_data",
+        databases: [{ id: "wt_data", catalogs: [{ id: "tpls", object_type: "tpl" }] }],
+      },
+      "native.spxml2.getForm":
+        '<SPXML-FORM><tpl><id TYPE="integer"/><html TYPE="string"/><code_text TYPE="string" STORE-SECTION="cdata"/><other TYPE="string"/></tpl></SPXML-FORM>',
+      "native.lds.getNewObjectId": { ObjectID: "123456" },
+      "native.lds.putDoc": (args) => {
+        // Сервер разбирает XML, нормализует переводы строк значений к LF и пишет code_text в CDATA.
+        const parsed = XmlDocument.parse(String(args.data)).snapshot().data;
+        const norm = (value: unknown) => String(value ?? "").replace(/\r\n?/g, "\n");
+        const esc = (s: string) =>
+          s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        storedXml = `<tpl><id>${esc(norm(parsed.id))}</id><html>${esc(norm(parsed.html))}</html><code_text><![CDATA[${norm(parsed.code_text)}]]></code_text><other>${esc(norm(parsed.other))}</other></tpl>`;
+        return { PutDocResult: "true" };
+      },
+      "native.lds.loadDoc": () => ({
+        kind: "binary",
+        bytes: new TextEncoder().encode(storedXml),
+        contentType: "text/xml",
+      }),
+    },
+    { permissions: { write: true, execute: false } },
+  );
+  try {
+    const created = await runtime.call("objects.create", {
+      type: "tpl",
+      data: {
+        html: "<p>один</p>\r\n<p>два</p>",
+        code_text: "var x = 1;\r\nvar y = 2;\r",
+        other: "alpha\r\nbeta",
+      },
+    });
+    assert.equal(created.ok, true, JSON.stringify(created));
+    const id = (created.data as { id: string }).id;
+
+    // Неизменённое поле other приходит с CRLF до правки и с LF после сохранения — не должно попасть в serverChanged.
+    storedXml = storedXml.replace("<other>alpha\nbeta</other>", "<other>alpha&#13;\nbeta</other>");
+    const patched = await runtime.call("objects.patch", {
+      id,
+      patch: { html: "<p>один</p>\r\n<p>три</p>", code_text: "var z = 3;\r\n" },
+    });
+    assert.equal(patched.ok, true, JSON.stringify(patched));
+    assert.equal((patched.data as { serverChanged?: string[] }).serverChanged, undefined);
+
+    // Повторная правка того же текста в CRLF — noop без записи.
+    const repeat = await runtime.call("objects.patch", {
+      id,
+      patch: { html: "<p>один</p>\r\n<p>три</p>" },
+    });
+    assert.equal(repeat.ok, true, JSON.stringify(repeat));
+    assert.equal((repeat.data as { noop: boolean }).noop, true);
+  } finally {
+    await runtime.close();
   }
 });

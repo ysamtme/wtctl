@@ -1,5 +1,5 @@
 import { HcmError } from "./errors.js";
-import { patchSegments } from "./documents.js";
+import { normalizeXmlLineEndings, patchSegments } from "./documents.js";
 import { parseXml } from "./protocol/xml.js";
 
 type Field = { path: string; type?: unknown; multiple?: unknown };
@@ -47,6 +47,7 @@ function equivalent(
   prior?: unknown,
   inCollection = false,
   differences: Difference[] = [],
+  normalizeEol = true,
 ): boolean {
   const differ = (): false => {
     if (differences.length < 5)
@@ -107,6 +108,12 @@ function equivalent(
     return BigInt(String(expected)) === BigInt(String(actual)) || differ();
   const date = serverDate(expected);
   if (date !== undefined && date === serverDate(actual)) return true;
+  if (
+    normalizeEol &&
+    (field?.type === undefined || field.type === "" || field.type === "string") &&
+    normalizeXmlLineEndings(String(expected)) === normalizeXmlLineEndings(String(actual))
+  )
+    return true;
   return String(expected) === String(actual) || differ();
 }
 
@@ -168,7 +175,16 @@ export function verifyRemovals(
         value = (Array.isArray(value) ? value : [value]).find(
           (item) =>
             record(item) &&
-            equivalent(match[4], item[match[3]!], keyPath, new Map([[keyPath, field]])),
+            equivalent(
+              match[4],
+              item[match[3]!],
+              keyPath,
+              new Map([[keyPath, field]]),
+              undefined,
+              false,
+              [],
+              false,
+            ),
         );
       } else if (match[2] !== undefined)
         value = Array.isArray(value)

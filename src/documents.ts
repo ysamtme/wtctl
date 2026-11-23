@@ -211,12 +211,18 @@ function sameKey(stored: unknown, key: string, type: string | undefined): boolea
       BigInt(text) === BigInt(key))
   );
 }
+/** Нормализация переводов строк XML 1.0 §2.11: CRLF и одиночный CR приводятся к LF. */
+export function normalizeXmlLineEndings(value: string): string {
+  return value.replace(/\r\n?/g, "\n");
+}
 /**
  * Глубокое равенство данных без зависимости от порядка ключей объектов.
  * @internal
  */
 export function sameData(left: unknown, right: unknown): boolean {
   if (left === right) return true;
+  if (typeof left === "string" && typeof right === "string")
+    return normalizeXmlLineEndings(left) === normalizeXmlLineEndings(right);
   if (left === null || right === null || typeof left !== "object" || typeof right !== "object")
     return false;
   if (Array.isArray(left) || Array.isArray(right))
@@ -239,7 +245,7 @@ export function sameData(left: unknown, right: unknown): boolean {
 }
 /**
  * Записываемое значение совпадает с хранимым: ID в другой записи, логическое значение,
- * которое сервер хранит как 0 или 1, дата без смещения, структура с любым порядком ключей.
+ * которое сервер хранит как 0 или 1, дата без смещения, переводы строк XML, структура с любым порядком ключей.
  */
 function sameValue(
   stored: unknown,
@@ -248,10 +254,16 @@ function sameValue(
   type: string | undefined,
 ): boolean {
   if (typeof value === "boolean") return stored === String(value) || stored === (value ? "1" : "0");
-  if (typeof value === "string" || typeof value === "number")
-    return (
-      typeof stored === "string" && sameKey(stored, String(withoutFalseOffset(String(value))), type)
-    );
+  if (typeof value === "string" || typeof value === "number") {
+    if (typeof stored !== "string") return false;
+    const target = String(withoutFalseOffset(String(value)));
+    if (typeof value === "string" && (type === undefined || type === "" || type === "string"))
+      return (
+        normalizeXmlLineEndings(stored) === normalizeXmlLineEndings(target) ||
+        sameKey(stored, target, type)
+      );
+    return sameKey(stored, target, type);
+  }
   const encoded =
     replacement.length === 1
       ? withoutFalseOffset(compact(children(replacement[0]!)))
