@@ -449,13 +449,49 @@ test("проверочное чтение, noop и serverChanged допуска�
       ),
     { code: "READ_BACK_MISMATCH" },
   );
-  assert.equal(sameData({ a: "1\r\n2", b: ["x\ry"] }, { a: "1\n2", b: ["x\ny"] }), true);
-  assert.equal(sameData({ a: "1\r\n2" }, { a: "1\n3" }), false);
+  assert.equal(sameData({ a: "1\r\n2", b: ["x\ry"] }, { a: "1\n2", b: ["x\ny"] }), false);
+  assert.equal(sameData({ a: "1\r\n2", b: ["x\ry"] }, { a: "1\n2", b: ["x\ny"] }, {}), true);
+  assert.equal(sameData({ a: "1\r\n2" }, { a: "1\n3" }, {}), false);
 
-  // Повторная правка с CRLF поверх уже сохранённого LF — noop; для integer — не noop.
-  const noopDoc = XmlDocument.parse("<tpl><id>1</id><html>a\nb</html><count>1\n</count></tpl>");
-  assert.equal(noopDoc.patch({ html: "a\r\nb" }, new Map([["html", "string"]])).changes.length, 0);
-  assert.equal(noopDoc.patch({ count: "1\r" }, new Map([["count", "integer"]])).changes.length, 1);
+  // Повторная правка с CRLF поверх уже сохранённого LF — noop; для integer (в том числе вложенного в структуру) — не noop.
+  const makeNoopDoc = () =>
+    XmlDocument.parse(
+      "<tpl><id>1</id><html>a\nb</html><count>1\n</count><group><count>9\n</count><text>x\ny</text></group></tpl>",
+    );
+  const fieldTypes = new Map([
+    ["html", "string"],
+    ["count", "integer"],
+    ["group.count", "integer"],
+    ["group.text", "string"],
+  ]);
+  assert.equal(makeNoopDoc().patch({ html: "a\r\nb" }, fieldTypes).changes.length, 0);
+  assert.equal(
+    makeNoopDoc().patch({ group: { count: "9\n", text: "x\r\ny" } }, fieldTypes).changes.length,
+    0,
+  );
+  assert.equal(makeNoopDoc().patch({ count: "1\r" }, fieldTypes).changes.length, 1);
+  assert.equal(makeNoopDoc().patch({ "group.count": "9\r" }, fieldTypes).changes.length, 1);
+  assert.equal(
+    makeNoopDoc().patch({ group: { count: "9\r", text: "x\ny" } }, fieldTypes).changes.length,
+    1,
+  );
+
+  // verifyRemovals ловит оставшееся поле и при нормализации ключа сервером (a\r\nb -> a\nb).
+  assert.throws(
+    () =>
+      verifyRemovals(
+        { items: { item: [{ name: "a\r\nb" }] } },
+        { items: { item: [{ name: "a\nb", val: "kept" }] } },
+        [{ op: "remove", path: "items.item[name=a\r\nb].val" }],
+      ),
+    { code: "READ_BACK_MISMATCH" },
+  );
+  // А если сервер нормализовал ключ и действительно удалил поле — проверка проходит.
+  verifyRemovals(
+    { items: { item: [{ name: "a\r\nb" }] } },
+    { items: { item: [{ name: "a\nb" }] } },
+    [{ op: "remove", path: "items.item[name=a\r\nb].val" }],
+  );
 
   // Полный цикл objects.create и objects.patch, когда сервер нормализует CRLF -> LF (в обычном поле и в CDATA).
   let storedXml = "";

@@ -161,40 +161,61 @@ export function verifyRemovals(
   changes: readonly unknown[],
   descriptors?: unknown,
 ): void {
-  const at = (data: Record<string, unknown>, path: string): unknown => {
-    let value: unknown = data;
+  const collect = (
+    data: Record<string, unknown>,
+    path: string,
+    allowNormalizedKey: boolean,
+  ): unknown[] => {
+    let nodes: unknown[] = [data];
     let fieldPath = "";
     for (const match of patchSegments(path)) {
       fieldPath += `${fieldPath ? "." : ""}${match[1]}`;
-      value = record(value) ? value[match[1]!] : undefined;
-      if (match[3] !== undefined) {
-        const keyPath = `${fieldPath}.${match[3]}`;
-        const field = Array.isArray(descriptors)
-          ? descriptors.find((field) => record(field) && field.path === keyPath)
-          : undefined;
-        value = (Array.isArray(value) ? value : [value]).find(
-          (item) =>
-            record(item) &&
-            equivalent(
-              match[4],
-              item[match[3]!],
-              keyPath,
-              new Map([[keyPath, field]]),
-              undefined,
-              false,
-              [],
-              false,
-            ),
-        );
-      } else if (match[2] !== undefined)
-        value = Array.isArray(value)
-          ? value[Number(match[2])]
-          : Number(match[2]) === 0
-            ? value
+      const next: unknown[] = [];
+      for (const node of nodes) {
+        const value = record(node) ? node[match[1]!] : undefined;
+        if (match[3] !== undefined) {
+          const keyPath = `${fieldPath}.${match[3]}`;
+          const field = Array.isArray(descriptors)
+            ? descriptors.find((item) => record(item) && item.path === keyPath)
             : undefined;
+          const items = Array.isArray(value) ? value : value === undefined ? [] : [value];
+          const matchByKey = (normalizeEol: boolean) =>
+            items.filter(
+              (item) =>
+                record(item) &&
+                equivalent(
+                  match[4],
+                  item[match[3]!],
+                  keyPath,
+                  new Map([[keyPath, field]]),
+                  undefined,
+                  false,
+                  [],
+                  normalizeEol,
+                ),
+            );
+          const exact = matchByKey(false);
+          const chosen = exact.length > 0 || !allowNormalizedKey ? exact : matchByKey(true);
+          next.push(...chosen);
+        } else if (match[2] !== undefined) {
+          const picked = Array.isArray(value)
+            ? value[Number(match[2])]
+            : Number(match[2]) === 0
+              ? value
+              : undefined;
+          if (picked !== undefined) next.push(picked);
+        } else if (value !== undefined) {
+          next.push(value);
+        }
+      }
+      nodes = next;
+      if (nodes.length === 0) break;
     }
-    return value;
+    return nodes;
   };
+  const nonEmpty = (values: readonly unknown[]): unknown[] =>
+    values.filter((value) => value !== undefined && value !== "" && value !== null);
+
   for (const raw of changes) {
     if (
       !record(raw) ||
@@ -203,9 +224,13 @@ export function verifyRemovals(
       patchSegments(raw.path).at(-1)![2] !== undefined
     )
       continue;
-    if (at(expected, raw.path) !== undefined) continue;
-    const value = at(actual, raw.path);
-    if (value !== undefined && value !== "" && value !== null)
+    if (collect(expected, raw.path, false).length > 0) continue;
+    const exactActual = nonEmpty(collect(actual, raw.path, false));
+    const leftBehind =
+      exactActual.length > 0 ||
+      nonEmpty(collect(actual, raw.path, true)).length >
+        nonEmpty(collect(expected, raw.path, true)).length;
+    if (leftBehind)
       throw new HcmError(
         "READ_BACK_MISMATCH",
         "Поле, которое нужно было удалить, осталось в документе.",

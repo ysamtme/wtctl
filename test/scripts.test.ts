@@ -589,6 +589,103 @@ test("waitForAgentThread ограничивает длительность ме�
   assert.equal(waited.kind, "timeout");
   assert.equal(aborted, true);
   assert.ok(Date.now() - started < 300);
+
+  // В режиме agents.status --wait зависший первый опрос без единого ответа — timeout (AGENT_WAIT_TIMEOUT), а не пустой список.
+  const hungStatus = await waitForAgentThread(
+    () =>
+      new Promise(() => {
+        // Не отвечает до дедлайна.
+      }),
+    {
+      threadId: "3102754751613348050",
+      timeoutMs: 50,
+      mode: "status",
+    },
+  );
+  assert.equal(hungStatus.kind, "timeout");
+});
+
+test("agents.run сохраняет пустой roleUID (2025.2) и не теряет details.threadId при малом outputLimitBytes", async () => {
+  const threadId = "3102754751613348050";
+  const longRole = "r".repeat(128);
+
+  // Пустой roleUID с hasRoleUID=1 сохраняется в ответе wait:false и в details AGENT_WAIT_TIMEOUT.
+  {
+    const { runtime } = fakeRuntime({
+      "web.rpc.call": agentLaunchXml({
+        started: { type: "bool", value: "1" },
+        alreadyRunning: { type: "bool", value: "0" },
+        threadId: { type: "string", value: threadId },
+        codeType: { type: "string", value: "js" },
+        roleUID: { type: "string", value: "" },
+        hasRoleUID: { type: "bool", value: "1" },
+        from: { type: "string", value: "2026-10-09T20:31:17+00:00" },
+      }),
+    });
+    try {
+      const res = await runtime.call("agents.run", { id: "0x10", wait: false });
+      assert.equal(res.ok, true, JSON.stringify(res));
+      assert.equal((res.data as any).roleUID, "");
+    } finally {
+      await runtime.close();
+    }
+  }
+
+  // При малом outputLimitBytes (1024) и длинном roleUID (128 знаков) details.threadId остаётся в ошибке AGENT_WAIT_TIMEOUT.
+  {
+    const vc = virtualClock();
+    setAgentWaitClock(vc.clock);
+    const { runtime } = fakeRuntime(
+      {
+        "web.rpc.call": agentLaunchXml({
+          started: { type: "bool", value: "1" },
+          alreadyRunning: { type: "bool", value: "0" },
+          threadId: { type: "string", value: threadId },
+          codeType: { type: "string", value: "js" },
+          roleUID: { type: "string", value: longRole },
+          hasRoleUID: { type: "bool", value: "1" },
+          from: { type: "string", value: "2026-10-09T20:31:17+00:00" },
+        }),
+        "native.rpc.call": agentListXml(
+          `[{"id":"16","code":"demo","name":"Demo","started":"2026-10-09T20:31:17+00:00","status":1,"roleUID":"${longRole}","UniqueId":${threadId}}]`,
+        ),
+      },
+      { outputLimitBytes: 1024 },
+    );
+    try {
+      const res = await runtime.call("agents.run", { id: "0x10", waitTimeoutMs: 1000 });
+      assert.equal(res.ok, false);
+      assert.equal(res.error?.code, "AGENT_WAIT_TIMEOUT");
+      assert.equal(res.error?.mutationOutcome, "confirmed");
+      assert.equal(res.error?.details?.threadId, threadId);
+    } finally {
+      setAgentWaitClock(undefined);
+      await runtime.close();
+    }
+  }
+
+  // Отсутствующее поле roleUID в ответе списка НЕ подменяется пустой строкой в agents.cancel.
+  {
+    const noRoleList = agentListXml(
+      `[{"id":"16","code":"job1","name":"Job 1","started":"2026-11-20T10:00:00+00:00","status":1,"UniqueId":${threadId}}]`,
+    );
+    const { runtime, server } = fakeRuntime(
+      { "native.rpc.call": noRoleList },
+      { permissions: { write: true, execute: false } },
+    );
+    try {
+      const res = await runtime.call("agents.cancel", { threadId });
+      assert.equal(res.ok, false);
+      assert.equal(res.error?.code, "AGENT_STATUS_RESPONSE");
+      assert.equal(res.error?.mutationOutcome, "not_sent");
+      assert.equal(
+        server.calls.filter((c) => c.args.target === "tools.amgr_cancel_agent").length,
+        0,
+      );
+    } finally {
+      await runtime.close();
+    }
+  }
 });
 
 test("agents.status читает без execute, фильтрует по id/threadId/status/limit и поддерживает wait по threadId", async () => {

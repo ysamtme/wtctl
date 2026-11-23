@@ -1,6 +1,6 @@
 import { HcmError } from "../errors.js";
 import { withRequestSignal } from "../hcm-server.js";
-import { boolean, operation, schema, string } from "../operation.js";
+import { boolean, operation, schema, string, type OperationContext } from "../operation.js";
 import {
   DEFAULT_AGENT_STATUS_LIMIT,
   MAX_AGENT_STATUS_LIMIT,
@@ -28,6 +28,17 @@ import { rpcArgument } from "../server-value.js";
 
 const AGENT_LIST_TARGET = "tools.amgr_get_agent_list_json";
 const AGENT_CANCEL_TARGET = "tools.amgr_cancel_agent";
+
+function readAgentRunList(
+  context: OperationContext,
+  signal?: AbortSignal,
+): Promise<AgentRunRecord[]> {
+  return withRequestSignal(signal, async () =>
+    decodeAgentListResponse(
+      await context.server.read("native.rpc.call", { target: AGENT_LIST_TARGET, args: [] }),
+    ),
+  );
+}
 
 export const scriptOperations = [
   operation({
@@ -99,7 +110,7 @@ export const scriptOperations = [
           started: false,
           status: "running",
           ...(running?.threadId ? { threadId: running.threadId } : {}),
-          ...(running?.roleUID ? { roleUID: running.roleUID } : {}),
+          ...(running?.roleUID !== undefined ? { roleUID: running.roleUID } : {}),
           startedAt: running?.startedAt || launch.startedAt,
           hint: agentRunHint("already_running", running?.threadId),
         };
@@ -119,13 +130,14 @@ export const scriptOperations = [
 
       // Запуск на сервере подтверждён: дальнейший таймаут или сбой опроса не должен выглядеть indeterminate.
       call.outcome.confirm();
+      if (launch.threadId) call.outcome.note({ threadId: launch.threadId });
 
       if (launch.codeType === "cs") {
         return {
           started: true,
           status: agent.wait ? "unknown" : "running",
           ...(launch.threadId ? { threadId: launch.threadId } : {}),
-          ...(launch.roleUID ? { roleUID: launch.roleUID } : {}),
+          ...(launch.roleUID !== undefined ? { roleUID: launch.roleUID } : {}),
           startedAt: launch.startedAt,
           hint: agentRunHint("unknown_cs"),
         };
@@ -135,10 +147,10 @@ export const scriptOperations = [
         throw new HcmError(
           "SCRIPT_RESPONSE",
           "Агент сервера запущен, но сервер не вернул ID потока (threadId).",
-          "Повторять запуск не нужно: проверьте запуски агента через agents.status.",
+          "Повторять запуск не нужно: проверить запуски агента через agents.status.",
           {
             started: true,
-            ...(launch.roleUID ? { roleUID: launch.roleUID } : {}),
+            ...(launch.roleUID !== undefined ? { roleUID: launch.roleUID } : {}),
             startedAt: launch.startedAt,
           },
           "confirmed",
@@ -150,37 +162,30 @@ export const scriptOperations = [
           started: true,
           status: "running",
           threadId: launch.threadId,
-          ...(launch.roleUID ? { roleUID: launch.roleUID } : {}),
+          ...(launch.roleUID !== undefined ? { roleUID: launch.roleUID } : {}),
           startedAt: launch.startedAt,
           hint: agentRunHint("running"),
         };
       }
 
-      const readList = (signal: AbortSignal): Promise<AgentRunRecord[]> =>
-        withRequestSignal(signal, async () =>
-          decodeAgentListResponse(
-            await context.server.read("native.rpc.call", { target: AGENT_LIST_TARGET, args: [] }),
-          ),
-        );
-
       let waited;
       try {
-        waited = await waitForAgentThread(readList, {
+        waited = await waitForAgentThread((signal) => readAgentRunList(context, signal), {
           threadId: launch.threadId,
           timeoutMs: agent.waitTimeoutMs,
           mode: "run",
-          ...(launch.roleUID ? { initialRoleUID: launch.roleUID } : {}),
+          ...(launch.roleUID !== undefined ? { initialRoleUID: launch.roleUID } : {}),
           initialStartedAt: launch.startedAt,
         });
       } catch {
         throw new HcmError(
           "AGENT_STATUS_FAILED",
           "Агент сервера запущен, но проверить его состояние не удалось.",
-          `Повторять запуск не нужно (поток ${launch.threadId}): проверьте состояние через agents.status или остановите через agents.cancel.`,
+          `Повторять запуск не нужно (поток ${launch.threadId}): проверить состояние через agents.status или остановить через agents.cancel.`,
           {
             started: true,
             threadId: launch.threadId,
-            ...(launch.roleUID ? { roleUID: launch.roleUID } : {}),
+            ...(launch.roleUID !== undefined ? { roleUID: launch.roleUID } : {}),
             startedAt: launch.startedAt,
           },
           "confirmed",
@@ -193,11 +198,11 @@ export const scriptOperations = [
         throw new HcmError(
           "AGENT_WAIT_TIMEOUT",
           `Агент сервера не завершился за ${agent.waitTimeoutMs} мс и продолжает работу.`,
-          `Повторять запуск не нужно (поток ${launch.threadId}): проверьте состояние через agents.status или остановите через agents.cancel.`,
+          `Повторять запуск не нужно (поток ${launch.threadId}): проверить состояние через agents.status или остановить через agents.cancel.`,
           {
             started: true,
             threadId: launch.threadId,
-            ...(roleUID ? { roleUID } : {}),
+            ...(roleUID !== undefined ? { roleUID } : {}),
             startedAt,
           },
           "confirmed",
@@ -210,7 +215,7 @@ export const scriptOperations = [
           started: true,
           status: "unknown",
           threadId: launch.threadId,
-          ...(roleUID ? { roleUID } : {}),
+          ...(roleUID !== undefined ? { roleUID } : {}),
           startedAt: waited.startedAt || launch.startedAt,
           hint: agentRunHint("unknown_missing"),
         };
@@ -218,12 +223,12 @@ export const scriptOperations = [
 
       context.logs.serverWroteLog();
       const record = waited.record;
-      const roleUID = record.roleUID || launch.roleUID;
+      const roleUID = record.roleUID ?? launch.roleUID;
       return {
         started: true,
         status: record.status,
         threadId: record.threadId,
-        ...(roleUID ? { roleUID } : {}),
+        ...(roleUID !== undefined ? { roleUID } : {}),
         startedAt: record.startedAt || launch.startedAt,
         ...(record.finishedAt ? { finishedAt: record.finishedAt } : {}),
         hint: agentRunHint(record.status === "cancelled" ? "cancelled" : "finished"),
@@ -295,7 +300,7 @@ export const scriptOperations = [
         throw new HcmError(
           "INVALID_ARGUMENT",
           "wait: true требует указать threadId.",
-          "Передайте threadId из ответа agents.run или agents.status.",
+          "Передать threadId из ответа agents.run или agents.status.",
         );
       }
       if (!wait && args.waitTimeoutMs !== undefined) {
@@ -306,15 +311,8 @@ export const scriptOperations = [
       }
       const waitTimeoutMs = parseAgentWaitTimeout(args.waitTimeoutMs);
 
-      const readList = (signal?: AbortSignal): Promise<AgentRunRecord[]> =>
-        withRequestSignal(signal, async () =>
-          decodeAgentListResponse(
-            await context.server.read("native.rpc.call", { target: AGENT_LIST_TARGET, args: [] }),
-          ),
-        );
-
       if (!wait) {
-        const records = await readList();
+        const records = await readAgentRunList(context);
         return filterAgentRuns(records, {
           ...(id === undefined ? {} : { id }),
           ...(threadId === undefined ? {} : { threadId }),
@@ -323,7 +321,7 @@ export const scriptOperations = [
         });
       }
 
-      const waited = await waitForAgentThread(readList, {
+      const waited = await waitForAgentThread((signal) => readAgentRunList(context, signal), {
         threadId: threadId!,
         timeoutMs: waitTimeoutMs,
         mode: "status",
@@ -332,10 +330,10 @@ export const scriptOperations = [
         throw new HcmError(
           "AGENT_WAIT_TIMEOUT",
           `Агент сервера (поток ${threadId!}) не завершился за ${waitTimeoutMs} мс и продолжает работу.`,
-          "Повторите ожидание через agents.status или остановите запуск через agents.cancel.",
+          "Повторить ожидание через agents.status или остановить запуск через agents.cancel.",
           {
             threadId: threadId!,
-            ...(waited.roleUID ? { roleUID: waited.roleUID } : {}),
+            ...(waited.roleUID !== undefined ? { roleUID: waited.roleUID } : {}),
             ...(waited.startedAt ? { startedAt: waited.startedAt } : {}),
           },
         );
@@ -373,22 +371,20 @@ export const scriptOperations = [
     ),
     summary: "Остановить работающего агента сервера по threadId: {threadId, roleUID?}.",
     details:
-      "Ставит поток в очередь отмены роли сервера (обрабатывается сервером за несколько секунд). Уже сделанные изменения не откатываются; итоговое состояние проверяйте через agents.status.",
+      "Ставит поток в очередь отмены роли сервера (обрабатывается сервером за несколько секунд). Уже сделанные изменения не откатываются; итоговое состояние показывает agents.status.",
     run: async (context, args, call): Promise<AgentCancelData> => {
       const threadId = parseAgentThreadId(args.threadId, "threadId");
       let roleUID =
         args.roleUID === undefined ? undefined : parseAgentRoleUID(args.roleUID, "roleUID");
 
       if (roleUID === undefined) {
-        const records = decodeAgentListResponse(
-          await context.server.read("native.rpc.call", { target: AGENT_LIST_TARGET, args: [] }),
-        );
+        const records = await readAgentRunList(context);
         const record = records.find((item) => item.threadId === threadId);
         if (!record) {
           throw new HcmError(
             "AGENT_NOT_RUNNING",
             `Работающий агент сервера с потоком ${threadId} не найден.`,
-            "Проверьте список запусков через agents.status.",
+            "Проверить список запусков через agents.status.",
             { threadId },
             "not_sent",
           );
@@ -397,8 +393,17 @@ export const scriptOperations = [
           throw new HcmError(
             "AGENT_NOT_RUNNING",
             `Агент сервера (поток ${threadId}) уже завершился (${record.status}).`,
-            "Проверьте список запусков через agents.status.",
+            "Проверить список запусков через agents.status.",
             { threadId, status: record.status },
+            "not_sent",
+          );
+        }
+        if (record.roleUID === undefined) {
+          throw new HcmError(
+            "AGENT_STATUS_RESPONSE",
+            `Сервер не вернул roleUID для работающего потока ${threadId}.`,
+            "Передать roleUID явно или проверить список запусков через agents.status.",
+            { threadId },
             "not_sent",
           );
         }

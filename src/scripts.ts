@@ -137,13 +137,17 @@ if (running) {
   var threadId = '';
   var codeType = '';
   var roleUID = '';
+  var hasRoleUID = false;
   try { codeType = doc.TopElem.exec_code.code_type + ''; } catch (e) {}
   if (started) {
     try { threadId = doc.TopElem.obj.Object.UniqueThreadId + ''; } catch (e) {}
-    try { roleUID = tools.get_object_assembly('DatexCore').CallClassStaticMethod('Datex.Core.StaticPrime', 'GetRoleUID', []) + ''; } catch (e) {}
+    try {
+      roleUID = tools.get_object_assembly('DatexCore').CallClassStaticMethod('Datex.Core.StaticPrime', 'GetRoleUID', []) + '';
+      hasRoleUID = true;
+    } catch (e) {}
     doc.Save();
   }
-  RESULT = [{ started: started, alreadyRunning: false, threadId: threadId, codeType: codeType, roleUID: roleUID, from: from, to: StrXmlDate(Date()) }];
+  RESULT = [{ started: started, alreadyRunning: false, threadId: threadId, codeType: codeType, roleUID: roleUID, hasRoleUID: hasRoleUID, from: from, to: StrXmlDate(Date()) }];
 }`;
 
 /** Состояние запуска агента сервера в ответе runAgent. */
@@ -164,8 +168,8 @@ export interface AgentRunRecord {
   readonly status: AgentListStatus;
   /** ID потока запуска (строка, 64-битное целое без потери точности). */
   readonly threadId: string;
-  /** Идентификатор роли сервера, на которой выполняется или выполнялся агент. */
-  readonly roleUID: string;
+  /** Идентификатор роли сервера, на которой выполняется или выполнялся агент (на одиночном сервере 2025.2 — пустая строка). */
+  readonly roleUID?: string;
   /** Местное время сервера при запуске. */
   readonly startedAt: string;
   /** Местное время сервера при завершении или отмене (отсутствует у выполняющегося агента). */
@@ -278,7 +282,7 @@ export function agentRun(args: Record<string, unknown>): {
     throw new HcmError(
       "INVALID_ARGUMENT",
       "waitTimeoutMs нельзя задавать при wait: false.",
-      "Уберите waitTimeoutMs или включите ожидание (wait: true).",
+      "Убрать waitTimeoutMs или включить ожидание (wait: true).",
     );
   }
   const waitTimeoutMs = parseAgentWaitTimeout(args.waitTimeoutMs);
@@ -363,7 +367,7 @@ export function parseAgentListJson(raw: string): AgentRunRecord[] {
       name: typeof obj.name === "string" ? obj.name : "",
       status,
       threadId,
-      roleUID: typeof obj.roleUID === "string" ? obj.roleUID : "",
+      ...(typeof obj.roleUID === "string" ? { roleUID: obj.roleUID } : {}),
       startedAt,
       ...(finishedRaw ? { finishedAt: finishedRaw } : {}),
     };
@@ -467,7 +471,7 @@ export function parseAgentLaunch(data: ScriptData): AgentLaunchOutcome {
     throw new HcmError(
       "SCRIPT_RESPONSE",
       "Сервер вернул ответ запуска агента в неожиданном виде.",
-      "Запрос уже отправлен на сервер: проверьте состояние запусков через agents.status, прежде чем повторять.",
+      "Запрос уже отправлен на сервер: проверить состояние запусков через agents.status, прежде чем повторять.",
     );
   }
   const row = raw as {
@@ -477,6 +481,7 @@ export function parseAgentLaunch(data: ScriptData): AgentLaunchOutcome {
     threadId?: unknown;
     codeType?: unknown;
     roleUID?: unknown;
+    hasRoleUID?: unknown;
     from?: unknown;
     to?: unknown;
   };
@@ -504,19 +509,23 @@ export function parseAgentLaunch(data: ScriptData): AgentLaunchOutcome {
     throw new HcmError(
       "SCRIPT_RESPONSE",
       "Сервер вернул ответ запуска агента без признака started.",
-      "Запрос уже отправлен на сервер: проверьте состояние запусков через agents.status, прежде чем повторять.",
+      "Запрос уже отправлен на сервер: проверить состояние запусков через agents.status, прежде чем повторять.",
     );
   }
   const rawThreadId = typeof row.threadId === "string" ? row.threadId.trim() : "";
   const threadId = THREAD_ID.test(rawThreadId) ? rawThreadId : "";
   const codeType = typeof row.codeType === "string" ? row.codeType.trim().toLowerCase() : "";
+  // Пустая строка roleUID — штатное значение на одиночном сервере 2025.2; отличаем её от сбоя чтения.
   const roleUID =
-    typeof row.roleUID === "string" && row.roleUID.trim() !== "" ? row.roleUID.trim() : undefined;
+    typeof row.roleUID === "string" &&
+    (row.hasRoleUID === "1" || (row.hasRoleUID === undefined && Object.hasOwn(row, "roleUID")))
+      ? row.roleUID.trim()
+      : undefined;
   return {
     kind: "started",
     threadId,
     codeType,
-    ...(roleUID ? { roleUID } : {}),
+    ...(roleUID !== undefined ? { roleUID } : {}),
     startedAt,
   };
 }
@@ -568,23 +577,21 @@ export async function waitForAgentThread(
   const clock = agentWaitClock;
   const deadline = clock.now() + options.timeoutMs;
   let attempt = 0;
+  let anyPollSucceeded = false;
   let seenRunning = false;
   let evictedSince: number | undefined;
   let lastRoleUID = options.initialRoleUID;
   let lastStartedAt = options.initialStartedAt;
 
+  const meta = () => ({
+    ...(lastRoleUID !== undefined ? { roleUID: lastRoleUID } : {}),
+    ...(lastStartedAt ? { startedAt: lastStartedAt } : {}),
+  });
+
   const finishOnDeadline = (): AgentWaitResult =>
-    options.mode === "status" && !seenRunning
-      ? {
-          kind: "missing",
-          ...(lastRoleUID ? { roleUID: lastRoleUID } : {}),
-          ...(lastStartedAt ? { startedAt: lastStartedAt } : {}),
-        }
-      : {
-          kind: "timeout",
-          ...(lastRoleUID ? { roleUID: lastRoleUID } : {}),
-          ...(lastStartedAt ? { startedAt: lastStartedAt } : {}),
-        };
+    options.mode === "status" && anyPollSucceeded && !seenRunning
+      ? { kind: "missing", ...meta() }
+      : { kind: "timeout", ...meta() };
 
   for (;;) {
     const remainingBeforePoll = deadline - clock.now();
@@ -614,13 +621,14 @@ export async function waitForAgentThread(
         return finishOnDeadline();
       }
       records = winner;
+      anyPollSucceeded = true;
     } finally {
       timerController.abort();
     }
 
     const match = records.find((item) => item.threadId === options.threadId);
     if (match) {
-      if (match.roleUID) lastRoleUID = match.roleUID;
+      if (match.roleUID !== undefined) lastRoleUID = match.roleUID;
       if (match.startedAt) lastStartedAt = match.startedAt;
       if (match.status === "finished" || match.status === "cancelled") {
         return { kind: "done", record: match };
@@ -631,11 +639,7 @@ export async function waitForAgentThread(
       const current = clock.now();
       evictedSince ??= current;
       if (current - evictedSince >= AGENT_MISSING_GRACE_MS) {
-        return {
-          kind: "missing",
-          ...(lastRoleUID ? { roleUID: lastRoleUID } : {}),
-          ...(lastStartedAt ? { startedAt: lastStartedAt } : {}),
-        };
+        return { kind: "missing", ...meta() };
       }
     } else {
       // Если буфер завершённых не переполнен, поток либо ещё запускается, либо временно скрыт
@@ -654,11 +658,7 @@ export async function waitForAgentThread(
     if (evictedSince !== undefined) {
       const graceRemaining = Math.max(0, AGENT_MISSING_GRACE_MS - (clock.now() - evictedSince));
       if (graceRemaining === 0) {
-        return {
-          kind: "missing",
-          ...(lastRoleUID ? { roleUID: lastRoleUID } : {}),
-          ...(lastStartedAt ? { startedAt: lastStartedAt } : {}),
-        };
+        return { kind: "missing", ...meta() };
       }
       delay = Math.min(delay, graceRemaining);
     }
@@ -686,9 +686,9 @@ export function agentRunHint(
     case "cancelled":
       return "Агент сервера остановлен. Уже сделанные изменения не откатываются. Строки запуска — лог agent, alert и ошибки кода — лог xhttp, между startedAt и finishedAt.";
     case "unknown_cs":
-      return "Агент сервера на C# запущен, но сервер не публикует его состояние в списке запусков. Результат и ошибки смотрите в логах agent и xhttp после startedAt.";
+      return "Агент сервера на C# запущен, но сервер не публикует его состояние в списке запусков. Результат и ошибки искать в логах agent и xhttp после startedAt.";
     case "unknown_missing":
-      return "Агент сервера запущен, но запись о потоке не найдена среди выполняющихся и последних 100 завершённых. Проверьте логи agent и xhttp после startedAt.";
+      return "Агент сервера запущен, но запись о потоке не найдена среди выполняющихся и последних 100 завершённых. Проверить логи agent и xhttp после startedAt.";
     case "already_running":
       return threadId
         ? `Агент сервера уже выполняется (поток ${threadId}). Проверить состояние — agents.status, остановить — agents.cancel, запустить параллельно — allowConcurrent: true.`

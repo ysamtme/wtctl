@@ -4,13 +4,17 @@
 
 ## Не выпущено
 
+Несовместимые изменения:
+
+- В ответе `agents.run` (`AgentRunData`) поле `finishedAt` стало необязательным: оно отсутствует при `wait: false`, при отклонённом повторном запуске и при `status: "unknown"`.
+
 Добавлено:
 
 - Операции `agents.status` (чтение без права `execute`: фильтры `id`, `threadId`, `status`, `limit` и ожидание `wait: true` по `threadId`) и `agents.cancel` (право `write`, автоматический поиск `roleUID` по `threadId`, `AGENT_NOT_RUNNING` при отсутствии работающего запуска), команды CLI `wtctl agent status` и `wtctl agent cancel` (с подтверждением `[y/N]` в интерактивном терминале) и методы SDK `client.agentStatus` и `client.cancelAgent`.
 
 Изменения:
 
-- `agents.run` (`wtctl agent run`, `client.runAgent`) всегда запускает агента сервера в отдельном штатном потоке (`bInPlace = false`), сбрасывает `obj` до запуска, защищает от повторного параллельного запуска (флаг `allowConcurrent` / `--allow-concurrent`) и возвращает строковый 64-битный `threadId`. Поддержаны запуск без ожидания (`wait: false` / `--no-wait`) и ожидание по списку запусков до `waitTimeoutMs` (по умолчанию 120 000 мс, диапазон `1000..3600000`; при таймауте — ошибка `AGENT_WAIT_TIMEOUT` с `mutationOutcome: "confirmed"` и `threadId` в `details`).
+- `agents.run` (`wtctl agent run`, `client.runAgent`) всегда запускает агента сервера в отдельном штатном потоке (`bInPlace = false`), сбрасывает `obj` до запуска, проверяет очередь `ag_running` до запуска (параллельный запуск — флаг `allowConcurrent` / `--allow-concurrent`) и возвращает строковый 64-битный `threadId`. Поддержаны запуск без ожидания (`wait: false` / `--no-wait`) и ожидание по списку запусков до `waitTimeoutMs` (по умолчанию 120 000 мс, диапазон `1000..3600000`; при таймауте — ошибка `AGENT_WAIT_TIMEOUT` с `mutationOutcome: "confirmed"` и `threadId` в `details`).
 
 Исправления:
 

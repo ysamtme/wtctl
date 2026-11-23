@@ -9,6 +9,7 @@ export interface WriteIds {
   objectId?: string;
   url?: string;
   executionId?: string;
+  threadId?: string;
 }
 /** Сервер отклонил именно этот запрос на входе: HTTP 401 или для него не удалось открыть сессию. */
 export function refusedAtDoor(error: unknown): boolean {
@@ -63,7 +64,7 @@ export class WriteOutcome {
    * отметка; иначе not_sent.
    */
   verdict(effect: OperationEffect, error?: unknown): Verdict {
-    const { mutationId, objectId, executionId } = this.ids;
+    const { mutationId, objectId, executionId, threadId } = this.ids;
     // Сгенерированные ID корреляции и ограниченные по длине числовые ID объектов — сводка,
     // а не диагностика сервера.
     const exactIds: WriteIds = {
@@ -79,6 +80,7 @@ export class WriteOutcome {
       ...(executionId !== undefined && /^hcm_inline_[a-f0-9]{32}$/.test(executionId)
         ? { executionId }
         : {}),
+      ...(threadId !== undefined && /^-?\d{1,20}$/.test(threadId) ? { threadId } : {}),
     };
     const sent = effect !== "read" && this.marks > 0;
     const verdict: Verdict = { sent, ids: { ...this.ids }, exactIds };

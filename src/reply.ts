@@ -359,6 +359,7 @@ export class ReplyPacker {
         ...(ids.objectId === undefined ? {} : { objectId: ids.objectId }),
         ...(ids.url === undefined ? {} : { url: ids.url }),
         ...(ids.executionId === undefined ? {} : { executionId: ids.executionId }),
+        ...(ids.threadId === undefined ? {} : { threadId: ids.threadId }),
       }) as Record<string, unknown>),
       ...exactIds,
     };

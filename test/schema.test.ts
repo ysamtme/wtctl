@@ -796,13 +796,13 @@ test("schema.get в runtime подстраивает размер страниц
 });
 
 test("пользовательский тип (x-local://udt/*): schema.get, schema.types, objects.create и objects.patch читают форму через web.pages.getForm без пробы wtv", async () => {
-  const udtFormUrl = "x-local://udt/udt_cc_protocol_ot.xmd";
-  const udcFormUrl = "x-local://udt/udc_cc_protocol_ots.xmd";
+  const udtFormUrl = "x-local://udt/udt_cc_sample_record.xmd";
+  const udcFormUrl = "x-local://udt/udc_cc_sample_records.xmd";
   const udtForm = wrap(
-    `<cc_protocol_ot><id TYPE="integer" TITLE="ID"/><prot_num TYPE="string" TITLE="Номер протокола"/><state TYPE="string" TITLE="Статус"/></cc_protocol_ot>`,
+    `<cc_sample_record><id TYPE="integer" TITLE="ID"/><sample_code TYPE="string" TITLE="Код записи"/><state TYPE="string" TITLE="Статус"/></cc_sample_record>`,
   );
   const udcForm = wrap(
-    `<cc_protocol_ots><cc_protocol_ot MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><prot_num TYPE="string"/></cc_protocol_ot></cc_protocol_ots>`,
+    `<cc_sample_records><cc_sample_record MULTIPLE="1" PRIMARY-KEY="id"><id TYPE="integer"/><sample_code TYPE="string"/></cc_sample_record></cc_sample_records>`,
   );
   const storedDocs = new Map<string, string>();
   const { runtime, server } = fakeRuntime(
@@ -814,7 +814,7 @@ test("пользовательский тип (x-local://udt/*): schema.get, sch
           {
             id: "wt_data",
             catalogs: [
-              { id: "cc_protocol_ots", object_type: "cc_protocol_ot", form_url: udcFormUrl },
+              { id: "cc_sample_records", object_type: "cc_sample_record", form_url: udcFormUrl },
             ],
           },
         ],
@@ -833,7 +833,7 @@ test("пользовательский тип (x-local://udt/*): schema.get, sch
         if (String(args.query).includes("doc_types"))
           return {
             Data: {
-              doc_type: { object_name: "cc_protocol_ot", name: "(ОТ) Протокол" },
+              doc_type: { object_name: "cc_sample_record", name: "Пример записи" },
             },
             TotalCount: "1",
             EOF: "true",
@@ -855,31 +855,31 @@ test("пользовательский тип (x-local://udt/*): schema.get, sch
   );
   try {
     // 1. schema.types подтягивает title из doc_types и находит тип по заголовку.
-    const types = await runtime.call("schema.types", { search: "Протокол" });
+    const types = await runtime.call("schema.types", { search: "Пример" });
     assert.equal(types.ok, true, JSON.stringify(types));
     assert.deepEqual((types.data as SchemaTypesResult).types, [
-      { type: "cc_protocol_ot", catalog: "cc_protocol_ots", title: "(ОТ) Протокол" },
+      { type: "cc_sample_record", catalog: "cc_sample_records", title: "Пример записи" },
     ]);
 
     // 2. schema.get по имени типа, по каталогу и по --url читает через web.pages.getForm, без пробы wtv.
-    const byType = await runtime.call("schema.get", { type: "cc_protocol_ot" });
+    const byType = await runtime.call("schema.get", { type: "cc_sample_record" });
     assert.equal(byType.ok, true, JSON.stringify(byType));
     const schemaByType = byType.data as SchemaResult;
     assert.equal(schemaByType.formUrl, udtFormUrl);
-    assert.equal(schemaByType.catalog, "cc_protocol_ots");
-    assert.equal(schemaByType.fields.find((f) => f.path === "prot_num")?.query, true);
+    assert.equal(schemaByType.catalog, "cc_sample_records");
+    assert.equal(schemaByType.fields.find((f) => f.path === "sample_code")?.query, true);
 
     const byUrl = await runtime.call("schema.get", { url: udtFormUrl });
     assert.equal(byUrl.ok, true, JSON.stringify(byUrl));
-    assert.equal((byUrl.data as SchemaResult).type, "cc_protocol_ot");
+    assert.equal((byUrl.data as SchemaResult).type, "cc_sample_record");
 
-    const byCatalog = await runtime.call("schema.get", { type: "cc_protocol_ots" });
+    const byCatalog = await runtime.call("schema.get", { type: "cc_sample_records" });
     assert.equal(byCatalog.ok, true, JSON.stringify(byCatalog));
     assert.equal((byCatalog.data as SchemaResult).formUrl, udcFormUrl);
 
     assert.equal(
       server.calls.some(
-        (c) => c.id === "native.spxml2.getForm" && String(c.args.url).includes("cc_protocol_ot"),
+        (c) => c.id === "native.spxml2.getForm" && String(c.args.url).includes("cc_sample_record"),
       ),
       false,
     );
@@ -887,8 +887,8 @@ test("пользовательский тип (x-local://udt/*): schema.get, sch
 
     // 3. objects.create и objects.patch работают под правом write без execute.
     const created = await runtime.call("objects.create", {
-      type: "cc_protocol_ot",
-      data: { prot_num: "P-1", state: "Черновик" },
+      type: "cc_sample_record",
+      data: { sample_code: "S-1", state: "Черновик" },
     });
     assert.equal(created.ok, true, JSON.stringify(created));
     const createdId = (created.data as { id: string }).id;
@@ -927,7 +927,7 @@ test("пользовательский тип (x-local://udt/*): schema.get, sch
   try {
     const res = await cold.runtime.call("schema.get", { url: udtFormUrl });
     assert.equal(res.ok, true, JSON.stringify(res));
-    assert.equal((res.data as SchemaResult).type, "cc_protocol_ot");
+    assert.equal((res.data as SchemaResult).type, "cc_sample_record");
     assert.ok(
       cold.server.calls.some((c) => c.id === "web.pages.getForm" && c.args.url === udtFormUrl),
     );

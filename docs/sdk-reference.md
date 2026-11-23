@@ -398,8 +398,10 @@ client.runAgent(input: RunAgentInput): Promise<HcmResult<AgentRunData>>
 ```
 
 Запускает агента сервера в отдельном потоке и по умолчанию ждёт завершения (до waitTimeoutMs,
-по умолчанию 120000 мс); нужно право execute. С wait:false возвращает threadId сразу. Ошибки
-кода агента — только в логе xhttp.
+по умолчанию 120000 мс); нужно право execute. С wait:false возвращает threadId сразу (для
+агентов на C# threadId может отсутствовать). При истечении waitTimeoutMs возвращает
+AGENT_WAIT_TIMEOUT (mutationOutcome: confirmed), при сбое опроса — AGENT_STATUS_FAILED
+(confirmed). Ошибки кода агента сервера — только в логе xhttp.
 
 Типы: [RunAgentInput](#runagentinput), [AgentRunData](#agentrundata).
 
@@ -410,7 +412,8 @@ client.agentStatus(input?: AgentStatusInput): Promise<HcmResult<AgentStatusData>
 ```
 
 Список текущих и недавно завершённых запусков агентов сервера; фильтруется по id, threadId,
-status и limit. С threadId и wait:true ждёт завершения запуска. Право execute не требуется.
+status и limit. С threadId и wait:true ждёт завершения запуска (при таймауте —
+AGENT_WAIT_TIMEOUT). Право execute не требуется.
 
 Типы: [AgentStatusInput](#agentstatusinput), [AgentStatusData](#agentstatusdata).
 
@@ -421,7 +424,8 @@ client.cancelAgent(input: CancelAgentInput): Promise<HcmResult<AgentCancelData>>
 ```
 
 Останавливает выполняющегося агента сервера по threadId (roleUID определяется автоматически,
-если не задан); нужно право write. Уже сделанные изменения не откатываются.
+если не задан; при отсутствии работающего потока — AGENT_NOT_RUNNING с not_sent). Нужно право
+write; уже сделанные изменения не откатываются.
 
 Типы: [CancelAgentInput](#cancelagentinput), [AgentCancelData](#agentcanceldata).
 
@@ -675,7 +679,7 @@ type AgentListStatus = "running" | "finished" | "cancelled"
 | `name` | `string` | Название агента сервера. |
 | `status` | `AgentListStatus` | Состояние запуска: выполняется, завершён или отменён. |
 | `threadId` | `string` | ID потока запуска (строка, 64-битное целое без потери точности). |
-| `roleUID` | `string` | Идентификатор роли сервера, на которой выполняется или выполнялся агент. |
+| `roleUID?` | `string` | Идентификатор роли сервера, на которой выполняется или выполнялся агент (на одиночном сервере 2025.2 — пустая строка). |
 | `startedAt` | `string` | Местное время сервера при запуске. |
 | `finishedAt?` | `string` | Местное время сервера при завершении или отмене (отсутствует у выполняющегося агента). |
 

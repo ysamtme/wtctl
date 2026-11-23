@@ -27,6 +27,43 @@ import type {
   OperationResult,
 } from "./contracts.js";
 
+const MAX_DOC_TYPE_PAGES = 50;
+
+/** Постранично читает заголовки пользовательских типов (doc_types); неполный ответ отклоняет, чтобы не кэшировать усечение. */
+async function readDocTypeTitles(server: HcmServer): Promise<Map<string, string>> {
+  const titles = new Map<string, string>();
+  let startPos = 0;
+  for (let pageIndex = 0; pageIndex < MAX_DOC_TYPE_PAGES; pageIndex++) {
+    const response = await server.read("native.lds.xQuery", {
+      query: "for $e in doc_types return $e",
+      startPos,
+      maxCount: 1000,
+      expectToReadAll: false,
+    });
+    const page = queryPage(response, startPos, 1000, ["object_name", "name"], false);
+    if (page.incomplete)
+      throw new HcmError(
+        "QUERY_INCOMPLETE",
+        "Каталог doc_types вернул неполный ответ: заголовки пользовательских типов не прочитаны.",
+      );
+    for (const row of page.items) {
+      if (
+        typeof row.object_name === "string" &&
+        row.object_name &&
+        typeof row.name === "string" &&
+        row.name
+      )
+        titles.set(row.object_name, row.name);
+    }
+    if (page.nextStartPosition === undefined || page.nextStartPosition <= startPos) return titles;
+    startPos = page.nextStartPosition;
+  }
+  throw new HcmError(
+    "QUERY_INCOMPLETE",
+    "Каталог doc_types превысил предел чтения страниц: заголовки пользовательских типов прочитаны не полностью.",
+  );
+}
+
 /** Единый runtime: сессии, сериализация, локальные права и артефакты для всех интерфейсов. */
 export class HcmRuntime implements RuntimePort {
   readonly gateway: NativeGateway;
@@ -70,36 +107,7 @@ export class HcmRuntime implements RuntimePort {
       async (url) => (await this.objects.load({ url })).document.snapshot().data,
       undefined,
       undefined,
-      async () => {
-        const titles = new Map<string, string>();
-        let startPos = 0;
-        for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
-          const response = await this.server.read("native.lds.xQuery", {
-            query: "for $e in doc_types return $e",
-            startPos,
-            maxCount: 1000,
-            expectToReadAll: false,
-          });
-          const page = queryPage(response, startPos, 1000, ["object_name", "name"], false);
-          if (page.incomplete)
-            throw new HcmError(
-              "QUERY_INCOMPLETE",
-              "Каталог doc_types вернул неполный ответ: заголовки пользовательских типов не прочитаны.",
-            );
-          for (const row of page.items) {
-            if (
-              typeof row.object_name === "string" &&
-              row.object_name &&
-              typeof row.name === "string" &&
-              row.name
-            )
-              titles.set(row.object_name, row.name);
-          }
-          if (page.nextStartPosition === undefined || page.nextStartPosition <= startPos) break;
-          startPos = page.nextStartPosition;
-        }
-        return titles;
-      },
+      () => readDocTypeTitles(this.server),
     );
     this.objects = new ServerObjects(this.server, this.schemaReader, {
       directory: this.results.directory,

@@ -706,7 +706,10 @@ export class ServerObjects {
       (key) =>
         key !== "doc_info" &&
         !branches.includes(key) &&
-        !sameData(changes.after.data[key], snapshot.data[key]),
+        !sameData(changes.after.data[key], snapshot.data[key], {
+          fieldTypes: shape.types,
+          path: key,
+        }),
     );
     return {
       ...(verified.id === undefined ? {} : { id: verified.id }),

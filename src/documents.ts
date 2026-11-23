@@ -215,14 +215,26 @@ function sameKey(stored: unknown, key: string, type: string | undefined): boolea
 export function normalizeXmlLineEndings(value: string): string {
   return value.replace(/\r\n?/g, "\n");
 }
+export interface SameDataOptions {
+  /** Карта типов полей формы: нормализация CRLF/CR → LF применяется только к строковым полям. */
+  readonly fieldTypes?: ReadonlyMap<string, string>;
+  /** Текущий путь в документе (без индексов массивов) для поиска типа в fieldTypes. */
+  readonly path?: string;
+}
+
 /**
  * Глубокое равенство данных без зависимости от порядка ключей объектов.
+ * По умолчанию сравнение строгое; при передаче eol нормализует переводы строк XML только у строковых полей.
  * @internal
  */
-export function sameData(left: unknown, right: unknown): boolean {
+export function sameData(left: unknown, right: unknown, eol?: SameDataOptions): boolean {
   if (left === right) return true;
-  if (typeof left === "string" && typeof right === "string")
+  if (typeof left === "string" && typeof right === "string") {
+    if (!eol) return false;
+    const type = eol.path ? eol.fieldTypes?.get(eol.path) : undefined;
+    if (type !== undefined && type !== "" && type !== "string") return false;
     return normalizeXmlLineEndings(left) === normalizeXmlLineEndings(right);
+  }
   if (left === null || right === null || typeof left !== "object" || typeof right !== "object")
     return false;
   if (Array.isArray(left) || Array.isArray(right))
@@ -230,7 +242,7 @@ export function sameData(left: unknown, right: unknown): boolean {
       Array.isArray(left) &&
       Array.isArray(right) &&
       left.length === right.length &&
-      left.every((item, index) => sameData(item, right[index]))
+      left.every((item, index) => sameData(item, right[index], eol))
     );
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
@@ -239,7 +251,16 @@ export function sameData(left: unknown, right: unknown): boolean {
     leftKeys.every(
       (key) =>
         Object.hasOwn(right, key) &&
-        sameData((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]),
+        sameData(
+          (left as Record<string, unknown>)[key],
+          (right as Record<string, unknown>)[key],
+          eol
+            ? {
+                ...(eol.fieldTypes ? { fieldTypes: eol.fieldTypes } : {}),
+                path: eol.path ? `${eol.path}.${key}` : key,
+              }
+            : undefined,
+        ),
     )
   );
 }
@@ -252,6 +273,8 @@ function sameValue(
   value: unknown,
   replacement: Node[],
   type: string | undefined,
+  fieldTypes?: ReadonlyMap<string, string>,
+  fieldPath?: string,
 ): boolean {
   if (typeof value === "boolean") return stored === String(value) || stored === (value ? "1" : "0");
   if (typeof value === "string" || typeof value === "number") {
@@ -268,7 +291,10 @@ function sameValue(
     replacement.length === 1
       ? withoutFalseOffset(compact(children(replacement[0]!)))
       : replacement.map((node) => withoutFalseOffset(compact(children(node))));
-  return sameData(encoded, stored);
+  return sameData(encoded, stored, {
+    ...(fieldTypes ? { fieldTypes } : {}),
+    ...(fieldPath ? { path: fieldPath } : {}),
+  });
 }
 /** Запись изменения показывает скалярные значения и поля структуры; глубже — называет поля и считает списки. */
 function brief(value: unknown, nested = false): unknown {
@@ -536,7 +562,17 @@ export class XmlDocument {
           // То же значение — не изменение: хранимый текст остаётся, в changes строки нет.
           if (
             stored !== undefined &&
-            sameValue(stored, operation.value, replacement, typeOf(index + 1))
+            sameValue(
+              stored,
+              operation.value,
+              replacement,
+              typeOf(index + 1),
+              types,
+              segments
+                .slice(0, index + 1)
+                .map((part) => part[1])
+                .join("."),
+            )
           )
             continue;
           if (chosen) {
